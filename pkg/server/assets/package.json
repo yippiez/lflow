@@ -4,7 +4,7 @@
   "description": "assets",
   "main": "index.js",
   "scripts": {},
-  "author": "Dnote",
+  "author": "Lflow",
   "license": "Apache-2.0",
   "devDependencies": {
     "sass": "^1.50.1"

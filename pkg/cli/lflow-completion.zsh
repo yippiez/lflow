@@ -1,4 +1,4 @@
-#compdef dnote
+#compdef lflow
 
 local -a _1st_arguments
 
@@ -9,14 +9,14 @@ _1st_arguments=(
   'remove:remove a note or a book'
   'find:find notes by keywords'
   'sync:sync data with the server'
-  'login:login to the dnote server'
-  'logout:logout from the dnote server'
+  'login:login to the lflow server'
+  'logout:logout from the lflow server'
   'version:print the current version'
   'help:get help about any command'
 )
 
 get_booknames() {
-  local names=$(dnote view --name-only)
+  local names=$(lflow view --name-only)
   local -a ret
 
   while read -r line; do
@@ -27,7 +27,7 @@ get_booknames() {
 }
 
 if (( CURRENT == 2 )); then
-  _describe -t commands "dnote subcommand" _1st_arguments
+  _describe -t commands "lflow subcommand" _1st_arguments
   return
 elif (( CURRENT == 3 )); then
   case "$words[2]" in
