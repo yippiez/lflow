@@ -36,10 +36,10 @@ dir=$(dirname "${BASH_SOURCE[0]}")
 projectDir="$dir/../.."
 
 # Copy all Linux tarballs to Docker build context
-cp "$projectDir/build/server/dnote_server_${version}_linux_amd64.tar.gz" "$dir/"
-cp "$projectDir/build/server/dnote_server_${version}_linux_arm64.tar.gz" "$dir/"
-cp "$projectDir/build/server/dnote_server_${version}_linux_arm.tar.gz" "$dir/"
-cp "$projectDir/build/server/dnote_server_${version}_linux_386.tar.gz" "$dir/"
+cp "$projectDir/build/server/lflow_server_${version}_linux_amd64.tar.gz" "$dir/"
+cp "$projectDir/build/server/lflow_server_${version}_linux_arm64.tar.gz" "$dir/"
+cp "$projectDir/build/server/lflow_server_${version}_linux_arm.tar.gz" "$dir/"
+cp "$projectDir/build/server/lflow_server_${version}_linux_386.tar.gz" "$dir/"
 
 # Count platforms (check for comma)
 if [[ "$platform" == *","* ]]; then
@@ -58,8 +58,8 @@ if [[ "$platform" == *","* ]]; then
 
   docker buildx build \
     --platform "$platform" \
-    -t dnote/dnote:"$version" \
-    -t dnote/dnote:latest \
+    -t lflow/lflow:"$version" \
+    -t lflow/lflow:latest \
     --build-arg version="$version" \
     "$dir"
 
@@ -71,8 +71,8 @@ else
 
   docker buildx build \
     --platform "$platform" \
-    -t dnote/dnote:"$version" \
-    -t dnote/dnote:latest \
+    -t lflow/lflow:"$version" \
+    -t lflow/lflow:latest \
     --build-arg version="$version" \
     --load \
     "$dir"
@@ -81,5 +81,5 @@ fi
 echo ""
 echo "Build complete!"
 if [[ "$platform" != *","* ]]; then
-  echo "Test with: docker run --rm dnote/dnote:$version ./dnote-server version"
+  echo "Test with: docker run --rm lflow/lflow:$version ./lflow-server version"
 fi

@@ -1,9 +1,9 @@
 services:
-  dnote:
-    image: dnote/dnote:latest
-    container_name: dnote
+  lflow:
+    image: lflow/lflow:latest
+    container_name: lflow
     ports:
       - 3001:3001
     volumes:
-      - ./dnote_data:/data
+      - ./lflow_data:/data
     restart: unless-stopped

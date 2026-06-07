@@ -18,7 +18,7 @@ cp "$basePath"/pkg/server/assets/static/* "$basePath/pkg/server/static"
 (cd "$basePath/pkg/server/assets/" && "$basePath/pkg/server/assets/js/build.sh" true ) &
 
 # run server
-moduleName="github.com/dnote/dnote"
+moduleName="github.com/lflow/lflow"
 ldflags="-X '$moduleName/pkg/server/buildinfo.CSSFiles=main.css' -X '$moduleName/pkg/server/buildinfo.JSFiles=main.js' -X '$moduleName/pkg/server/buildinfo.Version=dev' -X '$moduleName/pkg/server/buildinfo.Standalone=true'"
 task="go run -ldflags \"$ldflags\" --tags fts5 main.go start -port 3001"
 

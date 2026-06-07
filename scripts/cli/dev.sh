@@ -3,9 +3,9 @@
 set -eux
 
 dir=$(dirname "${BASH_SOURCE[0]}")
-sudo rm -rf "$(which dnote)" "$GOPATH/bin/cli"
+sudo rm -rf "$(which lflow)" "$GOPATH/bin/cli"
 
 # change tags to darwin if on macos
 go install -ldflags "-X main.apiEndpoint=http://127.0.0.1:3001/api" --tags "linux fts5" "$dir/../../pkg/cli"
 
-sudo ln -s "$GOPATH/bin/cli" /usr/local/bin/dnote
+sudo ln -s "$GOPATH/bin/cli" /usr/local/bin/lflow

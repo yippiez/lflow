@@ -9,7 +9,7 @@ RUN test -n "$version" || (echo "version is required" && exit 1)
 WORKDIR /tmp/tarballs
 
 # Copy all architecture tarballs
-COPY dnote_server_*.tar.gz ./
+COPY lflow_server_*.tar.gz ./
 
 # Select and extract the correct tarball based on target platform
 RUN case "$TARGETPLATFORM" in \
@@ -19,20 +19,20 @@ RUN case "$TARGETPLATFORM" in \
       "linux/386") ARCH="386" ;; \
       *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
     esac && \
-    TARBALL="dnote_server_${version}_linux_${ARCH}.tar.gz" && \
+    TARBALL="lflow_server_${version}_linux_${ARCH}.tar.gz" && \
     echo "Extracting $TARBALL for $TARGETPLATFORM" && \
-    mkdir -p /dnote && \
-    tar -xvzf "$TARBALL" -C /dnote
+    mkdir -p /lflow && \
+    tar -xvzf "$TARBALL" -C /lflow
 
-WORKDIR /dnote
+WORKDIR /lflow
 
 # Set default database path for all processes (main server, docker exec, shells)
-ENV DBPath=/data/dnote.db
+ENV DBPath=/data/lflow.db
 
 COPY entrypoint.sh .
 ENTRYPOINT ["./entrypoint.sh"]
 
-CMD ./dnote-server start
+CMD ./lflow-server start
 
 EXPOSE 3001
 

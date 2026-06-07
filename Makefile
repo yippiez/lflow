@@ -4,7 +4,7 @@ GH := $(shell command -v gh 2> /dev/null)
 currentDir = $(shell pwd)
 serverOutputDir = ${currentDir}/build/server
 cliOutputDir = ${currentDir}/build/cli
-cliHomebrewDir = ${currentDir}/../homebrew-dnote
+cliHomebrewDir = ${currentDir}/../homebrew-lflow
 
 ## installation
 install: install-go install-js

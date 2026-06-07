@@ -33,7 +33,7 @@ build() {
   mkdir -p "$destDir"
 
   # build binary
-  moduleName="github.com/dnote/dnote"
+  moduleName="github.com/lflow/lflow"
   ldflags="-X '$moduleName/pkg/server/buildinfo.CSSFiles=main.css' -X '$moduleName/pkg/server/buildinfo.JSFiles=main.js' -X '$moduleName/pkg/server/buildinfo.Version=$version' -X '$moduleName/pkg/server/buildinfo.Standalone=true'"
   tags="fts5"
 
@@ -51,10 +51,10 @@ build() {
 
   popd
 
-  mv "$destDir/server-${platform}"* "$destDir/dnote-server"
+  mv "$destDir/server-${platform}"* "$destDir/lflow-server"
 
   # build tarball
-  tarballName="dnote_server_${version}_${platform}_${arch}.tar.gz"
+  tarballName="lflow_server_${version}_${platform}_${arch}.tar.gz"
   tarballPath="$outputDir/$tarballName"
 
   cp "$projectDir/LICENSE" "$destDir"
@@ -64,7 +64,7 @@ build() {
 
   # calculate checksum
   pushd "$outputDir"
-  shasum -a 256 "$tarballName" >> "$outputDir/dnote_${version}_checksums.txt"
+  shasum -a 256 "$tarballName" >> "$outputDir/lflow_${version}_checksums.txt"
   popd
 
 }

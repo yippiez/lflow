@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build.sh compiles dnote binary for target platforms. It is resonsible for creating
+# build.sh compiles lflow binary for target platforms. It is resonsible for creating
 # distributable files that can be released by a human or a script.
 #
 # It can either cross-compile for different platforms using xgo, or simply target a specific
@@ -42,9 +42,9 @@ get_binary_name() {
   platform=$1
 
   if [ "$platform" == "windows" ]; then
-    echo "dnote.exe"
+    echo "lflow.exe"
   else
-    echo "dnote"
+    echo "lflow"
   fi
 }
 
@@ -95,7 +95,7 @@ build() {
   mv "$destDir/cli-"* "$destDir/$binaryName"
 
   # build tarball
-  tarballName="dnote_${version}_${platform}_${arch}.tar.gz"
+  tarballName="lflow_${version}_${platform}_${arch}.tar.gz"
   tarballPath="$outputDir/$tarballName"
 
   cp "$projectDir/LICENSE" "$destDir"
@@ -105,7 +105,7 @@ build() {
 
   # calculate checksum
   pushd "$outputDir"
-  shasum -a 256 "$tarballName" >> "$outputDir/dnote_${version}_checksums.txt"
+  shasum -a 256 "$tarballName" >> "$outputDir/lflow_${version}_checksums.txt"
   popd
 }
 
