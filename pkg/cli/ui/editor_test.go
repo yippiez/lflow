@@ -34,7 +34,7 @@ func TestGetTmpContentPath(t *testing.T) {
 			t.Fatal(errors.Wrap(err, "executing"))
 		}
 
-		expected := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "DNOTE_TMPCONTENT_0.md")
+		expected := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "LFLOW_TMPCONTENT_0.md")
 		assert.Equal(t, res, expected, "filename did not match")
 	})
 
@@ -42,7 +42,7 @@ func TestGetTmpContentPath(t *testing.T) {
 		// set up
 		ctx := context.InitTestCtx(t)
 
-		p := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "DNOTE_TMPCONTENT_0.md")
+		p := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "LFLOW_TMPCONTENT_0.md")
 		if _, err := os.Create(p); err != nil {
 			t.Fatal(errors.Wrap(err, "preparing the conflicting file"))
 		}
@@ -54,7 +54,7 @@ func TestGetTmpContentPath(t *testing.T) {
 		}
 
 		// test
-		expected := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "DNOTE_TMPCONTENT_1.md")
+		expected := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "LFLOW_TMPCONTENT_1.md")
 		assert.Equal(t, res, expected, "filename did not match")
 	})
 
@@ -62,11 +62,11 @@ func TestGetTmpContentPath(t *testing.T) {
 		// set up
 		ctx := context.InitTestCtx(t)
 
-		p1 := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "DNOTE_TMPCONTENT_0.md")
+		p1 := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "LFLOW_TMPCONTENT_0.md")
 		if _, err := os.Create(p1); err != nil {
 			t.Fatal(errors.Wrap(err, "preparing the conflicting file"))
 		}
-		p2 := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "DNOTE_TMPCONTENT_1.md")
+		p2 := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "LFLOW_TMPCONTENT_1.md")
 		if _, err := os.Create(p2); err != nil {
 			t.Fatal(errors.Wrap(err, "preparing the conflicting file"))
 		}
@@ -78,7 +78,7 @@ func TestGetTmpContentPath(t *testing.T) {
 		}
 
 		// test
-		expected := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "DNOTE_TMPCONTENT_2.md")
+		expected := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "LFLOW_TMPCONTENT_2.md")
 		assert.Equal(t, res, expected, "filename did not match")
 	})
 }
