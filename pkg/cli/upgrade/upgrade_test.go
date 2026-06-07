@@ -23,7 +23,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 	"github.com/google/go-github/github"
 	"github.com/pkg/errors"
 )
@@ -101,7 +101,7 @@ func TestFetchLatestStableTag(t *testing.T) {
 		t.Run(fmt.Sprintf("case %d", idx), func(t *testing.T) {
 			// setup
 			gh, mux := setupGithubClient(t)
-			mux.HandleFunc("/repos/dnote/dnote/releases", func(w http.ResponseWriter, r *http.Request) {
+			mux.HandleFunc("/repos/lflow/lflow/releases", func(w http.ResponseWriter, r *http.Request) {
 				if err := json.NewEncoder(w).Encode(tc.releases); err != nil {
 					t.Fatal(errors.Wrap(err, "responding with mock releases"))
 				}
@@ -127,7 +127,7 @@ func TestFetchLatestStableTag_paginated(t *testing.T) {
 
 	// set up
 	gh, mux := setupGithubClient(t)
-	path := "/repos/dnote/dnote/releases"
+	path := "/repos/lflow/lflow/releases"
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		page := r.FormValue("page")
 

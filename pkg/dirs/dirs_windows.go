@@ -24,7 +24,7 @@ import (
 
 func initDirs() {
 	Home = getHomeDir()
-	ConfigHome = filepath.Join(Home, ".dnote")
-	DataHome = filepath.Join(Home, ".dnote")
-	CacheHome = filepath.Join(Home, ".dnote")
+	ConfigHome = filepath.Join(Home, ".lflow")
+	DataHome = filepath.Join(Home, ".lflow")
+	CacheHome = filepath.Join(Home, ".lflow")
 }

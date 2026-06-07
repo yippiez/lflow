@@ -20,9 +20,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/dnote/dnote/pkg/prompt"
-	"github.com/dnote/dnote/pkg/server/app"
-	"github.com/dnote/dnote/pkg/server/log"
+	"github.com/lflow/lflow/pkg/prompt"
+	"github.com/lflow/lflow/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/log"
 	"github.com/pkg/errors"
 )
 
@@ -40,11 +40,11 @@ func confirm(r io.Reader, question string, optimistic bool) (bool, error) {
 }
 
 func userCreateCmd(args []string) {
-	fs := setupFlagSet("create", "dnote-server user create")
+	fs := setupFlagSet("create", "lflow-server user create")
 
 	email := fs.String("email", "", "User email address (required)")
 	password := fs.String("password", "", "User password (required)")
-	dbPath := fs.String("dbPath", "", "Path to SQLite database file (env: DBPath, default: $XDG_DATA_HOME/dnote/server.db)")
+	dbPath := fs.String("dbPath", "", "Path to SQLite database file (env: DBPath, default: $XDG_DATA_HOME/lflow/server.db)")
 
 	fs.Parse(args)
 
@@ -65,10 +65,10 @@ func userCreateCmd(args []string) {
 }
 
 func userRemoveCmd(args []string, stdin io.Reader) {
-	fs := setupFlagSet("remove", "dnote-server user remove")
+	fs := setupFlagSet("remove", "lflow-server user remove")
 
 	email := fs.String("email", "", "User email address (required)")
-	dbPath := fs.String("dbPath", "", "Path to SQLite database file (env: DBPath, default: $XDG_DATA_HOME/dnote/server.db)")
+	dbPath := fs.String("dbPath", "", "Path to SQLite database file (env: DBPath, default: $XDG_DATA_HOME/lflow/server.db)")
 
 	fs.Parse(args)
 
@@ -116,11 +116,11 @@ func userRemoveCmd(args []string, stdin io.Reader) {
 }
 
 func userResetPasswordCmd(args []string) {
-	fs := setupFlagSet("reset-password", "dnote-server user reset-password")
+	fs := setupFlagSet("reset-password", "lflow-server user reset-password")
 
 	email := fs.String("email", "", "User email address (required)")
 	password := fs.String("password", "", "New password (required)")
-	dbPath := fs.String("dbPath", "", "Path to SQLite database file (env: DBPath, default: $XDG_DATA_HOME/dnote/server.db)")
+	dbPath := fs.String("dbPath", "", "Path to SQLite database file (env: DBPath, default: $XDG_DATA_HOME/lflow/server.db)")
 
 	fs.Parse(args)
 
@@ -152,9 +152,9 @@ func userResetPasswordCmd(args []string) {
 }
 
 func userListCmd(args []string, output io.Writer) {
-	fs := setupFlagSet("list", "dnote-server user list")
+	fs := setupFlagSet("list", "lflow-server user list")
 
-	dbPath := fs.String("dbPath", "", "Path to SQLite database file (env: DBPath, default: $XDG_DATA_HOME/dnote/server.db)")
+	dbPath := fs.String("dbPath", "", "Path to SQLite database file (env: DBPath, default: $XDG_DATA_HOME/lflow/server.db)")
 
 	fs.Parse(args)
 
@@ -175,7 +175,7 @@ func userListCmd(args []string, output io.Writer) {
 func userCmd(args []string) {
 	if len(args) < 1 {
 		fmt.Println(`Usage:
-  dnote-server user [command]
+  lflow-server user [command]
 
 Available commands:
   create: Create a new user

@@ -18,9 +18,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/dnote/dnote/pkg/server/buildinfo"
+	"github.com/lflow/lflow/pkg/server/buildinfo"
 )
 
 func versionCmd() {
-	fmt.Printf("dnote-server-%s\n", buildinfo.Version)
+	fmt.Printf("lflow-server-%s\n", buildinfo.Version)
 }

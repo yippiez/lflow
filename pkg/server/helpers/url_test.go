@@ -19,7 +19,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 )
 
 func TestGetPath(t *testing.T) {

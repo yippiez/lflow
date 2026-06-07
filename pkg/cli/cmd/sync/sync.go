@@ -19,15 +19,15 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/dnote/dnote/pkg/cli/client"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/cli/migrate"
-	"github.com/dnote/dnote/pkg/cli/ui"
-	"github.com/dnote/dnote/pkg/cli/upgrade"
+	"github.com/lflow/lflow/pkg/cli/client"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/migrate"
+	"github.com/lflow/lflow/pkg/cli/ui"
+	"github.com/lflow/lflow/pkg/cli/upgrade"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +38,7 @@ const (
 )
 
 var example = `
-  dnote sync`
+  lflow sync`
 
 var isFullSync bool
 var apiEndpointFlag string

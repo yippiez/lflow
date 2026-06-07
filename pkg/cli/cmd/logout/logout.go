@@ -18,12 +18,12 @@ package logout
 import (
 	"database/sql"
 
-	"github.com/dnote/dnote/pkg/cli/client"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/client"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/log"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -32,7 +32,7 @@ import (
 var ErrNotLoggedIn = errors.New("not logged in")
 
 var example = `
-  dnote logout`
+  lflow logout`
 
 var apiEndpointFlag string
 

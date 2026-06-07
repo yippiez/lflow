@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -35,7 +35,7 @@ var testServerBinary string
 func init() {
 	// Build server binary in temp directory
 	tmpDir := os.TempDir()
-	testServerBinary = fmt.Sprintf("%s/dnote-test-server", tmpDir)
+	testServerBinary = fmt.Sprintf("%s/lflow-test-server", tmpDir)
 	buildCmd := exec.Command("go", "build", "-tags", "fts5", "-o", testServerBinary, "../server")
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		panic(fmt.Sprintf("failed to build server: %v\n%s", err, out))
@@ -114,8 +114,8 @@ func TestServerVersion(t *testing.T) {
 	}
 
 	outputStr := string(output)
-	if !strings.Contains(outputStr, "dnote-server-") {
-		t.Errorf("expected version output to contain 'dnote-server-', got: %s", outputStr)
+	if !strings.Contains(outputStr, "lflow-server-") {
+		t.Errorf("expected version output to contain 'lflow-server-', got: %s", outputStr)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestServerStartHelp(t *testing.T) {
 	output, _ := cmd.CombinedOutput()
 
 	outputStr := string(output)
-	assert.Equal(t, strings.Contains(outputStr, "dnote-server start [flags]"), true, "output should contain usage")
+	assert.Equal(t, strings.Contains(outputStr, "lflow-server start [flags]"), true, "output should contain usage")
 	assert.Equal(t, strings.Contains(outputStr, "--port"), true, "output should contain port flag")
 	assert.Equal(t, strings.Contains(outputStr, "--baseUrl"), true, "output should contain baseUrl flag")
 	assert.Equal(t, strings.Contains(outputStr, "--dbPath"), true, "output should contain dbPath flag")
@@ -159,7 +159,7 @@ func TestServerStartInvalidConfig(t *testing.T) {
 	outputStr := string(output)
 	assert.Equal(t, strings.Contains(outputStr, "Error:"), true, "output should contain error message")
 	assert.Equal(t, strings.Contains(outputStr, "Invalid BaseURL"), true, "output should mention invalid BaseURL")
-	assert.Equal(t, strings.Contains(outputStr, "dnote-server start [flags]"), true, "output should show usage")
+	assert.Equal(t, strings.Contains(outputStr, "lflow-server start [flags]"), true, "output should show usage")
 	assert.Equal(t, strings.Contains(outputStr, "--baseUrl"), true, "output should show flags")
 }
 

@@ -27,15 +27,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	cliDatabase "github.com/dnote/dnote/pkg/cli/database"
-	clitest "github.com/dnote/dnote/pkg/cli/testutils"
-	"github.com/dnote/dnote/pkg/clock"
-	"github.com/dnote/dnote/pkg/server/app"
-	"github.com/dnote/dnote/pkg/server/controllers"
-	"github.com/dnote/dnote/pkg/server/database"
-	apitest "github.com/dnote/dnote/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	cliDatabase "github.com/lflow/lflow/pkg/cli/database"
+	clitest "github.com/lflow/lflow/pkg/cli/testutils"
+	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/controllers"
+	"github.com/lflow/lflow/pkg/server/database"
+	apitest "github.com/lflow/lflow/pkg/server/testutils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -53,14 +53,14 @@ type testEnv struct {
 func setupTestEnv(t *testing.T) testEnv {
 	tmpDir := t.TempDir()
 
-	// Create .dnote directory
-	dnoteDir := filepath.Join(tmpDir, consts.DnoteDirName)
+	// Create lflow directory
+	dnoteDir := filepath.Join(tmpDir, consts.LflowDirName)
 	if err := os.MkdirAll(dnoteDir, 0755); err != nil {
-		t.Fatal(errors.Wrap(err, "creating dnote directory"))
+		t.Fatal(errors.Wrap(err, "creating lflow directory"))
 	}
 
 	// Create database at the expected path
-	dbPath := filepath.Join(dnoteDir, consts.DnoteDBFileName)
+	dbPath := filepath.Join(dnoteDir, consts.LflowDBFileName)
 	db := cliDatabase.InitTestFileDBRaw(t, dbPath)
 
 	// Create server
@@ -122,7 +122,7 @@ func setupNewServer(t *testing.T) (*httptest.Server, *gorm.DB) {
 
 // updateConfigAPIEndpoint updates the config file with the given API endpoint
 func updateConfigAPIEndpoint(t *testing.T, tmpDir string, apiEndpoint string) {
-	dnoteDir := filepath.Join(tmpDir, consts.DnoteDirName)
+	dnoteDir := filepath.Join(tmpDir, consts.LflowDirName)
 	configPath := filepath.Join(dnoteDir, consts.ConfigFilename)
 	configContent := fmt.Sprintf("apiEndpoint: %s\n", apiEndpoint)
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {

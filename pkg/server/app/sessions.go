@@ -18,8 +18,8 @@ package app
 import (
 	"time"
 
-	"github.com/dnote/dnote/pkg/server/crypt"
-	"github.com/dnote/dnote/pkg/server/database"
+	"github.com/lflow/lflow/pkg/server/crypt"
+	"github.com/lflow/lflow/pkg/server/database"
 	"gorm.io/gorm"
 	"github.com/pkg/errors"
 )

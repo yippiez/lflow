@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 )
 
 func TestValidateBookName(t *testing.T) {

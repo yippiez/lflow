@@ -16,7 +16,7 @@
 package session
 
 import (
-	"github.com/dnote/dnote/pkg/server/database"
+	"github.com/lflow/lflow/pkg/server/database"
 )
 
 // Session represents user session

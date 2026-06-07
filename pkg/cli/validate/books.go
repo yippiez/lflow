@@ -18,7 +18,7 @@ package validate
 import (
 	"strings"
 
-	"github.com/dnote/dnote/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
 )
 

@@ -18,22 +18,22 @@ package view
 import (
 	"os"
 
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
 var example = `
  * View all books
- dnote view
+ lflow view
 
  * List notes in a book
- dnote view javascript
+ lflow view javascript
 
  * View a particular note in a book
- dnote view javascript 0
+ lflow view javascript 0
  `
 
 var nameOnly bool

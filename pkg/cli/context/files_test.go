@@ -20,28 +20,28 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/consts"
 )
 
 func assertDirsExist(t *testing.T, paths Paths) {
-	configDir := filepath.Join(paths.Config, consts.DnoteDirName)
+	configDir := filepath.Join(paths.Config, consts.LflowDirName)
 	info, err := os.Stat(configDir)
 	assert.Equal(t, err, nil, "config dir should exist")
 	assert.Equal(t, info.IsDir(), true, "config should be a directory")
 
-	dataDir := filepath.Join(paths.Data, consts.DnoteDirName)
+	dataDir := filepath.Join(paths.Data, consts.LflowDirName)
 	info, err = os.Stat(dataDir)
 	assert.Equal(t, err, nil, "data dir should exist")
 	assert.Equal(t, info.IsDir(), true, "data should be a directory")
 
-	cacheDir := filepath.Join(paths.Cache, consts.DnoteDirName)
+	cacheDir := filepath.Join(paths.Cache, consts.LflowDirName)
 	info, err = os.Stat(cacheDir)
 	assert.Equal(t, err, nil, "cache dir should exist")
 	assert.Equal(t, info.IsDir(), true, "cache should be a directory")
 }
 
-func TestInitDnoteDirs(t *testing.T) {
+func TestInitLflowDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	paths := Paths{
@@ -51,12 +51,12 @@ func TestInitDnoteDirs(t *testing.T) {
 	}
 
 	// Initialize directories
-	err := InitDnoteDirs(paths)
-	assert.Equal(t, err, nil, "InitDnoteDirs should succeed")
+	err := InitLflowDirs(paths)
+	assert.Equal(t, err, nil, "InitLflowDirs should succeed")
 	assertDirsExist(t, paths)
 
 	// Call again - should be idempotent
-	err = InitDnoteDirs(paths)
-	assert.Equal(t, err, nil, "InitDnoteDirs should succeed when dirs already exist")
+	err = InitLflowDirs(paths)
+	assert.Equal(t, err, nil, "InitLflowDirs should succeed when dirs already exist")
 	assertDirsExist(t, paths)
 }

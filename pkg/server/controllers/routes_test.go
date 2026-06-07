@@ -19,10 +19,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/clock"
-	"github.com/dnote/dnote/pkg/server/app"
-	"github.com/dnote/dnote/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/testutils"
 )
 
 func TestNotSupportedVersions(t *testing.T) {

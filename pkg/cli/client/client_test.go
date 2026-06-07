@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/testutils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/testutils"
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
 )

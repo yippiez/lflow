@@ -16,9 +16,9 @@
 package operations
 
 import (
-	"github.com/dnote/dnote/pkg/server/database"
-	"github.com/dnote/dnote/pkg/server/helpers"
-	"github.com/dnote/dnote/pkg/server/permissions"
+	"github.com/lflow/lflow/pkg/server/database"
+	"github.com/lflow/lflow/pkg/server/helpers"
+	"github.com/lflow/lflow/pkg/server/permissions"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )

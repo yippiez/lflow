@@ -19,7 +19,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/pkg/errors"
 )
 

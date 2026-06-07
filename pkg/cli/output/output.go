@@ -22,8 +22,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/log"
 )
 
 // NoteInfo prints a note information

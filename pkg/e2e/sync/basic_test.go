@@ -20,12 +20,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	cliDatabase "github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/testutils"
-	clitest "github.com/dnote/dnote/pkg/cli/testutils"
-	"github.com/dnote/dnote/pkg/server/database"
-	apitest "github.com/dnote/dnote/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/assert"
+	cliDatabase "github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/testutils"
+	clitest "github.com/lflow/lflow/pkg/cli/testutils"
+	"github.com/lflow/lflow/pkg/server/database"
+	apitest "github.com/lflow/lflow/pkg/server/testutils"
 )
 
 func TestSync_Empty(t *testing.T) {

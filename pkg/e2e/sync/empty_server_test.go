@@ -24,12 +24,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	cliDatabase "github.com/dnote/dnote/pkg/cli/database"
-	clitest "github.com/dnote/dnote/pkg/cli/testutils"
-	"github.com/dnote/dnote/pkg/server/database"
-	apitest "github.com/dnote/dnote/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	cliDatabase "github.com/lflow/lflow/pkg/cli/database"
+	clitest "github.com/lflow/lflow/pkg/cli/testutils"
+	"github.com/lflow/lflow/pkg/server/database"
+	apitest "github.com/lflow/lflow/pkg/server/testutils"
 	"github.com/pkg/errors"
 )
 

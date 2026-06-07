@@ -20,9 +20,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
 )
 
 func TestViewNote(t *testing.T) {

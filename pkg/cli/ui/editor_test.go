@@ -20,8 +20,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/pkg/errors"
 )
 

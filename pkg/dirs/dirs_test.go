@@ -18,7 +18,7 @@ package dirs
 import (
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 )
 
 type envTestCase struct {

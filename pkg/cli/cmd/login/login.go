@@ -20,19 +20,19 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/dnote/dnote/pkg/cli/client"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/cli/ui"
+	"github.com/lflow/lflow/pkg/cli/client"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/ui"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
 var example = `
-  dnote login`
+  lflow login`
 
 var usernameFlag, passwordFlag, apiEndpointFlag string
 
@@ -40,7 +40,7 @@ var usernameFlag, passwordFlag, apiEndpointFlag string
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "login",
-		Short:   "Login to dnote server",
+		Short:   "Login to lflow server",
 		Example: example,
 		RunE:    newRun(ctx),
 	}

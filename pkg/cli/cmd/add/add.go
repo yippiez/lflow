@@ -20,15 +20,15 @@ import (
 	"time"
 	"os"
 
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/cli/output"
-	"github.com/dnote/dnote/pkg/cli/ui"
-	"github.com/dnote/dnote/pkg/cli/upgrade"
-	"github.com/dnote/dnote/pkg/cli/utils"
-	"github.com/dnote/dnote/pkg/cli/validate"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/output"
+	"github.com/lflow/lflow/pkg/cli/ui"
+	"github.com/lflow/lflow/pkg/cli/upgrade"
+	"github.com/lflow/lflow/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/cli/validate"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -37,15 +37,15 @@ var contentFlag string
 
 var example = `
  * Open an editor to write content
- dnote add git
+ lflow add git
 
  * Skip the editor by providing content directly
- dnote add git -c "time is a part of the commit hash"
+ lflow add git -c "time is a part of the commit hash"
 
  * Send stdin content to a note
- echo "a branch is just a pointer to a commit" | dnote add git
+ echo "a branch is just a pointer to a commit" | lflow add git
  # or
- dnote add git << EOF
+ lflow add git << EOF
  pull is fetch with a merge
  EOF`
 

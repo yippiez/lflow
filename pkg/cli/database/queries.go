@@ -18,7 +18,7 @@ package database
 import (
 	"database/sql"
 
-	"github.com/dnote/dnote/pkg/clock"
+	"github.com/lflow/lflow/pkg/clock"
 	"github.com/pkg/errors"
 )
 

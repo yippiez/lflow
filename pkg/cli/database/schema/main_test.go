@@ -22,8 +22,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/consts"
 )
 
 func TestRun(t *testing.T) {

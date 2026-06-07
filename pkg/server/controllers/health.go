@@ -18,7 +18,7 @@ package controllers
 import (
 	"net/http"
 
-	"github.com/dnote/dnote/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/app"
 )
 
 // NewHealth creates a new Health controller.

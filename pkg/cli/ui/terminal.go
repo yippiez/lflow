@@ -22,8 +22,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/prompt"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/prompt"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh/terminal"
 )

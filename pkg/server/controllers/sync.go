@@ -23,13 +23,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dnote/dnote/pkg/server/context"
-	"github.com/dnote/dnote/pkg/server/database"
-	"github.com/dnote/dnote/pkg/server/log"
-	"github.com/dnote/dnote/pkg/server/middleware"
+	"github.com/lflow/lflow/pkg/server/context"
+	"github.com/lflow/lflow/pkg/server/database"
+	"github.com/lflow/lflow/pkg/server/log"
+	"github.com/lflow/lflow/pkg/server/middleware"
 	"github.com/pkg/errors"
 
-	"github.com/dnote/dnote/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/app"
 )
 
 // NewSync creates a new Sync controller

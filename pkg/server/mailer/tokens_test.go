@@ -18,8 +18,8 @@ package mailer
 import (
 	"testing"
 
-	"github.com/dnote/dnote/pkg/server/database"
-	"github.com/dnote/dnote/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/server/database"
+	"github.com/lflow/lflow/pkg/server/testutils"
 )
 
 func TestGetToken(t *testing.T) {

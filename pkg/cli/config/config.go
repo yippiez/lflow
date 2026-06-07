@@ -19,15 +19,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 )
 
-// Config holds dnote configuration
+// Config holds lflow configuration
 type Config struct {
 	Editor             string `yaml:"editor"`
 	APIEndpoint        string `yaml:"apiEndpoint"`
@@ -48,14 +48,14 @@ func checkLegacyPath(ctx context.DnoteCtx) (string, bool) {
 	return "", false
 }
 
-// GetPath returns the path to the dnote config file
+// GetPath returns the path to the lflow config file
 func GetPath(ctx context.DnoteCtx) string {
 	legacyPath, ok := checkLegacyPath(ctx)
 	if ok {
 		return legacyPath
 	}
 
-	return fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.DnoteDirName, consts.ConfigFilename)
+	return fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.LflowDirName, consts.ConfigFilename)
 }
 
 // Read reads the config file

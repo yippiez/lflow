@@ -16,8 +16,8 @@
 package app
 
 import (
-	"github.com/dnote/dnote/pkg/server/database"
-	"github.com/dnote/dnote/pkg/server/helpers"
+	"github.com/lflow/lflow/pkg/server/database"
+	"github.com/lflow/lflow/pkg/server/helpers"
 	"gorm.io/gorm"
 	"github.com/pkg/errors"
 )

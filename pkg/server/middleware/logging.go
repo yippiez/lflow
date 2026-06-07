@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dnote/dnote/pkg/server/log"
+	"github.com/lflow/lflow/pkg/server/log"
 )
 
 // logResponseWriter wraps http.ResponseWriter to expose HTTP status code for logging.

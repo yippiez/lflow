@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/context"
 )
 
 func TestGetServerDisplayURL(t *testing.T) {
@@ -29,16 +29,16 @@ func TestGetServerDisplayURL(t *testing.T) {
 		expected    string
 	}{
 		{
-			apiEndpoint: "https://dnote.mydomain.com/api",
-			expected:    "https://dnote.mydomain.com",
+			apiEndpoint: "https://lflow.mydomain.com/api",
+			expected:    "https://lflow.mydomain.com",
 		},
 		{
-			apiEndpoint: "https://mysubdomain.mydomain.com/dnote/api",
+			apiEndpoint: "https://mysubdomain.mydomain.com/lflow/api",
 			expected:    "https://mysubdomain.mydomain.com",
 		},
 		{
-			apiEndpoint: "https://dnote.mysubdomain.mydomain.com/api",
-			expected:    "https://dnote.mysubdomain.mydomain.com",
+			apiEndpoint: "https://lflow.mysubdomain.mydomain.com/api",
+			expected:    "https://lflow.mysubdomain.mydomain.com",
 		},
 		{
 			apiEndpoint: "some-string",

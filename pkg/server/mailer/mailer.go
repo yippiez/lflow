@@ -22,7 +22,7 @@ import (
 	"io"
 	ttemplate "text/template"
 
-	"github.com/dnote/dnote/pkg/server/mailer/templates"
+	"github.com/lflow/lflow/pkg/server/mailer/templates"
 	"github.com/pkg/errors"
 )
 

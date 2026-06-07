@@ -23,15 +23,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/testutils"
-	"github.com/dnote/dnote/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/testutils"
+	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
 )
 
-var binaryName = "test-dnote"
+var binaryName = "test-lflow"
 
 // setupTestEnv creates a unique test directory for parallel test execution
 func setupTestEnv(t *testing.T) (string, testutils.RunDnoteCmdOptions) {
@@ -67,15 +67,15 @@ func TestInit(t *testing.T) {
 	// Test
 	ok, err := utils.FileExists(testDir)
 	if err != nil {
-		t.Fatal(errors.Wrap(err, "checking if dnote dir exists"))
+		t.Fatal(errors.Wrap(err, "checking if lflow dir exists"))
 	}
 	if !ok {
-		t.Errorf("dnote directory was not initialized")
+		t.Errorf("lflow directory was not initialized")
 	}
 
-	ok, err = utils.FileExists(fmt.Sprintf("%s/%s/%s", testDir, consts.DnoteDirName, consts.ConfigFilename))
+	ok, err = utils.FileExists(fmt.Sprintf("%s/%s/%s", testDir, consts.LflowDirName, consts.ConfigFilename))
 	if err != nil {
-		t.Fatal(errors.Wrap(err, "checking if dnote config exists"))
+		t.Fatal(errors.Wrap(err, "checking if lflow config exists"))
 	}
 	if !ok {
 		t.Errorf("config file was not initialized")

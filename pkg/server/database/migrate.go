@@ -21,8 +21,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dnote/dnote/pkg/server/database/migrations"
-	"github.com/dnote/dnote/pkg/server/log"
+	"github.com/lflow/lflow/pkg/server/database/migrations"
+	"github.com/lflow/lflow/pkg/server/log"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )

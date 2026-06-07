@@ -16,7 +16,7 @@
 package main
 
 import (
-	"github.com/dnote/dnote/pkg/server/cmd"
+	"github.com/lflow/lflow/pkg/server/cmd"
 )
 
 func main() {

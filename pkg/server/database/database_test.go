@@ -18,8 +18,8 @@ package database
 import (
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/server/log"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/server/log"
 	"gorm.io/gorm/logger"
 )
 

@@ -24,11 +24,11 @@ func rootCmd() {
 	fmt.Printf(`Dnote server - a simple command line notebook
 
 Usage:
-  dnote-server [command] [flags]
+  lflow-server [command] [flags]
 
 Available commands:
-  start: Start the server (use 'dnote-server start --help' for flags)
-  user: Manage users (use 'dnote-server user' for subcommands)
+  start: Start the server (use 'lflow-server start --help' for flags)
+  user: Manage users (use 'lflow-server user' for subcommands)
   version: Print the version
 `)
 }

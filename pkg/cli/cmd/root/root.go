@@ -22,8 +22,8 @@ import (
 var dbPathFlag string
 
 var root = &cobra.Command{
-	Use:           "dnote",
-	Short:         "Dnote - a simple command line notebook",
+	Use:           "lflow",
+	Short:         "Lflow - a simple command line notebook",
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	CompletionOptions: cobra.CompletionOptions{

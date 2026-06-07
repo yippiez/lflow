@@ -21,10 +21,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/cli/ui"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/ui"
 	"github.com/google/go-github/github"
 	"github.com/pkg/errors"
 )
@@ -63,7 +63,7 @@ func fetchLatestStableTag(gh *github.Client, page int) (string, error) {
 	params := github.ListOptions{
 		Page: page,
 	}
-	releases, resp, err := gh.Repositories.ListReleases(stdCtx.Background(), "dnote", "dnote", &params)
+	releases, resp, err := gh.Repositories.ListReleases(stdCtx.Background(), "lflow", "lflow", &params)
 	if err != nil {
 		return "", errors.Wrapf(err, "fetching releases page %d", page)
 	}
@@ -101,7 +101,7 @@ func checkVersion(ctx context.DnoteCtx) error {
 	if latestVersion == ctx.Version {
 		log.Success("you are up-to-date\n\n")
 	} else {
-		log.Infof("to upgrade, see https://github.com/dnote/dnote\n")
+		log.Infof("to upgrade, see https://github.com/lflow/lflow\n")
 	}
 
 	return nil
@@ -116,7 +116,7 @@ func Check(ctx context.DnoteCtx) error {
 
 	shouldCheck, err := shouldCheckUpdate(ctx)
 	if err != nil {
-		return errors.Wrap(err, "checking if dnote should check update")
+		return errors.Wrap(err, "checking if lflow should check update")
 	}
 	if !shouldCheck {
 		return nil

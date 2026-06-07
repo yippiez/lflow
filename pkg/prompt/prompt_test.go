@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 )
 
 func TestFormatQuestion(t *testing.T) {

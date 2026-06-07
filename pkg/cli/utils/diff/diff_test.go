@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -113,7 +113,7 @@ func TestDo(t *testing.T) {
 			},
 		},
 		{
-			s1: "foo bar\nhello dnote\nbaz quz",
+			s1: "foo bar\nhello lflow\nbaz quz",
 			s2: "foo bar\nhello foo\nbaz quz",
 			expected: []diffmatchpatch.Diff{
 				{
@@ -122,7 +122,7 @@ func TestDo(t *testing.T) {
 				},
 				{
 					Type: DiffDelete,
-					Text: "hello dnote\n",
+					Text: "hello lflow\n",
 				},
 				{
 					Type: DiffInsert,

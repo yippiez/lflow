@@ -23,11 +23,11 @@ import (
 	"strings"
 
 	"github.com/dnote/actions"
-	"github.com/dnote/dnote/pkg/cli/client"
-	"github.com/dnote/dnote/pkg/cli/config"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/client"
+	"github.com/lflow/lflow/pkg/cli/config"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/log"
 	"github.com/pkg/errors"
 )
 
@@ -538,7 +538,7 @@ var lm12 = migration{
 
 		// Only set if not already configured
 		if cf.APIEndpoint == "" {
-			cf.APIEndpoint = "https://api.getdnote.com"
+			cf.APIEndpoint = "https://api.lflow.app"
 		}
 
 		err = config.Write(ctx, cf)

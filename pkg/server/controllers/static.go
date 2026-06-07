@@ -19,8 +19,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dnote/dnote/pkg/server/app"
-	"github.com/dnote/dnote/pkg/server/views"
+	"github.com/lflow/lflow/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/views"
 )
 
 // NewStatic creates a new Static controller.

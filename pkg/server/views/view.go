@@ -22,11 +22,11 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/dnote/dnote/pkg/clock"
-	"github.com/dnote/dnote/pkg/server/app"
-	"github.com/dnote/dnote/pkg/server/buildinfo"
-	"github.com/dnote/dnote/pkg/server/context"
-	"github.com/dnote/dnote/pkg/server/log"
+	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/buildinfo"
+	"github.com/lflow/lflow/pkg/server/context"
+	"github.com/lflow/lflow/pkg/server/log"
 	"github.com/gorilla/csrf"
 )
 
@@ -36,7 +36,7 @@ const (
 )
 
 const (
-	siteTitle = "Dnote"
+	siteTitle = "Lflow"
 )
 
 // Config is a view config

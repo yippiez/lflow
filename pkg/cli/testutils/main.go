@@ -27,11 +27,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
 )
 
@@ -66,7 +66,7 @@ func RemoveDir(t *testing.T, dir string) {
 	}
 }
 
-// CopyFixture writes the content of the given fixture to the filename inside the dnote dir
+// CopyFixture writes the content of the given fixture to the filename inside the lflow dir
 func CopyFixture(t *testing.T, ctx context.DnoteCtx, fixturePath string, filename string) {
 	fp, err := filepath.Abs(fixturePath)
 	if err != nil {
@@ -75,7 +75,7 @@ func CopyFixture(t *testing.T, ctx context.DnoteCtx, fixturePath string, filenam
 
 	dp, err := filepath.Abs(filepath.Join(ctx.Paths.LegacyDnote, filename))
 	if err != nil {
-		t.Fatal(errors.Wrap(err, "getting the absolute path dnote dir"))
+		t.Fatal(errors.Wrap(err, "getting the absolute path lflow dir"))
 	}
 
 	err = utils.CopyFile(fp, dp)
@@ -84,7 +84,7 @@ func CopyFixture(t *testing.T, ctx context.DnoteCtx, fixturePath string, filenam
 	}
 }
 
-// WriteFile writes a file with the given content and  filename inside the dnote dir
+// WriteFile writes a file with the given content and  filename inside the lflow dir
 func WriteFile(ctx context.DnoteCtx, content []byte, filename string) {
 	dp, err := filepath.Abs(filepath.Join(ctx.Paths.LegacyDnote, filename))
 	if err != nil {
@@ -96,7 +96,7 @@ func WriteFile(ctx context.DnoteCtx, content []byte, filename string) {
 	}
 }
 
-// ReadFile reads the content of the file with the given name in dnote dir
+// ReadFile reads the content of the file with the given name in lflow dir
 func ReadFile(ctx context.DnoteCtx, filename string) []byte {
 	path := filepath.Join(ctx.Paths.LegacyDnote, filename)
 
@@ -143,7 +143,7 @@ type RunDnoteCmdOptions struct {
 	Env []string
 }
 
-// RunDnoteCmd runs a dnote command
+// RunLflowCmd runs a lflow command
 func RunDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, binaryName string, arg ...string) string {
 	t.Logf("running: %s %s", binaryName, strings.Join(arg, " "))
 
@@ -166,7 +166,7 @@ func RunDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, binaryName string, arg .
 	return stdout.String()
 }
 
-// WaitDnoteCmd runs a dnote command and passes stdout to the callback.
+// WaitLflowCmd runs a lflow command and passes stdout to the callback.
 func WaitDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, runFunc func(io.Reader, io.WriteCloser) error, binaryName string, arg ...string) (string, error) {
 	t.Logf("running: %s %s", binaryName, strings.Join(arg, " "))
 

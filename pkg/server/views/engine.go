@@ -20,7 +20,7 @@ import (
 	"html/template"
 	"io/fs"
 
-	"github.com/dnote/dnote/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/pkg/errors"
 )
 

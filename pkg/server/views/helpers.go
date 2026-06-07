@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dnote/dnote/pkg/server/app"
-	"github.com/dnote/dnote/pkg/server/buildinfo"
+	"github.com/lflow/lflow/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/buildinfo"
 	"github.com/pkg/errors"
 	"html/template"
 )

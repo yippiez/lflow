@@ -20,10 +20,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dnote/dnote/pkg/cli/client"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/utils"
-	"github.com/dnote/dnote/pkg/cli/utils/diff"
+	"github.com/lflow/lflow/pkg/cli/client"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/cli/utils/diff"
 	"github.com/pkg/errors"
 )
 

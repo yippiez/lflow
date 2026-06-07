@@ -22,16 +22,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dnote/dnote/pkg/cli/config"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/migrate"
+	"github.com/lflow/lflow/pkg/cli/config"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/migrate"
 )
 
 func main() {
-	tmpDir, err := os.MkdirTemp("", "dnote-schema-gen-*")
+	tmpDir, err := os.MkdirTemp("", "lflow-schema-gen-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -62,10 +62,10 @@ func run(tmpDir, outputPath string) error {
 
 // generateSchema creates a fresh database, runs all migrations, and extracts the schema
 func generateSchema(tmpDir string) (string, error) {
-	// Create dnote directory structure in temp dir
-	dnoteDir := filepath.Join(tmpDir, "dnote")
+	// Create lflow directory structure in temp dir
+	dnoteDir := filepath.Join(tmpDir, "lflow")
 	if err := os.MkdirAll(dnoteDir, 0755); err != nil {
-		return "", fmt.Errorf("creating dnote dir: %w", err)
+		return "", fmt.Errorf("creating lflow dir: %w", err)
 	}
 
 	// Use a file-based database

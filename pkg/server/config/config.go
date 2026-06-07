@@ -20,14 +20,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dnote/dnote/pkg/dirs"
-	"github.com/dnote/dnote/pkg/server/assets"
+	"github.com/lflow/lflow/pkg/dirs"
+	"github.com/lflow/lflow/pkg/server/assets"
 	"github.com/pkg/errors"
 )
 
 const (
-	// DefaultDBDir is the default directory name for Dnote data
-	DefaultDBDir = "dnote"
+	// DefaultDBDir is the default directory name for Lflow data
+	DefaultDBDir = "lflow"
 	// DefaultDBFilename is the default database filename
 	DefaultDBFilename = "server.db"
 )

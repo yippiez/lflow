@@ -21,10 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/clock"
-	"github.com/dnote/dnote/pkg/server/database"
-	"github.com/dnote/dnote/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/server/database"
+	"github.com/lflow/lflow/pkg/server/testutils"
 	"github.com/pkg/errors"
 )
 

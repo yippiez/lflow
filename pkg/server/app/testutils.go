@@ -16,9 +16,9 @@
 package app
 
 import (
-	"github.com/dnote/dnote/pkg/clock"
-	"github.com/dnote/dnote/pkg/server/assets"
-	"github.com/dnote/dnote/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/server/assets"
+	"github.com/lflow/lflow/pkg/server/testutils"
 )
 
 // NewTest returns an app for a testing environment

@@ -20,11 +20,11 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/cli/output"
-	"github.com/dnote/dnote/pkg/cli/ui"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/output"
+	"github.com/lflow/lflow/pkg/cli/ui"
 	"github.com/pkg/errors"
 )
 

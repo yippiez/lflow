@@ -27,11 +27,11 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/dnote/actions"
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/testutils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/testutils"
 	"github.com/pkg/errors"
 )
 
@@ -1025,7 +1025,7 @@ func TestLocalMigration12(t *testing.T) {
 	ctx := context.InitTestCtxWithDB(t, db)
 
 	data := []byte("editor: vim")
-	path := fmt.Sprintf("%s/%s/dnoterc", ctx.Paths.Config, consts.DnoteDirName)
+	path := fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.LflowDirName, consts.ConfigFilename)
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatal(errors.Wrap(err, "Failed to write schema file"))
 	}
@@ -1062,7 +1062,7 @@ func TestLocalMigration13(t *testing.T) {
 
 	data := []byte("editor: vim\napiEndpoint: https://test.com/api")
 
-	path := fmt.Sprintf("%s/%s/dnoterc", ctx.Paths.Config, consts.DnoteDirName)
+	path := fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.LflowDirName, consts.ConfigFilename)
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatal(errors.Wrap(err, "Failed to write schema file"))
 	}

@@ -24,16 +24,16 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dnote/dnote/pkg/cli/client"
-	"github.com/dnote/dnote/pkg/cli/config"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/cli/migrate"
-	"github.com/dnote/dnote/pkg/cli/utils"
-	"github.com/dnote/dnote/pkg/clock"
-	"github.com/dnote/dnote/pkg/dirs"
+	"github.com/lflow/lflow/pkg/cli/client"
+	"github.com/lflow/lflow/pkg/cli/config"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/migrate"
+	"github.com/lflow/lflow/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/dirs"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -43,7 +43,7 @@ const (
 	DefaultAPIEndpoint = "http://localhost:3001/api"
 )
 
-// RunEFunc is a function type of dnote commands
+// RunEFunc is a function type of lflow commands
 type RunEFunc func(*cobra.Command, []string) error
 
 func checkLegacyDBPath() (string, bool) {
@@ -68,10 +68,10 @@ func getDBPath(paths context.Paths, customPath string) string {
 
 	legacyDnoteDir, ok := checkLegacyDBPath()
 	if ok {
-		return fmt.Sprintf("%s/%s", legacyDnoteDir, consts.DnoteDBFileName)
+		return fmt.Sprintf("%s/%s", legacyDnoteDir, consts.LflowDBFileName)
 	}
 
-	return fmt.Sprintf("%s/%s/%s", paths.Data, consts.DnoteDirName, consts.DnoteDBFileName)
+	return fmt.Sprintf("%s/%s/%s", paths.Data, consts.LflowDirName, consts.LflowDBFileName)
 }
 
 // newBaseCtx creates a minimal context with paths and database connection.
@@ -103,7 +103,7 @@ func newBaseCtx(versionTag, customDBPath string) (context.DnoteCtx, error) {
 	return ctx, nil
 }
 
-// Init initializes the Dnote environment and returns a new dnote context
+// Init initializes the Lflow environment and returns a new lflow context
 // apiEndpoint is used when creating a new config file (e.g., from ldflags during tests)
 func Init(versionTag, apiEndpoint, dbPath string) (*context.DnoteCtx, error) {
 	ctx, err := newBaseCtx(versionTag, dbPath)
@@ -358,10 +358,10 @@ func initConfigFile(ctx context.DnoteCtx, apiEndpoint string) error {
 	return nil
 }
 
-// initFiles creates, if necessary, the dnote directory and files inside
+// initFiles creates, if necessary, the lflow directory and files inside
 func initFiles(ctx context.DnoteCtx, apiEndpoint string) error {
-	if err := context.InitDnoteDirs(ctx.Paths); err != nil {
-		return errors.Wrap(err, "creating the dnote dir")
+	if err := context.InitLflowDirs(ctx.Paths); err != nil {
+		return errors.Wrap(err, "creating the lflow dir")
 	}
 	if err := initConfigFile(ctx, apiEndpoint); err != nil {
 		return errors.Wrap(err, "generating the config file")

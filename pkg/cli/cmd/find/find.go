@@ -20,22 +20,22 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/log"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
 var example = `
 	# find notes by a keyword
-	dnote find rpoplpush
+	lflow find rpoplpush
 
 	# find notes by multiple keywords
-	dnote find "building a heap"
+	lflow find "building a heap"
 
 	# find notes within a book
-	dnote find "merge sort" -b algorithm
+	lflow find "merge sort" -b algorithm
 	`
 
 var bookName string

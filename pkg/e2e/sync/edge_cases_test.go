@@ -19,10 +19,10 @@ import (
 	"io"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/consts"
-	cliDatabase "github.com/dnote/dnote/pkg/cli/database"
-	clitest "github.com/dnote/dnote/pkg/cli/testutils"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	cliDatabase "github.com/lflow/lflow/pkg/cli/database"
+	clitest "github.com/lflow/lflow/pkg/cli/testutils"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )

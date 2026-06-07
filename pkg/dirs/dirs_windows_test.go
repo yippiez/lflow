@@ -22,16 +22,16 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 )
 
 func TestDirs(t *testing.T) {
 	home := Home
 	assert.NotEqual(t, home, "", "home is empty")
 
-	configHome := filepath.Join(home, ".dnote")
-	dataHome := filepath.Join(home, ".dnote")
-	cacheHome := filepath.Join(home, ".dnote")
+	configHome := filepath.Join(home, ".lflow")
+	dataHome := filepath.Join(home, ".lflow")
+	cacheHome := filepath.Join(home, ".lflow")
 
 	testCases := []struct {
 		got      string

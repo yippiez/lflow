@@ -1,4 +1,4 @@
-module github.com/dnote/dnote
+module github.com/lflow/lflow
 
 go 1.25
 

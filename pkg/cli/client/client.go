@@ -27,8 +27,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/log"
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
 )

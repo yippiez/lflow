@@ -21,7 +21,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
+	"github.com/lflow/lflow/pkg/assert"
 	"github.com/pkg/errors"
 )
 

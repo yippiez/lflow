@@ -16,8 +16,8 @@
 package app
 
 import (
-	"github.com/dnote/dnote/pkg/clock"
-	"github.com/dnote/dnote/pkg/server/mailer"
+	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/server/mailer"
 	"gorm.io/gorm"
 	"github.com/pkg/errors"
 )

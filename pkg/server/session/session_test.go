@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/server/database"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/server/database"
 )
 
 func TestNew(t *testing.T) {

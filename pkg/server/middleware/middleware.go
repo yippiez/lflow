@@ -18,7 +18,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/dnote/dnote/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/app"
 )
 
 // Middleware is a middleware for request handlers

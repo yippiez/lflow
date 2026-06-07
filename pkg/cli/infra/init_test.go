@@ -20,10 +20,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/cli/config"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/dirs"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/config"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/dirs"
 	"github.com/pkg/errors"
 )
 
@@ -93,7 +93,7 @@ func TestInitSystemKV_existing(t *testing.T) {
 
 func TestInit_APIEndpoint(t *testing.T) {
 	// Create a temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "dnote-init-test-*")
+	tmpDir, err := os.MkdirTemp("", "lflow-init-test-*")
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "creating temp dir"))
 	}

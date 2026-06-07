@@ -20,11 +20,11 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/dnote/dnote/pkg/server/mailer"
+	"github.com/lflow/lflow/pkg/server/mailer"
 	"github.com/pkg/errors"
 )
 
-var defaultSender = "admin@getdnote.com"
+var defaultSender = "admin@lflow.app"
 
 // GetSenderEmail returns the sender email
 func GetSenderEmail(baseURL, want string) (string, error) {

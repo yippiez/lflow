@@ -13,14 +13,14 @@
  * limitations under the License.
  */
 
-// Package context defines dnote context
+// Package context defines lflow context
 package context
 
 import (
 	"net/http"
 
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/clock"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/clock"
 )
 
 // Paths contain directory definitions

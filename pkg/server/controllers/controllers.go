@@ -16,8 +16,8 @@
 package controllers
 
 import (
-	"github.com/dnote/dnote/pkg/server/app"
-	"github.com/dnote/dnote/pkg/server/views"
+	"github.com/lflow/lflow/pkg/server/app"
+	"github.com/lflow/lflow/pkg/server/views"
 )
 
 // Controllers is a group of controllers

@@ -20,13 +20,13 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/dnote/dnote/pkg/cli/context"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/log"
-	"github.com/dnote/dnote/pkg/cli/output"
-	"github.com/dnote/dnote/pkg/cli/ui"
-	"github.com/dnote/dnote/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/output"
+	"github.com/lflow/lflow/pkg/cli/ui"
+	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -36,10 +36,10 @@ var yesFlag bool
 
 var example = `
   * Delete a note by id
-  dnote delete 2
+  lflow delete 2
 
   * Delete a book by name
-  dnote delete js
+  lflow delete js
 `
 
 // NewCmd returns a new remove command
@@ -57,7 +57,7 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	f.StringVarP(&bookFlag, "book", "b", "", "The book name to delete")
 	f.BoolVarP(&yesFlag, "yes", "y", false, "Assume yes to the prompts and run in non-interactive mode")
 
-	f.MarkDeprecated("book", "Pass the book name as an argument. e.g. `dnote rm book_name`")
+	f.MarkDeprecated("book", "Pass the book name as an argument. e.g. `lflow rm book_name`")
 
 	return cmd
 }
@@ -91,7 +91,7 @@ func newRun(ctx context.DnoteCtx) infra.RunEFunc {
 
 		// DEPRECATED: Remove in 1.0.0
 		if len(args) == 2 {
-			log.Plain(log.ColorYellow.Sprintf("DEPRECATED: you no longer need to pass book name to the remove command. e.g. `dnote remove 123`.\n\n"))
+			log.Plain(log.ColorYellow.Sprintf("DEPRECATED: you no longer need to pass book name to the remove command. e.g. `lflow remove 123`.\n\n"))
 
 			target := args[1]
 			if err := runNote(ctx, target); err != nil {

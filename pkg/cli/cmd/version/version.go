@@ -18,7 +18,7 @@ package version
 import (
 	"fmt"
 
-	"github.com/dnote/dnote/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +29,7 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 		Short: "Print the version number of Dnote",
 		Long:  "Print the version number of Dnote",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("dnote %s\n", ctx.Version)
+			fmt.Printf("lflow %s\n", ctx.Version)
 		},
 	}
 

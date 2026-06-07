@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
 )
 
@@ -61,7 +61,7 @@ func InitTestMemoryDB(t *testing.T) *DB {
 // InitTestFileDB initializes a file-based test database with the default schema.
 func InitTestFileDB(t *testing.T) (*DB, string) {
 	uuid := mustGenerateTestUUID(t)
-	dbPath := filepath.Join(t.TempDir(), fmt.Sprintf("dnote-%s.db", uuid))
+	dbPath := filepath.Join(t.TempDir(), fmt.Sprintf("lflow-%s.db", uuid))
 	db := InitTestFileDBRaw(t, dbPath)
 	return db, dbPath
 }
@@ -110,7 +110,7 @@ func InitTestMemoryDBRaw(t *testing.T, schemaPath string) *DB {
 // OpenTestDB opens the database connection to a test database
 // without initializing any schema
 func OpenTestDB(t *testing.T, dnoteDir string) *DB {
-	dbPath := fmt.Sprintf("%s/%s/%s", dnoteDir, consts.DnoteDirName, consts.DnoteDBFileName)
+	dbPath := fmt.Sprintf("%s/%s/%s", dnoteDir, consts.LflowDirName, consts.LflowDBFileName)
 	db, err := Open(dbPath)
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "opening database connection to the test database"))

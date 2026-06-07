@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dnote/dnote/pkg/server/log"
+	"github.com/lflow/lflow/pkg/server/log"
 	"github.com/pkg/errors"
 )
 

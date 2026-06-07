@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dnote/dnote/pkg/assert"
-	"github.com/dnote/dnote/pkg/clock"
+	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/clock"
 	"github.com/pkg/errors"
 )
 

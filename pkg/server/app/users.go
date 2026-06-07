@@ -18,9 +18,9 @@ package app
 import (
 	"errors"
 
-	"github.com/dnote/dnote/pkg/server/database"
-	"github.com/dnote/dnote/pkg/server/helpers"
-	"github.com/dnote/dnote/pkg/server/log"
+	"github.com/lflow/lflow/pkg/server/database"
+	"github.com/lflow/lflow/pkg/server/helpers"
+	"github.com/lflow/lflow/pkg/server/log"
 	pkgErrors "github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"

@@ -19,9 +19,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dnote/dnote/pkg/cli/consts"
-	"github.com/dnote/dnote/pkg/cli/database"
-	"github.com/dnote/dnote/pkg/clock"
+	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/clock"
 	"github.com/pkg/errors"
 )
 
@@ -43,7 +43,7 @@ func InitTestCtx(t *testing.T) DnoteCtx {
 	paths := getDefaultTestPaths(t)
 	db := database.InitTestMemoryDB(t)
 
-	if err := InitDnoteDirs(paths); err != nil {
+	if err := InitLflowDirs(paths); err != nil {
 		t.Fatal(errors.Wrap(err, "creating test directories"))
 	}
 
@@ -60,7 +60,7 @@ func InitTestCtx(t *testing.T) DnoteCtx {
 func InitTestCtxWithDB(t *testing.T, db *database.DB) DnoteCtx {
 	paths := getDefaultTestPaths(t)
 
-	if err := InitDnoteDirs(paths); err != nil {
+	if err := InitLflowDirs(paths); err != nil {
 		t.Fatal(errors.Wrap(err, "creating test directories"))
 	}
 
@@ -76,11 +76,11 @@ func InitTestCtxWithDB(t *testing.T, db *database.DB) DnoteCtx {
 func InitTestCtxWithFileDB(t *testing.T) DnoteCtx {
 	paths := getDefaultTestPaths(t)
 
-	if err := InitDnoteDirs(paths); err != nil {
+	if err := InitLflowDirs(paths); err != nil {
 		t.Fatal(errors.Wrap(err, "creating test directories"))
 	}
 
-	dbPath := filepath.Join(paths.Data, consts.DnoteDirName, consts.DnoteDBFileName)
+	dbPath := filepath.Join(paths.Data, consts.LflowDirName, consts.LflowDBFileName)
 	db, err := database.Open(dbPath)
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "opening database"))

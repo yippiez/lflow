@@ -19,22 +19,22 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dnote/dnote/pkg/cli/infra"
-	"github.com/dnote/dnote/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/infra"
+	"github.com/lflow/lflow/pkg/cli/log"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 
 	// commands
-	"github.com/dnote/dnote/pkg/cli/cmd/add"
-	"github.com/dnote/dnote/pkg/cli/cmd/edit"
-	"github.com/dnote/dnote/pkg/cli/cmd/find"
-	"github.com/dnote/dnote/pkg/cli/cmd/login"
-	"github.com/dnote/dnote/pkg/cli/cmd/logout"
-	"github.com/dnote/dnote/pkg/cli/cmd/remove"
-	"github.com/dnote/dnote/pkg/cli/cmd/root"
-	"github.com/dnote/dnote/pkg/cli/cmd/sync"
-	"github.com/dnote/dnote/pkg/cli/cmd/version"
-	"github.com/dnote/dnote/pkg/cli/cmd/view"
+	"github.com/lflow/lflow/pkg/cli/cmd/add"
+	"github.com/lflow/lflow/pkg/cli/cmd/edit"
+	"github.com/lflow/lflow/pkg/cli/cmd/find"
+	"github.com/lflow/lflow/pkg/cli/cmd/login"
+	"github.com/lflow/lflow/pkg/cli/cmd/logout"
+	"github.com/lflow/lflow/pkg/cli/cmd/remove"
+	"github.com/lflow/lflow/pkg/cli/cmd/root"
+	"github.com/lflow/lflow/pkg/cli/cmd/sync"
+	"github.com/lflow/lflow/pkg/cli/cmd/version"
+	"github.com/lflow/lflow/pkg/cli/cmd/view"
 )
 
 // apiEndpoint and versionTag are populated during link time
@@ -61,7 +61,7 @@ func parseDBPath(args []string) string {
 func main() {
 	// Parse flags early to get --dbPath before initializing database
 	// We need to manually parse --dbPath because it can appear after the subcommand
-	// (e.g., "dnote sync --full --dbPath=./custom.db") and root.ParseFlags only
+	// (e.g., "lflow sync --full --dbPath=./custom.db") and root.ParseFlags only
 	// parses flags before the subcommand.
 	dbPath := parseDBPath(os.Args[1:])
 
