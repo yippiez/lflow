@@ -1,107 +1,102 @@
-# Commands
+# lflow commands
 
-- [add](#dnote-add)
-- [view](#dnote-view)
-- [edit](#dnote-edit)
-- [remove](#dnote-remove)
-- [find](#dnote-find)
-- [sync](#dnote-sync)
-- [login](#dnote-login)
-- [logout](#dnote-logout)
+- [add](#lflow-add)
+- [view](#lflow-view)
+- [edit](#lflow-edit)
+- [remove](#lflow-remove)
+- [find](#lflow-find)
+- [sync](#lflow-sync)
+- [login](#lflow-login)
+- [logout](#lflow-logout)
 
-## dnote add
+## lflow add
 
-_alias: a, n, new_
+Add a new note.
 
-Add a new note to a book.
-
-```bash
-# Launch a text editor to add a new note to the specified book.
-dnote add linux
-
-# Write a new note with a content to the specified book.
-dnote add linux -c "find - recursively walk the directory"
+```
+lflow add <book>
 ```
 
-## dnote view
-
-_alias: v_
-
-- List books or notes.
-- View a note detail.
-
-```bash
-# List all books.
-dnote view
-
-# List all notes in a book.
-dnote view golang
-
-# See details of a note
-dnote view 12
+```
+lflow add linux
 ```
 
-## dnote edit
+```
+lflow add linux -c "find - recursively walk the directory"
+```
 
-_alias: e_
+## lflow view
+
+View notes.
+
+```
+lflow view
+```
+
+```
+lflow view golang
+```
+
+```
+lflow view 12
+```
+
+## lflow edit
 
 Edit a note or a book.
 
-```bash
-# Launch a text editor to edit a note with the given id.
-dnote edit 12
-
-# Edit a note with the given id in the specified book with a content.
-dnote edit 12 -c "New Content"
-
-# Launch a text editor to edit a book name.
-dnote edit js
-
-# Edit a book name by using a flag.
-dnote edit js -n "javascript"
+```
+lflow edit 12
 ```
 
-## dnote remove
-
-_alias: rm, d_
-
-Remove either a note or a book.
-
-```bash
-# Remove a note with an id.
-dnote remove 1
-
-# Remove a book with the `book name`.
-dnote remove js
+```
+lflow edit 12 -c "New Content"
 ```
 
-## dnote find
-
-_alias: f_
-
-Find notes by keywords.
-
-```bash
-# find notes by a keyword
-dnote find rpoplpush
-
-# find notes by multiple keywords
-dnote find "building a heap"
-
-# find notes within a book
-dnote find "merge sort" -b algorithm
+```
+lflow edit js
 ```
 
-## dnote sync
+```
+lflow edit js -n "javascript"
+```
 
-_alias: s_
+## lflow remove
 
-Sync notes with Dnote server.
+Remove a note or a book.
 
-## dnote login
+```
+lflow remove 1
+```
 
-Start a login prompt.
+```
+lflow remove js
+```
 
-## dnote logout
+## lflow find
 
-Log out of Dnote.
+Search notes.
+
+```
+lflow find rpoplpush
+```
+
+```
+lflow find "building a heap"
+```
+
+```
+lflow find "merge sort" -b algorithm
+```
+
+## lflow sync
+
+Sync notes with the server.
+
+## lflow login
+
+Login to the lflow server.
+
+## lflow logout
+
+Logout from the lflow server.

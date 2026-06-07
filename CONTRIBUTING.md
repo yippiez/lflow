@@ -1,6 +1,6 @@
-# Contributing to Dnote
+# Contributing to Lflow
 
-Dnote is an open source project.
+Lflow is an open source project.
 
 * [Setting up](#setting-up)
 * [Server](#server)
@@ -59,10 +59,10 @@ make debug=true build-cli
 make version=v0.1.0 build-cli
 
 # Build for a specific platform
-# Note: You cannot cross-compile using this method because Dnote uses CGO
+# Note: You cannot cross-compile using this method because Lflow uses CGO
 # and requires the OS specific headers.
 GOOS=[insert OS] GOARCH=[insert arch] make version=v0.1.0 build-cli
 
 # Debug mode
-DNOTE_DEBUG=1 dnote sync
+LFLOW_DEBUG=1 lflow sync
 ```

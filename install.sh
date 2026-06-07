@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# This script installs Dnote into your PATH (/usr/bin/local)
+# This script installs Lflow into your PATH (/usr/bin/local)
 # Use it like this:
-# $ curl https://raw.githubusercontent.com/dnote/dnote/master/install.sh | sh
+# $ curl https://raw.githubusercontent.com/lflow/lflow/master/install.sh | sh
 #
 
 set -eu
@@ -145,7 +145,7 @@ verify_checksum() {
   fi
 }
 
-install_dnote() {
+install_lflow() {
   sudo_cmd=""
 
   os=$(uname_os)
@@ -153,12 +153,12 @@ install_dnote() {
 
   if ! check_platform "$os" "$arch"; then
     print_error "System not supported: $os/$arch"
-    print_error "Please compile manually from https://github.com/dnote/dnote"
+    print_error "Please compile manually from https://github.com/lflow/lflow"
     exit 1
   fi
 
-  binary=dnote
-  owner=dnote
+  binary=lflow
+  owner=lflow
   repo=cli
   github_download="https://github.com/${owner}/${repo}/releases/download"
   tmpdir="$(mktemp -d)"
@@ -166,7 +166,7 @@ install_dnote() {
 
   if hash sudo 2>/dev/null; then
     sudo_cmd="sudo"
-    echo "You need a root privilege to install Dnote binary to $bindir"
+    echo "You need a root privilege to install Lflow binary to $bindir"
 
     if ! is_command "$sudo_cmd"; then
       print_error "command not found: sudo. You need a root privilege to continue the installation."
@@ -213,15 +213,15 @@ install_dnote() {
   $sudo_cmd install -d "${bindir}"
   $sudo_cmd install "${tmpdir}/${binary}" "${bindir}/"
 
-  print_success "dnote v${version} was successfully installed in $bindir."
+  print_success "lflow v${version} was successfully installed in $bindir."
 }
 
 exit_error() {
   # shellcheck disable=SC2181
   if [ "$?" -ne 0 ]; then
-    print_error "A problem occurred while installing Dnote. Please report it on https://github.com/dnote/dnote/issues so that we can help you."
+    print_error "A problem occurred while installing Lflow. Please report it on https://github.com/lflow/lflow/issues so that we can help you."
   fi
 }
 
 trap exit_error EXIT
-install_dnote
+install_lflow

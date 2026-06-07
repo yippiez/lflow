@@ -1,6 +1,6 @@
-# Self-Hosting Dnote Server
+# Self-Hosting Lflow Server
 
-Please see the [doc](https://www.getdnote.com/docs/server) for more.
+Please see the [doc](https://github.com/lflow/lflow) for more.
 
 ## Docker Installation
 
@@ -10,13 +10,13 @@ Please see the [doc](https://www.getdnote.com/docs/server) for more.
 
 ```yaml
 services:
-  dnote:
-    image: dnote/dnote:latest
-    container_name: dnote
+  lflow:
+    image: lflow/lflow:latest
+    container_name: lflow
     ports:
       - 3001:3001
     volumes:
-      - ./dnote_data:/data
+      - ./lflow_data:/data
     restart: unless-stopped
 ```
 
@@ -26,18 +26,18 @@ services:
 docker compose up -d
 ```
 
-Visit http://localhost:3001 in your browser to see Dnote running.
+Visit http://localhost:3001 in your browser to see Lflow running.
 
 ## Manual Installation
 
-Download from [releases](https://github.com/dnote/dnote/releases), extract, and run:
+Download from [releases](https://github.com/lflow/lflow/releases), extract, and run:
 
 ```bash
-tar -xzf dnote-server-$version-$os.tar.gz
-mv ./dnote-server /usr/local/bin
-dnote-server start --baseUrl=https://your.server
+tar -xzf lflow-server-$version-$os.tar.gz
+mv ./lflow-server /usr/local/bin
+lflow-server start --baseUrl=https://your.server
 ```
 
-You're up and running. Database: `~/.local/share/dnote/server.db` (customize with `--dbPath`). Run `dnote-server start --help` for options.
+You're up and running. Database: `~/.local/share/lflow/server.db` (customize with `--dbPath`). Run `lflow-server start --help` for options.
 
-Set `apiEndpoint: https://your.server/api` in `~/.config/dnote/dnoterc` to connect your CLI to the server.
+Set `apiEndpoint: https://your.server/api` in `~/.config/lflow/lflowrc` to connect your CLI to the server.
