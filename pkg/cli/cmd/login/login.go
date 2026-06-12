@@ -133,7 +133,7 @@ func getServerDisplayURL(ctx context.DnoteCtx) string {
 }
 
 func getGreeting(ctx context.DnoteCtx) string {
-	base := "Welcome to Dnote"
+	base := "Welcome to Lflow"
 
 	serverURL := getServerDisplayURL(ctx)
 	if serverURL == "" {

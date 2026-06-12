@@ -17,6 +17,7 @@ package database
 
 import (
 	"database/sql"
+	"strings"
 
 	"github.com/pkg/errors"
 	// use sqlite
@@ -115,9 +116,19 @@ func (d *DB) Close() error {
 	return errors.New("can't close db")
 }
 
-// Open initializes a new connection to the sqlite database
+// Open initializes a new connection to the sqlite database.
+// A busy timeout is set because the editor's background mirror sync writes
+// from a separate goroutine; without it concurrent writers fail immediately
+// with SQLITE_BUSY instead of waiting.
 func Open(dbPath string) (*DB, error) {
-	dbConn, err := sql.Open("sqlite3", dbPath)
+	dsn := dbPath
+	if strings.Contains(dsn, "?") {
+		dsn += "&_busy_timeout=5000"
+	} else {
+		dsn += "?_busy_timeout=5000"
+	}
+
+	dbConn, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, errors.Wrap(err, "opening db connection")
 	}
