@@ -101,8 +101,8 @@ func TestServerStart(t *testing.T) {
 	}
 
 	// Verify FTS table exists and is functional
-	if err := db.Exec("SELECT * FROM notes_fts LIMIT 1").Error; err != nil {
-		t.Fatalf("notes_fts table not found or not functional: %v", err)
+	if err := db.Exec("SELECT * FROM nodes_fts LIMIT 1").Error; err != nil {
+		t.Fatalf("nodes_fts table not found or not functional: %v", err)
 	}
 }
 
