@@ -24,13 +24,9 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// the help palette mirrors the rest of the output: blue section headers,
-// yellow names, muted gray prose
-var (
-	helpHeader = color.New(color.FgBlue)
-	helpName   = color.New(color.FgYellow)
-	helpDim    = color.New(color.FgHiBlack)
-)
+// help stays light: names and headers in the terminal's own color, only the
+// descriptions muted gray
+var helpDim = color.New(color.FgHiBlack)
 
 func renderHelpFunc(cmd *cobra.Command, _ []string) {
 	fmt.Fprint(cmd.OutOrStdout(), renderHelp(cmd))
@@ -41,13 +37,10 @@ func renderUsageFunc(cmd *cobra.Command) error {
 	return nil
 }
 
-// renderHelp lays out help for any command: title, usage, subcommands,
-// flags, global flags, and a dim trailing hint.
+// renderHelp lays out help for any command: usage, subcommands, flags,
+// global flags, and a dim trailing hint.
 func renderHelp(cmd *cobra.Command) string {
 	var b strings.Builder
-
-	b.WriteString(fmt.Sprintf("%s %s %s\n",
-		helpName.Sprint(cmd.CommandPath()), helpDim.Sprint("·"), cmd.Short))
 
 	var subs []*cobra.Command
 	for _, c := range cmd.Commands() {
@@ -60,10 +53,10 @@ func renderHelp(cmd *cobra.Command) string {
 	if len(subs) > 0 && !cmd.Runnable() {
 		useLine = cmd.CommandPath() + " <command>"
 	}
-	b.WriteString("\n" + helpHeader.Sprint("usage") + "\n")
+	b.WriteString("usage\n")
 	b.WriteString("  " + useLine + "\n")
 	if len(subs) > 0 {
-		b.WriteString("\n" + helpHeader.Sprint("commands") + "\n")
+		b.WriteString("\ncommands\n")
 		width := 0
 		for _, c := range subs {
 			if len(c.Name()) > width {
@@ -71,8 +64,8 @@ func renderHelp(cmd *cobra.Command) string {
 			}
 		}
 		for _, c := range subs {
-			b.WriteString(fmt.Sprintf("  %s  %s\n",
-				helpName.Sprintf("%-*s", width, c.Name()), helpDim.Sprint(c.Short)))
+			b.WriteString(fmt.Sprintf("  %-*s  %s\n",
+				width, c.Name(), helpDim.Sprint(c.Short)))
 		}
 	}
 
@@ -115,9 +108,9 @@ func writeFlagSection(b *strings.Builder, title string, fs *pflag.FlagSet) {
 	if len(entries) == 0 {
 		return
 	}
-	b.WriteString("\n" + helpHeader.Sprint(title) + "\n")
+	b.WriteString("\n" + title + "\n")
 	for _, e := range entries {
-		b.WriteString(fmt.Sprintf("  %s  %s\n",
-			helpName.Sprintf("%-*s", width, e.left), helpDim.Sprint(e.desc)))
+		b.WriteString(fmt.Sprintf("  %-*s  %s\n",
+			width, e.left, helpDim.Sprint(e.desc)))
 	}
 }
