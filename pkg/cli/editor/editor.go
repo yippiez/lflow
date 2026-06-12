@@ -87,6 +87,8 @@ type Model struct {
 	mode        mode
 	slashQuery  string
 	slashSel    int
+	slashStart  int  // rune index of the "/" that opened the menu
+	slashInline bool // the slash and query are typed into the node text
 	finderQuery string
 	finderSel   int
 	finderHits  []database.Node
@@ -373,11 +375,21 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cur = it
 		}
 
-		// "/" at the start of a row opens the slash menu
-		if string(k.Runes) == "/" && m.caret == 0 {
+		// "/" opens the slash menu anywhere in the row. On editable rows it
+		// is typed into the text and stripped when a command runs, so esc
+		// leaves a literal slash behind.
+		if string(k.Runes) == "/" {
 			m.mode = modeSlash
 			m.slashQuery = ""
 			m.slashSel = 0
+			m.slashInline = cur.mirrorOf == ""
+			if m.slashInline {
+				runes := []rune(cur.name)
+				cur.name = string(runes[:m.caret]) + "/" + string(runes[m.caret:])
+				m.slashStart = m.caret
+				m.caret++
+				m.unsaved = true
+			}
 			return m, nil
 		}
 
@@ -426,9 +438,31 @@ func (m *Model) filteredSlash() []slashCommand {
 	return ret
 }
 
+// stripSlashText removes the typed "/query" from the node text and parks the
+// caret where the slash was. Called before a slash command runs.
+func (m *Model) stripSlashText() {
+	if !m.slashInline {
+		return
+	}
+	cur := m.cursorItem()
+	if cur == nil {
+		return
+	}
+	runes := []rune(cur.name)
+	end := m.slashStart + 1 + len([]rune(m.slashQuery))
+	if end > len(runes) {
+		end = len(runes)
+	}
+	cur.name = string(runes[:m.slashStart]) + string(runes[end:])
+	m.caret = m.slashStart
+}
+
 func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cur := m.cursorItem()
+
 	switch k.String() {
 	case "esc":
+		// keep the typed text: this is how a literal slash is written
 		m.mode = modeOutline
 		return m, nil
 	case "up":
@@ -442,16 +476,25 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "backspace":
-		if len(m.slashQuery) > 0 {
-			m.slashQuery = m.slashQuery[:len(m.slashQuery)-1]
+		if qr := []rune(m.slashQuery); len(qr) > 0 {
+			m.slashQuery = string(qr[:len(qr)-1])
 			m.slashSel = 0
+			if m.slashInline && cur != nil && m.caret > 0 {
+				runes := []rune(cur.name)
+				cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+				m.caret--
+			}
 		} else {
+			if m.slashInline && cur != nil {
+				m.stripSlashText()
+			}
 			m.mode = modeOutline
 		}
 		return m, nil
 	case "enter":
 		cmds := m.filteredSlash()
 		if m.slashSel < len(cmds) {
+			m.stripSlashText()
 			return m.runSlash(cmds[m.slashSel].name)
 		}
 		m.mode = modeOutline
@@ -464,6 +507,16 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.Type == tea.KeyRunes && !k.Alt {
 		m.slashQuery += string(k.Runes)
 		m.slashSel = 0
+		if m.slashInline && cur != nil {
+			runes := []rune(cur.name)
+			ins := []rune(string(k.Runes))
+			cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
+			m.caret += len(ins)
+		}
+		// nothing matches anymore: it was ordinary text, keep it as typed
+		if len(m.filteredSlash()) == 0 {
+			m.mode = modeOutline
+		}
 	}
 	return m, nil
 }
