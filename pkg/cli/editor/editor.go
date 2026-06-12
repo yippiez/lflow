@@ -23,9 +23,12 @@ package editor
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 
+	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
@@ -58,6 +61,7 @@ type slashCommand struct {
 var slashCommands = []slashCommand{
 	{"/mirror", "mirror a node here via the fuzzy finder"},
 	{"/mirror_to", "mirror THIS node somewhere else"},
+	{"/copy_link", "copy this node's link — paste on another node to mirror"},
 	{"/move_to", "move this node under another node"},
 	{"/go", "jump the editor to another node"},
 	{"/complete", "toggle done"},
@@ -98,6 +102,7 @@ type Model struct {
 	escPending bool
 	unsaved    bool
 	quitting   bool
+	flash      string // one-shot status for the bottom bar, cleared on keypress
 	err        error
 
 	saved struct {
@@ -168,6 +173,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
+	m.flash = "" // one-shot: whatever this key does sets the next status
 
 	// esc-esc quits from outline mode
 	if m.mode == modeOutline && key == "esc" {
@@ -380,7 +386,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// "/" opens the slash menu anywhere in the row. On editable rows it
 		// is typed into the text and stripped when a command runs, so esc
 		// leaves a literal slash behind.
-		if string(k.Runes) == "/" {
+		if string(k.Runes) == "/" && !k.Paste {
 			m.mode = modeSlash
 			m.slashQuery = ""
 			m.slashSel = 0
@@ -399,15 +405,96 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil // mirrors are edited at their original
 		}
 
+		text := string(k.Runes)
+		if k.Paste {
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\r", "\n")
+			text = strings.TrimRight(text, "\n")
+			if strings.Contains(text, "\n") {
+				return m.pasteLines(cur, strings.Split(text, "\n"))
+			}
+		}
+
 		runes := []rune(cur.name)
-		ins := []rune(string(k.Runes))
+		ins := []rune(text)
 		cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
 		m.caret += len(ins)
 		m.unsaved = true
+		m.maybeLinkToMirror(cur)
 		return m, nil
 	}
 
 	return m, nil
+}
+
+// pasteLines spreads a multiline paste over the outline: the first line
+// continues the current row at the caret, every following line becomes a new
+// sibling below it.
+func (m *Model) pasteLines(cur *item, lines []string) (tea.Model, tea.Cmd) {
+	runes := []rune(cur.name)
+	cur.name = string(runes[:m.caret]) + lines[0] + string(runes[m.caret:])
+
+	last := cur
+	for _, l := range lines[1:] {
+		it, err := m.tree.insertSiblingAfter(last)
+		if err != nil {
+			m.err = err
+			return m.quit()
+		}
+		it.name = l
+		last = it
+	}
+
+	m.unsaved = true
+	m.refreshRows()
+	m.cursor = m.rowIndexOf(last)
+	m.caret = len([]rune(last.name))
+	m.maybeLinkToMirror(last)
+	return m, nil
+}
+
+var mirrorLinkRe = regexp.MustCompile(`^lflow://node/([0-9a-fA-F-]{6,})$`)
+
+// maybeLinkToMirror turns a row whose whole text is a node link into a
+// mirror of that node: paste a copied link, get a mirror.
+func (m *Model) maybeLinkToMirror(it *item) {
+	trimmed := strings.TrimSpace(it.name)
+	if !strings.HasPrefix(trimmed, "lflow://") {
+		return
+	}
+	match := mirrorLinkRe.FindStringSubmatch(trimmed)
+	if match == nil {
+		return
+	}
+	uuid := match[1]
+	if uuid == it.uuid {
+		m.flash = "a node cannot mirror itself"
+		return
+	}
+	target, err := database.GetNode(m.db, uuid)
+	if err != nil {
+		m.flash = "link points at no node"
+		return
+	}
+
+	it.name = ""
+	it.mirrorOf = target.UUID
+	m.caret = 0
+	if _, inTree := m.tree.byUUID[target.UUID]; !inTree {
+		m.tree.externalNames[target.UUID] = target.Name
+	}
+	m.unsaved = true
+	m.flash = fmt.Sprintf("mirrored %q", target.Name)
+}
+
+// copyToClipboard puts s on the system clipboard via OSC 52, written to
+// stderr so it bypasses the bubbletea renderer owning stdout.
+func copyToClipboard(s string) {
+	seq := osc52.New(s)
+	if os.Getenv("TMUX") != "" {
+		seq = seq.Tmux()
+	}
+	_, _ = seq.WriteTo(os.Stderr)
 }
 
 func (m *Model) clampCaret() {
@@ -565,6 +652,14 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.openFinder(actMirrorHere)
 	case "/mirror_to":
 		m.openFinder(actMirrorTo)
+	case "/copy_link":
+		// a mirror's link points at the original: same node everywhere
+		target := cur.uuid
+		if cur.mirrorOf != "" {
+			target = cur.mirrorOf
+		}
+		copyToClipboard("lflow://node/" + target)
+		m.flash = "link copied — paste it on another node to mirror"
 	case "/move_to":
 		m.openFinder(actMoveTo)
 	case "/go":
@@ -936,6 +1031,9 @@ func (m *Model) bottomBar(maxLine int) string {
 	if m.sched.inFlight {
 		// state, not a countdown: only shown while a sync is actually running
 		state += " · syncing"
+	}
+	if m.flash != "" {
+		state += " · " + m.flash
 	}
 	title := m.tree.displayName(m.viewRoot())
 	if title == "" {
