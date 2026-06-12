@@ -29,8 +29,7 @@ import (
 )
 
 type options struct {
-	format    string
-	completed bool
+	format string
 }
 
 // NewCmd returns a new export command
@@ -45,7 +44,6 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&opts.format, "format", "json", "output format: json|md")
-	f.BoolVar(&opts.completed, "completed", true, "include completed nodes")
 
 	return cmd
 }
@@ -66,7 +64,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		case "json":
 			forest := []outline.JSONNode{}
 			for _, root := range roots {
-				tree, err := outline.BuildJSON(db, root, -1, opts.completed)
+				tree, err := outline.BuildJSON(db, root, -1, true)
 				if err != nil {
 					return errors.Wrap(err, "building tree")
 				}
@@ -80,7 +78,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		case "md":
 			for _, root := range roots {
 				fmt.Printf("- %s\n", root.Name)
-				out, err := outline.RenderMarkdown(db, root, -1, opts.completed)
+				out, err := outline.RenderMarkdown(db, root, -1, true)
 				if err != nil {
 					return errors.Wrap(err, "rendering outline")
 				}
@@ -90,7 +88,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 				}
 			}
 		default:
-			return errors.Errorf("unknown format %q (json|md)", opts.format)
+			return errors.Errorf("unknown format %q: json or md", opts.format)
 		}
 
 		return nil

@@ -31,11 +31,9 @@ import (
 )
 
 type options struct {
-	format    string
-	depth     int
-	completed bool
-	strict    bool
-	all       bool
+	format string
+	depth  int
+	strict bool
 }
 
 var example = `
@@ -62,10 +60,8 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&opts.format, "format", "md", "output format: md|text|json")
-	f.IntVar(&opts.depth, "depth", -1, "maximum depth (-1 = unlimited)")
-	f.BoolVar(&opts.completed, "completed", false, "include completed nodes")
+	f.IntVar(&opts.depth, "depth", -1, "maximum depth, -1 means unlimited")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
-	f.BoolVar(&opts.all, "all", false, "include completed nodes when resolving")
 
 	return cmd
 }
@@ -103,7 +99,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		}
 		ref := args[0]
 
-		r, err := resolve.Resolve(db, ref, opts.all)
+		r, err := resolve.Resolve(db, ref)
 		if err != nil {
 			if _, ok := err.(resolve.ErrNoMatch); ok {
 				resolve.PrintNoMatch(ref)
@@ -120,13 +116,13 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		var out string
 		switch opts.format {
 		case "md":
-			out, err = outline.RenderMarkdown(db, r.Node, opts.depth, opts.completed)
+			out, err = outline.RenderMarkdown(db, r.Node, opts.depth, true)
 		case "text":
-			out, err = outline.RenderText(db, r.Node, opts.depth, opts.completed)
+			out, err = outline.RenderText(db, r.Node, opts.depth, true)
 		case "json":
-			out, err = outline.RenderJSON(db, r.Node, opts.depth, opts.completed)
+			out, err = outline.RenderJSON(db, r.Node, opts.depth, true)
 		default:
-			return errors.Errorf("unknown format %q (md|text|json)", opts.format)
+			return errors.Errorf("unknown format %q: md, text or json", opts.format)
 		}
 		if err != nil {
 			return errors.Wrap(err, "rendering outline")

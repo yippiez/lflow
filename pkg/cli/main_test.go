@@ -209,7 +209,7 @@ func TestList(t *testing.T) {
 	}
 }
 
-func TestFindPrintAndID(t *testing.T) {
+func TestListResolvesQuery(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	testutils.RunDnoteCmd(t, opts, binaryName, "list")
@@ -217,25 +217,22 @@ func TestFindPrintAndID(t *testing.T) {
 	testutils.SetupNodes1(t, db)
 	db.Close()
 
-	out := testutils.RunDnoteCmd(t, opts, binaryName, "find", "experiment", "--print")
+	out := testutils.RunDnoteCmd(t, opts, binaryName, "list", "experiment")
 	if !strings.Contains(out, "- baseline numbers") {
-		t.Errorf("find --print missing outline: %q", out)
+		t.Errorf("list by query missing outline: %q", out)
 	}
-
-	out = testutils.RunDnoteCmd(t, opts, binaryName, "find", "experiment results", "--id")
-	assert.Equal(t, strings.TrimSpace(out), "root-1-uuid", "find --id mismatch")
 }
 
-func TestFindMissExitsNonZero(t *testing.T) {
+func TestResolveMissExitsNonZero(t *testing.T) {
 	_, opts := setupTestEnv(t)
 
-	cmd, _, _, err := testutils.NewDnoteCmd(opts, binaryName, "find", "quantum", "--print")
+	cmd, _, _, err := testutils.NewDnoteCmd(opts, binaryName, "list", "quantum")
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = cmd.Run()
 	if err == nil {
-		t.Fatal("find on a miss should exit non-zero")
+		t.Fatal("resolving a miss should exit non-zero")
 	}
 }
 

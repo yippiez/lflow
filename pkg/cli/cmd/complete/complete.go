@@ -59,7 +59,7 @@ func newCmd(ctx context.DnoteCtx, complete bool) *cobra.Command {
 			ref := strings.Join(args, " ")
 			db := ctx.DB
 
-			r, err := resolve.Resolve(db, ref, true)
+			r, err := resolve.Resolve(db, ref)
 			if err != nil {
 				if _, ok := err.(resolve.ErrNoMatch); ok {
 					resolve.PrintNoMatch(ref)

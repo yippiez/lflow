@@ -31,10 +31,8 @@ import (
 
 type options struct {
 	top    bool
-	bottom bool
 	after  string
 	strict bool
-	all    bool
 }
 
 // NewCmd returns a new mv command
@@ -49,11 +47,9 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	}
 
 	f := cmd.Flags()
-	f.BoolVar(&opts.top, "top", false, "place as the first child")
-	f.BoolVar(&opts.bottom, "bottom", true, "place as the last child (default)")
+	f.BoolVar(&opts.top, "top", false, "place as the first child instead of the last")
 	f.StringVar(&opts.after, "after", "", "place after the given sibling")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
-	f.BoolVar(&opts.all, "all", false, "include completed nodes")
 
 	return cmd
 }
@@ -79,7 +75,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		}
 		db := ctx.DB
 
-		nodeRes, err := resolve.Resolve(db, args[0], opts.all)
+		nodeRes, err := resolve.Resolve(db, args[0])
 		if err != nil {
 			if _, ok := err.(resolve.ErrNoMatch); ok {
 				resolve.PrintNoMatch(args[0])
@@ -87,7 +83,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			}
 			return err
 		}
-		parentRes, err := resolve.Resolve(db, args[1], opts.all)
+		parentRes, err := resolve.Resolve(db, args[1])
 		if err != nil {
 			if _, ok := err.(resolve.ErrNoMatch); ok {
 				resolve.PrintNoMatch(args[1])
@@ -120,7 +116,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 				return errors.Wrap(err, "shifting sibling ranks")
 			}
 		case opts.after != "":
-			sibRes, err := resolve.Resolve(db, opts.after, opts.all)
+			sibRes, err := resolve.Resolve(db, opts.after)
 			if err != nil {
 				return errors.Wrap(err, "resolving --after sibling")
 			}

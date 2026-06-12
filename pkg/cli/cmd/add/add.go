@@ -38,7 +38,6 @@ type options struct {
 	intoNote bool
 	top      bool
 	strict   bool
-	all      bool
 }
 
 var example = `
@@ -81,12 +80,11 @@ func newCmd(ctx context.DnoteCtx, use, short string, aliases []string) *cobra.Co
 
 	f := cmd.Flags()
 	if use != "append" {
-		f.StringVar(&opts.parent, "parent", "", "parent node (default: root)")
+		f.StringVar(&opts.parent, "parent", "", "parent node, defaults to root")
 	}
 	f.BoolVar(&opts.intoNote, "note", false, "append the text to the node's note instead of creating children")
 	f.BoolVar(&opts.top, "top", false, "prepend instead of append")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
-	f.BoolVar(&opts.all, "all", false, "include completed nodes when resolving")
 
 	return cmd
 }
@@ -184,7 +182,7 @@ func newRun(ctx context.DnoteCtx, opts *options, isAppend bool) infra.RunEFunc {
 		var r resolve.Result
 		if ref != "" {
 			var err error
-			r, err = resolve.Resolve(db, ref, opts.all)
+			r, err = resolve.Resolve(db, ref)
 			if err != nil {
 				if _, ok := err.(resolve.ErrNoMatch); ok {
 					resolve.PrintNoMatch(ref)

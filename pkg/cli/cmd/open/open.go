@@ -30,8 +30,6 @@ import (
 
 // NewCmd returns a new open command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
-	var all bool
-
 	cmd := &cobra.Command{
 		Use:     "open [node]",
 		Short:   "Open the editor on a node (root when no node is given)",
@@ -49,7 +47,7 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 			}
 
 			ref := strings.Join(args, " ")
-			r, err := resolve.Resolve(db, ref, all)
+			r, err := resolve.Resolve(db, ref)
 			if err != nil {
 				if _, ok := err.(resolve.ErrNoMatch); ok {
 					resolve.PrintNoMatch(ref)
@@ -62,8 +60,6 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 			return editor.Run(ctx, r.Node.UUID)
 		},
 	}
-
-	cmd.Flags().BoolVar(&all, "all", false, "include completed nodes")
 
 	return cmd
 }

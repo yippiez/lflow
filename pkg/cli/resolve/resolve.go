@@ -45,8 +45,9 @@ type Result struct {
 	Matches []database.Node // all matches, best first (capped)
 }
 
-// Resolve resolves ref to the best-matching node.
-func Resolve(db *database.DB, ref string, includeCompleted bool) (Result, error) {
+// Resolve resolves ref to the best-matching node. Completed nodes always
+// resolve: a reference the user typed is a reference they meant.
+func Resolve(db *database.DB, ref string) (Result, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return Result{}, ErrNoMatch{Ref: ref}
@@ -79,7 +80,7 @@ func Resolve(db *database.DB, ref string, includeCompleted bool) (Result, error)
 	}
 
 	// free-text search, best match first
-	matches, err := database.SearchNodes(db, ref, includeCompleted)
+	matches, err := database.SearchNodes(db, ref, true)
 	if err != nil {
 		return Result{}, errors.Wrap(err, "searching nodes")
 	}
@@ -95,7 +96,7 @@ func Resolve(db *database.DB, ref string, includeCompleted bool) (Result, error)
 func Feedback(action string, r Result) {
 	line := dim.Sprintf("→ %s ", action) + yellow.Sprintf("%q", r.Node.Name)
 	if r.Total > 1 {
-		line += dim.Sprintf("  (best of %d · --strict lists instead)", r.Total)
+		line += dim.Sprintf("  · best of %d · --strict lists instead", r.Total)
 	}
 	fmt.Println(line)
 }
@@ -103,7 +104,7 @@ func Feedback(action string, r Result) {
 // PrintNoMatch prints the standard miss output (red arrow, dim hint).
 func PrintNoMatch(ref string) {
 	fmt.Println(red.Sprint("→ ") + fmt.Sprintf("no node matching %s", yellow.Sprintf("%q", ref)))
-	fmt.Println(dim.Sprint("  hint: lflow list · add --all to include completed nodes"))
+	fmt.Println(dim.Sprint("  hint: lflow list shows ids · references match by id, id prefix or text"))
 }
 
 // CountNoun formats a count with a singular/plural noun.

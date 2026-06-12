@@ -34,7 +34,6 @@ import (
 type options struct {
 	force  bool
 	strict bool
-	all    bool
 }
 
 // NewCmd returns a new rm command
@@ -51,7 +50,6 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVarP(&opts.force, "force", "f", false, "skip confirmation")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
-	f.BoolVar(&opts.all, "all", false, "include completed nodes")
 
 	return cmd
 }
@@ -64,7 +62,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		ref := strings.Join(args, " ")
 		db := ctx.DB
 
-		r, err := resolve.Resolve(db, ref, opts.all)
+		r, err := resolve.Resolve(db, ref)
 		if err != nil {
 			if _, ok := err.(resolve.ErrNoMatch); ok {
 				resolve.PrintNoMatch(ref)
@@ -84,7 +82,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		}
 
 		if !opts.force {
-			confirmed, err := ui.Confirm(fmt.Sprintf("delete %q (%d nodes)?", r.Node.Name, count), false)
+			confirmed, err := ui.Confirm(fmt.Sprintf("delete %q · %d nodes?", r.Node.Name, count), false)
 			if err != nil {
 				return errors.Wrap(err, "getting confirmation")
 			}

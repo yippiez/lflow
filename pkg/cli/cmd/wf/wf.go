@@ -134,9 +134,9 @@ func newMirrorCmd(ctx context.DnoteCtx) *cobra.Command {
 
 			// the local anchor node: under --into, or as a new root
 			parentUUID := ""
-			parentName := "(root)"
+			parentName := "root"
 			if intoFlag != "" {
-				r, err := resolve.Resolve(db, intoFlag, false)
+				r, err := resolve.Resolve(db, intoFlag)
 				if err != nil {
 					if _, isMiss := err.(resolve.ErrNoMatch); isMiss {
 						resolve.PrintNoMatch(intoFlag)
@@ -162,7 +162,7 @@ func newMirrorCmd(ctx context.DnoteCtx) *cobra.Command {
 				return errors.Wrap(err, "initial mirror sync")
 			}
 
-			log.Successf("mirroring %q → %s %s\n", wfNode.Name, parentName, dim.Sprintf("(%d pulled)", res.Pulled))
+			log.Successf("mirroring %q → %s %s\n", wfNode.Name, parentName, dim.Sprintf("· %d pulled", res.Pulled))
 			return nil
 		},
 	}
@@ -209,7 +209,7 @@ func newListCmd(ctx context.DnoteCtx) *cobra.Command {
 				return err
 			}
 			if len(mirrors) == 0 {
-				fmt.Println(dim.Sprint("no workflowy mirrors (lflow wf mirror <url>)"))
+				fmt.Println(dim.Sprint("no workflowy mirrors · lflow wf mirror <url>"))
 				return nil
 			}
 			for _, m := range mirrors {
@@ -251,7 +251,7 @@ func newSyncCmd(ctx context.DnoteCtx, name string) *cobra.Command {
 
 			var anchors []string
 			if len(args) > 0 {
-				r, err := resolve.Resolve(db, args[0], true)
+				r, err := resolve.Resolve(db, args[0])
 				if err != nil {
 					if _, isMiss := err.(resolve.ErrNoMatch); isMiss {
 						resolve.PrintNoMatch(args[0])
@@ -302,11 +302,11 @@ func newUnmirrorCmd(ctx context.DnoteCtx) *cobra.Command {
 				return errors.New("missing mirror reference")
 			}
 			if !keep && !drop {
-				return errors.New("pass --keep (keep the local copy) or --drop (delete it)")
+				return errors.New("pass --keep to keep the local copy or --drop to delete it")
 			}
 			db := ctx.DB
 
-			r, err := resolve.Resolve(db, args[0], true)
+			r, err := resolve.Resolve(db, args[0])
 			if err != nil {
 				if _, isMiss := err.(resolve.ErrNoMatch); isMiss {
 					resolve.PrintNoMatch(args[0])
