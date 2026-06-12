@@ -3,7 +3,7 @@ set -eux
 
 function has_license {
   # Check if file already has a copyright notice
-  grep -q "Copyright.*Dnote Authors" "$1"
+  grep -q "Copyright.*Lflow Authors" "$1"
 }
 
 function add_notice {
@@ -17,7 +17,7 @@ END
 }
 
 year=$(date +%Y)
-license="/* Copyright $year Dnote Authors
+license="/* Copyright $year Lflow Authors
  *
  * Licensed under the Apache License, Version 2.0 (the \"License\");
  * you may not use this file except in compliance with the License.

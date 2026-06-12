@@ -1,4 +1,4 @@
-/* Copyright 2025 Dnote Authors
+/* Copyright 2025 Lflow Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -109,8 +109,8 @@ func InitTestMemoryDBRaw(t *testing.T, schemaPath string) *DB {
 
 // OpenTestDB opens the database connection to a test database
 // without initializing any schema
-func OpenTestDB(t *testing.T, dnoteDir string) *DB {
-	dbPath := fmt.Sprintf("%s/%s/%s", dnoteDir, consts.LflowDirName, consts.LflowDBFileName)
+func OpenTestDB(t *testing.T, lflowDir string) *DB {
+	dbPath := fmt.Sprintf("%s/%s/%s", lflowDir, consts.LflowDirName, consts.LflowDBFileName)
 	db, err := Open(dbPath)
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "opening database connection to the test database"))

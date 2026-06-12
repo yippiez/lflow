@@ -1,4 +1,4 @@
-/* Copyright 2025 Dnote Authors
+/* Copyright 2025 Lflow Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -78,13 +78,13 @@ func getDBPath(paths context.Paths, customPath string) string {
 // This base context is used for file and database initialization before
 // being enriched with config values by setupCtx.
 func newBaseCtx(versionTag, customDBPath string) (context.DnoteCtx, error) {
-	dnoteDir := getLegacyDnotePath(dirs.Home)
+	legacyDnoteDir := getLegacyDnotePath(dirs.Home)
 	paths := context.Paths{
 		Home:        dirs.Home,
 		Config:      dirs.ConfigHome,
 		Data:        dirs.DataHome,
 		Cache:       dirs.CacheHome,
-		LegacyDnote: dnoteDir,
+		LegacyDnote: legacyDnoteDir,
 	}
 
 	dbPath := getDBPath(paths, customDBPath)

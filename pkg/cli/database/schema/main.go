@@ -1,4 +1,4 @@
-/* Copyright 2025 Dnote Authors
+/* Copyright 2025 Lflow Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -63,8 +63,8 @@ func run(tmpDir, outputPath string) error {
 // generateSchema creates a fresh database, runs all migrations, and extracts the schema
 func generateSchema(tmpDir string) (string, error) {
 	// Create lflow directory structure in temp dir
-	dnoteDir := filepath.Join(tmpDir, "lflow")
-	if err := os.MkdirAll(dnoteDir, 0755); err != nil {
+	lflowDir := filepath.Join(tmpDir, "lflow")
+	if err := os.MkdirAll(lflowDir, 0755); err != nil {
 		return "", fmt.Errorf("creating lflow dir: %w", err)
 	}
 

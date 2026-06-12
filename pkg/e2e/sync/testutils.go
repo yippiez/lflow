@@ -1,4 +1,4 @@
-/* Copyright 2025 Dnote Authors
+/* Copyright 2025 Lflow Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -54,13 +54,13 @@ func setupTestEnv(t *testing.T) testEnv {
 	tmpDir := t.TempDir()
 
 	// Create lflow directory
-	dnoteDir := filepath.Join(tmpDir, consts.LflowDirName)
-	if err := os.MkdirAll(dnoteDir, 0755); err != nil {
+	lflowDir := filepath.Join(tmpDir, consts.LflowDirName)
+	if err := os.MkdirAll(lflowDir, 0755); err != nil {
 		t.Fatal(errors.Wrap(err, "creating lflow directory"))
 	}
 
 	// Create database at the expected path
-	dbPath := filepath.Join(dnoteDir, consts.LflowDBFileName)
+	dbPath := filepath.Join(lflowDir, consts.LflowDBFileName)
 	db := cliDatabase.InitTestFileDBRaw(t, dbPath)
 
 	// Create server
@@ -122,8 +122,8 @@ func setupNewServer(t *testing.T) (*httptest.Server, *gorm.DB) {
 
 // updateConfigAPIEndpoint updates the config file with the given API endpoint
 func updateConfigAPIEndpoint(t *testing.T, tmpDir string, apiEndpoint string) {
-	dnoteDir := filepath.Join(tmpDir, consts.LflowDirName)
-	configPath := filepath.Join(dnoteDir, consts.ConfigFilename)
+	lflowDir := filepath.Join(tmpDir, consts.LflowDirName)
+	configPath := filepath.Join(lflowDir, consts.ConfigFilename)
 	configContent := fmt.Sprintf("apiEndpoint: %s\n", apiEndpoint)
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 		t.Fatal(errors.Wrap(err, "writing config file"))
