@@ -112,16 +112,17 @@ func isDebug() bool {
 	return os.Getenv(debugEnvName) == debugEnvValue
 }
 
-// Debug prints to the console if DNOTE_DEBUG is set
+// Debug prints to stderr if DNOTE_DEBUG is set. Diagnostics never go to
+// stdout: lflow's output is meant to be piped.
 func Debug(msg string, v ...interface{}) {
 	if isDebug() {
-		fmt.Fprintf(color.Output, "%s %s", ColorGray.Sprint("DEBUG:"), fmt.Sprintf(msg, v...))
+		fmt.Fprintf(color.Error, "%s %s", ColorGray.Sprint("DEBUG:"), fmt.Sprintf(msg, v...))
 	}
 }
 
 // DebugNewline prints a newline only in debug mode
 func DebugNewline() {
 	if isDebug() {
-		fmt.Println()
+		fmt.Fprintln(color.Error)
 	}
 }
