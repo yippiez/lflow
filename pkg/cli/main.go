@@ -25,17 +25,12 @@ import (
 	"github.com/pkg/errors"
 
 	// commands
-	"github.com/lflow/lflow/pkg/cli/cmd/add"
-	"github.com/lflow/lflow/pkg/cli/cmd/complete"
 	"github.com/lflow/lflow/pkg/cli/cmd/export"
 	"github.com/lflow/lflow/pkg/cli/cmd/list"
-	"github.com/lflow/lflow/pkg/cli/cmd/login"
-	"github.com/lflow/lflow/pkg/cli/cmd/logout"
-	"github.com/lflow/lflow/pkg/cli/cmd/mv"
+	"github.com/lflow/lflow/pkg/cli/cmd/node"
 	"github.com/lflow/lflow/pkg/cli/cmd/open"
-	"github.com/lflow/lflow/pkg/cli/cmd/remove"
 	"github.com/lflow/lflow/pkg/cli/cmd/root"
-	"github.com/lflow/lflow/pkg/cli/cmd/sync"
+	"github.com/lflow/lflow/pkg/cli/cmd/server"
 	"github.com/lflow/lflow/pkg/cli/cmd/version"
 	wfcmd "github.com/lflow/lflow/pkg/cli/cmd/wf"
 )
@@ -75,20 +70,13 @@ func main() {
 	}
 	defer ctx.DB.Close()
 
-	root.Register(remove.NewCmd(*ctx))
-	root.Register(login.NewCmd(*ctx))
-	root.Register(logout.NewCmd(*ctx))
-	root.Register(add.NewCmd(*ctx))
-	root.Register(add.NewAppendCmd(*ctx))
-	root.Register(list.NewCmd(*ctx))
-	root.Register(mv.NewCmd(*ctx))
-	root.Register(complete.NewCmd(*ctx))
-	root.Register(complete.NewUncompleteCmd(*ctx))
-	root.Register(export.NewCmd(*ctx))
-	root.Register(sync.NewCmd(*ctx))
-	root.Register(version.NewCmd(*ctx))
 	root.Register(open.NewCmd(*ctx))
+	root.Register(list.NewCmd(*ctx))
+	root.Register(node.NewCmd(*ctx))
+	root.Register(export.NewCmd(*ctx))
+	root.Register(server.NewCmd(*ctx))
 	root.Register(wfcmd.NewCmd(*ctx))
+	root.Register(version.NewCmd(*ctx))
 
 	if err := root.Execute(); err != nil {
 		log.Errorf("%s\n", err.Error())

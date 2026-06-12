@@ -31,10 +31,8 @@ import (
 // NewCmd returns a new open command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "open [node]",
-		Short:   "Open the editor on a node (root when no node is given)",
-		Long:    "Open the inline editor on a node by id or query. With no argument, open the root.",
-		Aliases: []string{"o", "e", "f", "edit", "find"},
+		Use:   "open [node]",
+		Short: "Open the inline editor on a node, or the root when no node is given",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db := ctx.DB
 			if err := database.EnsureRoot(db); err != nil {

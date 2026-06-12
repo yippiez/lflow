@@ -35,9 +35,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var example = `
-  lflow sync`
-
 var isFullSync bool
 var isDryRun bool
 var apiEndpointFlag string
@@ -45,17 +42,15 @@ var apiEndpointFlag string
 // NewCmd returns a new sync command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "sync",
-		Aliases: []string{"s"},
-		Short:   "Sync nodes with the lflow server",
-		Example: example,
-		RunE:    newRun(ctx),
+		Use:   "sync",
+		Short: "Sync nodes with the lflow server",
+		RunE:  newRun(ctx),
 	}
 
 	f := cmd.Flags()
-	f.BoolVarP(&isFullSync, "full", "f", false, "perform a full sync instead of incrementally syncing only the changed data.")
+	f.BoolVarP(&isFullSync, "full", "f", false, "perform a full sync instead of an incremental one")
 	f.BoolVar(&isDryRun, "dry-run", false, "show what would be synced without making changes")
-	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to (defaults to value in config)")
+	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to, defaults to the config value")
 
 	return cmd
 }

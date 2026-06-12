@@ -105,9 +105,9 @@ func TestInit(t *testing.T) {
 func TestAddRootAndChild(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "experiment results")
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "--parent", "experiment results", "baseline numbers")
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "--parent", "experiment results", "attempt 2")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "experiment results")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "experiment results", "baseline numbers")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "experiment results", "attempt 2")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -136,7 +136,7 @@ func TestAddRootAndChild(t *testing.T) {
 func TestAppendStdin(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "bench log")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "bench log")
 
 	writeLines := func(stdout io.Reader, stdin io.WriteCloser) error {
 		if _, err := io.WriteString(stdin, "line one\nline two\nline three\n"); err != nil {
@@ -145,7 +145,7 @@ func TestAppendStdin(t *testing.T) {
 		stdin.Close()
 		return nil
 	}
-	testutils.MustWaitDnoteCmd(t, opts, writeLines, binaryName, "append", "bench log")
+	testutils.MustWaitDnoteCmd(t, opts, writeLines, binaryName, "node", "append", "bench log")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -162,8 +162,8 @@ func TestAppendStdin(t *testing.T) {
 func TestAppendNoteFlag(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "target")
-	testutils.RunDnoteCmd(t, opts, binaryName, "append", "target", "some context", "--note")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "target")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "append", "target", "some context", "--note")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -244,7 +244,7 @@ func TestRemove(t *testing.T) {
 	testutils.SetupNodes1(t, db)
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "rm", "-f", "baseline numbers")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "remove", "-f", "baseline numbers")
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -264,7 +264,7 @@ func TestMove(t *testing.T) {
 	testutils.SetupNodes1(t, db)
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "mv", "attempt 2", "reading list")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "move", "attempt 2", "reading list")
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -283,7 +283,7 @@ func TestComplete(t *testing.T) {
 	testutils.SetupNodes1(t, db)
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "complete", "attempt 2")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "attempt 2", "--state", "complete")
 
 	db = database.OpenTestDB(t, testDir)
 
@@ -295,7 +295,7 @@ func TestComplete(t *testing.T) {
 	}
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "uncomplete", "attempt 2")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "attempt 2", "--state", "uncomplete")
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()

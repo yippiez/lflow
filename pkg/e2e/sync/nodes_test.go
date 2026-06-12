@@ -53,11 +53,11 @@ func TestSyncPushFresh(t *testing.T) {
 	env := setupTestEnv(t)
 	user := setupUserAndLogin(t, env)
 
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "experiment results")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "--parent", "experiment results", "baseline numbers")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "--parent", "baseline numbers", "parse: 1.42s")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "node", "add", "experiment results")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "node", "add", "--parent", "experiment results", "baseline numbers")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "node", "add", "--parent", "baseline numbers", "parse: 1.42s")
 
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	checkState(t, env.DB, user, env.ServerDB, systemState{
 		clientNodeCount:  3,
@@ -88,7 +88,7 @@ func TestSyncPullFresh(t *testing.T) {
 	rootUUID := apiCreateNode(t, env, user, "", 0, "reading list", "creating root")
 	childUUID := apiCreateNode(t, env, user, rootUUID, 0, "weekend reading", "creating child")
 
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	checkState(t, env.DB, user, env.ServerDB, systemState{
 		clientNodeCount:  2,
@@ -110,10 +110,10 @@ func TestSyncUpdatePropagation(t *testing.T) {
 	user := setupUserAndLogin(t, env)
 
 	rootUUID := apiCreateNode(t, env, user, "", 0, "notes", "creating root")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	apiPatchNode(t, env, user, rootUUID, `{"parent_uuid": "", "rank": 0, "name": "notes v2", "layout": "h1"}`, "updating node")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	n := clientNode(t, env.DB, rootUUID)
 	assert.Equal(t, n.Name, "notes v2", "updated name not propagated")
@@ -126,11 +126,11 @@ func TestSyncLocalEditPushed(t *testing.T) {
 	user := setupUserAndLogin(t, env)
 
 	rootUUID := apiCreateNode(t, env, user, "", 0, "draft", "creating root")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	// edit locally via the CLI
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "append", "draft", "first line")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "node", "append", "draft", "first line")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	var serverChild database.Node
 	apitestMustFirst(t, env, &serverChild, "name = ?", "first line")
@@ -144,10 +144,10 @@ func TestSyncDeletePropagation(t *testing.T) {
 		user := setupUserAndLogin(t, env)
 
 		rootUUID := apiCreateNode(t, env, user, "", 0, "to delete", "creating root")
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 		apiDeleteNode(t, env, user, rootUUID, "deleting node")
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 		var count int
 		cliDatabase.MustScan(t, "counting client nodes", env.DB.QueryRow("SELECT count(*) FROM nodes"), &count)
@@ -159,10 +159,10 @@ func TestSyncDeletePropagation(t *testing.T) {
 		user := setupUserAndLogin(t, env)
 
 		apiCreateNode(t, env, user, "", 0, "doomed", "creating root")
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "rm", "-f", "doomed")
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "node", "remove", "-f", "doomed")
+		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 		var serverNode database.Node
 		apitestMustFirst(t, env, &serverNode, "name = ?", "")
@@ -181,14 +181,14 @@ func TestSyncDirtyLocalWinsConvergence(t *testing.T) {
 	user := setupUserAndLogin(t, env)
 
 	rootUUID := apiCreateNode(t, env, user, "", 0, "contested", "creating root")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	// remote edit
 	apiPatchNode(t, env, user, rootUUID, `{"parent_uuid": "", "rank": 0, "name": "remote edit"}`, "remote edit")
 	// local edit (marks dirty)
 	cliDatabase.MustExec(t, "local edit", env.DB, "UPDATE nodes SET name = 'local edit', dirty = 1 WHERE uuid = ?", rootUUID)
 
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	// local wins on the client...
 	n := clientNode(t, env.DB, rootUUID)
@@ -209,7 +209,7 @@ func TestSyncFull(t *testing.T) {
 	apiCreateNode(t, env, user, "", 0, "a", "creating a")
 	apiCreateNode(t, env, user, "", 1, "b", "creating b")
 
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync", "-f")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync", "-f")
 
 	checkState(t, env.DB, user, env.ServerDB, systemState{
 		clientNodeCount:  2,
@@ -225,14 +225,14 @@ func TestSyncEmptyServerUpload(t *testing.T) {
 	env := setupTestEnv(t)
 	setupUserAndLogin(t, env)
 
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "keep me")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "node", "add", "keep me")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	// switch to a brand new empty server
 	switchToEmptyServer(t, &env)
 	newUser := setupUserAndLogin(t, env)
 
-	out := clitest.MustWaitDnoteCmd(t, env.CmdOpts, clitest.UserConfirmEmptyServerSync, cliBinaryName, "sync")
+	out := clitest.MustWaitDnoteCmd(t, env.CmdOpts, clitest.UserConfirmEmptyServerSync, cliBinaryName, "server", "sync")
 	_ = out
 
 	var serverNodeCount int64
@@ -248,8 +248,8 @@ func TestSyncIdempotent(t *testing.T) {
 	user := setupUserAndLogin(t, env)
 
 	apiCreateNode(t, env, user, "", 0, "stable", "creating node")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	checkState(t, env.DB, user, env.ServerDB, systemState{
 		clientNodeCount:  1,

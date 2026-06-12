@@ -41,10 +41,9 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
-		Use:     "rm <node>",
-		Short:   "Delete a node and its subtree",
-		Aliases: []string{"remove", "d", "delete"},
-		RunE:    newRun(ctx, opts),
+		Use:   "remove <node>",
+		Short: "Delete a node and its subtree",
+		RunE:  newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()

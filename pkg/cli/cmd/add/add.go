@@ -40,30 +40,17 @@ type options struct {
 	strict   bool
 }
 
-var example = `
- * Add a top-level node (under root)
- lflow add "reading list"
-
- * Add under a specific node
- lflow add --parent "reading list" "ddia"
-
- * Pipe stdin: every line becomes a child node
- make bench 2>&1 | lflow append "experiment results"
-
- * Append to the node's note instead
- echo "context" | lflow append "experiment results" --note`
-
 // NewCmd returns a new add command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
-	return newCmd(ctx, "add", "Add child nodes under a node", []string{"a", "new"})
+	return newCmd(ctx, "add", "Add nodes under a parent, root by default")
 }
 
-// NewAppendCmd returns the append alias command
+// NewAppendCmd returns the append command
 func NewAppendCmd(ctx context.DnoteCtx) *cobra.Command {
-	return newCmd(ctx, "append", "Append trailing children to a node", []string{"ap"})
+	return newCmd(ctx, "append", "Append trailing children to a node")
 }
 
-func newCmd(ctx context.DnoteCtx, use, short string, aliases []string) *cobra.Command {
+func newCmd(ctx context.DnoteCtx, use, short string) *cobra.Command {
 	opts := &options{}
 
 	useLine := use + " [text]"
@@ -71,11 +58,9 @@ func newCmd(ctx context.DnoteCtx, use, short string, aliases []string) *cobra.Co
 		useLine = use + " <node> [text]"
 	}
 	cmd := &cobra.Command{
-		Use:     useLine,
-		Short:   short,
-		Aliases: aliases,
-		Example: example,
-		RunE:    newRun(ctx, opts, use == "append"),
+		Use:   useLine,
+		Short: short,
+		RunE:  newRun(ctx, opts, use == "append"),
 	}
 
 	f := cmd.Flags()

@@ -36,26 +36,14 @@ type options struct {
 	strict bool
 }
 
-var example = `
- * Top-level nodes
- lflow list
-
- * Markdown outline of a subtree
- lflow list "experiment results" --depth 2
-
- * JSON for scripting
- lflow list "experiment results" --format json | jq -r .children[0].name`
-
 // NewCmd returns a new list command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
-		Use:     "list [node]",
-		Short:   "Print a node's subtree",
-		Aliases: []string{"ls", "l"},
-		Example: example,
-		RunE:    newRun(ctx, opts),
+		Use:   "list [node]",
+		Short: "Print a node's subtree, or the top-level nodes with no argument",
+		RunE:  newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()

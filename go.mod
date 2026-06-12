@@ -19,6 +19,7 @@ require (
 	github.com/radovskyb/watcher v1.0.7
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/cobra v1.10.1
+	github.com/spf13/pflag v1.0.10
 	golang.org/x/crypto v0.45.0
 	golang.org/x/term v0.44.0
 	golang.org/x/time v0.13.0
@@ -49,7 +50,6 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stretchr/testify v1.8.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sys v0.46.0 // indirect

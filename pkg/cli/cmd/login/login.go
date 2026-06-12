@@ -31,24 +31,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var example = `
-  lflow login`
-
 var usernameFlag, passwordFlag, apiEndpointFlag string
 
 // NewCmd returns a new login command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "login",
-		Short:   "Login to lflow server",
-		Example: example,
-		RunE:    newRun(ctx),
+		Use:   "login",
+		Short: "Log in to the lflow server",
+		RunE:  newRun(ctx),
 	}
 
 	f := cmd.Flags()
 	f.StringVarP(&usernameFlag, "username", "u", "", "email address for authentication")
 	f.StringVarP(&passwordFlag, "password", "p", "", "password for authentication")
-	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to (defaults to value in config)")
+	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to, defaults to the config value")
 
 	return cmd
 }

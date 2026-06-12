@@ -31,22 +31,18 @@ import (
 // ErrNotLoggedIn is an error for logging out when not logged in
 var ErrNotLoggedIn = errors.New("not logged in")
 
-var example = `
-  lflow logout`
-
 var apiEndpointFlag string
 
 // NewCmd returns a new logout command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "logout",
-		Short:   "Logout from the server",
-		Example: example,
-		RunE:    newRun(ctx),
+		Use:   "logout",
+		Short: "Log out from the lflow server",
+		RunE:  newRun(ctx),
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to (defaults to value in config)")
+	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to, defaults to the config value")
 
 	return cmd
 }

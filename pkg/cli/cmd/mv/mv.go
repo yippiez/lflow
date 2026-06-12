@@ -40,10 +40,9 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
-		Use:     "mv <node> <new-parent>",
-		Short:   "Move a node under another node",
-		Aliases: []string{"move"},
-		RunE:    newRun(ctx, opts),
+		Use:   "move <node> <new-parent>",
+		Short: "Move a node under another node",
+		RunE:  newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()

@@ -232,9 +232,9 @@ func testSyncCmd(t *testing.T, fullSync bool, setup setupFunc, assert assertFunc
 	ids := setup(t, env, user)
 
 	if fullSync {
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync", "-f")
+		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync", "-f")
 	} else {
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
+		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 	}
 
 	assert(t, env, user, ids)
