@@ -21,57 +21,30 @@ import (
 	"github.com/lflow/lflow/pkg/cli/database"
 )
 
-// Setup1 sets up a lflow env #1
-func Setup1(t *testing.T, db *database.DB) {
-	b1UUID := "js-book-uuid"
-	b2UUID := "linux-book-uuid"
-
-	database.MustExec(t, "setting up book 1", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", b1UUID, "js")
-	database.MustExec(t, "setting up book 2", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", b2UUID, "linux")
-
-	database.MustExec(t, "setting up note 1", db, "INSERT INTO notes (uuid, book_uuid, body, added_on) VALUES (?, ?, ?, ?)", "43827b9a-c2b0-4c06-a290-97991c896653", b1UUID, "Booleans have toString()", 1515199943)
+// SetupNodes1 seeds a small node forest:
+//
+//	experiment results (h1, root)
+//	├─ baseline numbers
+//	│  ╰─ parse: 1.42s
+//	╰─ attempt 2
+//	reading list (root)
+func SetupNodes1(t *testing.T, db *database.DB) {
+	insertNode(t, db, "root-1-uuid", "", 0, "experiment results", "h1", 0)
+	insertNode(t, db, "child-1-uuid", "root-1-uuid", 0, "baseline numbers", "bullets", 0)
+	insertNode(t, db, "grandchild-1-uuid", "child-1-uuid", 0, "parse: 1.42s", "bullets", 0)
+	insertNode(t, db, "child-2-uuid", "root-1-uuid", 1, "attempt 2", "bullets", 0)
+	insertNode(t, db, "root-2-uuid", "", 1, "reading list", "bullets", 0)
 }
 
-// Setup2 sets up a lflow env #2
-func Setup2(t *testing.T, db *database.DB) {
-	b1UUID := "js-book-uuid"
-	b2UUID := "linux-book-uuid"
-
-	database.MustExec(t, "setting up book 1", db, "INSERT INTO books (uuid, label, usn) VALUES (?, ?, ?)", b1UUID, "js", 111)
-	database.MustExec(t, "setting up book 2", db, "INSERT INTO books (uuid, label, usn) VALUES (?, ?, ?)", b2UUID, "linux", 122)
-
-	database.MustExec(t, "setting up note 1", db, "INSERT INTO notes (uuid, book_uuid, body, added_on, usn) VALUES (?, ?, ?, ?, ?)", "f0d0fbb7-31ff-45ae-9f0f-4e429c0c797f", b1UUID, "n1 body", 1515199951, 11)
-	database.MustExec(t, "setting up note 2", db, "INSERT INTO notes (uuid, book_uuid, body, added_on, usn) VALUES (?, ?, ?, ?, ?)", "43827b9a-c2b0-4c06-a290-97991c896653", b1UUID, "n2 body", 1515199943, 12)
-	database.MustExec(t, "setting up note 3", db, "INSERT INTO notes (uuid, book_uuid, body, added_on, usn) VALUES (?, ?, ?, ?, ?)", "3e065d55-6d47-42f2-a6bf-f5844130b2d2", b2UUID, "n3 body", 1515199961, 13)
+// SetupNodes2 seeds nodes that have already been synced (usn > 0).
+func SetupNodes2(t *testing.T, db *database.DB) {
+	insertNode(t, db, "root-1-uuid", "", 0, "experiment results", "h1", 11)
+	insertNode(t, db, "child-1-uuid", "root-1-uuid", 0, "baseline numbers", "bullets", 12)
+	insertNode(t, db, "root-2-uuid", "", 1, "reading list", "bullets", 13)
 }
 
-// Setup3 sets up a lflow env #3
-func Setup3(t *testing.T, db *database.DB) {
-	b1UUID := "js-book-uuid"
-
-	database.MustExec(t, "setting up book 1", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", b1UUID, "js")
-
-	database.MustExec(t, "setting up note 1", db, "INSERT INTO notes (uuid, book_uuid, body, added_on) VALUES (?, ?, ?, ?)", "43827b9a-c2b0-4c06-a290-97991c896653", b1UUID, "Booleans have toString()", 1515199943)
-}
-
-// Setup4 sets up a lflow env #4
-func Setup4(t *testing.T, db *database.DB) {
-	b1UUID := "js-book-uuid"
-
-	database.MustExec(t, "setting up book 1", db, "INSERT INTO books (uuid, label, usn) VALUES (?, ?, ?)", b1UUID, "js", 111)
-
-	database.MustExec(t, "setting up note 1", db, "INSERT INTO notes (rowid, uuid, book_uuid, body, added_on, usn) VALUES (?, ?, ?, ?, ?, ?)", 1, "43827b9a-c2b0-4c06-a290-97991c896653", b1UUID, "Booleans have toString()", 1515199943, 11)
-	database.MustExec(t, "setting up note 2", db, "INSERT INTO notes (rowid, uuid, book_uuid, body, added_on, usn) VALUES (?, ?, ?, ?, ?, ?)", 2, "f0d0fbb7-31ff-45ae-9f0f-4e429c0c797f", b1UUID, "Date object implements mathematical comparisons", 1515199951, 12)
-}
-
-// Setup5 sets up a lflow env #2
-func Setup5(t *testing.T, db *database.DB) {
-	b1UUID := "js-book-uuid"
-	b2UUID := "linux-book-uuid"
-
-	database.MustExec(t, "setting up book 1", db, "INSERT INTO books (uuid, label, usn) VALUES (?, ?, ?)", b1UUID, "js", 111)
-	database.MustExec(t, "setting up book 2", db, "INSERT INTO books (uuid, label, usn) VALUES (?, ?, ?)", b2UUID, "linux", 122)
-
-	database.MustExec(t, "setting up note 1", db, "INSERT INTO notes (uuid, book_uuid, body, added_on, usn) VALUES (?, ?, ?, ?, ?)", "f0d0fbb7-31ff-45ae-9f0f-4e429c0c797f", b1UUID, "n1 body", 1515199951, 11)
-	database.MustExec(t, "setting up note 2", db, "INSERT INTO notes (uuid, book_uuid, body, added_on, usn) VALUES (?, ?, ?, ?, ?)", "43827b9a-c2b0-4c06-a290-97991c896653", b1UUID, "n2 body", 1515199943, 12)
+func insertNode(t *testing.T, db *database.DB, uuid, parentUUID string, rank int, name, layout string, usn int) {
+	database.MustExec(t, "setting up node "+name, db,
+		"INSERT INTO nodes (uuid, parent_uuid, rank, name, note, layout, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty) VALUES (?, ?, ?, ?, '', ?, '', 0, ?, ?, ?, 0, ?)",
+		uuid, parentUUID, rank, name, layout, 1515199943, 1515199943, usn, usn == 0)
 }

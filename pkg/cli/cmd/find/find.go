@@ -13,183 +13,102 @@
  * limitations under the License.
  */
 
+// Package find searches for a node and opens the inline editor on the best
+// match. With --print it dumps the outline to stdout instead.
 package find
 
 import (
-	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/editor"
 	"github.com/lflow/lflow/pkg/cli/infra"
-	"github.com/lflow/lflow/pkg/cli/log"
+	"github.com/lflow/lflow/pkg/cli/outline"
+	"github.com/lflow/lflow/pkg/cli/resolve"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
-var example = `
-	# find notes by a keyword
-	lflow find rpoplpush
-
-	# find notes by multiple keywords
-	lflow find "building a heap"
-
-	# find notes within a book
-	lflow find "merge sort" -b algorithm
-	`
-
-var bookName string
-
-func preRun(cmd *cobra.Command, args []string) error {
-	if len(args) != 1 {
-		return errors.New("Incorrect number of argument")
-	}
-
-	return nil
+type options struct {
+	print  bool
+	strict bool
+	all    bool
+	idOnly bool
 }
 
-// NewCmd returns a new remove command
+var example = `
+ * Open the inline editor on the best match
+ lflow find "experiment results"
+
+ * Print the outline instead of opening the editor
+ lflow find "experiment results" --print
+
+ * List all matches instead of acting
+ lflow find exp --strict`
+
+// NewCmd returns a new find command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+	opts := &options{}
+
 	cmd := &cobra.Command{
-		Use:     "find",
-		Short:   "Find notes by keywords",
+		Use:     "find <query>",
+		Short:   "Find a node and open the inline editor on it",
 		Aliases: []string{"f"},
 		Example: example,
-		PreRunE: preRun,
-		RunE:    newRun(ctx),
+		RunE:    newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()
-	f.StringVarP(&bookName, "book", "b", "", "book name to find notes in")
+	f.BoolVar(&opts.print, "print", false, "print the outline instead of opening the editor")
+	f.BoolVar(&opts.strict, "strict", false, "list matches instead of opening the best one")
+	f.BoolVar(&opts.all, "all", false, "include completed nodes")
+	f.BoolVar(&opts.idOnly, "id", false, "print only the node id of the best match")
 
 	return cmd
 }
 
-// noteInfo is an information about the note to be printed on screen
-type noteInfo struct {
-	RowID     int
-	BookLabel string
-	Body      string
-}
-
-// formatFTSSnippet turns the matched snippet from a full text search
-// into a format suitable for CLI output
-func formatFTSSnippet(s string) (string, error) {
-	// first, strip all new lines
-	body := newLineReg.ReplaceAllString(s, " ")
-
-	var format, buf strings.Builder
-	var args []interface{}
-
-	toks := tokenize(body)
-
-	for _, tok := range toks {
-		if tok.Kind == tokenKindHLBegin || tok.Kind == tokenKindEOL {
-			format.WriteString("%s")
-			args = append(args, buf.String())
-
-			buf.Reset()
-		} else if tok.Kind == tokenKindHLEnd {
-			format.WriteString("%s")
-			str := log.ColorYellow.Sprintf("%s", buf.String())
-			args = append(args, str)
-
-			buf.Reset()
-		} else {
-			if err := buf.WriteByte(tok.Value); err != nil {
-				return "", errors.Wrap(err, "building string")
-			}
-		}
-	}
-
-	return fmt.Sprintf(format.String(), args...), nil
-}
-
-// escapePhrase escapes the user-supplied FTS keywords by wrapping each term around
-// double quotations so that they are treated as 'strings' as defined by SQLite FTS5.
-func escapePhrase(s string) (string, error) {
-	var b strings.Builder
-
-	terms := strings.Fields(s)
-
-	for idx, term := range terms {
-		if _, err := b.WriteString(fmt.Sprintf("\"%s\"", term)); err != nil {
-			return "", errors.Wrap(err, "writing string to builder")
-		}
-
-		if idx != len(term)-1 {
-			if err := b.WriteByte(' '); err != nil {
-				return "", errors.Wrap(err, "writing space to builder")
-			}
-		}
-	}
-
-	return b.String(), nil
-}
-
-func doQuery(ctx context.DnoteCtx, query, bookName string) (*sql.Rows, error) {
-	db := ctx.DB
-
-	sql := `SELECT
-		notes.rowid,
-		books.label AS book_label,
-		snippet(note_fts, 0, '<dnotehl>', '</dnotehl>', '...', 28)
-	FROM note_fts
-	INNER JOIN notes ON notes.rowid = note_fts.rowid
-	INNER JOIN books ON notes.book_uuid = books.uuid
-	WHERE note_fts MATCH ?`
-	args := []interface{}{query}
-
-	if bookName != "" {
-		sql = fmt.Sprintf("%s AND books.label = ?", sql)
-		args = append(args, bookName)
-	}
-
-	rows, err := db.Query(sql, args...)
-
-	return rows, err
-}
-
-func newRun(ctx context.DnoteCtx) infra.RunEFunc {
+func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
-		phrase, err := escapePhrase(args[0])
+		if len(args) < 1 {
+			return errors.New("missing search query")
+		}
+		query := strings.Join(args, " ")
+		db := ctx.DB
+
+		r, err := resolve.Resolve(db, query, opts.all)
 		if err != nil {
-			return errors.Wrap(err, "escaping phrase")
-		}
-
-		rows, err := doQuery(ctx, phrase, bookName)
-		if err != nil {
-			return errors.Wrap(err, "querying notes")
-		}
-		defer rows.Close()
-
-		infos := []noteInfo{}
-		for rows.Next() {
-			var info noteInfo
-
-			var body string
-			err = rows.Scan(&info.RowID, &info.BookLabel, &body)
-			if err != nil {
-				return errors.Wrap(err, "scanning a row")
+			if _, ok := err.(resolve.ErrNoMatch); ok {
+				resolve.PrintNoMatch(query)
+				os.Exit(1)
 			}
+			return err
+		}
 
-			body, err := formatFTSSnippet(body)
+		if opts.strict && r.Total > 1 {
+			resolve.PrintMatches(db, r.Matches)
+			return nil
+		}
+
+		if opts.idOnly {
+			fmt.Println(r.Node.UUID)
+			return nil
+		}
+
+		if opts.print {
+			out, err := outline.RenderMarkdown(db, r.Node, -1, opts.all)
 			if err != nil {
-				return errors.Wrap(err, "formatting a body")
+				return errors.Wrap(err, "rendering outline")
 			}
-
-			info.Body = body
-
-			infos = append(infos, info)
+			if out != "" {
+				fmt.Println(out)
+			}
+			return nil
 		}
 
-		for _, info := range infos {
-			bookLabel := log.ColorYellow.Sprintf("(%s)", info.BookLabel)
-			rowid := log.ColorYellow.Sprintf("(%d)", info.RowID)
+		resolve.Feedback("opening", r)
 
-			log.Plainf("%s %s %s\n", bookLabel, rowid, info.Body)
-		}
-
-		return nil
+		return editor.Run(ctx, r.Node.UUID)
 	}
 }

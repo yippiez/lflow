@@ -26,15 +26,18 @@ import (
 
 	// commands
 	"github.com/lflow/lflow/pkg/cli/cmd/add"
+	"github.com/lflow/lflow/pkg/cli/cmd/complete"
 	"github.com/lflow/lflow/pkg/cli/cmd/edit"
+	"github.com/lflow/lflow/pkg/cli/cmd/export"
 	"github.com/lflow/lflow/pkg/cli/cmd/find"
+	"github.com/lflow/lflow/pkg/cli/cmd/list"
 	"github.com/lflow/lflow/pkg/cli/cmd/login"
 	"github.com/lflow/lflow/pkg/cli/cmd/logout"
+	"github.com/lflow/lflow/pkg/cli/cmd/mv"
 	"github.com/lflow/lflow/pkg/cli/cmd/remove"
 	"github.com/lflow/lflow/pkg/cli/cmd/root"
 	"github.com/lflow/lflow/pkg/cli/cmd/sync"
 	"github.com/lflow/lflow/pkg/cli/cmd/version"
-	"github.com/lflow/lflow/pkg/cli/cmd/view"
 )
 
 // apiEndpoint and versionTag are populated during link time
@@ -77,9 +80,14 @@ func main() {
 	root.Register(login.NewCmd(*ctx))
 	root.Register(logout.NewCmd(*ctx))
 	root.Register(add.NewCmd(*ctx))
+	root.Register(add.NewAppendCmd(*ctx))
+	root.Register(list.NewCmd(*ctx))
+	root.Register(mv.NewCmd(*ctx))
+	root.Register(complete.NewCmd(*ctx))
+	root.Register(complete.NewUncompleteCmd(*ctx))
+	root.Register(export.NewCmd(*ctx))
 	root.Register(sync.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
-	root.Register(view.NewCmd(*ctx))
 	root.Register(find.NewCmd(*ctx))
 
 	if err := root.Execute(); err != nil {

@@ -13,186 +13,210 @@
  * limitations under the License.
  */
 
+// Package add creates child nodes under a parent node. Piped stdin becomes
+// one node per line; `lflow append` is the same operation by another name.
 package add
 
 import (
-	"database/sql"
-	"time"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
 	"github.com/lflow/lflow/pkg/cli/infra"
 	"github.com/lflow/lflow/pkg/cli/log"
-	"github.com/lflow/lflow/pkg/cli/output"
+	"github.com/lflow/lflow/pkg/cli/resolve"
 	"github.com/lflow/lflow/pkg/cli/ui"
-	"github.com/lflow/lflow/pkg/cli/upgrade"
 	"github.com/lflow/lflow/pkg/cli/utils"
-	"github.com/lflow/lflow/pkg/cli/validate"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
-var contentFlag string
+type options struct {
+	intoNote bool
+	top      bool
+	strict   bool
+	all      bool
+	root     bool
+}
 
 var example = `
- * Open an editor to write content
- lflow add git
+ * Add a child node
+ lflow add "experiment results" "attempt 3"
 
- * Skip the editor by providing content directly
- lflow add git -c "time is a part of the commit hash"
+ * Pipe stdin: every line becomes a child node
+ make bench 2>&1 | lflow append "experiment results"
 
- * Send stdin content to a note
- echo "a branch is just a pointer to a commit" | lflow add git
- # or
- lflow add git << EOF
- pull is fetch with a merge
- EOF`
+ * Append to the node's note instead
+ echo "context" | lflow append "experiment results" --note
 
-func preRun(cmd *cobra.Command, args []string) error {
-	if len(args) != 1 {
-		return errors.New("Incorrect number of argument")
-	}
-
-	return nil
-}
+ * Create a new root node
+ lflow add --root "reading list"`
 
 // NewCmd returns a new add command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+	return newCmd(ctx, "add", "Add child nodes under a node", []string{"a", "new"})
+}
+
+// NewAppendCmd returns the append alias command
+func NewAppendCmd(ctx context.DnoteCtx) *cobra.Command {
+	return newCmd(ctx, "append", "Append trailing children to a node", []string{"ap"})
+}
+
+func newCmd(ctx context.DnoteCtx, use, short string, aliases []string) *cobra.Command {
+	opts := &options{}
+
 	cmd := &cobra.Command{
-		Use:     "add <book>",
-		Short:   "Add a new note",
-		Aliases: []string{"a", "n", "new"},
+		Use:     use + " <node> [text]",
+		Short:   short,
+		Aliases: aliases,
 		Example: example,
-		PreRunE: preRun,
-		RunE:    newRun(ctx),
+		RunE:    newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()
-	f.StringVarP(&contentFlag, "content", "c", "", "The new content for the note")
+	f.BoolVar(&opts.intoNote, "note", false, "append the text to the node's note instead of creating children")
+	f.BoolVar(&opts.top, "top", false, "prepend instead of append")
+	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
+	f.BoolVar(&opts.all, "all", false, "include completed nodes when resolving")
+	f.BoolVar(&opts.root, "root", false, "create a new root node named <node> (no parent resolution)")
 
 	return cmd
 }
 
-func getContent(ctx context.DnoteCtx) (string, error) {
-	if contentFlag != "" {
-		return contentFlag, nil
+func readLines(args []string) ([]string, error) {
+	// explicit text argument
+	if len(args) > 0 {
+		text := strings.Join(args, " ")
+		return strings.Split(text, "\n"), nil
 	}
 
-	// check for piped content
+	// piped stdin: one node per line
 	fInfo, _ := os.Stdin.Stat()
-	if fInfo.Mode() & os.ModeCharDevice == 0 {
+	if fInfo.Mode()&os.ModeCharDevice == 0 {
 		c, err := ui.ReadStdInput()
 		if err != nil {
-			return "", errors.Wrap(err, "Failed to get piped input")
+			return nil, errors.Wrap(err, "reading piped input")
 		}
-		return c, nil
+		var lines []string
+		for _, l := range strings.Split(strings.TrimRight(c, "\n"), "\n") {
+			lines = append(lines, l)
+		}
+		return lines, nil
 	}
 
-	fpath, err := ui.GetTmpContentPath(ctx)
-	if err != nil {
-		return "", errors.Wrap(err, "getting temporarily content file path")
-	}
-
-	c, err := ui.GetEditorInput(ctx, fpath)
-	if err != nil {
-		return "", errors.Wrap(err, "Failed to get editor input")
-	}
-
-	return c, nil
+	return nil, errors.New("no content: pass text or pipe stdin")
 }
 
-func newRun(ctx context.DnoteCtx) infra.RunEFunc {
+func insertChildren(db *database.DB, parentUUID string, lines []string, top bool) (int, error) {
+	now := time.Now().UnixNano()
+
+	var rank int
+	var err error
+	if top {
+		rank = 0
+		// shift existing children down
+		if _, err := db.Exec("UPDATE nodes SET rank = rank + ? WHERE parent_uuid = ? AND deleted = 0", len(lines), parentUUID); err != nil {
+			return 0, errors.Wrap(err, "shifting sibling ranks")
+		}
+	} else {
+		rank, err = database.NextRank(db, parentUUID)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	count := 0
+	for i, line := range lines {
+		uuid, err := utils.GenerateUUID()
+		if err != nil {
+			return count, errors.Wrap(err, "generating uuid")
+		}
+		n := database.Node{
+			UUID:       uuid,
+			ParentUUID: parentUUID,
+			Rank:       rank + i,
+			Name:       line,
+			Layout:     database.LayoutBullets,
+			AddedOn:    now,
+			EditedOn:   now,
+			Dirty:      true,
+		}
+		if err := n.Insert(db); err != nil {
+			return count, err
+		}
+		count++
+	}
+
+	return count, nil
+}
+
+func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
-		bookName := args[0]
-		if err := validate.BookName(bookName); err != nil {
-			return errors.Wrap(err, "invalid book name")
+		if len(args) < 1 {
+			return errors.New("missing node reference")
 		}
-
-		content, err := getContent(ctx)
-		if err != nil {
-			return errors.Wrap(err, "getting content")
-		}
-		if content == "" {
-			return errors.New("Empty content")
-		}
-
-		ts := time.Now().UnixNano()
-		noteRowID, err := writeNote(ctx, bookName, content, ts)
-		if err != nil {
-			return errors.Wrap(err, "Failed to write note")
-		}
-
-		log.Successf("added to %s\n", bookName)
+		ref := args[0]
+		rest := args[1:]
 
 		db := ctx.DB
-		info, err := database.GetNoteInfo(db, noteRowID)
+
+		if opts.root {
+			count, err := insertChildren(db, "", []string{ref}, opts.top)
+			if err != nil {
+				return errors.Wrap(err, "creating root node")
+			}
+			_ = count
+			log.Successf("created root node %q\n", ref)
+			return nil
+		}
+
+		r, err := resolve.Resolve(db, ref, opts.all)
+		if err != nil {
+			if _, ok := err.(resolve.ErrNoMatch); ok {
+				resolve.PrintNoMatch(ref)
+				os.Exit(1)
+			}
+			return err
+		}
+
+		if opts.strict && r.Total > 1 {
+			resolve.PrintMatches(db, r.Matches)
+			os.Exit(1)
+		}
+
+		lines, err := readLines(rest)
 		if err != nil {
 			return err
 		}
 
-		output.NoteInfo(os.Stdout, info)
+		if opts.intoNote {
+			text := strings.Join(lines, "\n")
+			note := r.Node.Note
+			if note != "" {
+				note += "\n"
+			}
+			note += text
+			now := time.Now().UnixNano()
+			if _, err := db.Exec("UPDATE nodes SET note = ?, edited_on = ?, dirty = 1 WHERE uuid = ?", note, now, r.Node.UUID); err != nil {
+				return errors.Wrap(err, "updating note")
+			}
+			log.Successf("noted on %q\n", r.Node.Name)
+			return nil
+		}
 
-		if err := upgrade.Check(ctx); err != nil {
-			log.Error(errors.Wrap(err, "automatically checking updates").Error())
+		count, err := insertChildren(db, r.Node.UUID, lines, opts.top)
+		if err != nil {
+			return errors.Wrap(err, "inserting nodes")
+		}
+
+		if count == 1 {
+			log.Successf("added 1 node to %q\n", r.Node.Name)
+		} else {
+			log.Successf("added %d nodes to %q\n", count, r.Node.Name)
 		}
 
 		return nil
 	}
-}
-
-func writeNote(ctx context.DnoteCtx, bookLabel string, content string, ts int64) (int, error) {
-	tx, err := ctx.DB.Begin()
-	if err != nil {
-		return 0, errors.Wrap(err, "beginning a transaction")
-	}
-
-	var bookUUID string
-	err = tx.QueryRow("SELECT uuid FROM books WHERE label = ?", bookLabel).Scan(&bookUUID)
-	if err == sql.ErrNoRows {
-		bookUUID, err = utils.GenerateUUID()
-		if err != nil {
-			return 0, errors.Wrap(err, "generating uuid")
-		}
-
-		b := database.NewBook(bookUUID, bookLabel, 0, false, true)
-		err = b.Insert(tx)
-		if err != nil {
-			tx.Rollback()
-			return 0, errors.Wrap(err, "creating the book")
-		}
-	} else if err != nil {
-		return 0, errors.Wrap(err, "finding the book")
-	}
-
-	noteUUID, err := utils.GenerateUUID()
-	if err != nil {
-		return 0, errors.Wrap(err, "generating uuid")
-	}
-
-	n := database.NewNote(noteUUID, bookUUID, content, ts, 0, 0, false, true)
-
-	err = n.Insert(tx)
-	if err != nil {
-		tx.Rollback()
-		return 0, errors.Wrap(err, "creating the note")
-	}
-
-	var noteRowID int
-	err = tx.QueryRow(`SELECT notes.rowid
-			FROM notes
-			WHERE notes.uuid = ?`, noteUUID).
-		Scan(&noteRowID)
-	if err != nil {
-		tx.Rollback()
-		return noteRowID, errors.Wrap(err, "getting the note rowid")
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		tx.Rollback()
-		return noteRowID, errors.Wrap(err, "committing a transaction")
-	}
-
-	return noteRowID, nil
 }

@@ -13,92 +13,68 @@
  * limitations under the License.
  */
 
+// Package edit opens the inline editor directly on a known node.
 package edit
 
 import (
+	"os"
+	"strings"
+
 	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/editor"
 	"github.com/lflow/lflow/pkg/cli/infra"
-	"github.com/lflow/lflow/pkg/cli/log"
-	"github.com/lflow/lflow/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/cli/resolve"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
-var contentFlag string
-var bookFlag string
-var nameFlag string
-
-var example = `
-  * Edit a note by id
-  lflow edit 3
-
-  * Edit a note without launching an editor
-  lflow edit 3 -c "new content"
-
-  * Move a note to another book
-  lflow edit 3 -b javascript
-
-  * Rename a book
-  lflow edit javascript
-
-  * Rename a book without launching an editor
-  lflow edit javascript -n js
-`
+type options struct {
+	strict bool
+	all    bool
+}
 
 // NewCmd returns a new edit command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+	opts := &options{}
+
 	cmd := &cobra.Command{
-		Use:     "edit <note id|book name>",
-		Short:   "Edit a note or a book",
+		Use:     "edit <node>",
+		Short:   "Open the inline editor on a node",
 		Aliases: []string{"e"},
-		Example: example,
-		PreRunE: preRun,
-		RunE:    newRun(ctx),
+		RunE:    newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()
-	f.StringVarP(&contentFlag, "content", "c", "", "a new content for the note")
-	f.StringVarP(&bookFlag, "book", "b", "", "the name of the book to move the note to")
-	f.StringVarP(&nameFlag, "name", "n", "", "a new name for a book")
+	f.BoolVar(&opts.strict, "strict", false, "list matches instead of opening the best one")
+	f.BoolVar(&opts.all, "all", false, "include completed nodes")
 
 	return cmd
 }
 
-func preRun(cmd *cobra.Command, args []string) error {
-	if len(args) != 1 && len(args) != 2 {
-		return errors.New("Incorrect number of argument")
-	}
-
-	return nil
-}
-
-func newRun(ctx context.DnoteCtx) infra.RunEFunc {
+func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
-		// DEPRECATED: Remove in 1.0.0
-		if len(args) == 2 {
-			log.Plain(log.ColorYellow.Sprintf("DEPRECATED: you no longer need to pass book name to the view command. e.g. `lflow view 123`.\n\n"))
+		if len(args) < 1 {
+			return errors.New("missing node reference")
+		}
+		ref := strings.Join(args, " ")
+		db := ctx.DB
 
-			target := args[1]
-
-			if err := runNote(ctx, target); err != nil {
-				return errors.Wrap(err, "editing note")
+		r, err := resolve.Resolve(db, ref, opts.all)
+		if err != nil {
+			if _, ok := err.(resolve.ErrNoMatch); ok {
+				resolve.PrintNoMatch(ref)
+				os.Exit(1)
 			}
+			return err
+		}
 
+		if opts.strict && r.Total > 1 {
+			resolve.PrintMatches(db, r.Matches)
 			return nil
 		}
 
-		target := args[0]
+		resolve.Feedback("opening", r)
 
-		if utils.IsNumber(target) {
-			if err := runNote(ctx, target); err != nil {
-				return errors.Wrap(err, "editing note")
-			}
-		} else {
-			if err := runBook(ctx, target); err != nil {
-				return errors.Wrap(err, "editing book")
-			}
-		}
-
-		return nil
+		return editor.Run(ctx, r.Node.UUID)
 	}
 }
