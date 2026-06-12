@@ -228,6 +228,28 @@ type MatchScore struct {
 	Score float64
 }
 
+// RecentNodes returns non-deleted nodes ordered by recency, excluding the
+// fixed root. The editor finder lists it while the query is still empty so
+// the picker starts full instead of blank.
+func RecentNodes(db *DB, limit int) ([]Node, error) {
+	rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE deleted = 0 AND uuid != ? ORDER BY edited_on DESC LIMIT ?",
+		RootUUID, limit)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying recent nodes")
+	}
+	defer rows.Close()
+
+	var ret []Node
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, errors.Wrap(err, "scanning node")
+		}
+		ret = append(ret, n)
+	}
+	return ret, nil
+}
+
 // SearchNodes returns nodes matching the query, best match first. It combines
 // FTS5 ranking with simple lexical preferences (exact name, prefix, substring)
 // so that the top result is the "most probable" node for best-match commands.

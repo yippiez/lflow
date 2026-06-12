@@ -628,7 +628,15 @@ func (m *Model) openFinder(act finderAction) {
 }
 
 func (m *Model) refreshFinder() {
-	hits, err := database.SearchNodes(m.db, m.finderQuery, true)
+	// an empty query matches everything, recent first: the picker starts
+	// full and narrows as you type
+	var hits []database.Node
+	var err error
+	if strings.TrimSpace(m.finderQuery) == "" {
+		hits, err = database.RecentNodes(m.db, 100)
+	} else {
+		hits, err = database.SearchNodes(m.db, m.finderQuery, true)
+	}
 	if err != nil {
 		m.finderHits = nil
 		return
