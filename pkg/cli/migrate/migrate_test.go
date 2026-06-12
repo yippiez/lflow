@@ -16,10 +16,7 @@
 package migrate
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -1144,74 +1141,19 @@ func TestLocalMigration14(t *testing.T) {
 }
 
 func TestRemoteMigration1(t *testing.T) {
-	// set up
-	db := database.InitTestMemoryDBRaw(t, "./fixtures/remote-1-pre-schema.sql")
+	// rm1 is a no-op since the node model replaced books/notes.
+	db := database.InitTestMemoryDB(t)
 	ctx := context.InitTestCtxWithDB(t, db)
-	testutils.Login(t, &ctx)
-
-	JSBookUUID := "existing-js-book-uuid"
-	CSSBookUUID := "existing-css-book-uuid"
-	linuxBookUUID := "existing-linux-book-uuid"
-	newJSBookUUID := "new-js-book-uuid"
-	newCSSBookUUID := "new-css-book-uuid"
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.String() == "/v3/books" {
-			res := []struct {
-				UUID  string `json:"uuid"`
-				Label string `json:"label"`
-			}{
-				{
-					UUID:  newJSBookUUID,
-					Label: "js",
-				},
-				{
-					UUID:  newCSSBookUUID,
-					Label: "css",
-				},
-				// book that only exists on the server. client must ignore.
-				{
-					UUID:  "golang-book-uuid",
-					Label: "golang",
-				},
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(res); err != nil {
-				t.Fatal(errors.Wrap(err, "encoding response"))
-			}
-		}
-	}))
-	defer server.Close()
-
-	ctx.APIEndpoint = server.URL
-
-	database.MustExec(t, "inserting js book", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", JSBookUUID, "js")
-	database.MustExec(t, "inserting css book", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", CSSBookUUID, "css")
-	database.MustExec(t, "inserting linux book", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", linuxBookUUID, "linux")
-	database.MustExec(t, "inserting sessionKey", db, "INSERT INTO system (key, value) VALUES (?, ?)", consts.SystemSessionKey, "someSessionKey")
-	database.MustExec(t, "inserting sessionKeyExpiry", db, "INSERT INTO system (key, value) VALUES (?, ?)", consts.SystemSessionKeyExpiry, time.Now().Add(24*time.Hour).Unix())
 
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "beginning a transaction"))
 	}
 
-	err = rm1.run(ctx, tx)
-	if err != nil {
+	if err := rm1.run(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(errors.Wrap(err, "failed to run"))
 	}
 
 	tx.Commit()
-
-	// test
-	var postJSBookUUID, postCSSBookUUID, postLinuxBookUUID string
-	database.MustScan(t, "getting js book uuid", db.QueryRow("SELECT uuid FROM books WHERE label = ?", "js"), &postJSBookUUID)
-	database.MustScan(t, "getting css book uuid", db.QueryRow("SELECT uuid FROM books WHERE label = ?", "css"), &postCSSBookUUID)
-	database.MustScan(t, "getting linux book uuid", db.QueryRow("SELECT uuid FROM books WHERE label = ?", "linux"), &postLinuxBookUUID)
-
-	assert.Equal(t, postJSBookUUID, newJSBookUUID, "js book uuid was not updated correctly")
-	assert.Equal(t, postCSSBookUUID, newCSSBookUUID, "css book uuid was not updated correctly")
-	assert.Equal(t, postLinuxBookUUID, linuxBookUUID, "linux book uuid changed")
 }

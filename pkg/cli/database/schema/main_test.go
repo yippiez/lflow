@@ -48,10 +48,10 @@ func TestRun(t *testing.T) {
 
 	// Verify schema contains expected tables
 	expectedTables := []string{
-		"CREATE TABLE books",
+		"CREATE TABLE nodes",
 		"CREATE TABLE system",
-		"CREATE TABLE \"notes\"",
-		"CREATE VIRTUAL TABLE note_fts",
+		"CREATE TABLE wf_mirrors",
+		"CREATE VIRTUAL TABLE node_fts",
 	}
 
 	for _, expected := range expectedTables {
@@ -60,9 +60,9 @@ func TestRun(t *testing.T) {
 
 	// Verify schema contains triggers
 	expectedTriggers := []string{
-		"CREATE TRIGGER notes_after_insert",
-		"CREATE TRIGGER notes_after_delete",
-		"CREATE TRIGGER notes_after_update",
+		"CREATE TRIGGER nodes_after_insert",
+		"CREATE TRIGGER nodes_after_delete",
+		"CREATE TRIGGER nodes_after_update",
 	}
 
 	for _, expected := range expectedTriggers {

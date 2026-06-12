@@ -186,12 +186,34 @@ func getLegacyDnotePath(homeDir string) string {
 // InitDB initializes the database.
 // Ideally this process must be a part of migration sequence. But it is performed
 // seaprately because it is a prerequisite for legacy migration.
+//
+// The legacy dnote tables (notes/books/actions) are only created when the
+// database has not yet been converted to the node model: the lm1..lm14 legacy
+// migrations expect them, and lm15 converts them into nodes and drops them.
 func InitDB(ctx context.DnoteCtx) error {
 	log.Debug("initializing the database\n")
 
 	db := ctx.DB
 
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS notes
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS system
+		(
+			key string NOT NULL,
+			value text NOT NULL
+		)`)
+	if err != nil {
+		return errors.Wrap(err, "creating system table")
+	}
+
+	// if the node model already exists, the legacy tables are gone for good
+	var nodesCount int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'nodes'").Scan(&nodesCount); err != nil {
+		return errors.Wrap(err, "checking for nodes table")
+	}
+	if nodesCount > 0 {
+		return nil
+	}
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS notes
 		(
 			id integer PRIMARY KEY AUTOINCREMENT,
 			uuid text NOT NULL,
@@ -212,15 +234,6 @@ func InitDB(ctx context.DnoteCtx) error {
 		)`)
 	if err != nil {
 		return errors.Wrap(err, "creating books table")
-	}
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS system
-		(
-			key string NOT NULL,
-			value text NOT NULL
-		)`)
-	if err != nil {
-		return errors.Wrap(err, "creating system table")
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS actions
