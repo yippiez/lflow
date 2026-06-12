@@ -38,6 +38,7 @@ import (
 	"github.com/lflow/lflow/pkg/cli/cmd/root"
 	"github.com/lflow/lflow/pkg/cli/cmd/sync"
 	"github.com/lflow/lflow/pkg/cli/cmd/version"
+	wfcmd "github.com/lflow/lflow/pkg/cli/cmd/wf"
 )
 
 // apiEndpoint and versionTag are populated during link time
@@ -89,6 +90,7 @@ func main() {
 	root.Register(sync.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
 	root.Register(find.NewCmd(*ctx))
+	root.Register(wfcmd.NewCmd(*ctx))
 
 	if err := root.Execute(); err != nil {
 		log.Errorf("%s\n", err.Error())
