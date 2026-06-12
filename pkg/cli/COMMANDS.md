@@ -6,9 +6,7 @@ best match unless `--strict` is given. Completed nodes always resolve: a referen
 you typed is a reference you meant.
 
 ```
-lflow open [node]                 the inline editor
-lflow list [node]                 print a subtree
-lflow node add|append|move|remove|edit
+lflow node open|list|add|move|remove|edit
 lflow export                      dump the whole forest
 lflow server login|logout|sync    self-hosted lflow-server
 lflow wf ...                      workflowy integration
@@ -19,25 +17,25 @@ A global `--dbPath <path>` flag, accepted before or after the subcommand, overri
 the SQLite database location. `--help` on any command shows its help; there is no
 help command.
 
-## lflow open
+## lflow node open
 
 ```
-lflow open [node]
+lflow node open [node]
 ```
 
 Open the inline editor on the best match for a query or id. With no argument,
 open the root.
 
 ```
-lflow open                      # the whole outline
-lflow open "experiment results"
-lflow open 31b450               # id prefix
+lflow node open                      # the whole outline
+lflow node open "experiment results"
+lflow node open 31b450               # id prefix
 ```
 
-## lflow list
+## lflow node list
 
 ```
-lflow list [node]
+lflow node list [node]
 ```
 
 Print a node's subtree to stdout. With no argument, list the top-level nodes with
@@ -50,35 +48,33 @@ their ids. Completed nodes are always included.
 | `--strict` | false | list matches instead of acting on the best match |
 
 ```
-lflow list
-lflow list "experiment results" --depth 2
-lflow list "experiment results" --format json | jq -r '.children[0].name'
+lflow node list
+lflow node list "experiment results" --depth 2
+lflow node list "experiment results" --format json | jq -r '.children[0].name'
 ```
 
-## lflow node add / lflow node append
+## lflow node add
 
 ```
 lflow node add [text]
-lflow node append <node> [text]
 ```
 
-`add` creates top-level nodes under the always-present root; `--parent` targets a
-node deeper in the tree. `append` is the same operation with the parent passed
-positionally. Text comes from positional arguments or piped stdin, where **every
-line becomes one child node**.
+Add nodes under a parent — the always-present root by default, `--parent` targets
+a node deeper in the tree. Text comes from positional arguments or piped stdin,
+where **every line becomes one child node**.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--parent <node>` | "" | parent node, defaults to root — add only |
-| `--note` | false | append the text to the node's note instead of creating children |
+| `--parent <node>` | "" | parent node, defaults to root |
+| `--note` | false | append the text to the parent's note instead of creating children |
 | `--top` | false | prepend instead of append |
 | `--strict` | false | list matches instead of acting on the best match |
 
 ```
 lflow node add "reading list"
 lflow node add --parent "reading list" "ddia"
-make bench 2>&1 | lflow node append "experiment results"
-echo "context" | lflow node append "experiment results" --note
+make bench 2>&1 | lflow node add --parent "experiment results"
+echo "context" | lflow node add --parent "experiment results" --note
 ```
 
 ## lflow node move

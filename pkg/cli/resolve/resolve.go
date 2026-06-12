@@ -104,7 +104,7 @@ func Feedback(action string, r Result) {
 // PrintNoMatch prints the standard miss output (red arrow, dim hint).
 func PrintNoMatch(ref string) {
 	fmt.Println(red.Sprint("→ ") + fmt.Sprintf("no node matching %s", yellow.Sprintf("%q", ref)))
-	fmt.Println(dim.Sprint("  hint: lflow list shows ids · references match by id, id prefix or text"))
+	fmt.Println(dim.Sprint("  hint: lflow node list shows ids · references match by id, id prefix or text"))
 }
 
 // CountNoun formats a count with a singular/plural noun.

@@ -26,9 +26,7 @@ import (
 
 	// commands
 	"github.com/lflow/lflow/pkg/cli/cmd/export"
-	"github.com/lflow/lflow/pkg/cli/cmd/list"
 	"github.com/lflow/lflow/pkg/cli/cmd/node"
-	"github.com/lflow/lflow/pkg/cli/cmd/open"
 	"github.com/lflow/lflow/pkg/cli/cmd/root"
 	"github.com/lflow/lflow/pkg/cli/cmd/server"
 	"github.com/lflow/lflow/pkg/cli/cmd/version"
@@ -70,8 +68,6 @@ func main() {
 	}
 	defer ctx.DB.Close()
 
-	root.Register(open.NewCmd(*ctx))
-	root.Register(list.NewCmd(*ctx))
 	root.Register(node.NewCmd(*ctx))
 	root.Register(export.NewCmd(*ctx))
 	root.Register(server.NewCmd(*ctx))

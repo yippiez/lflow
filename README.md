@@ -6,9 +6,9 @@
 Lflow is a local-first terminal outline tool.
 
 Your outline lives in **one SQLite file**. Every command works offline. Nodes are
-bullets, headings, todos, code, quotes and mirrors; `lflow open "query"` drops you
+bullets, headings, todos, code, quotes and mirrors; `lflow node open "query"` drops you
 into an inline terminal editor on the best match. Commands are one-shot and
-pipe-friendly, so `make bench 2>&1 | lflow node append "experiment results"` just works.
+pipe-friendly, so `make bench 2>&1 | lflow node add --parent "experiment results"` just works.
 
 Device sync is optional and runs against a self-hostable `lflow-server`. Workflowy
 is an optional integration (a mirror source, not a backend).
@@ -36,20 +36,20 @@ lflow node add "reading list"
 
 # Add children: positional text, or pipe stdin where every line becomes a node
 lflow node add --parent "reading list" "Designing Data-Intensive Applications"
-make bench 2>&1 | lflow node append "experiment results"
+make bench 2>&1 | lflow node add --parent "experiment results"
 
 # Open the inline editor on the best match
-lflow open "reading list"
-lflow open                 # the whole outline
+lflow node open "reading list"
+lflow node open            # the whole outline
 
 # Dump a subtree as JSON for scripting
-lflow list                 # top-level nodes
-lflow list "reading list" --format json | jq -r '.children[].name'
+lflow node list            # top-level nodes
+lflow node list "reading list" --format json | jq -r '.children[].name'
 ```
 
 ## The editor
 
-`lflow open [node]` opens an inline editor. It draws in the terminal scrollback —
+`lflow node open [node]` opens an inline editor. It draws in the terminal scrollback —
 it never switches to the alternate screen — and quitting leaves the fully styled
 outline behind in your history. Changes are saved on quit, and `ctrl+s` saves
 explicitly.

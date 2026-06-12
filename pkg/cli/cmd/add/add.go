@@ -42,32 +42,17 @@ type options struct {
 
 // NewCmd returns a new add command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
-	return newCmd(ctx, "add", "Add nodes under a parent, root by default")
-}
-
-// NewAppendCmd returns the append command
-func NewAppendCmd(ctx context.DnoteCtx) *cobra.Command {
-	return newCmd(ctx, "append", "Append trailing children to a node")
-}
-
-func newCmd(ctx context.DnoteCtx, use, short string) *cobra.Command {
 	opts := &options{}
 
-	useLine := use + " [text]"
-	if use == "append" {
-		useLine = use + " <node> [text]"
-	}
 	cmd := &cobra.Command{
-		Use:   useLine,
-		Short: short,
-		RunE:  newRun(ctx, opts, use == "append"),
+		Use:   "add [text]",
+		Short: "Add nodes under a parent, root by default",
+		RunE:  newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()
-	if use != "append" {
-		f.StringVar(&opts.parent, "parent", "", "parent node, defaults to root")
-	}
-	f.BoolVar(&opts.intoNote, "note", false, "append the text to the node's note instead of creating children")
+	f.StringVar(&opts.parent, "parent", "", "parent node, defaults to root")
+	f.BoolVar(&opts.intoNote, "note", false, "append the text to the parent's note instead of creating children")
 	f.BoolVar(&opts.top, "top", false, "prepend instead of append")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
 
@@ -141,36 +126,24 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, top bool
 	return count, nil
 }
 
-func newRun(ctx context.DnoteCtx, opts *options, isAppend bool) infra.RunEFunc {
+func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
 		if err := database.EnsureRoot(db); err != nil {
 			return err
 		}
 
-		// resolve the target: append takes it positionally, add via --parent
-		// (defaulting to the always-available root)
+		// resolve --parent, defaulting to the always-available root
 		parentUUID := database.RootUUID
 		parentName := "root"
-		textArgs := args
-		ref := ""
-		if isAppend {
-			if len(args) < 1 {
-				return errors.New("missing node reference")
-			}
-			ref = args[0]
-			textArgs = args[1:]
-		} else if opts.parent != "" {
-			ref = opts.parent
-		}
 
 		var r resolve.Result
-		if ref != "" {
+		if opts.parent != "" {
 			var err error
-			r, err = resolve.Resolve(db, ref)
+			r, err = resolve.Resolve(db, opts.parent)
 			if err != nil {
 				if _, ok := err.(resolve.ErrNoMatch); ok {
-					resolve.PrintNoMatch(ref)
+					resolve.PrintNoMatch(opts.parent)
 					os.Exit(1)
 				}
 				return err
@@ -184,14 +157,14 @@ func newRun(ctx context.DnoteCtx, opts *options, isAppend bool) infra.RunEFunc {
 			parentName = r.Node.Name
 		}
 
-		lines, err := readLines(textArgs)
+		lines, err := readLines(args)
 		if err != nil {
 			return err
 		}
 
 		if opts.intoNote {
-			if parentUUID == "" {
-				return errors.New("--note needs a target node (use append <node> --note)")
+			if opts.parent == "" {
+				return errors.New("--note needs --parent")
 			}
 			text := strings.Join(lines, "\n")
 			note := r.Node.Note

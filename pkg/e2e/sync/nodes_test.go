@@ -129,7 +129,7 @@ func TestSyncLocalEditPushed(t *testing.T) {
 	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	// edit locally via the CLI
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "node", "append", "draft", "first line")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "node", "add", "--parent", "draft", "first line")
 	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	var serverChild database.Node
