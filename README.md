@@ -8,7 +8,7 @@ Lflow is a local-first terminal outline tool.
 Your outline lives in **one SQLite file**. Every command works offline. Nodes are
 bullets, headings, todos, code, quotes and mirrors; `lflow open "query"` drops you
 into an inline terminal editor on the best match. Commands are one-shot and
-pipe-friendly, so `make bench 2>&1 | lflow append "experiment results"` just works.
+pipe-friendly, so `make bench 2>&1 | lflow node append "experiment results"` just works.
 
 Device sync is optional and runs against a self-hostable `lflow-server`. Workflowy
 is an optional integration (a mirror source, not a backend).
@@ -31,12 +31,12 @@ The Makefile wraps the release builds:
 ## Quick start
 
 ```sh
-# Create a root node
-lflow add "reading list"   # top-level (under the always-present root)
+# Create a top-level node under the always-present root
+lflow node add "reading list"
 
-# Add children (positional text, or pipe stdin: one node per line)
-lflow add --parent "reading list" "Designing Data-Intensive Applications"
-make bench 2>&1 | lflow append "experiment results"
+# Add children: positional text, or pipe stdin where every line becomes a node
+lflow node add --parent "reading list" "Designing Data-Intensive Applications"
+make bench 2>&1 | lflow node append "experiment results"
 
 # Open the inline editor on the best match
 lflow open "reading list"
@@ -121,19 +121,19 @@ recent first, and narrows as you type.
 
 Sync mirrors the local node tree to a self-hosted `lflow-server` using the USN-based
 protocol adapted from dnote. Sync is optional; nothing leaves your machine until you
-log in and run `lflow sync`.
+log in and run `lflow server sync`.
 
 ```sh
-lflow login                 # authenticate against the server
-lflow sync                  # incremental push/pull
-lflow sync --full           # full reconcile
-lflow sync --dry-run        # show what would be pushed/pulled
-lflow logout
+lflow server login          # authenticate against the server
+lflow server sync           # incremental push/pull
+lflow server sync --full    # full reconcile
+lflow server sync --dry-run # show what would be pushed/pulled
+lflow server logout
 ```
 
 Point the CLI at your server by setting `apiEndpoint` in `~/.config/lflow/lflowrc`,
-or pass `--apiEndpoint` to `login`/`sync`. Conflict rule: a node edited locally
-(dirty) wins and is pushed back; otherwise the server state wins. See
+or pass `--apiEndpoint` to `server login`/`server sync`. Conflict rule: a node
+edited locally wins and is pushed back; otherwise the server state wins. See
 [SELF_HOSTING.md](SELF_HOSTING.md) for running the server.
 
 ## Workflowy

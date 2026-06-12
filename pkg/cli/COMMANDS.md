@@ -5,46 +5,33 @@ resolved by full-text search, a node id, or an id prefix; they act on the single
 best match unless `--strict` is given. Completed nodes always resolve: a reference
 you typed is a reference you meant.
 
-- [add / append](#lflow-add--lflow-append)
-- [list](#lflow-list)
-- [open](#lflow-open)
-- [mv](#lflow-mv)
-- [rm](#lflow-rm)
-- [complete / uncomplete](#lflow-complete--lflow-uncomplete)
-- [export](#lflow-export)
-- [sync](#lflow-sync)
-- [login](#lflow-login)
-- [logout](#lflow-logout)
-- [wf](#lflow-wf)
-- [version](#lflow-version)
+```
+lflow open [node]                 the inline editor
+lflow list [node]                 print a subtree
+lflow node add|append|move|remove|edit
+lflow export                      dump the whole forest
+lflow server login|logout|sync    self-hosted lflow-server
+lflow wf ...                      workflowy integration
+lflow version
+```
 
 A global `--dbPath <path>` flag, accepted before or after the subcommand, overrides
-the SQLite database location.
+the SQLite database location. `--help` on any command shows its help; there is no
+help command.
 
-## lflow add / lflow append
-
-```
-lflow add [text]
-lflow append <node> [text]
-```
-
-`add` creates top-level nodes under the always-present root; `--parent` targets a
-node deeper in the tree. `append` is the same operation with the parent passed
-positionally. Text comes from positional arguments or piped stdin, where **every
-line becomes one child node**. Aliases: `a`, `new` for add; `ap` for append.
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--parent <node>` | "" | parent node, defaults to root — add only |
-| `--note` | false | append the text to the node's note instead of creating children |
-| `--top` | false | prepend instead of append |
-| `--strict` | false | list matches instead of acting on the best match |
+## lflow open
 
 ```
-lflow add "reading list"
-lflow add --parent "reading list" "ddia"
-make bench 2>&1 | lflow append "experiment results"
-echo "context" | lflow append "experiment results" --note
+lflow open [node]
+```
+
+Open the inline editor on the best match for a query or id. With no argument,
+open the root.
+
+```
+lflow open                      # the whole outline
+lflow open "experiment results"
+lflow open 31b450               # id prefix
 ```
 
 ## lflow list
@@ -54,7 +41,7 @@ lflow list [node]
 ```
 
 Print a node's subtree to stdout. With no argument, list the top-level nodes with
-their ids. Completed nodes are always included. Aliases: `ls`, `l`.
+their ids. Completed nodes are always included.
 
 | Flag | Default | Description |
 | --- | --- | --- |
@@ -68,29 +55,39 @@ lflow list "experiment results" --depth 2
 lflow list "experiment results" --format json | jq -r '.children[0].name'
 ```
 
-## lflow open
+## lflow node add / lflow node append
 
 ```
-lflow open [node]
+lflow node add [text]
+lflow node append <node> [text]
 ```
 
-Open the inline editor on the best match for a query or id. With no argument,
-open the root. Aliases: `o`, `e`, `f`, `edit`, `find`.
+`add` creates top-level nodes under the always-present root; `--parent` targets a
+node deeper in the tree. `append` is the same operation with the parent passed
+positionally. Text comes from positional arguments or piped stdin, where **every
+line becomes one child node**.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--parent <node>` | "" | parent node, defaults to root — add only |
+| `--note` | false | append the text to the node's note instead of creating children |
+| `--top` | false | prepend instead of append |
+| `--strict` | false | list matches instead of acting on the best match |
 
 ```
-lflow open                      # the whole outline
-lflow open "experiment results"
-lflow open 31b450               # id prefix
+lflow node add "reading list"
+lflow node add --parent "reading list" "ddia"
+make bench 2>&1 | lflow node append "experiment results"
+echo "context" | lflow node append "experiment results" --note
 ```
 
-## lflow mv
+## lflow node move
 
 ```
-lflow mv <node> <new-parent>
+lflow node move <node> <new-parent>
 ```
 
 Move a node and its subtree under another node, placed last by default.
-Alias: `move`.
 
 | Flag | Default | Description |
 | --- | --- | --- |
@@ -100,32 +97,39 @@ Alias: `move`.
 
 Moving a node into itself or into its own subtree is rejected.
 
-## lflow rm
+## lflow node remove
 
 ```
-lflow rm <node>
+lflow node remove <node>
 ```
 
 Delete a node and its subtree. The delete is tombstoned, so it is pushed on sync.
-Aliases: `remove`, `d`, `delete`.
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-f`, `--force` | false | skip confirmation |
 | `--strict` | false | list matches instead of acting on the best match |
 
-## lflow complete / lflow uncomplete
+## lflow node edit
 
 ```
-lflow complete <node>
-lflow uncomplete <node>
+lflow node edit <node>
 ```
 
-Mark a node completed / not completed.
+Edit a node's properties. At least one of the property flags is required.
 
 | Flag | Default | Description |
 | --- | --- | --- |
+| `--state` | "" | `complete` or `uncomplete` |
+| `--name` | "" | rename the node |
+| `--note` | "" | replace the node's note |
+| `--layout` | "" | `bullets`, `todo`, `h1`, `h2`, `h3`, `code` or `quote` |
 | `--strict` | false | list matches instead of acting on the best match |
+
+```
+lflow node edit "attempt 2" --state complete
+lflow node edit "attempt 2" --name "attempt 3" --layout todo
+```
 
 ## lflow export
 
@@ -139,24 +143,14 @@ Export the whole local forest, completed nodes included, to stdout.
 | --- | --- | --- |
 | `--format` | `json` | output format: `json` or `md` |
 
-## lflow sync
+## lflow server
+
+The self-hosted `lflow-server` commands.
+
+### lflow server login
 
 ```
-lflow sync
-```
-
-Sync nodes with the lflow server, requires `lflow login`. Alias: `s`.
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `-f`, `--full` | false | perform a full sync instead of an incremental one |
-| `--dry-run` | false | show what would be synced without making changes |
-| `--apiEndpoint <url>` | "" | API endpoint to connect to, defaults to the config value |
-
-## lflow login
-
-```
-lflow login
+lflow server login
 ```
 
 Log in to the lflow server. Prompts for email and password if not provided.
@@ -167,13 +161,27 @@ Log in to the lflow server. Prompts for email and password if not provided.
 | `-p`, `--password <pw>` | "" | password for authentication |
 | `--apiEndpoint <url>` | "" | API endpoint to connect to, defaults to the config value |
 
-## lflow logout
+### lflow server logout
 
 ```
-lflow logout
+lflow server logout
 ```
 
 Log out from the server.
+
+### lflow server sync
+
+```
+lflow server sync
+```
+
+Sync nodes with the lflow server, requires `lflow server login`.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-f`, `--full` | false | perform a full sync instead of an incremental one |
+| `--dry-run` | false | show what would be synced without making changes |
+| `--apiEndpoint <url>` | "" | API endpoint to connect to, defaults to the config value |
 
 ## lflow wf
 
@@ -245,4 +253,4 @@ Detach a workflowy mirror. You must pass exactly one of:
 lflow version
 ```
 
-Print the version number.
+Print the version.
