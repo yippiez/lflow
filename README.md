@@ -32,16 +32,18 @@ The Makefile wraps the release builds:
 
 ```sh
 # Create a root node
-lflow add --root "reading list"
+lflow add "reading list"   # top-level (under the always-present root)
 
 # Add children (positional text, or pipe stdin: one node per line)
-lflow add "reading list" "Designing Data-Intensive Applications"
+lflow add --parent "reading list" "Designing Data-Intensive Applications"
 make bench 2>&1 | lflow append "experiment results"
 
 # Find a node and open the inline editor on the best match
 lflow find "reading list"
 
 # Dump a subtree as JSON for scripting
+lflow list                 # top-level nodes
+lflow open                 # edit the root
 lflow list "reading list" --format json | jq -r '.children[].name'
 ```
 
@@ -62,10 +64,12 @@ Glyphs: `○` bullet, `●` collapsed, `□` todo / `■` done, `◆` mirror (lo
 | `ctrl+space` | fold / unfold |
 | `ctrl+d` | delete the node and its subtree |
 | `alt+shift+↑` / `alt+shift+↓` | move the node up / down among siblings |
-| `alt+↓` | zoom in (make the node the view root) |
-| `alt+↑` | zoom out |
+| `alt+→` | zoom in (make the node the view root) |
+| `alt+←` (or `alt+backspace`) | zoom out |
+| `alt+↑` / `alt+↓` | collapse / expand the node |
 | `ctrl+s` | save |
 | `ctrl+q` or `esc esc` | quit (saves first) |
+| `ctrl+c` | quit, leaving the whole outline in scrollback |
 | `↑ ↓ ← →` `home` `end` | move the cursor / caret |
 
 ### Slash commands

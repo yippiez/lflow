@@ -34,25 +34,25 @@ import (
 )
 
 type options struct {
+	parent   string
 	intoNote bool
 	top      bool
 	strict   bool
 	all      bool
-	root     bool
 }
 
 var example = `
- * Add a child node
- lflow add "experiment results" "attempt 3"
+ * Add a top-level node (under root)
+ lflow add "reading list"
+
+ * Add under a specific node
+ lflow add --parent "reading list" "ddia"
 
  * Pipe stdin: every line becomes a child node
  make bench 2>&1 | lflow append "experiment results"
 
  * Append to the node's note instead
- echo "context" | lflow append "experiment results" --note
-
- * Create a new root node
- lflow add --root "reading list"`
+ echo "context" | lflow append "experiment results" --note`
 
 // NewCmd returns a new add command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
@@ -67,20 +67,26 @@ func NewAppendCmd(ctx context.DnoteCtx) *cobra.Command {
 func newCmd(ctx context.DnoteCtx, use, short string, aliases []string) *cobra.Command {
 	opts := &options{}
 
+	useLine := use + " [text]"
+	if use == "append" {
+		useLine = use + " <node> [text]"
+	}
 	cmd := &cobra.Command{
-		Use:     use + " <node> [text]",
+		Use:     useLine,
 		Short:   short,
 		Aliases: aliases,
 		Example: example,
-		RunE:    newRun(ctx, opts),
+		RunE:    newRun(ctx, opts, use == "append"),
 	}
 
 	f := cmd.Flags()
+	if use != "append" {
+		f.StringVar(&opts.parent, "parent", "", "parent node (default: root)")
+	}
 	f.BoolVar(&opts.intoNote, "note", false, "append the text to the node's note instead of creating children")
 	f.BoolVar(&opts.top, "top", false, "prepend instead of append")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
 	f.BoolVar(&opts.all, "all", false, "include completed nodes when resolving")
-	f.BoolVar(&opts.root, "root", false, "create a new root node named <node> (no parent resolution)")
 
 	return cmd
 }
@@ -152,46 +158,58 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, top bool
 	return count, nil
 }
 
-func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
+func newRun(ctx context.DnoteCtx, opts *options, isAppend bool) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("missing node reference")
-		}
-		ref := args[0]
-		rest := args[1:]
-
 		db := ctx.DB
-
-		if opts.root {
-			count, err := insertChildren(db, "", []string{ref}, opts.top)
-			if err != nil {
-				return errors.Wrap(err, "creating root node")
-			}
-			_ = count
-			log.Successf("created root node %q\n", ref)
-			return nil
-		}
-
-		r, err := resolve.Resolve(db, ref, opts.all)
-		if err != nil {
-			if _, ok := err.(resolve.ErrNoMatch); ok {
-				resolve.PrintNoMatch(ref)
-				os.Exit(1)
-			}
+		if err := database.EnsureRoot(db); err != nil {
 			return err
 		}
 
-		if opts.strict && r.Total > 1 {
-			resolve.PrintMatches(db, r.Matches)
-			os.Exit(1)
+		// resolve the target: append takes it positionally, add via --parent
+		// (defaulting to the always-available root)
+		parentUUID := database.RootUUID
+		parentName := "root"
+		textArgs := args
+		ref := ""
+		if isAppend {
+			if len(args) < 1 {
+				return errors.New("missing node reference")
+			}
+			ref = args[0]
+			textArgs = args[1:]
+		} else if opts.parent != "" {
+			ref = opts.parent
 		}
 
-		lines, err := readLines(rest)
+		var r resolve.Result
+		if ref != "" {
+			var err error
+			r, err = resolve.Resolve(db, ref, opts.all)
+			if err != nil {
+				if _, ok := err.(resolve.ErrNoMatch); ok {
+					resolve.PrintNoMatch(ref)
+					os.Exit(1)
+				}
+				return err
+			}
+
+			if opts.strict && r.Total > 1 {
+				resolve.PrintMatches(db, r.Matches)
+				os.Exit(1)
+			}
+			parentUUID = r.Node.UUID
+			parentName = r.Node.Name
+		}
+
+		lines, err := readLines(textArgs)
 		if err != nil {
 			return err
 		}
 
 		if opts.intoNote {
+			if parentUUID == "" {
+				return errors.New("--note needs a target node (use append <node> --note)")
+			}
 			text := strings.Join(lines, "\n")
 			note := r.Node.Note
 			if note != "" {
@@ -206,16 +224,12 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			return nil
 		}
 
-		count, err := insertChildren(db, r.Node.UUID, lines, opts.top)
+		count, err := insertChildren(db, parentUUID, lines, opts.top)
 		if err != nil {
 			return errors.Wrap(err, "inserting nodes")
 		}
 
-		if count == 1 {
-			log.Successf("added 1 node to %q\n", r.Node.Name)
-		} else {
-			log.Successf("added %d nodes to %q\n", count, r.Node.Name)
-		}
+		log.Successf("added %s to %q\n", resolve.CountNoun(count, "node"), parentName)
 
 		return nil
 	}

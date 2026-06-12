@@ -405,7 +405,7 @@ type dirtyNode struct {
 }
 
 func getDirtyNodes(tx *database.DB) ([]dirtyNode, error) {
-	rows, err := tx.Query("SELECT uuid, parent_uuid, rank, name, note, layout, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty FROM nodes WHERE dirty")
+	rows, err := tx.Query("SELECT uuid, parent_uuid, rank, name, note, layout, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty FROM nodes WHERE dirty AND uuid != ?", database.RootUUID)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting syncable nodes")
 	}
@@ -626,7 +626,7 @@ func saveSyncState(tx *database.DB, serverTime int64, serverMaxUSN int, userMaxU
 
 // prepareEmptyServerSync marks all local nodes as dirty when syncing to an empty server.
 func prepareEmptyServerSync(tx *database.DB) error {
-	if _, err := tx.Exec("UPDATE nodes SET usn = 0, dirty = 1 WHERE deleted = 0"); err != nil {
+	if _, err := tx.Exec("UPDATE nodes SET usn = 0, dirty = 1 WHERE deleted = 0 AND uuid != ?", database.RootUUID); err != nil {
 		return errors.Wrap(err, "marking nodes as dirty")
 	}
 
@@ -708,7 +708,7 @@ func newRun(ctx context.DnoteCtx) infra.RunEFunc {
 		log.Debug("lastSyncAt: %d, lastMaxUSN: %d, syncState: %+v\n", lastSyncAt, lastMaxUSN, syncState)
 
 		var nodeCount int
-		if err := tx.QueryRow("SELECT count(*) FROM nodes WHERE deleted = 0").Scan(&nodeCount); err != nil {
+		if err := tx.QueryRow("SELECT count(*) FROM nodes WHERE deleted = 0 AND uuid != ?", database.RootUUID).Scan(&nodeCount); err != nil {
 			return errors.Wrap(err, "counting local nodes")
 		}
 

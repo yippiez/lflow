@@ -252,7 +252,7 @@ type systemState struct {
 // checkState compares the state of the client and the server with the given system state
 func checkState(t *testing.T, clientDB *cliDatabase.DB, user database.User, serverDB *gorm.DB, expected systemState) {
 	var clientNodeCount int
-	cliDatabase.MustScan(t, "counting client nodes", clientDB.QueryRow("SELECT count(*) FROM nodes"), &clientNodeCount)
+	cliDatabase.MustScan(t, "counting client nodes", clientDB.QueryRow("SELECT count(*) FROM nodes WHERE uuid != 'root'"), &clientNodeCount)
 	assert.Equal(t, clientNodeCount, expected.clientNodeCount, "client node count mismatch")
 
 	var clientLastMaxUSN int

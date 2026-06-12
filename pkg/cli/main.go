@@ -34,6 +34,7 @@ import (
 	"github.com/lflow/lflow/pkg/cli/cmd/login"
 	"github.com/lflow/lflow/pkg/cli/cmd/logout"
 	"github.com/lflow/lflow/pkg/cli/cmd/mv"
+	"github.com/lflow/lflow/pkg/cli/cmd/open"
 	"github.com/lflow/lflow/pkg/cli/cmd/remove"
 	"github.com/lflow/lflow/pkg/cli/cmd/root"
 	"github.com/lflow/lflow/pkg/cli/cmd/sync"
@@ -90,6 +91,7 @@ func main() {
 	root.Register(sync.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
 	root.Register(find.NewCmd(*ctx))
+	root.Register(open.NewCmd(*ctx))
 	root.Register(wfcmd.NewCmd(*ctx))
 
 	if err := root.Execute(); err != nil {

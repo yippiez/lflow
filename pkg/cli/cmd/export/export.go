@@ -53,10 +53,13 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
+		if err := database.EnsureRoot(db); err != nil {
+			return err
+		}
 
-		roots, err := database.GetChildren(db, "")
+		roots, err := database.GetChildren(db, database.RootUUID)
 		if err != nil {
-			return errors.Wrap(err, "querying roots")
+			return errors.Wrap(err, "querying top-level nodes")
 		}
 
 		switch opts.format {

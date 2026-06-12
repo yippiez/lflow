@@ -61,7 +61,7 @@ func TestInit(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	// run an arbitrary command to trigger initialization
-	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots")
+	testutils.RunDnoteCmd(t, opts, binaryName, "list")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -105,15 +105,15 @@ func TestInit(t *testing.T) {
 func TestAddRootAndChild(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "--root", "experiment results")
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "experiment results", "baseline numbers")
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "experiment results", "attempt 2")
+	testutils.RunDnoteCmd(t, opts, binaryName, "add", "experiment results")
+	testutils.RunDnoteCmd(t, opts, binaryName, "add", "--parent", "experiment results", "baseline numbers")
+	testutils.RunDnoteCmd(t, opts, binaryName, "add", "--parent", "experiment results", "attempt 2")
 
 	db := database.OpenTestDB(t, testDir)
 
 	var rootUUID string
 	database.MustScan(t, "getting root uuid",
-		db.QueryRow("SELECT uuid FROM nodes WHERE name = ? AND parent_uuid = ''", "experiment results"), &rootUUID)
+		db.QueryRow("SELECT uuid FROM nodes WHERE name = ?", "experiment results"), &rootUUID)
 
 	var childCount int
 	database.MustScan(t, "counting children",
@@ -136,7 +136,7 @@ func TestAddRootAndChild(t *testing.T) {
 func TestAppendStdin(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "--root", "bench log")
+	testutils.RunDnoteCmd(t, opts, binaryName, "add", "bench log")
 
 	writeLines := func(stdout io.Reader, stdin io.WriteCloser) error {
 		if _, err := io.WriteString(stdin, "line one\nline two\nline three\n"); err != nil {
@@ -162,7 +162,7 @@ func TestAppendStdin(t *testing.T) {
 func TestAppendNoteFlag(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "add", "--root", "target")
+	testutils.RunDnoteCmd(t, opts, binaryName, "add", "target")
 	testutils.RunDnoteCmd(t, opts, binaryName, "append", "target", "some context", "--note")
 
 	db := database.OpenTestDB(t, testDir)
@@ -177,7 +177,7 @@ func TestList(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	// initialize, then seed
-	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots")
+	testutils.RunDnoteCmd(t, opts, binaryName, "list")
 	db := database.OpenTestDB(t, testDir)
 	testutils.SetupNodes1(t, db)
 	db.Close()
@@ -203,7 +203,7 @@ func TestList(t *testing.T) {
 	assert.Equal(t, tree.Name, "experiment results", "json root name mismatch")
 	assert.Equal(t, len(tree.Children), 2, "json child count mismatch")
 
-	out = testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots")
+	out = testutils.RunDnoteCmd(t, opts, binaryName, "list")
 	if !strings.Contains(out, "experiment results") || !strings.Contains(out, "reading list") {
 		t.Errorf("roots listing missing roots: %q", out)
 	}
@@ -212,7 +212,7 @@ func TestList(t *testing.T) {
 func TestFindPrintAndID(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots")
+	testutils.RunDnoteCmd(t, opts, binaryName, "list")
 	db := database.OpenTestDB(t, testDir)
 	testutils.SetupNodes1(t, db)
 	db.Close()
@@ -242,7 +242,7 @@ func TestFindMissExitsNonZero(t *testing.T) {
 func TestRemove(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots")
+	testutils.RunDnoteCmd(t, opts, binaryName, "list")
 	db := database.OpenTestDB(t, testDir)
 	testutils.SetupNodes1(t, db)
 	db.Close()
@@ -262,7 +262,7 @@ func TestRemove(t *testing.T) {
 func TestMove(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots")
+	testutils.RunDnoteCmd(t, opts, binaryName, "list")
 	db := database.OpenTestDB(t, testDir)
 	testutils.SetupNodes1(t, db)
 	db.Close()
@@ -281,7 +281,7 @@ func TestMove(t *testing.T) {
 func TestComplete(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots")
+	testutils.RunDnoteCmd(t, opts, binaryName, "list")
 	db := database.OpenTestDB(t, testDir)
 	testutils.SetupNodes1(t, db)
 	db.Close()
@@ -310,7 +310,7 @@ func TestComplete(t *testing.T) {
 func TestExport(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots")
+	testutils.RunDnoteCmd(t, opts, binaryName, "list")
 	db := database.OpenTestDB(t, testDir)
 	testutils.SetupNodes1(t, db)
 	db.Close()
@@ -329,7 +329,7 @@ func TestDBPathFlag(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	customDBPath := fmt.Sprintf("%s/custom.db", testDir)
-	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--roots", "--dbPath", customDBPath)
+	testutils.RunDnoteCmd(t, opts, binaryName, "list", "--dbPath", customDBPath)
 
 	ok, err := utils.FileExists(customDBPath)
 	if err != nil {

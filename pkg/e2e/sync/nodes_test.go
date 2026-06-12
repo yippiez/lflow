@@ -53,9 +53,9 @@ func TestSyncPushFresh(t *testing.T) {
 	env := setupTestEnv(t)
 	user := setupUserAndLogin(t, env)
 
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "--root", "experiment results")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "experiment results", "baseline numbers")
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "baseline numbers", "parse: 1.42s")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "experiment results")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "--parent", "experiment results", "baseline numbers")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "--parent", "baseline numbers", "parse: 1.42s")
 
 	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
 
@@ -225,7 +225,7 @@ func TestSyncEmptyServerUpload(t *testing.T) {
 	env := setupTestEnv(t)
 	setupUserAndLogin(t, env)
 
-	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "--root", "keep me")
+	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "add", "keep me")
 	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "sync")
 
 	// switch to a brand new empty server

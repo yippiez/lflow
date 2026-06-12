@@ -38,7 +38,7 @@ child node**. Aliases: `a`, `new` (add); `ap` (append).
 | `--top` | false | prepend instead of append |
 | `--strict` | false | list matches instead of acting on the best match |
 | `--all` | false | include completed nodes when resolving |
-| `--root` | false | create a new root node named `<node>` (no parent resolution) |
+| `--parent <node>` | false | create a new root node named `<node>` (no parent resolution) |
 
 ```
 lflow add --root "reading list"

@@ -42,7 +42,7 @@ var red = color.New(color.FgRed)
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "wf",
-		Short: "Workflowy integration: mirror workflowy nodes into the local tree",
+		Short: "Workflowy integration",
 	}
 
 	cmd.AddCommand(newLoginCmd(ctx))
@@ -128,7 +128,7 @@ func newMirrorCmd(ctx context.DnoteCtx) *cobra.Command {
 			}
 			wfNode, ok := wfpkg.FindByID(root, wfRef)
 			if !ok {
-				fmt.Println(red.Sprint("✗ ") + fmt.Sprintf("no workflowy node matching %q", wfRef))
+				fmt.Println(red.Sprint("→ ") + fmt.Sprintf("no workflowy node matching %q", wfRef))
 				os.Exit(1)
 			}
 
@@ -226,7 +226,7 @@ func newListCmd(ctx context.DnoteCtx) *cobra.Command {
 					ago = fmt.Sprintf("%s ago", time.Since(time.Unix(m.LastSync, 0)).Round(time.Second))
 				}
 				fmt.Printf("  %s %-24s %s\n", red.Sprint("◆"), node.Name,
-					dim.Sprintf("workflowy · last sync %s · %d nodes", ago, count))
+					dim.Sprintf("workflowy · last sync %s · %s", ago, resolve.CountNoun(count, "node")))
 			}
 			return nil
 		},

@@ -100,10 +100,18 @@ func Feedback(action string, r Result) {
 	fmt.Println(line)
 }
 
-// PrintNoMatch prints the standard miss output (red x, dim hint).
+// PrintNoMatch prints the standard miss output (red arrow, dim hint).
 func PrintNoMatch(ref string) {
-	fmt.Println(red.Sprint("✗ ") + fmt.Sprintf("no node matching %s", yellow.Sprintf("%q", ref)))
-	fmt.Println(dim.Sprint("  hint: lflow list --roots · add --all to include completed nodes"))
+	fmt.Println(red.Sprint("→ ") + fmt.Sprintf("no node matching %s", yellow.Sprintf("%q", ref)))
+	fmt.Println(dim.Sprint("  hint: lflow list · add --all to include completed nodes"))
+}
+
+// CountNoun formats a count with a singular/plural noun.
+func CountNoun(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // PrintMatches lists matches with short ids for --strict.
@@ -117,6 +125,6 @@ func PrintMatches(db *database.DB, matches []database.Node) {
 		if len(shortID) > 6 {
 			shortID = shortID[:6]
 		}
-		fmt.Printf("    %s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %d nodes", n.Layout, count))
+		fmt.Printf("    %s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %s", n.Layout, CountNoun(count, "node")))
 	}
 }

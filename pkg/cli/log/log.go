@@ -44,22 +44,22 @@ var indent = "  "
 
 // Info prints information
 func Info(msg string) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorBlue.Sprint("•"), msg)
+	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGray.Sprint("→"), msg)
 }
 
 // Infof prints information with optional format verbs
 func Infof(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorBlue.Sprint("•"), fmt.Sprintf(msg, v...))
+	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGray.Sprint("→"), fmt.Sprintf(msg, v...))
 }
 
 // Success prints a success message
 func Success(msg string) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGreen.Sprint("✔"), msg)
+	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGreen.Sprint("→"), msg)
 }
 
 // Successf prints a success message with optional format verbs
 func Successf(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGreen.Sprint("✔"), fmt.Sprintf(msg, v...))
+	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGreen.Sprint("→"), fmt.Sprintf(msg, v...))
 }
 
 // Plain prints a plain message without any prefix symbol
@@ -74,34 +74,32 @@ func Plainf(msg string, v ...interface{}) {
 
 // Warnf prints a warning message with optional format verbs
 func Warnf(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorRed.Sprint("•"), fmt.Sprintf(msg, v...))
+	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorYellow.Sprint("→"), fmt.Sprintf(msg, v...))
 }
 
 // Error prints an error message
 func Error(msg string) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorRed.Sprint("⨯"), msg)
+	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorRed.Sprint("→"), msg)
 }
 
 // Errorf prints an error message with optional format verbs
 func Errorf(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorRed.Sprintf("%s", "⨯"), fmt.Sprintf(msg, v...))
+	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorRed.Sprint("→"), fmt.Sprintf(msg, v...))
 }
 
 // Printf prints an normal message
 func Printf(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGray.Sprint("•"), fmt.Sprintf(msg, v...))
+	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGray.Sprint("→"), fmt.Sprintf(msg, v...))
 }
 
 // Askf prints an question with optional format verbs. The leading symbol differs in color depending
 // on whether the input is masked.
 func Askf(msg string, masked bool, v ...interface{}) {
-	symbolChar := "[?]"
-
 	var symbol string
 	if masked {
-		symbol = ColorGray.Sprintf("%s", symbolChar)
+		symbol = ColorGray.Sprint("→")
 	} else {
-		symbol = ColorGreen.Sprintf("%s", symbolChar)
+		symbol = ColorGreen.Sprint("→")
 	}
 
 	fmt.Fprintf(color.Output, "%s%s %s: ", indent, symbol, fmt.Sprintf(msg, v...))

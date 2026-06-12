@@ -34,20 +34,19 @@ type options struct {
 	format    string
 	depth     int
 	completed bool
-	roots     bool
 	strict    bool
 	all       bool
 }
 
 var example = `
- * Markdown outline (default)
+ * Top-level nodes
+ lflow list
+
+ * Markdown outline of a subtree
  lflow list "experiment results" --depth 2
 
  * JSON for scripting
- lflow list "experiment results" --format json | jq -r .children[0].name
-
- * Top-level nodes
- lflow list --roots`
+ lflow list "experiment results" --format json | jq -r .children[0].name`
 
 // NewCmd returns a new list command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
@@ -65,7 +64,6 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	f.StringVar(&opts.format, "format", "md", "output format: md|text|json")
 	f.IntVar(&opts.depth, "depth", -1, "maximum depth (-1 = unlimited)")
 	f.BoolVar(&opts.completed, "completed", false, "include completed nodes")
-	f.BoolVar(&opts.roots, "roots", false, "list top-level nodes")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
 	f.BoolVar(&opts.all, "all", false, "include completed nodes when resolving")
 
@@ -74,9 +72,12 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 
 func listRoots(db *database.DB) error {
 	dim := color.New(color.FgHiBlack)
-	roots, err := database.GetChildren(db, "")
+	if err := database.EnsureRoot(db); err != nil {
+		return err
+	}
+	roots, err := database.GetChildren(db, database.RootUUID)
 	if err != nil {
-		return errors.Wrap(err, "querying roots")
+		return errors.Wrap(err, "querying top-level nodes")
 	}
 	for _, n := range roots {
 		count, err := database.CountSubtree(db, n.UUID)
@@ -87,7 +88,7 @@ func listRoots(db *database.DB) error {
 		if len(shortID) > 6 {
 			shortID = shortID[:6]
 		}
-		fmt.Printf("%s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %d nodes", n.Layout, count))
+		fmt.Printf("%s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %s", n.Layout, resolve.CountNoun(count, "node")))
 	}
 	return nil
 }
@@ -96,12 +97,9 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
 
-		if opts.roots {
-			return listRoots(db)
-		}
-
 		if len(args) < 1 {
-			return errors.New("missing node reference (or use --roots)")
+			// no reference: list the top level (children of root)
+			return listRoots(db)
 		}
 		ref := args[0]
 

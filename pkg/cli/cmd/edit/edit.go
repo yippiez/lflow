@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
 	"github.com/lflow/lflow/pkg/cli/editor"
 	"github.com/lflow/lflow/pkg/cli/infra"
 	"github.com/lflow/lflow/pkg/cli/resolve"
@@ -58,6 +59,9 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		}
 		ref := strings.Join(args, " ")
 		db := ctx.DB
+		if err := database.EnsureRoot(db); err != nil {
+			return err
+		}
 
 		r, err := resolve.Resolve(db, ref, opts.all)
 		if err != nil {

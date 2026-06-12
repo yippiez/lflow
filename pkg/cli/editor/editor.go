@@ -28,6 +28,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/outline"
 	"github.com/pkg/errors"
 )
 
@@ -95,6 +96,7 @@ type Model struct {
 	escPending bool
 	unsaved    bool
 	quitting   bool
+	dumpOnQuit bool // ctrl+c: render the outline into scrollback on exit
 	err        error
 
 	saved struct {
@@ -188,7 +190,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
-	case "ctrl+q", "ctrl+c":
+	case "ctrl+q":
+		return m.quit()
+	case "ctrl+c":
+		// quit, leaving the outline rendered in scrollback
+		m.dumpOnQuit = true
 		return m.quit()
 	case "ctrl+s":
 		written, err := m.tree.save()
@@ -261,7 +267,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = m.rowIndexOf(cur)
 		}
 		return m, nil
-	case "alt+down":
+	case "alt+right":
+		// zoom into the cursor node
 		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 {
 			m.viewStack = append(m.viewStack, cur)
 			m.cursor = 0
@@ -269,13 +276,30 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 		}
 		return m, nil
-	case "alt+up":
+	case "alt+left", "alt+backspace":
+		// zoom back out
 		if len(m.viewStack) > 1 {
 			zoomed := m.viewRoot()
 			m.viewStack = m.viewStack[:len(m.viewStack)-1]
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(zoomed)
 			m.caret = 0
+		}
+		return m, nil
+	case "alt+up":
+		// collapse the cursor node
+		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 && !cur.collapsed {
+			cur.collapsed = true
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(cur)
+		}
+		return m, nil
+	case "alt+down":
+		// expand the cursor node
+		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 && cur.collapsed {
+			cur.collapsed = false
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(cur)
 		}
 		return m, nil
 	case "up":
@@ -830,7 +854,7 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	state := ""
 	if m.unsaved {
-		state = " · dirty"
+		state = " · unsaved"
 	}
 	if m.sched.inFlight {
 		// state, not a countdown: only shown while a sync is actually running
@@ -929,14 +953,28 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		return fm.err
 	}
 
+	// ctrl+c: leave the outline rendered in scrollback
+	if fm.dumpOnQuit {
+		if rootNode, gerr := database.GetNode(ctx.DB, nodeUUID); gerr == nil {
+			if out, derr := outline.RenderText(ctx.DB, rootNode, -1, true); derr == nil && out != "" {
+				fmt.Println(out)
+			}
+		}
+	}
+
 	total, _ := fm.tree.stats()
 	name := fm.tree.displayName(fm.tree.root)
-	dirtyNote := ""
-	if fm.saved.written > 0 {
-		dirtyNote = " · dirty"
-	}
-	fmt.Printf("%s✓ %ssaved %s%q%s · %d nodes · %d written%s%s\n",
-		"\x1b[38;2;106;153;85m", cFG, cYellow, name, cDim, total, fm.saved.written, dirtyNote, cReset)
+	green := "\x1b[38;2;106;153;85m"
+	fmt.Printf("%s→ %ssaved %s%q%s · %s · %s written%s\n",
+		green, cFG, cYellow, name, cDim,
+		nodeNoun(total), nodeNoun(fm.saved.written), cReset)
 
 	return nil
+}
+
+func nodeNoun(n int) string {
+	if n == 1 {
+		return "1 node"
+	}
+	return fmt.Sprintf("%d nodes", n)
 }
