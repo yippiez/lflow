@@ -250,21 +250,23 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret = 0
 		}
 		return m, nil
-	case "alt+shift+up":
+	// every alt+arrow chord has a ctrl twin: terminals like windows
+	// terminal grab alt+arrows for pane focus and never deliver them
+	case "alt+shift+up", "ctrl+shift+up", "ctrl+alt+up":
 		if cur := m.cursorItem(); cur != nil && m.tree.move(cur, -1) {
 			m.unsaved = true
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(cur)
 		}
 		return m, nil
-	case "alt+shift+down":
+	case "alt+shift+down", "ctrl+shift+down", "ctrl+alt+down":
 		if cur := m.cursorItem(); cur != nil && m.tree.move(cur, 1) {
 			m.unsaved = true
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(cur)
 		}
 		return m, nil
-	case "alt+right":
+	case "alt+right", "ctrl+right":
 		// zoom into the cursor node
 		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 {
 			m.viewStack = append(m.viewStack, cur)
@@ -273,7 +275,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 		}
 		return m, nil
-	case "alt+left", "alt+backspace":
+	case "alt+left", "alt+backspace", "ctrl+left":
 		// zoom back out
 		if len(m.viewStack) > 1 {
 			zoomed := m.viewRoot()
@@ -283,7 +285,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret = 0
 		}
 		return m, nil
-	case "alt+up":
+	case "alt+up", "ctrl+up":
 		// collapse the cursor node
 		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 && !cur.collapsed {
 			cur.collapsed = true
@@ -291,7 +293,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = m.rowIndexOf(cur)
 		}
 		return m, nil
-	case "alt+down":
+	case "alt+down", "ctrl+down":
 		// expand the cursor node
 		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 && cur.collapsed {
 			cur.collapsed = false
