@@ -49,14 +49,17 @@ func renderHelp(cmd *cobra.Command) string {
 		}
 	}
 
-	useLine := strings.TrimSuffix(cmd.UseLine(), " [flags]")
-	if len(subs) > 0 && !cmd.Runnable() {
-		useLine = cmd.CommandPath() + " <command>"
+	// command groups list their commands directly; only runnable commands
+	// show a usage line, since it carries the argument shape
+	if cmd.Runnable() || len(subs) == 0 {
+		b.WriteString("usage\n")
+		b.WriteString("  " + strings.TrimSuffix(cmd.UseLine(), " [flags]") + "\n")
 	}
-	b.WriteString("usage\n")
-	b.WriteString("  " + useLine + "\n")
 	if len(subs) > 0 {
-		b.WriteString("\ncommands\n")
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("commands\n")
 		width := 0
 		for _, c := range subs {
 			if len(c.Name()) > width {
@@ -88,7 +91,8 @@ func writeFlagSection(b *strings.Builder, title string, fs *pflag.FlagSet) {
 		if f.Hidden || f.Name == "help" {
 			return
 		}
-		left := "    --" + f.Name
+		// flags line up at the same column as the command list
+		left := "--" + f.Name
 		if f.Shorthand != "" {
 			left = "-" + f.Shorthand + ", --" + f.Name
 		}
