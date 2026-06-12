@@ -13,11 +13,14 @@
  * limitations under the License.
  */
 
+// Package sync synchronizes the local node tree with a self-hosted
+// lflow-server using the USN-based protocol adapted from dnote.
 package sync
 
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 
 	"github.com/lflow/lflow/pkg/cli/client"
 	"github.com/lflow/lflow/pkg/cli/consts"
@@ -32,15 +35,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	modeInsert = iota
-	modeUpdate
-)
-
 var example = `
   lflow sync`
 
 var isFullSync bool
+var isDryRun bool
 var apiEndpointFlag string
 
 // NewCmd returns a new sync command
@@ -48,13 +47,14 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "sync",
 		Aliases: []string{"s"},
-		Short:   "Sync data with the server",
+		Short:   "Sync nodes with the lflow server",
 		Example: example,
 		RunE:    newRun(ctx),
 	}
 
 	f := cmd.Flags()
 	f.BoolVarP(&isFullSync, "full", "f", false, "perform a full sync instead of incrementally syncing only the changed data.")
+	f.BoolVar(&isDryRun, "dry-run", false, "show what would be synced without making changes")
 	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to (defaults to value in config)")
 
 	return cmd
@@ -82,41 +82,31 @@ func getLastMaxUSN(tx *database.DB) (int, error) {
 
 // syncList is an aggregation of resources represented in the sync fragments
 type syncList struct {
-	Notes          map[string]client.SyncFragNote
-	Books          map[string]client.SyncFragBook
-	ExpungedNotes  map[string]bool
-	ExpungedBooks  map[string]bool
+	Nodes          map[string]client.SyncFragNode
+	ExpungedNodes  map[string]bool
 	MaxUSN         int
 	UserMaxUSN     int // Server's actual max USN (for distinguishing empty fragment vs empty server)
 	MaxCurrentTime int64
 }
 
 func (l syncList) getLength() int {
-	return len(l.Notes) + len(l.Books) + len(l.ExpungedNotes) + len(l.ExpungedBooks)
+	return len(l.Nodes) + len(l.ExpungedNodes)
 }
 
 // processFragments categorizes items in sync fragments into a sync list.
 func processFragments(fragments []client.SyncFragment) (syncList, error) {
-	notes := map[string]client.SyncFragNote{}
-	books := map[string]client.SyncFragBook{}
-	expungedNotes := map[string]bool{}
-	expungedBooks := map[string]bool{}
+	nodes := map[string]client.SyncFragNode{}
+	expungedNodes := map[string]bool{}
 	var maxUSN int
 	var userMaxUSN int
 	var maxCurrentTime int64
 
 	for _, fragment := range fragments {
-		for _, note := range fragment.Notes {
-			notes[note.UUID] = note
+		for _, node := range fragment.Nodes {
+			nodes[node.UUID] = node
 		}
-		for _, book := range fragment.Books {
-			books[book.UUID] = book
-		}
-		for _, uuid := range fragment.ExpungedBooks {
-			expungedBooks[uuid] = true
-		}
-		for _, uuid := range fragment.ExpungedNotes {
-			expungedNotes[uuid] = true
+		for _, uuid := range fragment.ExpungedNodes {
+			expungedNodes[uuid] = true
 		}
 
 		if fragment.FragMaxUSN > maxUSN {
@@ -131,10 +121,8 @@ func processFragments(fragments []client.SyncFragment) (syncList, error) {
 	}
 
 	sl := syncList{
-		Notes:          notes,
-		Books:          books,
-		ExpungedNotes:  expungedNotes,
-		ExpungedBooks:  expungedBooks,
+		Nodes:          nodes,
+		ExpungedNodes:  expungedNodes,
 		MaxUSN:         maxUSN,
 		UserMaxUSN:     userMaxUSN,
 		MaxCurrentTime: maxCurrentTime,
@@ -183,413 +171,149 @@ func getSyncFragments(ctx context.DnoteCtx, afterUSN int) ([]client.SyncFragment
 		}
 	}
 
-	log.Debug("received sync fragments: %+v\n", redactSyncFragments(buf))
+	log.Debug("received %d sync fragments\n", len(buf))
 
 	return buf, nil
 }
 
-// redactSyncFragments returns a deep copy of sync fragments with sensitive fields (note body, book label) removed for safe logging
-func redactSyncFragments(fragments []client.SyncFragment) []client.SyncFragment {
-	redacted := make([]client.SyncFragment, len(fragments))
-	for i, frag := range fragments {
-		// Create new notes with redacted bodies
-		notes := make([]client.SyncFragNote, len(frag.Notes))
-		for j, note := range frag.Notes {
-			notes[j] = client.SyncFragNote{
-				UUID:      note.UUID,
-				BookUUID:  note.BookUUID,
-				USN:       note.USN,
-				CreatedAt: note.CreatedAt,
-				UpdatedAt: note.UpdatedAt,
-				AddedOn:   note.AddedOn,
-				EditedOn:  note.EditedOn,
-				Body: func() string {
-					if note.Body != "" {
-						return "<redacted>"
-					}
-					return ""
-				}(),
-				Deleted: note.Deleted,
-			}
+// mergeNode reconciles a server node with the local copy.
+//
+//   - local not dirty: the server state wins entirely.
+//   - local dirty: local content is kept (and stays dirty so it is pushed
+//     back); only the server USN is taken. The follow-up send in the sync
+//     loop makes the server converge to the local state.
+//   - local tombstoned but the server has an update: the server wins and the
+//     node is revived (matching dnote's behavior for deleted-locally edits).
+func mergeNode(tx *database.DB, serverNode client.SyncFragNode, localNode database.Node) error {
+	if localNode.Deleted || !localNode.Dirty {
+		if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, layout = ?,
+			mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = 0 WHERE uuid = ?`,
+			serverNode.ParentUUID, serverNode.Rank, serverNode.Name, serverNode.Note, serverNode.Layout,
+			serverNode.MirrorOf, serverNode.CompletedAt, serverNode.EditedOn, serverNode.USN,
+			serverNode.Deleted, serverNode.UUID); err != nil {
+			return errors.Wrapf(err, "updating local node %s", serverNode.UUID)
 		}
-
-		// Create new books with redacted labels
-		books := make([]client.SyncFragBook, len(frag.Books))
-		for j, book := range frag.Books {
-			books[j] = client.SyncFragBook{
-				UUID:      book.UUID,
-				USN:       book.USN,
-				CreatedAt: book.CreatedAt,
-				UpdatedAt: book.UpdatedAt,
-				AddedOn:   book.AddedOn,
-				Label: func() string {
-					if book.Label != "" {
-						return "<redacted>"
-					}
-					return ""
-				}(),
-				Deleted: book.Deleted,
-			}
-		}
-
-		redacted[i] = client.SyncFragment{
-			FragMaxUSN:    frag.FragMaxUSN,
-			UserMaxUSN:    frag.UserMaxUSN,
-			CurrentTime:   frag.CurrentTime,
-			Notes:         notes,
-			Books:         books,
-			ExpungedNotes: frag.ExpungedNotes,
-			ExpungedBooks: frag.ExpungedBooks,
-		}
-	}
-	return redacted
-}
-
-// resolveLabel resolves a book label conflict by repeatedly appending an increasing integer
-// to the label until it finds a unique label. It returns the first non-conflicting label.
-func resolveLabel(tx *database.DB, label string) (string, error) {
-	var ret string
-
-	for i := 2; ; i++ {
-		ret = fmt.Sprintf("%s_%d", label, i)
-
-		var cnt int
-		if err := tx.QueryRow("SELECT count(*) FROM books WHERE label = ?", ret).Scan(&cnt); err != nil {
-			return "", errors.Wrapf(err, "checking availability of label %s", ret)
-		}
-
-		if cnt == 0 {
-			break
-		}
-	}
-
-	return ret, nil
-}
-
-// mergeBook inserts or updates the given book in the local database.
-// If a book with a duplicate label exists locally, it renames the duplicate by appending a number.
-func mergeBook(tx *database.DB, b client.SyncFragBook, mode int) error {
-	var count int
-	if err := tx.QueryRow("SELECT count(*) FROM books WHERE label = ?", b.Label).Scan(&count); err != nil {
-		return errors.Wrapf(err, "checking for books with a duplicate label %s", b.Label)
-	}
-
-	// if duplicate exists locally, rename it and mark it dirty
-	if count > 0 {
-		newLabel, err := resolveLabel(tx, b.Label)
-		if err != nil {
-			return errors.Wrap(err, "getting a new book label for conflict resolution")
-		}
-
-		if _, err := tx.Exec("UPDATE books SET label = ?, dirty = ? WHERE label = ? AND uuid != ?", newLabel, true, b.Label, b.UUID); err != nil {
-			return errors.Wrap(err, "resolving duplicate book label")
-		}
-	}
-
-	if mode == modeInsert {
-		book := database.NewBook(b.UUID, b.Label, b.USN, false, false)
-		if err := book.Insert(tx); err != nil {
-			return errors.Wrapf(err, "inserting note with uuid %s", b.UUID)
-		}
-	} else if mode == modeUpdate {
-		// The state from the server overwrites the local state. In other words, the server change always wins.
-		if _, err := tx.Exec("UPDATE books SET usn = ?, uuid = ?, label = ?, deleted = ? WHERE uuid = ?",
-			b.USN, b.UUID, b.Label, b.Deleted, b.UUID); err != nil {
-			return errors.Wrapf(err, "updating local book %s", b.UUID)
-		}
-	}
-
-	return nil
-}
-
-func stepSyncBook(tx *database.DB, b client.SyncFragBook) error {
-	var localUSN int
-	var dirty bool
-	err := tx.QueryRow("SELECT usn, dirty FROM books WHERE uuid = ?", b.UUID).Scan(&localUSN, &dirty)
-	if err != nil && err != sql.ErrNoRows {
-		return errors.Wrapf(err, "getting local book %s", b.UUID)
-	}
-
-	// if book exists in the server and does not exist in the client
-	if err == sql.ErrNoRows {
-		if e := mergeBook(tx, b, modeInsert); e != nil {
-			return errors.Wrapf(e, "resolving book")
-		}
-
 		return nil
 	}
 
-	if e := mergeBook(tx, b, modeUpdate); e != nil {
-		return errors.Wrapf(e, "resolving book")
+	// dirty local change wins; take only the server USN and push later
+	if _, err := tx.Exec("UPDATE nodes SET usn = ? WHERE uuid = ?", serverNode.USN, serverNode.UUID); err != nil {
+		return errors.Wrapf(err, "updating usn of local node %s", serverNode.UUID)
 	}
-
 	return nil
 }
 
-func mergeNote(tx *database.DB, serverNote client.SyncFragNote, localNote database.Note) error {
-	var bookDeleted bool
-	err := tx.QueryRow("SELECT deleted FROM books WHERE uuid = ?", localNote.BookUUID).Scan(&bookDeleted)
-	if err != nil {
-		return errors.Wrapf(err, "checking if local book %s is deleted", localNote.BookUUID)
+func insertServerNode(tx *database.DB, n client.SyncFragNode) error {
+	node := database.Node{
+		UUID:        n.UUID,
+		ParentUUID:  n.ParentUUID,
+		Rank:        n.Rank,
+		Name:        n.Name,
+		Note:        n.Note,
+		Layout:      n.Layout,
+		MirrorOf:    n.MirrorOf,
+		CompletedAt: n.CompletedAt,
+		AddedOn:     n.AddedOn,
+		EditedOn:    n.EditedOn,
+		USN:         n.USN,
+		Deleted:     n.Deleted,
+		Dirty:       false,
 	}
-
-	// if the book is deleted, noop
-	if bookDeleted {
-		return nil
+	if err := node.Insert(tx); err != nil {
+		return errors.Wrapf(err, "inserting node with uuid %s", n.UUID)
 	}
-
-	// if the local copy is deleted, and it was edited on the server, override with server values and mark it not dirty.
-	if localNote.Deleted {
-		if _, err := tx.Exec("UPDATE notes SET usn = ?, book_uuid = ?, body = ?, edited_on = ?, deleted = ?, dirty = ? WHERE uuid = ?",
-			serverNote.USN, serverNote.BookUUID, serverNote.Body, serverNote.EditedOn, serverNote.Deleted, false, serverNote.UUID); err != nil {
-			return errors.Wrapf(err, "updating local note %s", serverNote.UUID)
-		}
-
-		return nil
-	}
-
-	mr, err := mergeNoteFields(tx, localNote, serverNote)
-	if err != nil {
-		return errors.Wrapf(err, "reporting note conflict for note %s", localNote.UUID)
-	}
-
-	if _, err := tx.Exec("UPDATE notes SET usn = ?, book_uuid = ?, body = ?, edited_on = ?, deleted = ?  WHERE uuid = ?",
-		serverNote.USN, mr.bookUUID, mr.body, mr.editedOn, serverNote.Deleted, serverNote.UUID); err != nil {
-		return errors.Wrapf(err, "updating local note %s", serverNote.UUID)
-	}
-
 	return nil
 }
 
-func stepSyncNote(tx *database.DB, n client.SyncFragNote) error {
-	var localNote database.Note
-	err := tx.QueryRow("SELECT body, usn, book_uuid, dirty, deleted FROM notes WHERE uuid = ?", n.UUID).
-		Scan(&localNote.Body, &localNote.USN, &localNote.BookUUID, &localNote.Dirty, &localNote.Deleted)
+func getLocalNode(tx *database.DB, uuid string) (database.Node, error) {
+	var n database.Node
+	err := tx.QueryRow("SELECT uuid, usn, deleted, dirty FROM nodes WHERE uuid = ?", uuid).
+		Scan(&n.UUID, &n.USN, &n.Deleted, &n.Dirty)
+	return n, err
+}
+
+func stepSyncNode(tx *database.DB, n client.SyncFragNode) error {
+	localNode, err := getLocalNode(tx, n.UUID)
 	if err != nil && err != sql.ErrNoRows {
-		return errors.Wrapf(err, "getting local note %s", n.UUID)
+		return errors.Wrapf(err, "getting local node %s", n.UUID)
 	}
 
-	// if note exists in the server and does not exist in the client, insert the note.
 	if err == sql.ErrNoRows {
-		note := database.NewNote(n.UUID, n.BookUUID, n.Body, n.AddedOn, n.EditedOn, n.USN, n.Deleted, false)
-
-		if err := note.Insert(tx); err != nil {
-			return errors.Wrapf(err, "inserting note with uuid %s", n.UUID)
-		}
-	} else {
-		if err := mergeNote(tx, n, localNote); err != nil {
-			return errors.Wrap(err, "merging local note")
-		}
+		return insertServerNode(tx, n)
 	}
 
-	return nil
+	return mergeNode(tx, n, localNode)
 }
 
-func fullSyncNote(tx *database.DB, n client.SyncFragNote) error {
-	var localNote database.Note
-	err := tx.QueryRow("SELECT body, usn, book_uuid, dirty, deleted FROM notes WHERE uuid = ?", n.UUID).
-		Scan(&localNote.Body, &localNote.USN, &localNote.BookUUID, &localNote.Dirty, &localNote.Deleted)
+func fullSyncNode(tx *database.DB, n client.SyncFragNode) error {
+	localNode, err := getLocalNode(tx, n.UUID)
 	if err != nil && err != sql.ErrNoRows {
-		return errors.Wrapf(err, "getting local note %s", n.UUID)
+		return errors.Wrapf(err, "getting local node %s", n.UUID)
 	}
 
-	// if note exists in the server and does not exist in the client, insert the note.
 	if err == sql.ErrNoRows {
-		note := database.NewNote(n.UUID, n.BookUUID, n.Body, n.AddedOn, n.EditedOn, n.USN, n.Deleted, false)
+		return insertServerNode(tx, n)
+	}
 
-		if err := note.Insert(tx); err != nil {
-			return errors.Wrapf(err, "inserting note with uuid %s", n.UUID)
-		}
-	} else if n.USN > localNote.USN {
-		if err := mergeNote(tx, n, localNote); err != nil {
-			return errors.Wrap(err, "merging local note")
-		}
+	if n.USN > localNode.USN {
+		return mergeNode(tx, n, localNode)
 	}
 
 	return nil
 }
 
-func syncDeleteNote(tx *database.DB, noteUUID string) error {
-	var localUSN int
-	var dirty bool
-	err := tx.QueryRow("SELECT usn, dirty FROM notes WHERE uuid = ?", noteUUID).Scan(&localUSN, &dirty)
-	if err != nil && err != sql.ErrNoRows {
-		return errors.Wrapf(err, "getting local note %s", noteUUID)
-	}
-
-	// if note does not exist on client, noop
+func syncDeleteNode(tx *database.DB, nodeUUID string) error {
+	localNode, err := getLocalNode(tx, nodeUUID)
 	if err == sql.ErrNoRows {
 		return nil
 	}
+	if err != nil {
+		return errors.Wrapf(err, "getting local node %s", nodeUUID)
+	}
 
-	// if local copy is not dirty, delete
-	if !dirty {
-		_, err = tx.Exec("DELETE FROM notes WHERE uuid = ?", noteUUID)
-		if err != nil {
-			return errors.Wrapf(err, "deleting local note %s", noteUUID)
-		}
+	// if local copy is dirty, keep it; it will be uploaded again later
+	if localNode.Dirty {
+		return nil
+	}
+
+	if err := (database.Node{UUID: nodeUUID}).Expunge(tx); err != nil {
+		return errors.Wrapf(err, "deleting local node %s", nodeUUID)
 	}
 
 	return nil
 }
 
-// checkNotesPristine checks that none of the notes in the given book are dirty
-func checkNotesPristine(tx *database.DB, bookUUID string) (bool, error) {
-	var count int
-	if err := tx.QueryRow("SELECT count(*) FROM notes WHERE book_uuid = ? AND dirty = ?", bookUUID, true).Scan(&count); err != nil {
-		return false, errors.Wrapf(err, "counting notes that are dirty in book %s", bookUUID)
-	}
-
-	if count > 0 {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func syncDeleteBook(tx *database.DB, bookUUID string) error {
-	var localUSN int
-	var dirty bool
-	err := tx.QueryRow("SELECT usn, dirty FROM books WHERE uuid = ?", bookUUID).Scan(&localUSN, &dirty)
-	if err != nil && err != sql.ErrNoRows {
-		return errors.Wrapf(err, "getting local book %s", bookUUID)
-	}
-
-	// if book does not exist on client, noop
-	if err == sql.ErrNoRows {
-		return nil
-	}
-
-	// if local copy is dirty, noop. it will be uploaded to the server later
-	if dirty {
-		return nil
-	}
-
-	ok, err := checkNotesPristine(tx, bookUUID)
+// cleanLocalNodes deletes from the local database any nodes that are in invalid state
+// judging by the full list of resources in the server. The only acceptable situation
+// in which a local node is not present in the server is if it is new and has not been
+// uploaded (i.e. dirty and usn is 0).
+func cleanLocalNodes(tx *database.DB, fullList *syncList) error {
+	rows, err := tx.Query("SELECT uuid, usn, dirty FROM nodes")
 	if err != nil {
-		return errors.Wrap(err, "checking if any notes are dirty in book")
-	}
-	// if the local book is not pristine, do not delete but mark it as dirty
-	// so that it can be uploaded to the server later and become un-deleted
-	if !ok {
-		_, err = tx.Exec("UPDATE books SET dirty = ? WHERE uuid = ?", true, bookUUID)
-		if err != nil {
-			return errors.Wrapf(err, "marking a book dirty with uuid %s", bookUUID)
-		}
-
-		return nil
-	}
-
-	_, err = tx.Exec("DELETE FROM notes WHERE book_uuid = ?", bookUUID)
-	if err != nil {
-		return errors.Wrapf(err, "deleting local notes of the book %s", bookUUID)
-	}
-
-	_, err = tx.Exec("DELETE FROM books WHERE uuid = ?", bookUUID)
-	if err != nil {
-		return errors.Wrapf(err, "deleting local book %s", bookUUID)
-	}
-
-	return nil
-}
-
-func fullSyncBook(tx *database.DB, b client.SyncFragBook) error {
-	var localUSN int
-	var dirty bool
-	err := tx.QueryRow("SELECT usn, dirty FROM books WHERE uuid = ?", b.UUID).Scan(&localUSN, &dirty)
-	if err != nil && err != sql.ErrNoRows {
-		return errors.Wrapf(err, "getting local book %s", b.UUID)
-	}
-
-	// if book exists in the server and does not exist in the client
-	if err == sql.ErrNoRows {
-		if e := mergeBook(tx, b, modeInsert); e != nil {
-			return errors.Wrapf(e, "resolving book")
-		}
-	} else if b.USN > localUSN {
-		if e := mergeBook(tx, b, modeUpdate); e != nil {
-			return errors.Wrapf(e, "resolving book")
-		}
-	}
-
-	return nil
-}
-
-// checkNoteInList checks if the given syncList contains the note with the given uuid
-func checkNoteInList(uuid string, list *syncList) bool {
-	if _, ok := list.Notes[uuid]; ok {
-		return true
-	}
-
-	if _, ok := list.ExpungedNotes[uuid]; ok {
-		return true
-	}
-
-	return false
-}
-
-// checkBookInList checks if the given syncList contains the book with the given uuid
-func checkBookInList(uuid string, list *syncList) bool {
-	if _, ok := list.Books[uuid]; ok {
-		return true
-	}
-
-	if _, ok := list.ExpungedBooks[uuid]; ok {
-		return true
-	}
-
-	return false
-}
-
-// cleanLocalNotes deletes from the local database any notes that are in invalid state
-// judging by the full list of resources in the server. Concretely, the only acceptable
-// situation in which a local note is not present in the server is if it is new and has not been
-// uploaded (i.e. dirty and usn is 0). Otherwise, it is a result of some kind of error and should be cleaned.
-func cleanLocalNotes(tx *database.DB, fullList *syncList) error {
-	rows, err := tx.Query("SELECT uuid, usn, dirty FROM notes")
-	if err != nil {
-		return errors.Wrap(err, "getting local notes")
+		return errors.Wrap(err, "getting local nodes")
 	}
 	defer rows.Close()
 
+	var toExpunge []string
 	for rows.Next() {
-		var note database.Note
-		if err := rows.Scan(&note.UUID, &note.USN, &note.Dirty); err != nil {
-			return errors.Wrap(err, "scanning a row for local note")
+		var node database.Node
+		if err := rows.Scan(&node.UUID, &node.USN, &node.Dirty); err != nil {
+			return errors.Wrap(err, "scanning a row for local node")
 		}
 
-		ok := checkNoteInList(note.UUID, fullList)
-		if !ok && (!note.Dirty || note.USN != 0) {
-			err = note.Expunge(tx)
-			if err != nil {
-				return errors.Wrap(err, "expunging a note")
-			}
+		_, inNodes := fullList.Nodes[node.UUID]
+		_, inExpunged := fullList.ExpungedNodes[node.UUID]
+		if !inNodes && !inExpunged && (!node.Dirty || node.USN != 0) {
+			toExpunge = append(toExpunge, node.UUID)
 		}
 	}
-
-	return nil
-}
-
-// cleanLocalBooks deletes from the local database any books that are in invalid state
-func cleanLocalBooks(tx *database.DB, fullList *syncList) error {
-	rows, err := tx.Query("SELECT uuid, usn, dirty FROM books")
-	if err != nil {
-		return errors.Wrap(err, "getting local books")
+	if err := rows.Err(); err != nil {
+		return errors.Wrap(err, "iterating local nodes")
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var book database.Book
-		if err := rows.Scan(&book.UUID, &book.USN, &book.Dirty); err != nil {
-			return errors.Wrap(err, "scanning a row for local book")
-		}
-
-		ok := checkBookInList(book.UUID, fullList)
-		if !ok && (!book.Dirty || book.USN != 0) {
-			err = book.Expunge(tx)
-			if err != nil {
-				return errors.Wrap(err, "expunging a book")
-			}
+	for _, uuid := range toExpunge {
+		if err := (database.Node{UUID: uuid}).Expunge(tx); err != nil {
+			return errors.Wrap(err, "expunging a node")
 		}
 	}
 
@@ -611,33 +335,19 @@ func fullSync(ctx context.DnoteCtx, tx *database.DB) error {
 
 	log.DebugNewline()
 
-	// clean resources that are in erroneous states
-	if err := cleanLocalNotes(tx, &list); err != nil {
-		return errors.Wrap(err, "cleaning up local notes")
-	}
-	if err := cleanLocalBooks(tx, &list); err != nil {
-		return errors.Wrap(err, "cleaning up local books")
+	if err := cleanLocalNodes(tx, &list); err != nil {
+		return errors.Wrap(err, "cleaning up local nodes")
 	}
 
-	for _, note := range list.Notes {
-		if err := fullSyncNote(tx, note); err != nil {
-			return errors.Wrap(err, "merging note")
-		}
-	}
-	for _, book := range list.Books {
-		if err := fullSyncBook(tx, book); err != nil {
-			return errors.Wrap(err, "merging book")
+	for _, node := range list.Nodes {
+		if err := fullSyncNode(tx, node); err != nil {
+			return errors.Wrap(err, "merging node")
 		}
 	}
 
-	for noteUUID := range list.ExpungedNotes {
-		if err := syncDeleteNote(tx, noteUUID); err != nil {
-			return errors.Wrap(err, "deleting note")
-		}
-	}
-	for bookUUID := range list.ExpungedBooks {
-		if err := syncDeleteBook(tx, bookUUID); err != nil {
-			return errors.Wrap(err, "deleting book")
+	for nodeUUID := range list.ExpungedNodes {
+		if err := syncDeleteNode(tx, nodeUUID); err != nil {
+			return errors.Wrap(err, "deleting node")
 		}
 	}
 
@@ -665,25 +375,15 @@ func stepSync(ctx context.DnoteCtx, tx *database.DB, afterUSN int) error {
 
 	fmt.Printf(" (total %d).", list.getLength())
 
-	for _, note := range list.Notes {
-		if err := stepSyncNote(tx, note); err != nil {
-			return errors.Wrap(err, "merging note")
-		}
-	}
-	for _, book := range list.Books {
-		if err := stepSyncBook(tx, book); err != nil {
-			return errors.Wrap(err, "merging book")
+	for _, node := range list.Nodes {
+		if err := stepSyncNode(tx, node); err != nil {
+			return errors.Wrap(err, "merging node")
 		}
 	}
 
-	for noteUUID := range list.ExpungedNotes {
-		if err := syncDeleteNote(tx, noteUUID); err != nil {
-			return errors.Wrap(err, "deleting note")
-		}
-	}
-	for bookUUID := range list.ExpungedBooks {
-		if err := syncDeleteBook(tx, bookUUID); err != nil {
-			return errors.Wrap(err, "deleting book")
+	for nodeUUID := range list.ExpungedNodes {
+		if err := syncDeleteNode(tx, nodeUUID); err != nil {
+			return errors.Wrap(err, "deleting node")
 		}
 	}
 
@@ -697,104 +397,151 @@ func stepSync(ctx context.DnoteCtx, tx *database.DB, afterUSN int) error {
 	return nil
 }
 
-// isConflictError checks if an error is a 409 Conflict error from the server
-func isConflictError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	var httpErr *client.HTTPError
-	if errors.As(err, &httpErr) {
-		return httpErr.IsConflict()
-	}
-
-	return false
+// dirtyNode is a node queued for upload, annotated with its depth so that
+// parents are created on the server before their children.
+type dirtyNode struct {
+	node  database.Node
+	depth int
 }
 
-func sendBooks(ctx context.DnoteCtx, tx *database.DB) (bool, error) {
-	isBehind := false
-
-	rows, err := tx.Query("SELECT uuid, label, usn, deleted FROM books WHERE dirty")
+func getDirtyNodes(tx *database.DB) ([]dirtyNode, error) {
+	rows, err := tx.Query("SELECT uuid, parent_uuid, rank, name, note, layout, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty FROM nodes WHERE dirty")
 	if err != nil {
-		return isBehind, errors.Wrap(err, "getting syncable books")
+		return nil, errors.Wrap(err, "getting syncable nodes")
 	}
 	defer rows.Close()
 
+	var dirty []database.Node
 	for rows.Next() {
-		var book database.Book
+		var n database.Node
+		if err = rows.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Layout, &n.MirrorOf,
+			&n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty); err != nil {
+			return nil, errors.Wrap(err, "scanning a syncable node")
+		}
+		dirty = append(dirty, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "iterating syncable nodes")
+	}
 
-		if err = rows.Scan(&book.UUID, &book.Label, &book.USN, &book.Deleted); err != nil {
-			return isBehind, errors.Wrap(err, "scanning a syncable book")
+	// compute depths so parents sort before children
+	depthCache := map[string]int{"": 0}
+	var depthOf func(uuid string, hops int) int
+	depthOf = func(uuid string, hops int) int {
+		if uuid == "" {
+			return 0
+		}
+		if d, ok := depthCache[uuid]; ok {
+			return d
+		}
+		if hops > 1000 { // cycle guard
+			return hops
+		}
+		var parent string
+		err := tx.QueryRow("SELECT parent_uuid FROM nodes WHERE uuid = ?", uuid).Scan(&parent)
+		if err != nil {
+			depthCache[uuid] = 0
+			return 0
+		}
+		d := depthOf(parent, hops+1) + 1
+		depthCache[uuid] = d
+		return d
+	}
+
+	ret := make([]dirtyNode, 0, len(dirty))
+	for _, n := range dirty {
+		ret = append(ret, dirtyNode{node: n, depth: depthOf(n.UUID, 0)})
+	}
+	sort.SliceStable(ret, func(i, j int) bool { return ret[i].depth < ret[j].depth })
+
+	return ret, nil
+}
+
+func nodePayload(n database.Node) client.NodePayload {
+	return client.NodePayload{
+		ParentUUID:  n.ParentUUID,
+		Rank:        n.Rank,
+		Name:        n.Name,
+		Note:        n.Note,
+		Layout:      n.Layout,
+		MirrorOf:    n.MirrorOf,
+		CompletedAt: n.CompletedAt,
+		AddedOn:     n.AddedOn,
+		EditedOn:    n.EditedOn,
+	}
+}
+
+func sendNodes(ctx context.DnoteCtx, tx *database.DB) (bool, error) {
+	isBehind := false
+
+	dirty, err := getDirtyNodes(tx)
+	if err != nil {
+		return isBehind, err
+	}
+
+	for _, dn := range dirty {
+		node := dn.node
+
+		// re-read: an earlier UpdateUUID may have rewritten this node's parent
+		fresh, err := database.GetNode(tx, node.UUID)
+		if err == nil {
+			node = fresh
 		}
 
-		log.Debug("sending book %s\n", book.UUID)
+		log.Debug("sending node %s\n", node.UUID)
 
 		var respUSN int
 
-		// if new, create it in the server, or else, update.
-		if book.USN == 0 {
-			if book.Deleted {
-				err = book.Expunge(tx)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "expunging a book locally")
+		if node.USN == 0 {
+			if node.Deleted {
+				// added and deleted locally without ever reaching the server
+				if err := node.Expunge(tx); err != nil {
+					return isBehind, errors.Wrap(err, "expunging a node locally")
 				}
-
 				continue
-			} else {
-				resp, err := client.CreateBook(ctx, book.Label)
-				if err != nil {
-					log.Debug("error creating book (will retry after stepSync): %v\n", err)
-					isBehind = true
-					continue
-				}
-
-				_, err = tx.Exec("UPDATE notes SET book_uuid = ? WHERE book_uuid = ?", resp.Book.UUID, book.UUID)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "updating book_uuids of notes")
-				}
-
-				book.Dirty = false
-				book.USN = resp.Book.USN
-				err = book.Update(tx)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "marking book dirty")
-				}
-
-				err = book.UpdateUUID(tx, resp.Book.UUID)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "updating book uuid")
-				}
-
-				respUSN = resp.Book.USN
 			}
+
+			resp, err := client.CreateNode(ctx, nodePayload(node))
+			if err != nil {
+				log.Debug("error creating node (will retry after stepSync): %v\n", err)
+				isBehind = true
+				continue
+			}
+
+			node.Dirty = false
+			node.USN = resp.Result.USN
+			if err := node.Update(tx); err != nil {
+				return isBehind, errors.Wrap(err, "marking node clean")
+			}
+			if err := node.UpdateUUID(tx, resp.Result.UUID); err != nil {
+				return isBehind, errors.Wrap(err, "updating node uuid")
+			}
+
+			respUSN = resp.Result.USN
+		} else if node.Deleted {
+			resp, err := client.DeleteNode(ctx, node.UUID)
+			if err != nil {
+				return isBehind, errors.Wrap(err, "deleting a node")
+			}
+
+			if err := node.Expunge(tx); err != nil {
+				return isBehind, errors.Wrap(err, "expunging a node locally")
+			}
+
+			respUSN = resp.Result.USN
 		} else {
-			if book.Deleted {
-				resp, err := client.DeleteBook(ctx, book.UUID)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "deleting a book")
-				}
-
-				err = book.Expunge(tx)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "expunging a book locally")
-				}
-
-				respUSN = resp.Book.USN
-			} else {
-				resp, err := client.UpdateBook(ctx, book.Label, book.UUID)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "updating a book")
-				}
-
-				book.Dirty = false
-				book.USN = resp.Book.USN
-				err = book.Update(tx)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "marking book dirty")
-				}
-
-				respUSN = resp.Book.USN
+			resp, err := client.UpdateNode(ctx, node.UUID, nodePayload(node))
+			if err != nil {
+				return isBehind, errors.Wrap(err, "updating a node")
 			}
+
+			node.Dirty = false
+			node.USN = resp.Result.USN
+			if err := node.Update(tx); err != nil {
+				return isBehind, errors.Wrap(err, "marking node clean")
+			}
+
+			respUSN = resp.Result.USN
 		}
 
 		lastMaxUSN, err := getLastMaxUSN(tx)
@@ -802,195 +549,10 @@ func sendBooks(ctx context.DnoteCtx, tx *database.DB) (bool, error) {
 			return isBehind, errors.Wrap(err, "getting last max usn")
 		}
 
-		log.Debug("sent book %s. response USN %d. last max usn: %d\n", book.UUID, respUSN, lastMaxUSN)
+		log.Debug("sent node %s. response USN %d. last max usn: %d\n", node.UUID, respUSN, lastMaxUSN)
 
 		if respUSN == lastMaxUSN+1 {
-			err = updateLastMaxUSN(tx, lastMaxUSN+1)
-			if err != nil {
-				return isBehind, errors.Wrap(err, "updating last max usn")
-			}
-		} else {
-			isBehind = true
-		}
-	}
-
-	return isBehind, nil
-}
-
-// findOrphanedNotes returns a list of all orphaned notes
-func findOrphanedNotes(db *database.DB) (int, []struct{ noteUUID, bookUUID string }, error) {
-	var orphanCount int
-	err := db.QueryRow(`
-		SELECT COUNT(*) FROM notes n
-		WHERE NOT EXISTS (
-			SELECT 1 FROM books b
-			WHERE b.uuid = n.book_uuid
-			AND NOT b.deleted
-		)
-	`).Scan(&orphanCount)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	if orphanCount == 0 {
-		return 0, nil, nil
-	}
-
-	rows, err := db.Query(`
-		SELECT n.uuid, n.book_uuid
-		FROM notes n
-		WHERE NOT EXISTS (
-			SELECT 1 FROM books b
-			WHERE b.uuid = n.book_uuid
-			AND NOT b.deleted
-		)
-	`)
-	if err != nil {
-		return orphanCount, nil, err
-	}
-	defer rows.Close()
-
-	var orphans []struct{ noteUUID, bookUUID string }
-	for rows.Next() {
-		var noteUUID, bookUUID string
-		if err := rows.Scan(&noteUUID, &bookUUID); err != nil {
-			continue
-		}
-		orphans = append(orphans, struct{ noteUUID, bookUUID string }{noteUUID, bookUUID})
-	}
-
-	return orphanCount, orphans, nil
-}
-
-func warnOrphanedNotes(tx *database.DB) {
-	count, orphans, err := findOrphanedNotes(tx)
-	if err != nil {
-		log.Debug("error checking orphaned notes: %v\n", err)
-		return
-	}
-
-	if count == 0 {
-		return
-	}
-
-	log.Debug("Found %d orphaned notes (book doesn't exist locally):\n", count)
-	for _, o := range orphans {
-		log.Debug("note %s (book %s)\n", o.noteUUID, o.bookUUID)
-	}
-}
-
-// checkPostSyncIntegrity checks for data integrity issues after sync and warns the user
-func checkPostSyncIntegrity(db *database.DB) {
-	count, orphans, err := findOrphanedNotes(db)
-	if err != nil {
-		log.Debug("error checking orphaned notes: %v\n", err)
-		return
-	}
-
-	if count == 0 {
-		return
-	}
-
-	log.Warnf("Found %d orphaned notes (referencing non-existent or deleted books):\n", count)
-	for _, o := range orphans {
-		log.Plainf("  - note %s (missing book: %s)\n", o.noteUUID, o.bookUUID)
-	}
-}
-
-func sendNotes(ctx context.DnoteCtx, tx *database.DB) (bool, error) {
-	isBehind := false
-
-	warnOrphanedNotes(tx)
-
-	rows, err := tx.Query("SELECT uuid, book_uuid, body, deleted, usn, added_on FROM notes WHERE dirty")
-	if err != nil {
-		return isBehind, errors.Wrap(err, "getting syncable notes")
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var note database.Note
-
-		if err = rows.Scan(&note.UUID, &note.BookUUID, &note.Body, &note.Deleted, &note.USN, &note.AddedOn); err != nil {
-			return isBehind, errors.Wrap(err, "scanning a syncable note")
-		}
-
-		log.Debug("sending note %s (book: %s)\n", note.UUID, note.BookUUID)
-
-		var respUSN int
-
-		// if new, create it in the server, or else, update.
-		if note.USN == 0 {
-			if note.Deleted {
-				// if a note was added and deleted locally, simply expunge
-				err = note.Expunge(tx)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "expunging a note locally")
-				}
-
-				continue
-			} else {
-				resp, err := client.CreateNote(ctx, note.BookUUID, note.Body)
-				if err != nil {
-					log.Debug("failed to create note %s (book: %s): %v\n", note.UUID, note.BookUUID, err)
-					isBehind = true
-					continue
-				}
-
-				note.Dirty = false
-				note.USN = resp.Result.USN
-				err = note.Update(tx)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "marking note dirty")
-				}
-
-				err = note.UpdateUUID(tx, resp.Result.UUID)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "updating note uuid")
-				}
-
-				respUSN = resp.Result.USN
-			}
-		} else {
-			if note.Deleted {
-				resp, err := client.DeleteNote(ctx, note.UUID)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "deleting a note")
-				}
-
-				err = note.Expunge(tx)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "expunging a note locally")
-				}
-
-				respUSN = resp.Result.USN
-			} else {
-				resp, err := client.UpdateNote(ctx, note.UUID, note.BookUUID, note.Body)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "updating a note")
-				}
-
-				note.Dirty = false
-				note.USN = resp.Result.USN
-				err = note.Update(tx)
-				if err != nil {
-					return isBehind, errors.Wrap(err, "marking note dirty")
-				}
-
-				respUSN = resp.Result.USN
-			}
-		}
-
-		lastMaxUSN, err := getLastMaxUSN(tx)
-		if err != nil {
-			return isBehind, errors.Wrap(err, "getting last max usn")
-		}
-
-		log.Debug("sent note %s. response USN %d. last max usn: %d\n", note.UUID, respUSN, lastMaxUSN)
-
-		if respUSN == lastMaxUSN+1 {
-			err = updateLastMaxUSN(tx, lastMaxUSN+1)
-			if err != nil {
+			if err := updateLastMaxUSN(tx, lastMaxUSN+1); err != nil {
 				return isBehind, errors.Wrap(err, "updating last max usn")
 			}
 		} else {
@@ -1005,25 +567,20 @@ func sendChanges(ctx context.DnoteCtx, tx *database.DB) (bool, error) {
 	log.Info("sending changes.")
 
 	var delta int
-	err := tx.QueryRow("SELECT (SELECT count(*) FROM notes WHERE dirty) + (SELECT count(*) FROM books WHERE dirty)").Scan(&delta)
+	if err := tx.QueryRow("SELECT count(*) FROM nodes WHERE dirty").Scan(&delta); err != nil {
+		return false, errors.Wrap(err, "counting dirty nodes")
+	}
 
 	fmt.Printf(" (total %d).", delta)
 
 	log.DebugNewline()
 
-	behind1, err := sendBooks(ctx, tx)
+	isBehind, err := sendNodes(ctx, tx)
 	if err != nil {
-		return behind1, errors.Wrap(err, "sending books")
-	}
-
-	behind2, err := sendNotes(ctx, tx)
-	if err != nil {
-		return behind2, errors.Wrap(err, "sending notes")
+		return isBehind, errors.Wrap(err, "sending nodes")
 	}
 
 	fmt.Println(" done.")
-
-	isBehind := behind1 || behind2
 
 	return isBehind, nil
 }
@@ -1054,12 +611,10 @@ func saveSyncState(tx *database.DB, serverTime int64, serverMaxUSN int, userMaxU
 			return errors.Wrap(err, "updating last max usn")
 		}
 	} else if userMaxUSN == 0 {
-		// Server is empty, reset to 0
 		if err := updateLastMaxUSN(tx, 0); err != nil {
 			return errors.Wrap(err, "updating last max usn")
 		}
 	}
-	// else: empty fragment but server has data, preserve existing last_max_usn
 
 	// Always update last_sync_at (we did communicate with server)
 	if err := updateLastSyncAt(tx, serverTime); err != nil {
@@ -1069,22 +624,41 @@ func saveSyncState(tx *database.DB, serverTime int64, serverMaxUSN int, userMaxU
 	return nil
 }
 
-// prepareEmptyServerSync marks all local books and notes as dirty when syncing to an empty server.
-// This is typically used when switching to a new empty server but wanting to upload existing local data.
-// Returns true if preparation was done, false otherwise.
+// prepareEmptyServerSync marks all local nodes as dirty when syncing to an empty server.
 func prepareEmptyServerSync(tx *database.DB) error {
-	// Mark all books and notes as dirty and reset USN to 0
-	if _, err := tx.Exec("UPDATE books SET usn = 0, dirty = 1 WHERE deleted = 0"); err != nil {
-		return errors.Wrap(err, "marking books as dirty")
-	}
-	if _, err := tx.Exec("UPDATE notes SET usn = 0, dirty = 1 WHERE deleted = 0"); err != nil {
-		return errors.Wrap(err, "marking notes as dirty")
+	if _, err := tx.Exec("UPDATE nodes SET usn = 0, dirty = 1 WHERE deleted = 0"); err != nil {
+		return errors.Wrap(err, "marking nodes as dirty")
 	}
 
-	// Reset lastMaxUSN to 0 to match the server
 	if err := updateLastMaxUSN(tx, 0); err != nil {
 		return errors.Wrap(err, "resetting last max usn")
 	}
+
+	return nil
+}
+
+func dryRun(ctx context.DnoteCtx, tx *database.DB) error {
+	var pushCount int
+	if err := tx.QueryRow("SELECT count(*) FROM nodes WHERE dirty").Scan(&pushCount); err != nil {
+		return errors.Wrap(err, "counting dirty nodes")
+	}
+
+	lastMaxUSN, err := getLastMaxUSN(tx)
+	if err != nil {
+		return err
+	}
+
+	syncState, err := client.GetSyncState(ctx)
+	if err != nil {
+		return errors.Wrap(err, "getting the sync state from the server")
+	}
+
+	pullCount := 0
+	if syncState.MaxUSN > lastMaxUSN {
+		pullCount = syncState.MaxUSN - lastMaxUSN
+	}
+
+	log.Plainf("  would push %d · pull ~%d (usn %d → %d)\n", pushCount, pullCount, lastMaxUSN, syncState.MaxUSN)
 
 	return nil
 }
@@ -1109,6 +683,15 @@ func newRun(ctx context.DnoteCtx) infra.RunEFunc {
 			return errors.Wrap(err, "beginning a transaction")
 		}
 
+		if isDryRun {
+			if err := dryRun(ctx, tx); err != nil {
+				tx.Rollback()
+				return err
+			}
+			tx.Rollback()
+			return nil
+		}
+
 		syncState, err := client.GetSyncState(ctx)
 		if err != nil {
 			return errors.Wrap(err, "getting the sync state from the server")
@@ -1124,27 +707,17 @@ func newRun(ctx context.DnoteCtx) infra.RunEFunc {
 
 		log.Debug("lastSyncAt: %d, lastMaxUSN: %d, syncState: %+v\n", lastSyncAt, lastMaxUSN, syncState)
 
-		// Handle a case where server has MaxUSN=0 but local has data (server switch)
-		var bookCount, noteCount int
-		if err := tx.QueryRow("SELECT count(*) FROM books WHERE deleted = 0").Scan(&bookCount); err != nil {
-			return errors.Wrap(err, "counting local books")
-		}
-		if err := tx.QueryRow("SELECT count(*) FROM notes WHERE deleted = 0").Scan(&noteCount); err != nil {
-			return errors.Wrap(err, "counting local notes")
+		var nodeCount int
+		if err := tx.QueryRow("SELECT count(*) FROM nodes WHERE deleted = 0").Scan(&nodeCount); err != nil {
+			return errors.Wrap(err, "counting local nodes")
 		}
 
 		// If a client has previously synced (lastMaxUSN > 0) but the server was never synced to (MaxUSN = 0),
-		// and the client has undeleted books or notes, allow to upload all data to the server.
-		// The client might have switched servers or the server might need to be restored for any reasons.
-		if syncState.MaxUSN == 0 && lastMaxUSN > 0 && (bookCount > 0 || noteCount > 0) {
-			log.Debug("empty server detected: server.MaxUSN=%d, local.MaxUSN=%d, books=%d, notes=%d\n",
-				syncState.MaxUSN, lastMaxUSN, bookCount, noteCount)
-
+		// and the client has undeleted nodes, allow uploading all data to the server.
+		if syncState.MaxUSN == 0 && lastMaxUSN > 0 && nodeCount > 0 {
 			log.Warnf("The server is empty but you have local data. Maybe you switched servers?\n")
-			log.Debug("server state: MaxUSN = 0 (empty)\n")
-			log.Debug("local state: %d books, %d notes (MaxUSN = %d)\n", bookCount, noteCount, lastMaxUSN)
 
-			confirmed, err := ui.Confirm(fmt.Sprintf("Upload %d books and %d notes to the server?", bookCount, noteCount), false)
+			confirmed, err := ui.Confirm(fmt.Sprintf("Upload %d nodes to the server?", nodeCount), false)
 			if err != nil {
 				tx.Rollback()
 				return errors.Wrap(err, "getting user confirmation")
@@ -1155,41 +728,31 @@ func newRun(ctx context.DnoteCtx) infra.RunEFunc {
 				return errors.New("sync cancelled by user")
 			}
 
-			fmt.Println() // Add newline after confirmation.
+			fmt.Println()
 
 			if err := prepareEmptyServerSync(tx); err != nil {
 				return errors.Wrap(err, "preparing for empty server sync")
 			}
 
-			// Re-fetch lastMaxUSN after prepareEmptyServerSync
 			lastMaxUSN, err = getLastMaxUSN(tx)
 			if err != nil {
 				return errors.Wrap(err, "getting the last max_usn after prepare")
 			}
-
-			log.Debug("prepared empty server sync: marked %d books and %d notes as dirty\n", bookCount, noteCount)
 		}
 
 		// If full sync will be triggered by FullSyncBefore (not manual --full flag),
-		// and client has more data than server, prepare local data for upload to avoid orphaning notes.
-		// The lastMaxUSN > syncState.MaxUSN check prevents duplicate uploads when switching
-		// back to a server that already has our data.
+		// and client has more data than server, prepare local data for upload.
 		if !isFullSync && lastSyncAt < syncState.FullSyncBefore && lastMaxUSN > syncState.MaxUSN {
 			log.Debug("full sync triggered by FullSyncBefore: preparing local data for upload\n")
-			log.Debug("server.FullSyncBefore=%d, local.lastSyncAt=%d, local.MaxUSN=%d, server.MaxUSN=%d, books=%d, notes=%d\n",
-				syncState.FullSyncBefore, lastSyncAt, lastMaxUSN, syncState.MaxUSN, bookCount, noteCount)
 
 			if err := prepareEmptyServerSync(tx); err != nil {
 				return errors.Wrap(err, "preparing local data for full sync")
 			}
 
-			// Re-fetch lastMaxUSN after prepareEmptyServerSync
 			lastMaxUSN, err = getLastMaxUSN(tx)
 			if err != nil {
 				return errors.Wrap(err, "getting the last max_usn after prepare")
 			}
-
-			log.Debug("prepared for full sync: marked %d books and %d notes as dirty\n", bookCount, noteCount)
 		}
 
 		var syncErr error
@@ -1231,8 +794,7 @@ func newRun(ctx context.DnoteCtx) infra.RunEFunc {
 				return errors.Wrap(err, "performing the follow-up step sync")
 			}
 
-			// After syncing server changes (which resolves conflicts), send local changes again
-			// This uploads books/notes that were skipped due to 409 conflicts
+			// After syncing server changes, send local changes again
 			_, err = sendChanges(ctx, tx)
 			if err != nil {
 				tx.Rollback()
@@ -1245,8 +807,6 @@ func newRun(ctx context.DnoteCtx) infra.RunEFunc {
 		}
 
 		log.Success("success\n")
-
-		checkPostSyncIntegrity(ctx.DB)
 
 		if err := upgrade.Check(ctx); err != nil {
 			log.Error(errors.Wrap(err, "automatically checking updates").Error())
