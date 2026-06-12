@@ -27,9 +27,7 @@ import (
 	// commands
 	"github.com/lflow/lflow/pkg/cli/cmd/add"
 	"github.com/lflow/lflow/pkg/cli/cmd/complete"
-	"github.com/lflow/lflow/pkg/cli/cmd/edit"
 	"github.com/lflow/lflow/pkg/cli/cmd/export"
-	"github.com/lflow/lflow/pkg/cli/cmd/find"
 	"github.com/lflow/lflow/pkg/cli/cmd/list"
 	"github.com/lflow/lflow/pkg/cli/cmd/login"
 	"github.com/lflow/lflow/pkg/cli/cmd/logout"
@@ -78,7 +76,6 @@ func main() {
 	defer ctx.DB.Close()
 
 	root.Register(remove.NewCmd(*ctx))
-	root.Register(edit.NewCmd(*ctx))
 	root.Register(login.NewCmd(*ctx))
 	root.Register(logout.NewCmd(*ctx))
 	root.Register(add.NewCmd(*ctx))
@@ -90,7 +87,6 @@ func main() {
 	root.Register(export.NewCmd(*ctx))
 	root.Register(sync.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
-	root.Register(find.NewCmd(*ctx))
 	root.Register(open.NewCmd(*ctx))
 	root.Register(wfcmd.NewCmd(*ctx))
 

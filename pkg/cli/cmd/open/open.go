@@ -33,9 +33,10 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "open [node]",
-		Short: "Open the editor on a node (root when no node is given)",
-		Long:  "Open the inline editor on a node by id or query. With no argument, open the root.",
+		Use:     "open [node]",
+		Short:   "Open the editor on a node (root when no node is given)",
+		Long:    "Open the inline editor on a node by id or query. With no argument, open the root.",
+		Aliases: []string{"o", "e", "f", "edit", "find"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db := ctx.DB
 			if err := database.EnsureRoot(db); err != nil {
