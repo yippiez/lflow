@@ -28,7 +28,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
-	"github.com/lflow/lflow/pkg/cli/outline"
 	"github.com/pkg/errors"
 )
 
@@ -96,7 +95,6 @@ type Model struct {
 	escPending bool
 	unsaved    bool
 	quitting   bool
-	dumpOnQuit bool // ctrl+c: render the outline into scrollback on exit
 	err        error
 
 	saved struct {
@@ -190,11 +188,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
-	case "ctrl+q":
-		return m.quit()
-	case "ctrl+c":
-		// quit, leaving the outline rendered in scrollback
-		m.dumpOnQuit = true
+	case "ctrl+q", "ctrl+c":
 		return m.quit()
 	case "ctrl+s":
 		written, err := m.tree.save()
@@ -771,14 +765,22 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (m *Model) View() string {
-	if m.quitting {
-		return ""
-	}
 	width := m.width
 	if width <= 0 {
 		width = 80
 	}
-	maxLine := width - 1 // never touch the last column (deferred-wrap)
+	maxLine := width - 1 // never touch the last column: deferred-wrap desync
+
+	if m.quitting {
+		if m.err != nil {
+			return ""
+		}
+		// the final frame is what the terminal scrollback keeps: the whole
+		// outline, fully expanded, styled exactly like the live editor. The
+		// trailing newline matters: the renderer erases the last line of the
+		// final frame on shutdown, so give it an empty one to eat.
+		return strings.Join(m.finalView(maxLine), "\n") + "\n"
+	}
 
 	var lines []string
 
@@ -789,6 +791,19 @@ func (m *Model) View() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// finalView renders the complete tree with glyphs and connectors but no
+// cursor, caret or bottom bar.
+func (m *Model) finalView(maxLine int) []string {
+	var lines []string
+	for _, r := range m.tree.allRows() {
+		glyph, glyphColor := glyphFor(r.it)
+		name := m.tree.displayName(r.it)
+		line := " " + cAccent + connector(r) + glyphColor + glyph + cReset + " " + styledName(r.it, name) + m.layoutSuffix(r.it)
+		lines = append(lines, clip(line, maxLine))
+	}
+	return lines
 }
 
 func (m *Model) viewOutline(maxLine int) []string {
@@ -951,15 +966,6 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	}
 	if fm.err != nil {
 		return fm.err
-	}
-
-	// ctrl+c: leave the outline rendered in scrollback
-	if fm.dumpOnQuit {
-		if rootNode, gerr := database.GetNode(ctx.DB, nodeUUID); gerr == nil {
-			if out, derr := outline.RenderText(ctx.DB, rootNode, -1, true); derr == nil && out != "" {
-				fmt.Println(out)
-			}
-		}
 	}
 
 	total, _ := fm.tree.stats()

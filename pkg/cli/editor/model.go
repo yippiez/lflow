@@ -167,6 +167,22 @@ func (t *tree) visibleRows(viewRoot *item) []row {
 	return rows
 }
 
+// allRows flattens the whole loaded tree ignoring collapsed state: the
+// scrollback dump on quit is the complete outline, not the current folding.
+func (t *tree) allRows() []row {
+	var rows []row
+	var walk func(it *item, depth int, branch []bool)
+	walk = func(it *item, depth int, branch []bool) {
+		for i, c := range it.children {
+			last := i == len(it.children)-1
+			rows = append(rows, row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...)})
+			walk(c, depth+1, append(branch, !last))
+		}
+	}
+	walk(t.root, 0, nil)
+	return rows
+}
+
 // indexOf finds the index of it among its parent's children.
 func indexOf(it *item) int {
 	if it.parent == nil {
