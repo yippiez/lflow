@@ -19,8 +19,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var dbPathFlag string
-
 var root = &cobra.Command{
 	Use:           "lflow",
 	Short:         "local-first terminal outline tool",
@@ -32,7 +30,6 @@ var root = &cobra.Command{
 }
 
 func init() {
-	root.PersistentFlags().StringVar(&dbPathFlag, "dbPath", "", "database file path, defaults to the standard location")
 	// --help is the only help surface: no help subcommand
 	root.SetHelpCommand(&cobra.Command{Use: "no-help", Hidden: true})
 	root.SetHelpFunc(renderHelpFunc)
@@ -42,11 +39,6 @@ func init() {
 // GetRoot returns the root command
 func GetRoot() *cobra.Command {
 	return root
-}
-
-// GetDBPathFlag returns the value of the --dbPath flag
-func GetDBPathFlag() string {
-	return dbPathFlag
 }
 
 // Register adds a new command

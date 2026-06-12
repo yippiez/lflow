@@ -322,11 +322,21 @@ func TestExport(t *testing.T) {
 	assert.Equal(t, len(forest), 2, "export should contain both roots")
 }
 
-func TestDBPathFlag(t *testing.T) {
+func TestDBPathConfig(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
+	// dbPath is configured in the config file, never by flag
 	customDBPath := fmt.Sprintf("%s/custom.db", testDir)
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list", "--dbPath", customDBPath)
+	configDir := fmt.Sprintf("%s/lflow", testDir)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(errors.Wrap(err, "creating config dir"))
+	}
+	configBody := fmt.Sprintf("editor: vi\napiEndpoint: http://localhost:3001/api\ndbPath: %s\n", customDBPath)
+	if err := os.WriteFile(fmt.Sprintf("%s/lflowrc", configDir), []byte(configBody), 0644); err != nil {
+		t.Fatal(errors.Wrap(err, "writing config"))
+	}
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
 
 	ok, err := utils.FileExists(customDBPath)
 	if err != nil {

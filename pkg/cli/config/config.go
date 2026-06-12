@@ -32,6 +32,9 @@ type Config struct {
 	Editor             string `yaml:"editor"`
 	APIEndpoint        string `yaml:"apiEndpoint"`
 	EnableUpgradeCheck bool   `yaml:"enableUpgradeCheck"`
+	// DBPath relocates the SQLite database. The config file is the only
+	// place to set it; there is no flag.
+	DBPath string `yaml:"dbPath,omitempty"`
 }
 
 func checkLegacyPath(ctx context.DnoteCtx) (string, bool) {

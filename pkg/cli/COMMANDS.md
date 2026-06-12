@@ -13,9 +13,9 @@ lflow wf ...                      workflowy integration
 lflow version
 ```
 
-A global `--dbPath <path>` flag, accepted before or after the subcommand, overrides
-the SQLite database location. `--help` on any command shows its help; there is no
-help command.
+The SQLite database lives at the standard data location; set `dbPath` in
+`~/.config/lflow/lflowrc` to relocate it — there is no flag. `--help` on any
+command shows its help; there is no help command.
 
 ## lflow node open
 

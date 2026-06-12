@@ -131,10 +131,11 @@ lflow server sync --dry-run # show what would be pushed/pulled
 lflow server logout
 ```
 
-Point the CLI at your server by setting `apiEndpoint` in `~/.config/lflow/lflowrc`,
-or pass `--apiEndpoint` to `server login`/`server sync`. Conflict rule: a node
-edited locally wins and is pushed back; otherwise the server state wins. See
-[SELF_HOSTING.md](SELF_HOSTING.md) for running the server.
+Configuration lives in `~/.config/lflow/lflowrc`: `apiEndpoint` points the CLI
+at your server, and `dbPath` relocates the SQLite database — there is no flag
+for it. Conflict rule: a node edited locally wins and is pushed back; otherwise
+the server state wins. See [SELF_HOSTING.md](SELF_HOSTING.md) for running the
+server.
 
 ## Workflowy
 

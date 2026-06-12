@@ -77,7 +77,7 @@ func getDBPath(paths context.Paths, customPath string) string {
 // newBaseCtx creates a minimal context with paths and database connection.
 // This base context is used for file and database initialization before
 // being enriched with config values by setupCtx.
-func newBaseCtx(versionTag, customDBPath string) (context.DnoteCtx, error) {
+func newBaseCtx(versionTag string) (context.DnoteCtx, error) {
 	legacyDnoteDir := getLegacyDnotePath(dirs.Home)
 	paths := context.Paths{
 		Home:        dirs.Home,
@@ -85,6 +85,13 @@ func newBaseCtx(versionTag, customDBPath string) (context.DnoteCtx, error) {
 		Data:        dirs.DataHome,
 		Cache:       dirs.CacheHome,
 		LegacyDnote: legacyDnoteDir,
+	}
+
+	// the config file is the only way to relocate the database; on a first
+	// run the file does not exist yet and the standard location is used
+	customDBPath := ""
+	if cf, err := config.Read(context.DnoteCtx{Paths: paths}); err == nil {
+		customDBPath = cf.DBPath
 	}
 
 	dbPath := getDBPath(paths, customDBPath)
@@ -103,10 +110,11 @@ func newBaseCtx(versionTag, customDBPath string) (context.DnoteCtx, error) {
 	return ctx, nil
 }
 
-// Init initializes the Lflow environment and returns a new lflow context
-// apiEndpoint is used when creating a new config file (e.g., from ldflags during tests)
-func Init(versionTag, apiEndpoint, dbPath string) (*context.DnoteCtx, error) {
-	ctx, err := newBaseCtx(versionTag, dbPath)
+// Init initializes the Lflow environment and returns a new lflow context.
+// apiEndpoint is used when creating a new config file, e.g. from ldflags
+// during tests.
+func Init(versionTag, apiEndpoint string) (*context.DnoteCtx, error) {
+	ctx, err := newBaseCtx(versionTag)
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing a context")
 	}

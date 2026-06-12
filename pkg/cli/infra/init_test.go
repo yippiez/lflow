@@ -108,7 +108,7 @@ func TestInit_APIEndpoint(t *testing.T) {
 	dirs.Reload()
 
 	// Initialize - should create config with default apiEndpoint
-	ctx, err := Init("test-version", "", "")
+	ctx, err := Init("test-version", "")
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "initializing"))
 	}

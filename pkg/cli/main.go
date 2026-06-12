@@ -17,7 +17,6 @@ package main
 
 import (
 	"os"
-	"strings"
 
 	"github.com/lflow/lflow/pkg/cli/infra"
 	"github.com/lflow/lflow/pkg/cli/log"
@@ -37,32 +36,10 @@ import (
 var apiEndpoint string
 var versionTag = "master"
 
-// parseDBPath extracts --dbPath flag value from command line arguments
-// regardless of where it appears (before or after subcommand).
-// Returns empty string if not found.
-func parseDBPath(args []string) string {
-	for i, arg := range args {
-		// Handle --dbPath=value
-		if strings.HasPrefix(arg, "--dbPath=") {
-			return strings.TrimPrefix(arg, "--dbPath=")
-		}
-		// Handle --dbPath value
-		if arg == "--dbPath" && i+1 < len(args) {
-			return args[i+1]
-		}
-	}
-	return ""
-}
-
 func main() {
-	// Parse flags early to get --dbPath before initializing database
-	// We need to manually parse --dbPath because it can appear after the subcommand
-	// (e.g., "lflow sync --full --dbPath=./custom.db") and root.ParseFlags only
-	// parses flags before the subcommand.
-	dbPath := parseDBPath(os.Args[1:])
-
-	// Initialize context - defaultAPIEndpoint is used when creating new config file
-	ctx, err := infra.Init(versionTag, apiEndpoint, dbPath)
+	// the database location comes from the config file alone; there is no
+	// flag for it
+	ctx, err := infra.Init(versionTag, apiEndpoint)
 	if err != nil {
 		panic(errors.Wrap(err, "initializing context"))
 	}
