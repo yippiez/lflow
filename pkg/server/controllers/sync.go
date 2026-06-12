@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"time"
 
@@ -55,69 +54,47 @@ type SyncFragment struct {
 	FragMaxUSN    int            `json:"frag_max_usn"`
 	UserMaxUSN    int            `json:"user_max_usn"`
 	CurrentTime   int64          `json:"current_time"`
-	Notes         []SyncFragNote `json:"notes"`
-	Books         []SyncFragBook `json:"books"`
-	ExpungedNotes []string       `json:"expunged_notes"`
-	ExpungedBooks []string       `json:"expunged_books"`
+	Nodes         []SyncFragNode `json:"nodes"`
+	ExpungedNodes []string       `json:"expunged_nodes"`
 }
 
-// SyncFragNote represents a note in a sync fragment and contains only the necessary information
-// for the client to sync the note locally
-type SyncFragNote struct {
-	UUID      string    `json:"uuid"`
-	BookUUID  string    `json:"book_uuid"`
-	USN       int       `json:"usn"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	AddedOn   int64     `json:"added_on"`
-	EditedOn  int64     `json:"edited_on"`
-	Body      string    `json:"content"`
-	Deleted   bool      `json:"deleted"`
+// SyncFragNode represents a node in a sync fragment and contains only the
+// necessary information for the client to sync the node locally
+type SyncFragNode struct {
+	UUID        string    `json:"uuid"`
+	ParentUUID  string    `json:"parent_uuid"`
+	Rank        int       `json:"rank"`
+	Name        string    `json:"name"`
+	Note        string    `json:"note"`
+	Layout      string    `json:"layout"`
+	MirrorOf    string    `json:"mirror_of"`
+	CompletedAt int64     `json:"completed_at"`
+	USN         int       `json:"usn"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	AddedOn     int64     `json:"added_on"`
+	EditedOn    int64     `json:"edited_on"`
+	Deleted     bool      `json:"deleted"`
 }
 
-// NewFragNote presents the given note as a SyncFragNote
-func NewFragNote(note database.Note) SyncFragNote {
-	return SyncFragNote{
-		UUID:      note.UUID,
-		USN:       note.USN,
-		CreatedAt: note.CreatedAt,
-		UpdatedAt: note.UpdatedAt,
-		AddedOn:   note.AddedOn,
-		EditedOn:  note.EditedOn,
-		Body:      note.Body,
-		Deleted:   note.Deleted,
-		BookUUID:  note.BookUUID,
+// NewFragNode presents the given node as a SyncFragNode
+func NewFragNode(node database.Node) SyncFragNode {
+	return SyncFragNode{
+		UUID:        node.UUID,
+		ParentUUID:  node.ParentUUID,
+		Rank:        node.Rank,
+		Name:        node.Name,
+		Note:        node.Note,
+		Layout:      node.Layout,
+		MirrorOf:    node.MirrorOf,
+		CompletedAt: node.CompletedAt,
+		USN:         node.USN,
+		CreatedAt:   node.CreatedAt,
+		UpdatedAt:   node.UpdatedAt,
+		AddedOn:     node.AddedOn,
+		EditedOn:    node.EditedOn,
+		Deleted:     node.Deleted,
 	}
-}
-
-// SyncFragBook represents a book in a sync fragment and contains only the necessary information
-// for the client to sync the note locally
-type SyncFragBook struct {
-	UUID      string    `json:"uuid"`
-	USN       int       `json:"usn"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	AddedOn   int64     `json:"added_on"`
-	Label     string    `json:"label"`
-	Deleted   bool      `json:"deleted"`
-}
-
-// NewFragBook presents the given book as a SyncFragBook
-func NewFragBook(book database.Book) SyncFragBook {
-	return SyncFragBook{
-		UUID:      book.UUID,
-		USN:       book.USN,
-		CreatedAt: book.CreatedAt,
-		UpdatedAt: book.UpdatedAt,
-		AddedOn:   book.AddedOn,
-		Label:     book.Label,
-		Deleted:   book.Deleted,
-	}
-}
-
-type usnItem struct {
-	usn int
-	val interface{}
 }
 
 type queryParamError struct {
@@ -131,70 +108,22 @@ func (e *queryParamError) Error() string {
 }
 
 func (s *Sync) newFragment(userID, userMaxUSN, afterUSN, limit int) (SyncFragment, error) {
-	var notes []database.Note
-	if err := s.app.DB.Where("user_id = ? AND usn > ? AND usn <= ?", userID, afterUSN, userMaxUSN).Order("usn ASC").Limit(limit).Find(&notes).Error; err != nil {
-		return SyncFragment{}, nil
-	}
-	var books []database.Book
-	if err := s.app.DB.Where("user_id = ? AND usn > ? AND usn <= ?", userID, afterUSN, userMaxUSN).Order("usn ASC").Limit(limit).Find(&books).Error; err != nil {
-		return SyncFragment{}, nil
+	var nodes []database.Node
+	if err := s.app.DB.Where("user_id = ? AND usn > ? AND usn <= ?", userID, afterUSN, userMaxUSN).Order("usn ASC").Limit(limit).Find(&nodes).Error; err != nil {
+		return SyncFragment{}, errors.Wrap(err, "finding nodes")
 	}
 
-	var items []usnItem
-	for _, note := range notes {
-		i := usnItem{
-			usn: note.USN,
-			val: note,
-		}
-		items = append(items, i)
-	}
-	for _, book := range books {
-		i := usnItem{
-			usn: book.USN,
-			val: book,
-		}
-		items = append(items, i)
-	}
-
-	// order by usn in ascending order
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].usn < items[j].usn
-	})
-
-	fragNotes := []SyncFragNote{}
-	fragBooks := []SyncFragBook{}
-	fragExpungedNotes := []string{}
-	fragExpungedBooks := []string{}
+	fragNodes := []SyncFragNode{}
+	fragExpungedNodes := []string{}
 
 	fragMaxUSN := 0
-	for i := 0; i < limit; i++ {
-		if i > len(items)-1 {
-			break
-		}
+	for _, node := range nodes {
+		fragMaxUSN = node.USN
 
-		item := items[i]
-
-		fragMaxUSN = item.usn
-
-		switch v := item.val.(type) {
-		case database.Note:
-			note := item.val.(database.Note)
-
-			if note.Deleted {
-				fragExpungedNotes = append(fragExpungedNotes, note.UUID)
-			} else {
-				fragNotes = append(fragNotes, NewFragNote(note))
-			}
-		case database.Book:
-			book := item.val.(database.Book)
-
-			if book.Deleted {
-				fragExpungedBooks = append(fragExpungedBooks, book.UUID)
-			} else {
-				fragBooks = append(fragBooks, NewFragBook(book))
-			}
-		default:
-			return SyncFragment{}, errors.Errorf("unknown internal item type %s", v)
+		if node.Deleted {
+			fragExpungedNodes = append(fragExpungedNodes, node.UUID)
+		} else {
+			fragNodes = append(fragNodes, NewFragNode(node))
 		}
 	}
 
@@ -202,10 +131,8 @@ func (s *Sync) newFragment(userID, userMaxUSN, afterUSN, limit int) (SyncFragmen
 		FragMaxUSN:    fragMaxUSN,
 		UserMaxUSN:    userMaxUSN,
 		CurrentTime:   s.app.Clock.Now().Unix(),
-		Notes:         fragNotes,
-		Books:         fragBooks,
-		ExpungedNotes: fragExpungedNotes,
-		ExpungedBooks: fragExpungedBooks,
+		Nodes:         fragNodes,
+		ExpungedNodes: fragExpungedNodes,
 	}
 
 	return ret, nil

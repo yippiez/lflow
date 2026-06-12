@@ -164,7 +164,7 @@ func UpdateUserPassword(db *gorm.DB, user *database.User, newPassword string) er
 }
 
 // RemoveUser removes a user from the system
-// Returns an error if the user has any notes or books
+// Returns an error if the user has any nodes
 func (a *App) RemoveUser(email string) error {
 	// Find the user
 	user, err := a.GetUserByEmail(email)
@@ -172,21 +172,12 @@ func (a *App) RemoveUser(email string) error {
 		return err
 	}
 
-	// Check if user has any notes
-	var noteCount int64
-	if err := a.DB.Model(&database.Note{}).Where("user_id = ? AND deleted = ?", user.ID, false).Count(&noteCount).Error; err != nil {
-		return pkgErrors.Wrap(err, "counting notes")
+	// Check if user has any nodes
+	var nodeCount int64
+	if err := a.DB.Model(&database.Node{}).Where("user_id = ? AND deleted = ?", user.ID, false).Count(&nodeCount).Error; err != nil {
+		return pkgErrors.Wrap(err, "counting nodes")
 	}
-	if noteCount > 0 {
-		return ErrUserHasExistingResources
-	}
-
-	// Check if user has any books
-	var bookCount int64
-	if err := a.DB.Model(&database.Book{}).Where("user_id = ? AND deleted = ?", user.ID, false).Count(&bookCount).Error; err != nil {
-		return pkgErrors.Wrap(err, "counting books")
-	}
-	if bookCount > 0 {
+	if nodeCount > 0 {
 		return ErrUserHasExistingResources
 	}
 

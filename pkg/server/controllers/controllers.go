@@ -23,8 +23,7 @@ import (
 // Controllers is a group of controllers
 type Controllers struct {
 	Users  *Users
-	Notes  *Notes
-	Books  *Books
+	Nodes  *Nodes
 	Sync   *Sync
 	Static *Static
 	Health *Health
@@ -37,8 +36,7 @@ func New(app *app.App) *Controllers {
 	viewEngine := views.NewDefaultEngine()
 
 	c.Users = NewUsers(app, viewEngine)
-	c.Notes = NewNotes(app)
-	c.Books = NewBooks(app)
+	c.Nodes = NewNodes(app)
 	c.Sync = NewSync(app)
 	c.Static = NewStatic(app, viewEngine)
 	c.Health = NewHealth(app)

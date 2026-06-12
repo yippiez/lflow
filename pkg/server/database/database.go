@@ -52,8 +52,7 @@ func getDBLogLevel(level string) logger.LogLevel {
 func InitSchema(db *gorm.DB) {
 	if err := db.AutoMigrate(
 		&User{},
-		&Book{},
-		&Note{},
+		&Node{},
 		&Token{},
 		&Session{},
 	); err != nil {

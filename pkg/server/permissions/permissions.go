@@ -19,14 +19,14 @@ import (
 	"github.com/lflow/lflow/pkg/server/database"
 )
 
-// ViewNote checks if the given user can view the given note
-func ViewNote(user *database.User, note database.Note) bool {
+// ViewNode checks if the given user can view the given node
+func ViewNode(user *database.User, node database.Node) bool {
 	if user == nil {
 		return false
 	}
-	if note.UserID == 0 {
+	if node.UserID == 0 {
 		return false
 	}
 
-	return note.UserID == user.ID
+	return node.UserID == user.ID
 }

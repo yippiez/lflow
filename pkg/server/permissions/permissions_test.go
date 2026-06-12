@@ -23,40 +23,31 @@ import (
 	"github.com/lflow/lflow/pkg/server/testutils"
 )
 
-func TestViewNote(t *testing.T) {
+func TestViewNode(t *testing.T) {
 	db := testutils.InitMemoryDB(t)
 
 	user := testutils.SetupUserData(db, "user@test.com", "password123")
 	anotherUser := testutils.SetupUserData(db, "another@test.com", "password123")
 
-	b1 := database.Book{
+	node := database.Node{
 		UUID:   testutils.MustUUID(t),
 		UserID: user.ID,
-		Label:  "js",
+		Name:   "node content",
 	}
-	testutils.MustExec(t, db.Save(&b1), "preparing b1")
+	testutils.MustExec(t, db.Save(&node), "preparing node")
 
-	note := database.Note{
-		UUID:     testutils.MustUUID(t),
-		UserID:   user.ID,
-		BookUUID: b1.UUID,
-		Body:     "note content",
-		Deleted:  false,
-	}
-	testutils.MustExec(t, db.Save(&note), "preparing note")
-
-	t.Run("owner accessing note", func(t *testing.T) {
-		result := ViewNote(&user, note)
+	t.Run("owner accessing node", func(t *testing.T) {
+		result := ViewNode(&user, node)
 		assert.Equal(t, result, true, "result mismatch")
 	})
 
-	t.Run("non-owner accessing note", func(t *testing.T) {
-		result := ViewNote(&anotherUser, note)
+	t.Run("non-owner accessing node", func(t *testing.T) {
+		result := ViewNode(&anotherUser, node)
 		assert.Equal(t, result, false, "result mismatch")
 	})
 
-	t.Run("guest accessing note", func(t *testing.T) {
-		result := ViewNote(nil, note)
+	t.Run("guest accessing node", func(t *testing.T) {
+		result := ViewNode(nil, node)
 		assert.Equal(t, result, false, "result mismatch")
 	})
 }
