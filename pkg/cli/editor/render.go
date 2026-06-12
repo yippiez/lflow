@@ -36,7 +36,7 @@ const (
 	cStrike = "\x1b[9m"
 	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
 	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
-	bgCaret = "\x1b[48;2;139;0;0m"   // #8b0000 dark red block cursor
+	cInvert = "\x1b[7m" // the block cursor: inverts the cell beneath it
 )
 
 // glyphs (locked)
@@ -156,16 +156,17 @@ func connector(r row) string {
 	return b.String()
 }
 
-// withCaret inserts the caret glyph into text at the given rune index.
+// withCaret marks the rune at the caret index with the inverting block
+// cursor; past the end it paints a single trailing cell.
 func withCaret(text string, caret int) string {
 	runes := []rune(text)
 	if caret < 0 {
 		caret = 0
 	}
 	if caret >= len(runes) {
-		return string(runes) + bgCaret + " " + cReset + cFG
+		return string(runes) + cInvert + " " + cReset + cFG
 	}
-	return string(runes[:caret]) + bgCaret + string(runes[caret]) + cReset + cFG + string(runes[caret+1:])
+	return string(runes[:caret]) + cInvert + string(runes[caret]) + cReset + cFG + string(runes[caret+1:])
 }
 
 // spanFlags is the per-rune style mask the inline parser produces.
@@ -239,10 +240,9 @@ func inlineSpans(runes []rune) []spanFlags {
 }
 
 // renderBody renders a node name wysiwyg. Text keeps its normal color on
-// every row — selection is carried by the glyph and the block cursor, never
-// by recoloring the text. Unselected rows hide the markdown markers; the
-// selected row shows them and paints a dark red block cursor over the rune
-// at the caret index (-1 for none).
+// every row — selection is carried by the red glyph alone. Unselected rows
+// hide the markdown markers; the selected row shows them and the block
+// cursor inverts the cell under the rune at the caret index (-1 for none).
 func renderBody(it *item, name string, caret int, selected bool) string {
 	base := cFG
 
@@ -294,7 +294,7 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 		}
 		if i == caret {
 			// the block cursor sits ON the rune: same colors, dark red cell
-			b.WriteString(sgr(f) + bgCaret)
+			b.WriteString(sgr(f) + cInvert)
 			b.WriteRune(r)
 			cur = "" // force a state re-emit after the caret cell
 			continue
@@ -307,7 +307,7 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	}
 	if caret >= len(runes) && caret >= 0 {
 		// past the last rune: paint one trailing cell
-		b.WriteString(cReset + bgCaret + " ")
+		b.WriteString(cReset + cFG + cInvert + " ")
 	}
 	if it.layout == database.LayoutCode {
 		b.WriteString(cReset + attrs + " ")

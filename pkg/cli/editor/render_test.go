@@ -68,7 +68,7 @@ func TestRenderBodyBlockCursor(t *testing.T) {
 	if got := stripSGR(rendered); got != "abc" {
 		t.Errorf("cursor must not insert characters: %q", got)
 	}
-	if !strings.Contains(rendered, bgCaret+"b") {
+	if !strings.Contains(rendered, cInvert+"b") {
 		t.Errorf("rune under the caret should carry the cursor cell: %q", rendered)
 	}
 
@@ -77,7 +77,7 @@ func TestRenderBodyBlockCursor(t *testing.T) {
 	if got := stripSGR(rendered); got != "abc " {
 		t.Errorf("caret at end should paint a trailing cell: %q", got)
 	}
-	if !strings.Contains(rendered, bgCaret+" ") {
+	if !strings.Contains(rendered, cInvert+" ") {
 		t.Errorf("trailing cursor cell missing: %q", rendered)
 	}
 }

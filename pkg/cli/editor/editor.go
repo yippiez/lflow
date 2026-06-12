@@ -14,9 +14,9 @@
  */
 
 // Package editor implements the inline scrollback-mode outline editor:
-// black background, ○/●/◆/□ glyphs plus 1/2/3 heading digits, ├─ ╰─ │
-// connectors drawn from the parent bullet, muted gray rows with the selected
-// row in red carrying a red inline caret, a minimal dim bottom bar, a
+// black background, muted gray ○/●/◆/□ glyphs and connectors plus 1/2/3
+// heading digits, the selected row marked by its glyph turning red, a block
+// cursor that inverts the cell beneath it, a minimal dim bottom bar, a
 // type-to-filter slash menu under the bar, and a full-panel fuzzy finder for
 // /mirror /mirror_to /move_to /go. It never enters the alternate screen.
 package editor
@@ -42,6 +42,7 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
+	modeConfirm // inline delete confirmation for nodes with children
 )
 
 type finderAction int
@@ -194,6 +195,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFinderKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
+	case modeConfirm:
+		return m.handleConfirmKey(k)
 	}
 
 	switch key {
@@ -248,12 +251,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 		}
 		return m, nil
-	case "ctrl+d":
+	// ctrl+backspace arrives as ctrl+h in most terminals
+	case "ctrl+d", "ctrl+shift+backspace", "ctrl+backspace", "ctrl+h":
 		if cur := m.cursorItem(); cur != nil {
-			m.tree.remove(cur)
-			m.unsaved = true
-			m.refreshRows()
-			m.caret = 0
+			if len(cur.children) > 0 {
+				// children go with the node: confirm inline first
+				m.mode = modeConfirm
+			} else {
+				m.deleteNode(cur)
+			}
 		}
 		return m, nil
 	case "ctrl+t":
@@ -285,8 +291,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+right", "ctrl+right":
-		// zoom into the cursor node
-		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 {
+		// zoom into the cursor node — leaves too: the view starts empty
+		// and typing adds the first child
+		if cur := m.cursorItem(); cur != nil {
 			m.viewStack = append(m.viewStack, cur)
 			m.cursor = 0
 			m.caret = 0
@@ -507,6 +514,37 @@ func copyToClipboard(s string) {
 		seq = seq.Tmux()
 	}
 	_, _ = seq.WriteTo(os.Stderr)
+}
+
+// deleteNode removes the node and its subtree from the tree.
+func (m *Model) deleteNode(it *item) {
+	m.tree.remove(it)
+	m.unsaved = true
+	m.refreshRows()
+	m.caret = 0
+}
+
+// subtreeSize counts the node and everything below it.
+func subtreeSize(it *item) int {
+	n := 1
+	for _, c := range it.children {
+		n += subtreeSize(c)
+	}
+	return n
+}
+
+// handleConfirmKey answers the inline delete confirmation.
+func (m *Model) handleConfirmKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "enter", "y":
+		m.mode = modeOutline
+		if cur := m.cursorItem(); cur != nil {
+			m.deleteNode(cur)
+		}
+	case "esc", "n":
+		m.mode = modeOutline
+	}
+	return m, nil
 }
 
 func (m *Model) clampCaret() {
@@ -971,7 +1009,7 @@ func (m *Model) finalView(maxLine int) []string {
 	for _, r := range m.tree.allRows() {
 		glyph, glyphColor := glyphFor(r.it)
 		name := m.tree.displayName(r.it)
-		line := " " + cAccent + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
 		lines = append(lines, clip(line, maxLine))
 	}
 	return lines
@@ -1005,7 +1043,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 		body := renderBody(it, name, caret, selected)
 
-		line := " " + cAccent + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
 
 		if selected && m.mode == modeNote {
 			line += cDim + "  note: " + cReset + cFG + withCaret(it.note, m.caret) + cReset
@@ -1023,6 +1061,14 @@ func (m *Model) viewOutline(maxLine int) []string {
 				mark = cAccent + "▸ " + cReset
 			}
 			line := " " + mark + cFG + fmt.Sprintf("%-11s", c.name) + cDim + " " + c.desc + cReset
+			lines = append(lines, clip(line, maxLine))
+		}
+	}
+
+	if m.mode == modeConfirm {
+		if cur := m.cursorItem(); cur != nil {
+			line := " " + cRed + "delete " + cReset + cYellow + fmt.Sprintf("%q", m.tree.displayName(cur)) + cReset +
+				cDim + fmt.Sprintf(" · %s · enter delete · esc keep", nodeNoun(subtreeSize(cur))) + cReset
 			lines = append(lines, clip(line, maxLine))
 		}
 	}
