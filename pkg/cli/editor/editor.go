@@ -13,15 +13,910 @@
  * limitations under the License.
  */
 
-// Package editor implements the inline (scrollback-mode) outline editor.
+// Package editor implements the inline (scrollback-mode) outline editor:
+// black background, ○/●/◆/□ glyphs, ├─ ╰─ │ connectors drawn from the parent
+// bullet, ▌ cursor marker, a minimal dim bottom bar, a type-to-filter slash
+// menu under the bar, and a full-panel fuzzy finder for /mirror /mirror_to
+// /move_to /go. It never enters the alternate screen.
 package editor
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/cli/context"
+	"github.com/lflow/lflow/pkg/cli/database"
 	"github.com/pkg/errors"
 )
 
+type mode int
+
+const (
+	modeOutline mode = iota
+	modeSlash
+	modeFinder
+	modeNote
+)
+
+type finderAction int
+
+const (
+	actMirrorHere finderAction = iota
+	actMirrorTo
+	actMoveTo
+	actGo
+)
+
+type slashCommand struct {
+	name string
+	desc string
+}
+
+var slashCommands = []slashCommand{
+	{"/mirror", "mirror a node here (fuzzy finder)"},
+	{"/mirror_to", "mirror THIS node somewhere else"},
+	{"/move_to", "move this node under another node"},
+	{"/go", "jump the editor to another node"},
+	{"/complete", "toggle done"},
+	{"/h1", "make heading 1"},
+	{"/h2", "make heading 2"},
+	{"/h3", "make heading 3"},
+	{"/todo", "make todo"},
+	{"/code", "make code"},
+	{"/quote", "make quote"},
+	{"/bullet", "back to a plain bullet"},
+	{"/note", "edit this node's note"},
+}
+
+// Model is the bubbletea model for the editor.
+type Model struct {
+	db   *database.DB
+	tree *tree
+
+	viewStack []*item // zoom stack; last is the current view root
+	cursor    int     // index into visibleRows
+	caret     int     // rune index in the edited field
+	rows      []row   // cached visible rows
+
+	width  int
+	height int
+
+	mode        mode
+	slashQuery  string
+	slashSel    int
+	finderQuery string
+	finderSel   int
+	finderHits  []database.Node
+	finderAct   finderAction
+	notePrev    string // note backup for esc in note mode
+
+	escPending bool
+	unsaved    bool
+	quitting   bool
+	err        error
+
+	saved struct {
+		written int
+	}
+}
+
+func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
+
+func (m *Model) refreshRows() {
+	m.rows = m.tree.visibleRows(m.viewRoot())
+	if m.cursor >= len(m.rows) {
+		m.cursor = len(m.rows) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+}
+
+func (m *Model) cursorItem() *item {
+	if len(m.rows) == 0 {
+		return nil
+	}
+	return m.rows[m.cursor].it
+}
+
+// Init implements tea.Model.
+func (m *Model) Init() tea.Cmd { return nil }
+
+// Update implements tea.Model.
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	}
+	return m, nil
+}
+
+func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := k.String()
+
+	// esc-esc quits from outline mode
+	if m.mode == modeOutline && key == "esc" {
+		if m.escPending {
+			return m.quit()
+		}
+		m.escPending = true
+		return m, nil
+	}
+	if key != "esc" {
+		m.escPending = false
+	}
+
+	switch m.mode {
+	case modeSlash:
+		return m.handleSlashKey(k)
+	case modeFinder:
+		return m.handleFinderKey(k)
+	case modeNote:
+		return m.handleNoteKey(k)
+	}
+
+	switch key {
+	case "ctrl+q", "ctrl+c":
+		return m.quit()
+	case "ctrl+s":
+		written, err := m.tree.save()
+		if err != nil {
+			m.err = err
+			return m.quit()
+		}
+		m.saved.written += written
+		m.unsaved = false
+		return m, nil
+	case "enter":
+		cur := m.cursorItem()
+		var it *item
+		var err error
+		if cur == nil {
+			it, err = m.tree.insertFirstChild(m.viewRoot())
+		} else if cur.parent == m.viewRoot() || cur.parent != nil {
+			it, err = m.tree.insertSiblingAfter(cur)
+		}
+		if err != nil {
+			m.err = err
+			return m.quit()
+		}
+		if it != nil {
+			m.unsaved = true
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(it)
+			m.caret = 0
+		}
+		return m, nil
+	case "tab":
+		if cur := m.cursorItem(); cur != nil && m.tree.indent(cur) {
+			m.unsaved = true
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(cur)
+		}
+		return m, nil
+	case "shift+tab":
+		if cur := m.cursorItem(); cur != nil && m.tree.outdent(cur, m.viewRoot()) {
+			m.unsaved = true
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(cur)
+		}
+		return m, nil
+	case "ctrl+@", "ctrl+space":
+		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 {
+			cur.collapsed = !cur.collapsed
+			m.refreshRows()
+		}
+		return m, nil
+	case "ctrl+d":
+		if cur := m.cursorItem(); cur != nil {
+			m.tree.remove(cur)
+			m.unsaved = true
+			m.refreshRows()
+			m.caret = 0
+		}
+		return m, nil
+	case "alt+shift+up":
+		if cur := m.cursorItem(); cur != nil && m.tree.move(cur, -1) {
+			m.unsaved = true
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(cur)
+		}
+		return m, nil
+	case "alt+shift+down":
+		if cur := m.cursorItem(); cur != nil && m.tree.move(cur, 1) {
+			m.unsaved = true
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(cur)
+		}
+		return m, nil
+	case "alt+down":
+		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 {
+			m.viewStack = append(m.viewStack, cur)
+			m.cursor = 0
+			m.caret = 0
+			m.refreshRows()
+		}
+		return m, nil
+	case "alt+up":
+		if len(m.viewStack) > 1 {
+			zoomed := m.viewRoot()
+			m.viewStack = m.viewStack[:len(m.viewStack)-1]
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(zoomed)
+			m.caret = 0
+		}
+		return m, nil
+	case "up":
+		if m.cursor > 0 {
+			m.cursor--
+			m.clampCaret()
+		}
+		return m, nil
+	case "down":
+		if m.cursor < len(m.rows)-1 {
+			m.cursor++
+			m.clampCaret()
+		}
+		return m, nil
+	case "left":
+		if m.caret > 0 {
+			m.caret--
+		}
+		return m, nil
+	case "right":
+		if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(cur.name)) {
+			m.caret++
+		}
+		return m, nil
+	case "home":
+		m.caret = 0
+		return m, nil
+	case "end":
+		if cur := m.cursorItem(); cur != nil {
+			m.caret = len([]rune(cur.name))
+		}
+		return m, nil
+	case "backspace":
+		cur := m.cursorItem()
+		if cur == nil || cur.mirrorOf != "" {
+			return m, nil
+		}
+		if m.caret > 0 {
+			runes := []rune(cur.name)
+			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			m.caret--
+			m.unsaved = true
+		} else if cur.name == "" && len(cur.children) == 0 {
+			// backspace on an empty leaf removes it
+			idx := m.cursor
+			m.tree.remove(cur)
+			m.unsaved = true
+			m.refreshRows()
+			if idx > 0 {
+				m.cursor = idx - 1
+			}
+			if c := m.cursorItem(); c != nil {
+				m.caret = len([]rune(c.name))
+			}
+		}
+		return m, nil
+	}
+
+	// printable input (space arrives as KeySpace, not KeyRunes)
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type = tea.KeyRunes
+		k.Runes = []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && len(k.Runes) > 0 && !k.Alt {
+		cur := m.cursorItem()
+		if cur == nil {
+			// empty view: create the first node
+			it, err := m.tree.insertFirstChild(m.viewRoot())
+			if err != nil {
+				m.err = err
+				return m.quit()
+			}
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(it)
+			m.caret = 0
+			cur = it
+		}
+
+		// "/" at the start of a row opens the slash menu
+		if string(k.Runes) == "/" && m.caret == 0 {
+			m.mode = modeSlash
+			m.slashQuery = ""
+			m.slashSel = 0
+			return m, nil
+		}
+
+		if cur.mirrorOf != "" {
+			return m, nil // mirrors are edited at their original
+		}
+
+		runes := []rune(cur.name)
+		ins := []rune(string(k.Runes))
+		cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
+		m.caret += len(ins)
+		m.unsaved = true
+		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m *Model) clampCaret() {
+	if cur := m.cursorItem(); cur != nil {
+		if n := len([]rune(cur.name)); m.caret > n {
+			m.caret = n
+		}
+	}
+}
+
+func (m *Model) rowIndexOf(it *item) int {
+	for i, r := range m.rows {
+		if r.it == it {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m *Model) filteredSlash() []slashCommand {
+	if m.slashQuery == "" {
+		return slashCommands
+	}
+	var ret []slashCommand
+	for _, c := range slashCommands {
+		if strings.Contains(c.name, strings.ToLower(m.slashQuery)) {
+			ret = append(ret, c)
+		}
+	}
+	return ret
+}
+
+func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "up":
+		if m.slashSel > 0 {
+			m.slashSel--
+		}
+		return m, nil
+	case "down":
+		if m.slashSel < len(m.filteredSlash())-1 {
+			m.slashSel++
+		}
+		return m, nil
+	case "backspace":
+		if len(m.slashQuery) > 0 {
+			m.slashQuery = m.slashQuery[:len(m.slashQuery)-1]
+			m.slashSel = 0
+		} else {
+			m.mode = modeOutline
+		}
+		return m, nil
+	case "enter":
+		cmds := m.filteredSlash()
+		if m.slashSel < len(cmds) {
+			return m.runSlash(cmds[m.slashSel].name)
+		}
+		m.mode = modeOutline
+		return m, nil
+	}
+
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && !k.Alt {
+		m.slashQuery += string(k.Runes)
+		m.slashSel = 0
+	}
+	return m, nil
+}
+
+func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
+	m.mode = modeOutline
+	cur := m.cursorItem()
+	if cur == nil {
+		return m, nil
+	}
+
+	setLayout := func(layout string) {
+		cur.layout = layout
+		m.unsaved = true
+	}
+
+	switch name {
+	case "/h1":
+		setLayout(database.LayoutH1)
+	case "/h2":
+		setLayout(database.LayoutH2)
+	case "/h3":
+		setLayout(database.LayoutH3)
+	case "/todo":
+		setLayout(database.LayoutTodo)
+	case "/code":
+		setLayout(database.LayoutCode)
+	case "/quote":
+		setLayout(database.LayoutQuote)
+	case "/bullet":
+		setLayout(database.LayoutBullets)
+	case "/complete":
+		if cur.completedAt > 0 {
+			cur.completedAt = 0
+		} else {
+			cur.completedAt = time.Now().Unix()
+		}
+		m.unsaved = true
+	case "/note":
+		m.mode = modeNote
+		m.notePrev = cur.note
+		m.caret = len([]rune(cur.note))
+	case "/mirror":
+		m.openFinder(actMirrorHere)
+	case "/mirror_to":
+		m.openFinder(actMirrorTo)
+	case "/move_to":
+		m.openFinder(actMoveTo)
+	case "/go":
+		m.openFinder(actGo)
+	}
+	return m, nil
+}
+
+func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cur := m.cursorItem()
+	if cur == nil {
+		m.mode = modeOutline
+		return m, nil
+	}
+	switch k.String() {
+	case "esc":
+		cur.note = m.notePrev
+		m.mode = modeOutline
+		m.caret = len([]rune(cur.name))
+		return m, nil
+	case "enter":
+		m.mode = modeOutline
+		m.unsaved = true
+		m.caret = len([]rune(cur.name))
+		return m, nil
+	case "backspace":
+		runes := []rune(cur.note)
+		if m.caret > 0 && m.caret <= len(runes) {
+			cur.note = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			m.caret--
+		}
+		return m, nil
+	case "left":
+		if m.caret > 0 {
+			m.caret--
+		}
+		return m, nil
+	case "right":
+		if m.caret < len([]rune(cur.note)) {
+			m.caret++
+		}
+		return m, nil
+	}
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && !k.Alt {
+		runes := []rune(cur.note)
+		ins := []rune(string(k.Runes))
+		cur.note = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
+		m.caret += len(ins)
+	}
+	return m, nil
+}
+
+func (m *Model) openFinder(act finderAction) {
+	m.mode = modeFinder
+	m.finderAct = act
+	m.finderQuery = ""
+	m.finderSel = 0
+	m.finderHits = nil
+	m.refreshFinder()
+}
+
+func (m *Model) refreshFinder() {
+	hits, err := database.SearchNodes(m.db, m.finderQuery, true)
+	if err != nil {
+		m.finderHits = nil
+		return
+	}
+	// the node being acted on is never a valid target
+	cur := m.cursorItem()
+	var filtered []database.Node
+	for _, h := range hits {
+		if cur != nil && h.UUID == cur.uuid {
+			continue
+		}
+		filtered = append(filtered, h)
+	}
+	m.finderHits = filtered
+	if m.finderSel >= len(m.finderHits) {
+		m.finderSel = 0
+	}
+}
+
+func (m *Model) handleFinderKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "up":
+		if m.finderSel > 0 {
+			m.finderSel--
+		}
+		return m, nil
+	case "down":
+		if m.finderSel < len(m.finderHits)-1 {
+			m.finderSel++
+		}
+		return m, nil
+	case "backspace":
+		if len(m.finderQuery) > 0 {
+			m.finderQuery = m.finderQuery[:len(m.finderQuery)-1]
+			m.refreshFinder()
+		}
+		return m, nil
+	case "enter":
+		if m.finderSel < len(m.finderHits) {
+			return m.runFinder(m.finderHits[m.finderSel])
+		}
+		m.mode = modeOutline
+		return m, nil
+	}
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && !k.Alt {
+		m.finderQuery += string(k.Runes)
+		m.refreshFinder()
+	}
+	return m, nil
+}
+
+func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
+	m.mode = modeOutline
+	cur := m.cursorItem()
+	if cur == nil {
+		return m, nil
+	}
+
+	switch m.finderAct {
+	case actMirrorHere:
+		if cur.name == "" && cur.mirrorOf == "" && len(cur.children) == 0 {
+			// the empty node where "/" was typed becomes the mirror
+			cur.mirrorOf = target.UUID
+		} else {
+			it, err := m.tree.insertSiblingAfter(cur)
+			if err != nil {
+				m.err = err
+				return m.quit()
+			}
+			it.mirrorOf = target.UUID
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(it)
+		}
+		if _, inTree := m.tree.byUUID[target.UUID]; !inTree {
+			m.tree.externalNames[target.UUID] = target.Name
+		}
+		m.unsaved = true
+	case actMirrorTo:
+		// the mirror instance lives outside this subtree: write it directly
+		if err := m.mirrorToDB(cur, target); err != nil {
+			m.err = err
+			return m.quit()
+		}
+	case actMoveTo:
+		if targetItem, inTree := m.tree.byUUID[target.UUID]; inTree {
+			if m.tree.reparent(cur, targetItem) {
+				m.unsaved = true
+				m.refreshRows()
+				m.cursor = m.rowIndexOf(cur)
+			}
+		} else {
+			// moving out of the open subtree: persist everything, then move in db
+			if err := m.moveToDB(cur, target); err != nil {
+				m.err = err
+				return m.quit()
+			}
+		}
+	case actGo:
+		// save, then reopen on the target
+		if _, err := m.tree.save(); err != nil {
+			m.err = err
+			return m.quit()
+		}
+		t, err := loadTree(m.db, target.UUID)
+		if err != nil {
+			m.err = err
+			return m.quit()
+		}
+		m.tree = t
+		m.viewStack = []*item{t.root}
+		m.cursor = 0
+		m.caret = 0
+		m.unsaved = false
+	}
+
+	m.refreshRows()
+	return m, nil
+}
+
+func (m *Model) mirrorToDB(cur *item, target database.Node) error {
+	if _, err := m.tree.save(); err != nil {
+		return err
+	}
+	m.unsaved = false
+
+	newIt, err := m.tree.newItem()
+	if err != nil {
+		return err
+	}
+	delete(m.tree.byUUID, newIt.uuid) // not part of this tree
+
+	rank, err := database.NextRank(m.db, target.UUID)
+	if err != nil {
+		return err
+	}
+	n := database.Node{
+		UUID:       newIt.uuid,
+		ParentUUID: target.UUID,
+		Rank:       rank,
+		Layout:     database.LayoutBullets,
+		MirrorOf:   cur.uuid,
+		Dirty:      true,
+	}
+	return n.Insert(m.db)
+}
+
+func (m *Model) moveToDB(cur *item, target database.Node) error {
+	if _, err := m.tree.save(); err != nil {
+		return err
+	}
+	m.unsaved = false
+
+	rank, err := database.NextRank(m.db, target.UUID)
+	if err != nil {
+		return err
+	}
+	if _, err := m.db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ?, dirty = 1 WHERE uuid = ?",
+		target.UUID, rank, cur.uuid); err != nil {
+		return errors.Wrap(err, "moving node")
+	}
+
+	// detach from the in-memory tree without tombstoning
+	if idx := indexOf(cur); idx >= 0 {
+		cur.parent.children = append(cur.parent.children[:idx], cur.parent.children[idx+1:]...)
+	}
+	m.refreshRows()
+	return nil
+}
+
+func (m *Model) quit() (tea.Model, tea.Cmd) {
+	if m.err == nil {
+		written, err := m.tree.save()
+		if err != nil {
+			m.err = err
+		} else {
+			m.saved.written += written
+		}
+	}
+	m.quitting = true
+	return m, tea.Quit
+}
+
+// View implements tea.Model.
+func (m *Model) View() string {
+	if m.quitting {
+		return ""
+	}
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	maxLine := width - 1 // never touch the last column (deferred-wrap)
+
+	var lines []string
+
+	if m.mode == modeFinder {
+		lines = m.viewFinder(maxLine)
+	} else {
+		lines = m.viewOutline(maxLine)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (m *Model) viewOutline(maxLine int) []string {
+	var lines []string
+
+	rows := m.rows
+	if len(rows) == 0 {
+		lines = append(lines, cDim+" (empty — type to add a node)"+cReset)
+	}
+
+	// vertical viewport: keep the cursor visible
+	maxRows := m.height - 2
+	if maxRows < 4 {
+		maxRows = 18
+	}
+	start := 0
+	if m.cursor >= maxRows {
+		start = m.cursor - maxRows + 1
+	}
+	end := start + maxRows
+	if end > len(rows) {
+		end = len(rows)
+	}
+
+	for i := start; i < end; i++ {
+		r := rows[i]
+		it := r.it
+
+		marker := " "
+		if i == m.cursor {
+			marker = cAccent + glyphCursor + cReset
+		}
+
+		glyph, glyphColor := glyphFor(it)
+		name := m.tree.displayName(it)
+
+		var body string
+		if i == m.cursor && m.mode != modeNote && it.mirrorOf == "" {
+			body = cFG + withCaret(name, m.caret) + cReset
+		} else {
+			body = styledName(it, name)
+		}
+
+		line := marker + cAccent + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
+
+		if i == m.cursor && m.mode == modeNote {
+			line += cDim + "  note: " + cReset + cFG + withCaret(it.note, m.caret) + cReset
+		}
+
+		lines = append(lines, clip(line, maxLine))
+	}
+
+	lines = append(lines, m.bottomBar(maxLine))
+
+	if m.mode == modeSlash {
+		for i, c := range m.filteredSlash() {
+			mark := "  "
+			if i == m.slashSel {
+				mark = cAccent + "▸ " + cReset
+			}
+			line := " " + mark + cFG + fmt.Sprintf("%-11s", c.name) + cDim + " " + c.desc + cReset
+			lines = append(lines, clip(line, maxLine))
+		}
+	}
+
+	return lines
+}
+
+func (m *Model) bottomBar(maxLine int) string {
+	total := len(m.rows)
+	pos := m.cursor + 1
+	if len(m.rows) == 0 {
+		pos = 0
+	}
+	state := ""
+	if m.unsaved {
+		state = " · dirty"
+	}
+	title := m.tree.displayName(m.viewRoot())
+	if title == "" {
+		title = "(untitled)"
+	}
+	bar := fmt.Sprintf(" %s · %d/%d%s", title, pos, total, state)
+	return clip(cDim+bar+cReset, maxLine)
+}
+
+func (m *Model) viewFinder(maxLine int) []string {
+	var lines []string
+
+	labels := map[finderAction]string{
+		actMirrorHere: "/mirror",
+		actMirrorTo:   "/mirror_to",
+		actMoveTo:     "/move_to",
+		actGo:         "/go",
+	}
+	hints := map[finderAction]string{
+		actMirrorHere: "enter mirror at cursor",
+		actMirrorTo:   "enter mirror this node there",
+		actMoveTo:     "enter move this node there",
+		actGo:         "enter open node",
+	}
+
+	query := cDim + " " + labels[m.finderAct] + " " + cFG + m.finderQuery + cAccent + glyphCaret + cReset
+	lines = append(lines, clip(query, maxLine))
+
+	maxResults := m.height - 4
+	if maxResults < 3 {
+		maxResults = 8
+	}
+	shown := m.finderHits
+	overflow := 0
+	if len(shown) > maxResults {
+		overflow = len(shown) - maxResults
+		shown = shown[:maxResults]
+	}
+
+	for i, h := range shown {
+		mark := "   "
+		if i == m.finderSel {
+			mark = cAccent + " ▸ " + cReset
+		}
+		count, err := database.CountSubtree(m.db, h.UUID)
+		if err != nil {
+			count = 1
+		}
+		line := mark + cFG + fmt.Sprintf("%-28s", h.Name) + cDim + fmt.Sprintf(" %d nodes", count) + cReset
+		lines = append(lines, clip(line, maxLine))
+	}
+	if overflow > 0 {
+		lines = append(lines, clip(cDim+fmt.Sprintf("   … %d more", overflow)+cReset, maxLine))
+	}
+	if len(shown) == 0 {
+		lines = append(lines, cDim+"   no matches"+cReset)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, clip(cDim+" "+hints[m.finderAct]+" · esc back to outline"+cReset, maxLine))
+	lines = append(lines, m.bottomBar(maxLine))
+
+	return lines
+}
+
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
-	return errors.New("the inline editor is not built yet (phase 3); use --print meanwhile")
+	t, err := loadTree(ctx.DB, nodeUUID)
+	if err != nil {
+		return errors.Wrap(err, "loading node tree")
+	}
+
+	m := &Model{
+		db:        ctx.DB,
+		tree:      t,
+		viewStack: []*item{t.root},
+	}
+	m.refreshRows()
+
+	p := tea.NewProgram(m) // inline: no alt screen
+	final, err := p.Run()
+	if err != nil {
+		return errors.Wrap(err, "running editor")
+	}
+
+	fm, ok := final.(*Model)
+	if !ok {
+		fm = m
+	}
+	if fm.err != nil {
+		return fm.err
+	}
+
+	total, _ := fm.tree.stats()
+	name := fm.tree.displayName(fm.tree.root)
+	dirtyNote := ""
+	if fm.saved.written > 0 {
+		dirtyNote = " · dirty"
+	}
+	fmt.Printf("%s✓ %ssaved %s%q%s · %d nodes · %d written%s%s\n",
+		"\x1b[38;2;106;153;85m", cFG, cYellow, name, cDim, total, fm.saved.written, dirtyNote, cReset)
+
+	return nil
 }

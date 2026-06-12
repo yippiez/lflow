@@ -37,11 +37,24 @@ type JSONNode struct {
 	Children    []JSONNode `json:"children"`
 }
 
+// resolveName returns the display name of a node: mirrors show the
+// original's name (same node everywhere).
+func resolveName(db *database.DB, n database.Node) string {
+	if n.MirrorOf == "" {
+		return n.Name
+	}
+	orig, err := database.GetNode(db, n.MirrorOf)
+	if err != nil {
+		return "(missing mirror)"
+	}
+	return orig.Name
+}
+
 // BuildJSON builds the nested JSON tree for a node.
 func BuildJSON(db *database.DB, root database.Node, depth int, includeCompleted bool) (JSONNode, error) {
 	ret := JSONNode{
 		UUID:        root.UUID,
-		Name:        root.Name,
+		Name:        resolveName(db, root),
 		Note:        root.Note,
 		Layout:      root.Layout,
 		MirrorOf:    root.MirrorOf,
@@ -90,7 +103,10 @@ func renderLines(db *database.DB, root database.Node, depth int, includeComplete
 	var walk func(n database.Node, level, remaining int) error
 	walk = func(n database.Node, level, remaining int) error {
 		indent := strings.Repeat("  ", level)
-		name := n.Name
+		name := resolveName(db, n)
+		if n.MirrorOf != "" {
+			name += " (mirror)"
+		}
 		if markdown {
 			switch n.Layout {
 			case database.LayoutH1:
