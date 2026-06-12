@@ -60,7 +60,7 @@ func newLoginCmd(ctx context.DnoteCtx) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Log in to workflowy (or store a session id directly)",
+		Short: "Log in to workflowy, or store a session id directly",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if baseURLFlag != "" {
 				if err := database.UpsertSystem(ctx.DB, wfpkg.SystemWfBaseURL, baseURLFlag); err != nil {
@@ -296,7 +296,7 @@ func newUnmirrorCmd(ctx context.DnoteCtx) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "unmirror <mirror>",
-		Short: "Detach a workflowy mirror (--keep the local copy or --drop it)",
+		Short: "Detach a workflowy mirror, keeping or dropping the local copy",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 1 {
 				return errors.New("missing mirror reference")

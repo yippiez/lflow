@@ -26,7 +26,7 @@ import (
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Print the version number of Lflow",
+		Short: "Print the version",
 		Long:  "Print the version number of Lflow",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("lflow %s\n", ctx.Version)

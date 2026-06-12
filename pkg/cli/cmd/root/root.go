@@ -23,7 +23,7 @@ var dbPathFlag string
 
 var root = &cobra.Command{
 	Use:           "lflow",
-	Short:         "Lflow - a simple command line notebook",
+	Short:         "local-first terminal outline tool",
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	CompletionOptions: cobra.CompletionOptions{
@@ -32,7 +32,11 @@ var root = &cobra.Command{
 }
 
 func init() {
-	root.PersistentFlags().StringVar(&dbPathFlag, "dbPath", "", "the path to the database file (defaults to standard location)")
+	root.PersistentFlags().StringVar(&dbPathFlag, "dbPath", "", "database file path, defaults to the standard location")
+	// --help is the only help surface: no help subcommand
+	root.SetHelpCommand(&cobra.Command{Use: "no-help", Hidden: true})
+	root.SetHelpFunc(renderHelpFunc)
+	root.SetUsageFunc(renderUsageFunc)
 }
 
 // GetRoot returns the root command
