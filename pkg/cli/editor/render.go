@@ -101,6 +101,97 @@ func clip(s string, width int) string {
 	return b.String()
 }
 
+// wrapLine soft-wraps an SGR-styled line to the given display width, breaking
+// at spaces when one is available. Continuation lines carry a hanging indent
+// aligned under the text column and re-open the styles active at the break,
+// so spans and the cursor cell survive the wrap.
+func wrapLine(s string, width, hang int) []string {
+	if width <= 0 || visibleWidth(s) <= width {
+		return []string{s}
+	}
+	if hang >= width/2 {
+		hang = 0 // pathological widths: give the text the whole line
+	}
+	indent := strings.Repeat(" ", hang)
+	runes := []rune(s)
+
+	var lines []string
+	var state []string // SGR sequences active since the last reset
+	lineStart := 0
+	var startState []string // state at lineStart
+	curWidth := 0
+	avail := width
+	lastSpace := -1
+	var lastSpaceState []string
+
+	emitLine := func(end int) {
+		seg := string(runes[lineStart:end])
+		if len(lines) == 0 {
+			lines = append(lines, seg)
+		} else {
+			lines = append(lines, indent+cReset+strings.Join(startState, "")+seg)
+		}
+	}
+
+	i := 0
+	for i < len(runes) {
+		r := runes[i]
+		if r == '\x1b' {
+			j := i
+			for j < len(runes) && runes[j] != 'm' {
+				j++
+			}
+			if seq := string(runes[i:min(j+1, len(runes))]); seq == cReset {
+				state = state[:0]
+			} else {
+				state = append(state, seq)
+			}
+			i = j + 1
+			continue
+		}
+
+		rw := runewidth.RuneWidth(r)
+		if curWidth+rw > avail {
+			if r == ' ' {
+				// the overflowing rune is itself a space: break right here
+				emitLine(i)
+				lineStart = i + 1
+				startState = append([]string(nil), state...)
+				curWidth = 0
+				avail = width - hang
+				lastSpace = -1
+				i++
+				continue
+			}
+			if lastSpace > lineStart {
+				// break at the last space; what follows it moves down
+				emitLine(lastSpace)
+				lineStart = lastSpace + 1
+				startState = append([]string(nil), lastSpaceState...)
+				curWidth = visibleWidth(string(runes[lineStart:i]))
+			} else {
+				// no space on this line: hard break before the rune
+				emitLine(i)
+				lineStart = i
+				startState = append([]string(nil), state...)
+				curWidth = 0
+			}
+			avail = width - hang
+			lastSpace = -1
+			continue // re-check the same rune against the new line
+		}
+
+		if r == ' ' {
+			lastSpace = i
+			lastSpaceState = append([]string(nil), state...)
+		}
+		curWidth += rw
+		i++
+	}
+	emitLine(len(runes))
+	return lines
+}
+
 // glyphFor returns the bullet glyph and its color for an item. Bullets and
 // todo boxes are muted gray — the selected row turns its glyph red. Glyphs
 // with an identity keep their own color: ◆ mirrors red, heading digits

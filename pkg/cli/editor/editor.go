@@ -1002,15 +1002,21 @@ func (m *Model) View() string {
 	return strings.Join(lines, "\n")
 }
 
+// rowHang is the hanging indent for a row's wrapped continuation lines:
+// the margin space, the connector and the glyph+space column.
+func rowHang(r row) int {
+	return 1 + visibleWidth(connector(r)) + 2
+}
+
 // finalView renders the complete tree with glyphs and connectors but no
-// cursor, caret or bottom bar.
+// cursor, caret or bottom bar. Long rows wrap.
 func (m *Model) finalView(maxLine int) []string {
 	var lines []string
 	for _, r := range m.tree.allRows() {
 		glyph, glyphColor := glyphFor(r.it)
 		name := m.tree.displayName(r.it)
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
-		lines = append(lines, clip(line, maxLine))
+		lines = append(lines, wrapLine(line, maxLine, rowHang(r))...)
 	}
 	return lines
 }
@@ -1023,11 +1029,10 @@ func (m *Model) viewOutline(maxLine int) []string {
 		lines = append(lines, cDim+" empty — type to add a node"+cReset)
 	}
 
-	// vertical viewport: keep the cursor visible
-	start, end := m.viewport()
-
-	for i := start; i < end; i++ {
-		r := rows[i]
+	// render every row to its wrapped lines first: the viewport then works
+	// in screen lines, so wrapped rows never push the cursor off screen
+	groups := make([][]string, len(rows))
+	for i, r := range rows {
 		it := r.it
 		selected := i == m.cursor
 
@@ -1049,8 +1054,34 @@ func (m *Model) viewOutline(maxLine int) []string {
 			line += cDim + "  note: " + cReset + cFG + withCaret(it.note, m.caret) + cReset
 		}
 
-		lines = append(lines, clip(line, maxLine))
+		groups[i] = wrapLine(line, maxLine, rowHang(r))
 	}
+
+	maxRows := m.height - 2
+	if maxRows < 4 {
+		maxRows = 18
+	}
+	cursorStart, cursorEnd := 0, 0
+	var flat []string
+	for i, g := range groups {
+		if i == m.cursor {
+			cursorStart = len(flat)
+			cursorEnd = len(flat) + len(g) - 1
+		}
+		flat = append(flat, g...)
+	}
+	start := 0
+	if cursorEnd >= maxRows {
+		start = cursorEnd - maxRows + 1
+	}
+	if cursorStart < start {
+		start = cursorStart
+	}
+	end := start + maxRows
+	if end > len(flat) {
+		end = len(flat)
+	}
+	lines = append(lines, flat[start:end]...)
 
 	lines = append(lines, m.bottomBar(maxLine))
 

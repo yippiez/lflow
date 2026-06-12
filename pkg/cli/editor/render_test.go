@@ -154,6 +154,64 @@ func TestGlyphForHeadingDigits(t *testing.T) {
 	}
 }
 
+func TestWrapLinePlain(t *testing.T) {
+	lines := wrapLine("aaa bbb ccc ddd", 7, 0)
+	want := []string{"aaa bbb", "ccc ddd"}
+	if len(lines) != 2 || stripSGR(lines[0]) != want[0] || stripSGR(lines[1]) != want[1] {
+		t.Errorf("wrap mismatch: %q", lines)
+	}
+}
+
+func TestWrapLineHangingIndent(t *testing.T) {
+	lines := wrapLine("word word word word", 12, 3)
+	if len(lines) < 2 {
+		t.Fatalf("expected a wrap: %q", lines)
+	}
+	for i, l := range lines[1:] {
+		if !strings.HasPrefix(stripSGR(l), "   ") {
+			t.Errorf("continuation %d missing hanging indent: %q", i+1, l)
+		}
+	}
+	for i, l := range lines {
+		if w := visibleWidth(l); w > 12 {
+			t.Errorf("line %d too wide: %d %q", i, w, l)
+		}
+	}
+}
+
+func TestWrapLineCarriesStyle(t *testing.T) {
+	styled := cBold + "one two three four" + cReset
+	lines := wrapLine(styled, 9, 0)
+	if len(lines) < 2 {
+		t.Fatalf("expected a wrap: %q", lines)
+	}
+	if !strings.Contains(lines[1], cBold) {
+		t.Errorf("continuation should re-open bold: %q", lines[1])
+	}
+}
+
+func TestWrapLineHardBreaksUnbrokenRuns(t *testing.T) {
+	lines := wrapLine(strings.Repeat("x", 25), 10, 2)
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines: %q", lines)
+	}
+	for i, l := range lines {
+		if w := visibleWidth(l); w > 10 {
+			t.Errorf("line %d too wide: %d", i, w)
+		}
+	}
+}
+
+func TestWrapLineWideRunes(t *testing.T) {
+	// CJK runes are two cells wide; no line may exceed the width
+	lines := wrapLine(strings.Repeat("字", 12), 10, 0)
+	for i, l := range lines {
+		if w := visibleWidth(l); w > 10 {
+			t.Errorf("line %d too wide: %d %q", i, w, l)
+		}
+	}
+}
+
 func TestRenderBodyCompletedStrikethrough(t *testing.T) {
 	it := &item{layout: database.LayoutTodo, completedAt: 1}
 
