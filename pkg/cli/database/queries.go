@@ -16,7 +16,6 @@
 package database
 
 import (
-
 	"github.com/pkg/errors"
 )
 

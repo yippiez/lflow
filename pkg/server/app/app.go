@@ -18,8 +18,8 @@ package app
 import (
 	"github.com/lflow/lflow/pkg/clock"
 	"github.com/lflow/lflow/pkg/server/mailer"
-	"gorm.io/gorm"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 var (

@@ -23,10 +23,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/log"
 	"github.com/lflow/lflow/pkg/cli/utils"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 )
@@ -313,7 +313,7 @@ type migrateToV2PostBook struct {
 type migrateToV2PreDnote map[string]migrateToV2PreBook
 type migrateToV2PostDnote map[string]migrateToV2PostBook
 
-//v3
+// v3
 var (
 	migrateToV3ActionAddNote = "add_note"
 	migrateToV3ActionAddBook = "add_book"

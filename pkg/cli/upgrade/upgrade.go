@@ -21,11 +21,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/go-github/github"
 	"github.com/lflow/lflow/pkg/cli/consts"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/log"
 	"github.com/lflow/lflow/pkg/cli/ui"
-	"github.com/google/go-github/github"
 	"github.com/pkg/errors"
 )
 

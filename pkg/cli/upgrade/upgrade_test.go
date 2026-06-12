@@ -23,8 +23,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/google/go-github/github"
+	"github.com/lflow/lflow/pkg/assert"
 	"github.com/pkg/errors"
 )
 

@@ -22,12 +22,12 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/gorilla/csrf"
 	"github.com/lflow/lflow/pkg/clock"
 	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/lflow/lflow/pkg/server/buildinfo"
 	"github.com/lflow/lflow/pkg/server/context"
 	"github.com/lflow/lflow/pkg/server/log"
-	"github.com/gorilla/csrf"
 )
 
 const (

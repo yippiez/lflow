@@ -679,8 +679,8 @@ var lm15 = migration{
 			}
 
 			type legacyNote struct {
-				uuid, content      string
-				addedOn, editedOn  int64
+				uuid, content     string
+				addedOn, editedOn int64
 			}
 			var notes []legacyNote
 			for noteRows.Next() {

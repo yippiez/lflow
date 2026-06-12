@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/lflow/lflow/pkg/server/buildinfo"
 	"github.com/lflow/lflow/pkg/server/context"
@@ -29,10 +30,9 @@ import (
 	"github.com/lflow/lflow/pkg/server/log"
 	"github.com/lflow/lflow/pkg/server/token"
 	"github.com/lflow/lflow/pkg/server/views"
-	"github.com/gorilla/mux"
-	"gorm.io/gorm"
 	pkgErrors "github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 var commonHelpers = map[string]interface{}{
@@ -553,4 +553,3 @@ func (u *Users) ProfileUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	views.RedirectAlert(w, r, "/", http.StatusFound, alert)
 }
-

@@ -20,8 +20,8 @@ import (
 	"encoding/base64"
 
 	"github.com/lflow/lflow/pkg/server/database"
-	"gorm.io/gorm"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 // generateRandom generates random bits of given length

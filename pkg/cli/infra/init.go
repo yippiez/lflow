@@ -338,7 +338,6 @@ func getEditorCommand() string {
 	return ret
 }
 
-
 // initConfigFile populates a new config file if it does not exist yet
 func initConfigFile(ctx context.DnoteCtx, apiEndpoint string) error {
 	path := config.GetPath(ctx)

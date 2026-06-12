@@ -18,10 +18,10 @@ package controllers
 import (
 	"net/http"
 
+	"github.com/gorilla/mux"
 	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/lflow/lflow/pkg/server/assets"
 	mw "github.com/lflow/lflow/pkg/server/middleware"
-	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 )
 

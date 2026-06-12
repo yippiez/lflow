@@ -170,4 +170,3 @@ func TestGetCredential(t *testing.T) {
 		assert.Equal(t, got, tc.expected, "result mismatch")
 	}
 }
-

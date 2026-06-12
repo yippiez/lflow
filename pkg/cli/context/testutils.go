@@ -36,7 +36,6 @@ func getDefaultTestPaths(t *testing.T) Paths {
 	}
 }
 
-
 // InitTestCtx initializes a test context with an in-memory database
 // and a temporary directory for all paths
 func InitTestCtx(t *testing.T) DnoteCtx {

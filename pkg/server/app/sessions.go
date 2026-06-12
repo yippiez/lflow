@@ -20,8 +20,8 @@ import (
 
 	"github.com/lflow/lflow/pkg/server/crypt"
 	"github.com/lflow/lflow/pkg/server/database"
-	"gorm.io/gorm"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 // CreateSession returns a new session for the user of the given id

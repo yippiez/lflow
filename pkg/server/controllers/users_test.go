@@ -988,4 +988,3 @@ func TestUpdateEmail(t *testing.T) {
 		assert.Equal(t, user.Email.String, "alice@example.com", "email mismatch")
 	})
 }
-
