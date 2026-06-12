@@ -13,11 +13,12 @@
  * limitations under the License.
  */
 
-// Package editor implements the inline (scrollback-mode) outline editor:
-// black background, ○/●/◆/□ glyphs, ├─ ╰─ │ connectors drawn from the parent
-// bullet, ▌ cursor marker, a minimal dim bottom bar, a type-to-filter slash
-// menu under the bar, and a full-panel fuzzy finder for /mirror /mirror_to
-// /move_to /go. It never enters the alternate screen.
+// Package editor implements the inline scrollback-mode outline editor:
+// black background, ○/●/◆/□ glyphs plus 1/2/3 heading digits, ├─ ╰─ │
+// connectors drawn from the parent bullet, muted gray rows with the selected
+// row in red carrying a red inline caret, a minimal dim bottom bar, a
+// type-to-filter slash menu under the bar, and a full-panel fuzzy finder for
+// /mirror /mirror_to /move_to /go. It never enters the alternate screen.
 package editor
 
 import (
@@ -55,7 +56,7 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/mirror", "mirror a node here (fuzzy finder)"},
+	{"/mirror", "mirror a node here via the fuzzy finder"},
 	{"/mirror_to", "mirror THIS node somewhere else"},
 	{"/move_to", "move this node under another node"},
 	{"/go", "jump the editor to another node"},
@@ -800,7 +801,7 @@ func (m *Model) finalView(maxLine int) []string {
 	for _, r := range m.tree.allRows() {
 		glyph, glyphColor := glyphFor(r.it)
 		name := m.tree.displayName(r.it)
-		line := " " + cAccent + connector(r) + glyphColor + glyph + cReset + " " + styledName(r.it, name) + m.layoutSuffix(r.it)
+		line := " " + cAccent + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
 		lines = append(lines, clip(line, maxLine))
 	}
 	return lines
@@ -811,7 +812,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 	rows := m.rows
 	if len(rows) == 0 {
-		lines = append(lines, cDim+" (empty — type to add a node)"+cReset)
+		lines = append(lines, cDim+" empty — type to add a node"+cReset)
 	}
 
 	// vertical viewport: keep the cursor visible
@@ -820,25 +821,23 @@ func (m *Model) viewOutline(maxLine int) []string {
 	for i := start; i < end; i++ {
 		r := rows[i]
 		it := r.it
-
-		marker := " "
-		if i == m.cursor {
-			marker = cAccent + glyphCursor + cReset
-		}
+		selected := i == m.cursor
 
 		glyph, glyphColor := glyphFor(it)
+		if selected {
+			glyphColor = cRed
+		}
 		name := m.tree.displayName(it)
 
-		var body string
-		if i == m.cursor && m.mode != modeNote && it.mirrorOf == "" {
-			body = cFG + withCaret(name, m.caret) + cReset
-		} else {
-			body = styledName(it, name)
+		caret := -1
+		if selected && m.mode != modeNote && it.mirrorOf == "" {
+			caret = m.caret
 		}
+		body := renderBody(it, name, caret, selected)
 
-		line := marker + cAccent + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
+		line := " " + cAccent + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
 
-		if i == m.cursor && m.mode == modeNote {
+		if selected && m.mode == modeNote {
 			line += cDim + "  note: " + cReset + cFG + withCaret(it.note, m.caret) + cReset
 		}
 
@@ -877,7 +876,7 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	title := m.tree.displayName(m.viewRoot())
 	if title == "" {
-		title = "(untitled)"
+		title = "untitled"
 	}
 	bar := fmt.Sprintf(" %s · %d/%d%s", title, pos, total, state)
 	return clip(cDim+bar+cReset, maxLine)

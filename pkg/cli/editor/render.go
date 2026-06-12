@@ -32,6 +32,10 @@ const (
 	cRed    = "\x1b[38;2;244;71;71m"   // #f44747
 	cYellow = "\x1b[38;2;220;220;170m" // #dcdcaa
 	cBold   = "\x1b[1m"
+	cItalic = "\x1b[3m"
+	cStrike = "\x1b[9m"
+	bgCode  = "\x1b[48;2;31;31;31m" // #1f1f1f block behind code rows
+	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
 )
 
 // glyphs (locked)
@@ -41,8 +45,8 @@ const (
 	glyphMirror    = "◆"
 	glyphTodo      = "□"
 	glyphTodoDone  = "■"
-	glyphCursor    = "▌"
 	glyphCaret     = "▌"
+	glyphQuoteBar  = "▎"
 )
 
 // visibleWidth returns the display width of s ignoring SGR sequences.
@@ -97,16 +101,25 @@ func clip(s string, width int) string {
 	return b.String()
 }
 
-// glyphFor returns the bullet glyph and its color for an item.
+// glyphFor returns the bullet glyph and its color for an item. Headings show
+// their level digit instead of a circle: that is how h1/h2/h3 stay visible
+// in a single-line wysiwyg row.
 func glyphFor(it *item) (string, string) {
 	if it.mirrorOf != "" {
 		return glyphMirror, cRed
 	}
-	if it.layout == database.LayoutTodo {
+	switch it.layout {
+	case database.LayoutTodo:
 		if it.completedAt > 0 {
 			return glyphTodoDone, cFG
 		}
 		return glyphTodo, cFG
+	case database.LayoutH1:
+		return "1", cBold + cYellow
+	case database.LayoutH2:
+		return "2", cBold + cYellow
+	case database.LayoutH3:
+		return "3", cBold + cYellow
 	}
 	if len(it.children) > 0 && it.collapsed {
 		return glyphCollapsed, cAccent
@@ -153,18 +166,152 @@ func withCaret(text string, caret int) string {
 	return string(runes[:caret]) + cAccent + glyphCaret + cFG + string(runes[caret:])
 }
 
-// styledName styles a name according to the layout.
-func styledName(it *item, name string) string {
+// spanFlags is the per-rune style mask the inline parser produces.
+type spanFlags struct {
+	marker bool // part of ** * [[ ]] syntax, hidden unless the row is selected
+	bold   bool
+	italic bool
+	pill   bool
+}
+
+// inlineSpans marks inline markdown spans over the raw runes: **bold**,
+// *italic* and [[date pills]]. Markers only toggle when a closing marker
+// exists, so a lone asterisk stays plain text.
+func inlineSpans(runes []rune) []spanFlags {
+	flags := make([]spanFlags, len(runes))
+
+	// date pills: [[ ... ]]
+	for i := 0; i+1 < len(runes); i++ {
+		if flags[i].pill || runes[i] != '[' || runes[i+1] != '[' {
+			continue
+		}
+		for j := i + 2; j+1 < len(runes); j++ {
+			if runes[j] == ']' && runes[j+1] == ']' {
+				for k := i; k <= j+1; k++ {
+					flags[k].pill = true
+				}
+				flags[i].marker, flags[i+1].marker = true, true
+				flags[j].marker, flags[j+1].marker = true, true
+				i = j + 1
+				break
+			}
+		}
+	}
+
+	// bold: ** ... **
+	for i := 0; i+1 < len(runes); i++ {
+		if flags[i].pill || flags[i].marker || runes[i] != '*' || runes[i+1] != '*' {
+			continue
+		}
+		for j := i + 2; j+1 < len(runes); j++ {
+			if runes[j] == '*' && runes[j+1] == '*' && !flags[j].pill && j > i+2 {
+				for k := i; k <= j+1; k++ {
+					flags[k].bold = true
+				}
+				flags[i].marker, flags[i+1].marker = true, true
+				flags[j].marker, flags[j+1].marker = true, true
+				i = j + 1
+				break
+			}
+		}
+	}
+
+	// italic: * ... *
+	for i := 0; i < len(runes); i++ {
+		if flags[i].pill || flags[i].bold || runes[i] != '*' {
+			continue
+		}
+		for j := i + 1; j < len(runes); j++ {
+			if runes[j] == '*' && !flags[j].pill && !flags[j].bold && j > i+1 {
+				for k := i; k <= j; k++ {
+					flags[k].italic = true
+				}
+				flags[i].marker, flags[j].marker = true, true
+				i = j
+				break
+			}
+		}
+	}
+
+	return flags
+}
+
+// renderBody renders a node name wysiwyg. Unselected rows are muted gray
+// with the markdown markers hidden; the selected row turns red, shows the
+// markers and carries the red caret at the given rune index (-1 for none).
+func renderBody(it *item, name string, caret int, selected bool) string {
+	base := cDim
+	if selected {
+		base = cRed
+	}
+
+	attrs := ""
+	prefix := ""
 	switch it.layout {
 	case database.LayoutH1, database.LayoutH2, database.LayoutH3:
-		return cBold + cYellow + name + cReset
-	case database.LayoutCode:
-		return cAccent + name + cReset
+		attrs += cBold
 	case database.LayoutQuote:
-		return cDim + "“" + name + "”" + cReset
-	default:
-		return cFG + name + cReset
+		attrs += cItalic
+		prefix = cAccent + glyphQuoteBar + cReset + " "
+	case database.LayoutCode:
+		attrs += bgCode
 	}
+	if it.completedAt > 0 {
+		attrs += cStrike
+	}
+
+	runes := []rune(name)
+	flags := inlineSpans(runes)
+
+	sgr := func(f spanFlags) string {
+		s := cReset + base + attrs
+		if f.marker {
+			s = cReset + cDim + attrs
+		}
+		if f.pill && !f.marker {
+			s += bgPill + cFG
+		}
+		if f.bold {
+			s += cBold
+		}
+		if f.italic {
+			s += cItalic
+		}
+		return s
+	}
+
+	var b strings.Builder
+	b.WriteString(prefix)
+	cur := ""
+	emitCaret := func() {
+		b.WriteString(cReset + cRed + glyphCaret)
+		cur = "" // force a state re-emit after the caret
+	}
+	if it.layout == database.LayoutCode {
+		b.WriteString(cReset + attrs + " ") // pad the code block
+	}
+	for i, r := range runes {
+		f := flags[i]
+		if i == caret {
+			emitCaret()
+		}
+		if f.marker && !selected {
+			continue
+		}
+		if s := sgr(f); s != cur {
+			b.WriteString(s)
+			cur = s
+		}
+		b.WriteRune(r)
+	}
+	if caret == len(runes) {
+		emitCaret()
+	}
+	if it.layout == database.LayoutCode {
+		b.WriteString(cReset + attrs + " ")
+	}
+	b.WriteString(cReset)
+	return b.String()
 }
 
 // layoutSuffix returns a dim suffix describing non-default state.
@@ -174,7 +321,11 @@ func (m *Model) layoutSuffix(it *item) string {
 		parts = append(parts, "mirror")
 	}
 	if len(it.children) > 0 && it.collapsed {
-		parts = append(parts, fmt.Sprintf("%d children", len(it.children)))
+		noun := "children"
+		if len(it.children) == 1 {
+			noun = "child"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", len(it.children), noun))
 	}
 	if it.note != "" {
 		parts = append(parts, "note")
@@ -182,5 +333,5 @@ func (m *Model) layoutSuffix(it *item) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return cDim + " (" + strings.Join(parts, " · ") + ")" + cReset
+	return cDim + " · " + strings.Join(parts, " · ") + cReset
 }
