@@ -145,7 +145,7 @@ func (t *tree) displayName(it *item) string {
 type row struct {
 	it     *item
 	depth  int
-	last   bool // last child of its parent (elbow connector)
+	last   bool   // last child of its parent (elbow connector)
 	branch []bool // for each ancestor level: does it have later siblings (draw │)
 }
 

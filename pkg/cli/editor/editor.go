@@ -100,6 +100,9 @@ type Model struct {
 	saved struct {
 		written int
 	}
+
+	// background workflowy-mirror scheduler (see sync.go)
+	sched scheduler
 }
 
 func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
@@ -114,6 +117,24 @@ func (m *Model) refreshRows() {
 	}
 }
 
+// viewport returns the [start,end) slice of m.rows currently visible on
+// screen. Rendering and the background scheduler share it so they agree on
+// which anchors count as "visible".
+func (m *Model) viewport() (start, end int) {
+	maxRows := m.height - 2
+	if maxRows < 4 {
+		maxRows = 18
+	}
+	if m.cursor >= maxRows {
+		start = m.cursor - maxRows + 1
+	}
+	end = start + maxRows
+	if end > len(m.rows) {
+		end = len(m.rows)
+	}
+	return start, end
+}
+
 func (m *Model) cursorItem() *item {
 	if len(m.rows) == 0 {
 		return nil
@@ -122,7 +143,7 @@ func (m *Model) cursorItem() *item {
 }
 
 // Init implements tea.Model.
-func (m *Model) Init() tea.Cmd { return nil }
+func (m *Model) Init() tea.Cmd { return m.schedulerInit() }
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -133,6 +154,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case syncTickMsg:
+		return m, m.onSyncTick(time.Time(msg))
+	case syncDoneMsg:
+		m.onSyncDone(msg)
+		return m, nil
 	}
 	return m, nil
 }
@@ -750,18 +776,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 	}
 
 	// vertical viewport: keep the cursor visible
-	maxRows := m.height - 2
-	if maxRows < 4 {
-		maxRows = 18
-	}
-	start := 0
-	if m.cursor >= maxRows {
-		start = m.cursor - maxRows + 1
-	}
-	end := start + maxRows
-	if end > len(rows) {
-		end = len(rows)
-	}
+	start, end := m.viewport()
 
 	for i := start; i < end; i++ {
 		r := rows[i]
@@ -816,6 +831,10 @@ func (m *Model) bottomBar(maxLine int) string {
 	state := ""
 	if m.unsaved {
 		state = " · dirty"
+	}
+	if m.sched.inFlight {
+		// state, not a countdown: only shown while a sync is actually running
+		state += " · syncing"
 	}
 	title := m.tree.displayName(m.viewRoot())
 	if title == "" {
@@ -893,6 +912,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		tree:      t,
 		viewStack: []*item{t.root},
 	}
+	m.initScheduler(ctx)
 	m.refreshRows()
 
 	p := tea.NewProgram(m) // inline: no alt screen
