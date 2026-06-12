@@ -1,0 +1,6 @@
+id: no-direct-sql-open
+valid:
+  - db, err := database.Open(dbPath)
+invalid:
+  - dbConn, err := sql.Open("sqlite3", dsn)
+  - db, err := sql.Open("sqlite3", "file:test.db")

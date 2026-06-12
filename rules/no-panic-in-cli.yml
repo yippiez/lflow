@@ -1,0 +1,20 @@
+id: no-panic-in-cli
+language: go
+severity: warning
+message: CLI commands must return errors, not panic.
+note: |
+  Cobra commands under pkg/cli/cmd run RunE functions that return an error;
+  pkg/cli/main.go logs that error and exits 1 cleanly. A panic inside a
+  command instead dumps a Go stack trace at the user, which is a poor CLI
+  experience and bypasses the centralized error handling. Return (or wrap with
+  github.com/pkg/errors) the error instead.
+
+  The single legitimate panic lives in pkg/cli/main.go: if infra.Init fails
+  the process genuinely cannot start, so that startup panic is exempt (this
+  rule is already scoped to pkg/cli/cmd, which excludes main.go).
+rule:
+  pattern:
+    context: "func f() { panic($$$) }"
+    selector: call_expression
+files:
+  - pkg/cli/cmd/**

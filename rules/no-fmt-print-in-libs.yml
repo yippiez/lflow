@@ -1,0 +1,32 @@
+id: no-fmt-print-in-libs
+language: go
+severity: warning
+message: Do not write to stdout from editor/wf library code — they don't own stdout.
+note: |
+  pkg/cli/editor and pkg/cli/wf are library packages that must not write to
+  stdout. While the editor's bubbletea program is running it owns the whole
+  terminal: a stray fmt.Print would corrupt the rendered outline. The wf
+  package runs as a background mirror-sync goroutine and likewise has no
+  business printing to the user's terminal. Use the bubbletea View, the
+  pkg/cli/log helpers, or return a value to the caller instead.
+
+  Exemptions: editor.go is the Run() entry point that prints the final
+  "saved" summary AFTER the program exits and the terminal is handed back —
+  that one boundary print is intentional, analogous to main()'s startup
+  panic. fmt.Sprintf / fmt.Fprintf (no stdout) are not matched.
+rule:
+  any:
+    - pattern:
+        context: "func f() { fmt.Println($$$) }"
+        selector: call_expression
+    - pattern:
+        context: "func f() { fmt.Printf($$$) }"
+        selector: call_expression
+    - pattern:
+        context: "func f() { fmt.Print($$$) }"
+        selector: call_expression
+files:
+  - pkg/cli/editor/**
+  - pkg/cli/wf/**
+ignores:
+  - pkg/cli/editor/editor.go

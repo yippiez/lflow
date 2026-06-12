@@ -1,0 +1,7 @@
+id: no-alt-screen
+valid:
+  - p := tea.NewProgram(m)
+  - p := tea.NewProgram(m, tea.WithMouseCellMotion())
+invalid:
+  - p := tea.NewProgram(m, tea.WithAltScreen())
+  - tea.NewProgram(m, tea.WithMouseCellMotion(), tea.WithAltScreen())
