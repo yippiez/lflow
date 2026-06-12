@@ -1,13 +1,13 @@
 # lflow commands
 
 Lflow operates on outline **nodes**. Most commands take a node reference, which is
-resolved by full-text search (or a node id); they act on the single best match
-unless `--strict` is given. `--all` includes completed nodes when resolving.
+resolved by full-text search, a node id, or an id prefix; they act on the single
+best match unless `--strict` is given. Completed nodes always resolve: a reference
+you typed is a reference you meant.
 
 - [add / append](#lflow-add--lflow-append)
 - [list](#lflow-list)
-- [find](#lflow-find)
-- [edit](#lflow-edit)
+- [open](#lflow-open)
 - [mv](#lflow-mv)
 - [rm](#lflow-rm)
 - [complete / uncomplete](#lflow-complete--lflow-uncomplete)
@@ -18,31 +18,31 @@ unless `--strict` is given. `--all` includes completed nodes when resolving.
 - [wf](#lflow-wf)
 - [version](#lflow-version)
 
-A global `--dbPath <path>` flag (accepted before or after the subcommand) overrides
+A global `--dbPath <path>` flag, accepted before or after the subcommand, overrides
 the SQLite database location.
 
 ## lflow add / lflow append
 
 ```
-lflow add <node> [text]
+lflow add [text]
 lflow append <node> [text]
 ```
 
-Add child nodes under a node. `append` is an alias for the same operation. Text can
-be passed as positional arguments or piped on stdin, where **every line becomes one
-child node**. Aliases: `a`, `new` (add); `ap` (append).
+`add` creates top-level nodes under the always-present root; `--parent` targets a
+node deeper in the tree. `append` is the same operation with the parent passed
+positionally. Text comes from positional arguments or piped stdin, where **every
+line becomes one child node**. Aliases: `a`, `new` for add; `ap` for append.
 
 | Flag | Default | Description |
 | --- | --- | --- |
+| `--parent <node>` | "" | parent node, defaults to root — add only |
 | `--note` | false | append the text to the node's note instead of creating children |
 | `--top` | false | prepend instead of append |
 | `--strict` | false | list matches instead of acting on the best match |
-| `--all` | false | include completed nodes when resolving |
-| `--parent <node>` | false | create a new root node named `<node>` (no parent resolution) |
 
 ```
-lflow add --root "reading list"
-lflow add "experiment results" "attempt 3"
+lflow add "reading list"
+lflow add --parent "reading list" "ddia"
 make bench 2>&1 | lflow append "experiment results"
 echo "context" | lflow append "experiment results" --note
 ```
@@ -53,56 +53,35 @@ echo "context" | lflow append "experiment results" --note
 lflow list [node]
 ```
 
-Print a node's subtree to stdout. Aliases: `ls`, `l`.
+Print a node's subtree to stdout. With no argument, list the top-level nodes with
+their ids. Completed nodes are always included. Aliases: `ls`, `l`.
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--format` | `md` | output format: `md`, `text` or `json` |
-| `--depth` | `-1` | maximum depth (`-1` = unlimited) |
-| `--completed` | false | include completed nodes |
-| `--roots` | false | list top-level nodes |
+| `--depth` | `-1` | maximum depth, `-1` means unlimited |
 | `--strict` | false | list matches instead of acting on the best match |
-| `--all` | false | include completed nodes when resolving |
 
 ```
+lflow list
 lflow list "experiment results" --depth 2
 lflow list "experiment results" --format json | jq -r '.children[0].name'
-lflow list --roots
 ```
 
-## lflow find
+## lflow open
 
 ```
-lflow find <query>
+lflow open [node]
 ```
 
-Find a node and open the inline editor on the best match. Alias: `f`.
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--print` | false | print the outline instead of opening the editor |
-| `--strict` | false | list matches instead of opening the best one |
-| `--all` | false | include completed nodes |
-| `--id` | false | print only the node id of the best match |
+Open the inline editor on the best match for a query or id. With no argument,
+open the root. Aliases: `o`, `e`, `f`, `edit`, `find`.
 
 ```
-lflow find "experiment results"
-lflow find "experiment results" --print
-lflow find exp --strict
+lflow open                      # the whole outline
+lflow open "experiment results"
+lflow open 31b450               # id prefix
 ```
-
-## lflow edit
-
-```
-lflow edit <node>
-```
-
-Open the inline editor directly on a node. Alias: `e`.
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--strict` | false | list matches instead of opening the best one |
-| `--all` | false | include completed nodes |
 
 ## lflow mv
 
@@ -110,15 +89,14 @@ Open the inline editor directly on a node. Alias: `e`.
 lflow mv <node> <new-parent>
 ```
 
-Move a node (and its subtree) under another node. Alias: `move`.
+Move a node and its subtree under another node, placed last by default.
+Alias: `move`.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--top` | false | place as the first child |
-| `--bottom` | true | place as the last child (default) |
-| `--after <sibling>` | "" | place after the given sibling (must be a child of the new parent) |
+| `--top` | false | place as the first child instead of the last |
+| `--after <sibling>` | "" | place after the given sibling, which must be a child of the new parent |
 | `--strict` | false | list matches instead of acting on the best match |
-| `--all` | false | include completed nodes |
 
 Moving a node into itself or into its own subtree is rejected.
 
@@ -128,14 +106,13 @@ Moving a node into itself or into its own subtree is rejected.
 lflow rm <node>
 ```
 
-Delete a node and its subtree (tombstoned, so the delete is pushed on sync).
+Delete a node and its subtree. The delete is tombstoned, so it is pushed on sync.
 Aliases: `remove`, `d`, `delete`.
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-f`, `--force` | false | skip confirmation |
 | `--strict` | false | list matches instead of acting on the best match |
-| `--all` | false | include completed nodes |
 
 ## lflow complete / lflow uncomplete
 
@@ -156,12 +133,11 @@ Mark a node completed / not completed.
 lflow export
 ```
 
-Export the whole local forest to stdout.
+Export the whole local forest, completed nodes included, to stdout.
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--format` | `json` | output format: `json` or `md` |
-| `--completed` | true | include completed nodes |
 
 ## lflow sync
 
@@ -169,13 +145,13 @@ Export the whole local forest to stdout.
 lflow sync
 ```
 
-Sync nodes with the lflow server (requires `lflow login`). Alias: `s`.
+Sync nodes with the lflow server, requires `lflow login`. Alias: `s`.
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-f`, `--full` | false | perform a full sync instead of an incremental one |
 | `--dry-run` | false | show what would be synced without making changes |
-| `--apiEndpoint <url>` | "" | API endpoint to connect to (defaults to the config value) |
+| `--apiEndpoint <url>` | "" | API endpoint to connect to, defaults to the config value |
 
 ## lflow login
 
@@ -189,7 +165,7 @@ Log in to the lflow server. Prompts for email and password if not provided.
 | --- | --- | --- |
 | `-u`, `--username <email>` | "" | email address for authentication |
 | `-p`, `--password <pw>` | "" | password for authentication |
-| `--apiEndpoint <url>` | "" | API endpoint to connect to (defaults to the config value) |
+| `--apiEndpoint <url>` | "" | API endpoint to connect to, defaults to the config value |
 
 ## lflow logout
 
@@ -210,12 +186,12 @@ has subcommands:
 lflow wf login
 ```
 
-Log in to workflowy (or store a session id directly).
+Log in to workflowy, or store a session id directly.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--session <id>` | "" | store a workflowy sessionid directly (for 2FA accounts) |
-| `--base-url <url>` | "" | override the workflowy endpoint (testing / self-hosted) |
+| `--session <id>` | "" | store a workflowy sessionid directly, for 2FA accounts |
+| `--base-url <url>` | "" | override the workflowy endpoint for testing or self-hosting |
 
 ### lflow wf mirror
 
@@ -224,11 +200,11 @@ lflow wf mirror <url|wf-id>
 ```
 
 Anchor a workflowy node into the local tree. The argument may be a workflowy URL
-(e.g. `https://workflowy.com/#/abc123def456`) or a node id.
+like `https://workflowy.com/#/abc123def456` or a node id.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--into <node>` | "" | local parent node (default: a new root) |
+| `--into <node>` | "" | local parent node, defaults to a new root |
 
 ### lflow wf list
 
@@ -236,7 +212,7 @@ Anchor a workflowy node into the local tree. The argument may be a workflowy URL
 lflow wf list
 ```
 
-List workflowy mirrors (shows last sync time and node count).
+List workflowy mirrors with last sync time and node count.
 
 ### lflow wf pull / lflow wf push
 
@@ -270,4 +246,3 @@ lflow version
 ```
 
 Print the version number.
-</content>

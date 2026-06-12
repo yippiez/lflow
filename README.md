@@ -6,7 +6,7 @@
 Lflow is a local-first terminal outline tool.
 
 Your outline lives in **one SQLite file**. Every command works offline. Nodes are
-bullets, headings, todos, code, quotes and mirrors; `lflow find "query"` drops you
+bullets, headings, todos, code, quotes and mirrors; `lflow open "query"` drops you
 into an inline terminal editor on the best match. Commands are one-shot and
 pipe-friendly, so `make bench 2>&1 | lflow append "experiment results"` just works.
 
@@ -38,24 +38,39 @@ lflow add "reading list"   # top-level (under the always-present root)
 lflow add --parent "reading list" "Designing Data-Intensive Applications"
 make bench 2>&1 | lflow append "experiment results"
 
-# Find a node and open the inline editor on the best match
-lflow find "reading list"
+# Open the inline editor on the best match
+lflow open "reading list"
+lflow open                 # the whole outline
 
 # Dump a subtree as JSON for scripting
 lflow list                 # top-level nodes
-lflow open                 # edit the root
 lflow list "reading list" --format json | jq -r '.children[].name'
 ```
 
 ## The editor
 
-`lflow find <query>` and `lflow edit <node>` open an inline editor. It draws in the
-terminal scrollback (it never switches to the alternate screen), so output stays in
-your history when you quit. Changes are saved on quit, and `ctrl+s` saves explicitly.
+`lflow open [node]` opens an inline editor. It draws in the terminal scrollback —
+it never switches to the alternate screen — and quitting leaves the fully styled
+outline behind in your history. Changes are saved on quit, and `ctrl+s` saves
+explicitly.
 
-Glyphs: `○` bullet, `●` collapsed, `□` todo / `■` done, `◆` mirror (local or workflowy).
+Rows are muted gray; the selected row and its inline caret are red. Glyphs: `○`
+bullet, `●` collapsed, `□` todo / `■` done, `◆` mirror, and headings show their
+level digit `1` `2` `3` instead of a circle.
+
+Rows render what they mean: `**bold**` and `*italic*` style their text and the
+markers hide until the row is selected, code rows draw as a block, quote rows get
+a `▎` bar, completed nodes strike through.
+
+Time phrases convert into date pills: when the cursor row contains `now`, `bugün`,
+`tomorrow`, `11 şubat 2025 saat 15:20`, `11 february 2025 at 15:20`, `2025-02-11`
+or `11/02/2025`, the bottom bar offers it and `ctrl+t` replaces the phrase with a
+`[[2025-02-11 15:20]]` pill rendered as a chip.
 
 ### Keys
+
+Every alt+arrow chord also works as the ctrl+arrow twin, for terminals like
+Windows Terminal that keep alt+arrows for pane navigation.
 
 | Key | Action |
 | --- | --- |
@@ -63,24 +78,31 @@ Glyphs: `○` bullet, `●` collapsed, `□` todo / `■` done, `◆` mirror (lo
 | `tab` / `shift+tab` | indent / outdent |
 | `ctrl+space` | fold / unfold |
 | `ctrl+d` | delete the node and its subtree |
-| `alt+shift+↑` / `alt+shift+↓` | move the node up / down among siblings |
-| `alt+→` | zoom in (make the node the view root) |
-| `alt+←` (or `alt+backspace`) | zoom out |
-| `alt+↑` / `alt+↓` | collapse / expand the node |
+| `ctrl+t` | convert the detected time phrase into a date pill |
+| `alt+shift+↑/↓` or `ctrl+shift+↑/↓` | move the node among siblings |
+| `alt+→` or `ctrl+→` | zoom in, making the node the view root |
+| `alt+←`, `alt+backspace` or `ctrl+←` | zoom out |
+| `alt+↑/↓` or `ctrl+↑/↓` | collapse / expand the node |
 | `ctrl+s` | save |
-| `ctrl+q` or `esc esc` | quit (saves first) |
-| `ctrl+c` | quit, leaving the whole outline in scrollback |
+| `ctrl+q`, `ctrl+c` or `esc esc` | quit — saves and leaves the outline in scrollback |
 | `↑ ↓ ← →` `home` `end` | move the cursor / caret |
+
+Pasting works the way an outliner should: a multiline paste continues the current
+row and fans the remaining lines out as siblings, and pasting a copied node link
+(`/copy_link`) onto a row turns it into a mirror.
 
 ### Slash commands
 
-Type `/` at the **start** of a row to open the slash menu, then type to filter and
-`enter` to run:
+Type `/` anywhere in a row to open the slash menu, then type to filter and `enter`
+to run. The typed `/query` is stripped when a command runs; `esc`, or a query that
+matches nothing, keeps it as plain text — which is also how you type a literal
+slash.
 
 | Command | Effect |
 | --- | --- |
-| `/mirror` | mirror another node here (fuzzy finder) |
+| `/mirror` | mirror another node here via the fuzzy finder |
 | `/mirror_to` | mirror this node under another node |
+| `/copy_link` | copy this node's link — paste it on another node to mirror |
 | `/move_to` | move this node under another node |
 | `/go` | jump the editor to another node |
 | `/complete` | toggle done |
@@ -89,7 +111,10 @@ Type `/` at the **start** of a row to open the slash menu, then type to filter a
 | `/code` | make a code node |
 | `/quote` | make a quote |
 | `/bullet` | back to a plain bullet |
-| `/note` | edit this node's note (the body text under the bullet) |
+| `/note` | edit this node's note, the body text under the bullet |
+
+The fuzzy finder behind `/mirror`, `/move_to` and `/go` starts listing everything,
+recent first, and narrows as you type.
 
 ## Device sync
 
