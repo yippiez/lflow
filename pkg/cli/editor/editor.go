@@ -256,6 +256,18 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret = 0
 		}
 		return m, nil
+	case "ctrl+t":
+		// convert the detected time phrase into a date pill
+		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
+			if d := detectDate(cur.name, time.Now()); d != nil {
+				runes := []rune(cur.name)
+				pill := d.pill()
+				cur.name = string(runes[:d.start]) + pill + string(runes[d.end:])
+				m.caret = d.start + len([]rune(pill))
+				m.unsaved = true
+			}
+		}
+		return m, nil
 	// every alt+arrow chord has a ctrl twin: terminals like windows
 	// terminal grab alt+arrows for pane focus and never deliver them
 	case "alt+shift+up", "ctrl+shift+up", "ctrl+alt+up":
@@ -1034,6 +1046,14 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	if m.flash != "" {
 		state += " · " + m.flash
+	}
+	// offer the date-pill conversion while a time phrase sits under the cursor
+	if m.mode == modeOutline {
+		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
+			if d := detectDate(cur.name, time.Now()); d != nil {
+				state += fmt.Sprintf(" · ctrl+t %q → %s", d.phrase, d.display())
+			}
+		}
 	}
 	title := m.tree.displayName(m.viewRoot())
 	if title == "" {
