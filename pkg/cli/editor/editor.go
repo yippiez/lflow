@@ -1079,7 +1079,7 @@ func (m *Model) viewFinder(maxLine int) []string {
 		actGo:         "enter open node",
 	}
 
-	query := cDim + " " + labels[m.finderAct] + " " + cFG + m.finderQuery + cAccent + glyphCaret + cReset
+	query := cDim + " " + labels[m.finderAct] + " " + cFG + withCaret(m.finderQuery, len([]rune(m.finderQuery))) + cReset
 	lines = append(lines, clip(query, maxLine))
 
 	maxResults := m.height - 4
@@ -1150,9 +1150,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 
 	total, _ := fm.tree.stats()
 	name := fm.tree.displayName(fm.tree.root)
-	green := "\x1b[38;2;106;153;85m"
-	fmt.Printf("%s→ %ssaved %s%q%s · %s · %s written%s\n",
-		green, cFG, cYellow, name, cDim,
+	// muted gray throughout, only the node name in yellow
+	fmt.Printf("%s→ saved %s%q%s · %s · %s written%s\n",
+		cDim, cYellow, name, cDim,
 		nodeNoun(total), nodeNoun(fm.saved.written), cReset)
 
 	return nil

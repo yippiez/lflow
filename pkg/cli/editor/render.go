@@ -34,8 +34,9 @@ const (
 	cBold   = "\x1b[1m"
 	cItalic = "\x1b[3m"
 	cStrike = "\x1b[9m"
-	bgCode  = "\x1b[48;2;31;31;31m" // #1f1f1f block behind code rows
+	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
 	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
+	bgCaret = "\x1b[48;2;139;0;0m"   // #8b0000 dark red block cursor
 )
 
 // glyphs (locked)
@@ -45,7 +46,6 @@ const (
 	glyphMirror    = "◆"
 	glyphTodo      = "□"
 	glyphTodoDone  = "■"
-	glyphCaret     = "▌"
 	glyphQuoteBar  = "▎"
 )
 
@@ -101,9 +101,11 @@ func clip(s string, width int) string {
 	return b.String()
 }
 
-// glyphFor returns the bullet glyph and its color for an item. Headings show
-// their level digit instead of a circle: that is how h1/h2/h3 stay visible
-// in a single-line wysiwyg row.
+// glyphFor returns the bullet glyph and its color for an item. Bullets and
+// todo boxes are muted gray — the selected row turns its glyph red. Glyphs
+// with an identity keep their own color: ◆ mirrors red, heading digits
+// yellow. Headings show their level digit instead of a circle: that is how
+// h1/h2/h3 stay visible in a single-line wysiwyg row.
 func glyphFor(it *item) (string, string) {
 	if it.mirrorOf != "" {
 		return glyphMirror, cRed
@@ -111,9 +113,9 @@ func glyphFor(it *item) (string, string) {
 	switch it.layout {
 	case database.LayoutTodo:
 		if it.completedAt > 0 {
-			return glyphTodoDone, cFG
+			return glyphTodoDone, cDim
 		}
-		return glyphTodo, cFG
+		return glyphTodo, cDim
 	case database.LayoutH1:
 		return "1", cBold + cYellow
 	case database.LayoutH2:
@@ -122,9 +124,9 @@ func glyphFor(it *item) (string, string) {
 		return "3", cBold + cYellow
 	}
 	if len(it.children) > 0 && it.collapsed {
-		return glyphCollapsed, cAccent
+		return glyphCollapsed, cDim
 	}
-	return glyphOpen, cAccent
+	return glyphOpen, cDim
 }
 
 // connector builds the tree-connector prefix for a row: │ continuation
@@ -160,10 +162,10 @@ func withCaret(text string, caret int) string {
 	if caret < 0 {
 		caret = 0
 	}
-	if caret > len(runes) {
-		caret = len(runes)
+	if caret >= len(runes) {
+		return string(runes) + bgCaret + " " + cReset + cFG
 	}
-	return string(runes[:caret]) + cAccent + glyphCaret + cFG + string(runes[caret:])
+	return string(runes[:caret]) + bgCaret + string(runes[caret]) + cReset + cFG + string(runes[caret+1:])
 }
 
 // spanFlags is the per-rune style mask the inline parser produces.
@@ -236,14 +238,13 @@ func inlineSpans(runes []rune) []spanFlags {
 	return flags
 }
 
-// renderBody renders a node name wysiwyg. Unselected rows are muted gray
-// with the markdown markers hidden; the selected row turns red, shows the
-// markers and carries the red caret at the given rune index (-1 for none).
+// renderBody renders a node name wysiwyg. Text keeps its normal color on
+// every row — selection is carried by the glyph and the block cursor, never
+// by recoloring the text. Unselected rows hide the markdown markers; the
+// selected row shows them and paints a dark red block cursor over the rune
+// at the caret index (-1 for none).
 func renderBody(it *item, name string, caret int, selected bool) string {
-	base := cDim
-	if selected {
-		base = cRed
-	}
+	base := cFG
 
 	attrs := ""
 	prefix := ""
@@ -283,19 +284,19 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	var b strings.Builder
 	b.WriteString(prefix)
 	cur := ""
-	emitCaret := func() {
-		b.WriteString(cReset + cRed + glyphCaret)
-		cur = "" // force a state re-emit after the caret
-	}
 	if it.layout == database.LayoutCode {
 		b.WriteString(cReset + attrs + " ") // pad the code block
 	}
 	for i, r := range runes {
 		f := flags[i]
-		if i == caret {
-			emitCaret()
-		}
 		if f.marker && !selected {
+			continue
+		}
+		if i == caret {
+			// the block cursor sits ON the rune: same colors, dark red cell
+			b.WriteString(sgr(f) + bgCaret)
+			b.WriteRune(r)
+			cur = "" // force a state re-emit after the caret cell
 			continue
 		}
 		if s := sgr(f); s != cur {
@@ -304,8 +305,9 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 		}
 		b.WriteRune(r)
 	}
-	if caret == len(runes) {
-		emitCaret()
+	if caret >= len(runes) && caret >= 0 {
+		// past the last rune: paint one trailing cell
+		b.WriteString(cReset + bgCaret + " ")
 	}
 	if it.layout == database.LayoutCode {
 		b.WriteString(cReset + attrs + " ")

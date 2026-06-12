@@ -60,17 +60,36 @@ func TestRenderBodyShowsMarkersWhenSelected(t *testing.T) {
 	}
 }
 
-func TestRenderBodyCaretPosition(t *testing.T) {
+func TestRenderBodyBlockCursor(t *testing.T) {
 	it := &item{layout: database.LayoutBullets}
 
-	got := stripSGR(renderBody(it, "abc", 1, true))
-	if got != "a"+glyphCaret+"bc" {
-		t.Errorf("caret misplaced: %q", got)
+	// the cursor is a painted cell, never an inserted character
+	rendered := renderBody(it, "abc", 1, true)
+	if got := stripSGR(rendered); got != "abc" {
+		t.Errorf("cursor must not insert characters: %q", got)
+	}
+	if !strings.Contains(rendered, bgCaret+"b") {
+		t.Errorf("rune under the caret should carry the cursor cell: %q", rendered)
 	}
 
-	got = stripSGR(renderBody(it, "abc", 3, true))
-	if got != "abc"+glyphCaret {
-		t.Errorf("caret at end misplaced: %q", got)
+	// past the end it paints one trailing cell
+	rendered = renderBody(it, "abc", 3, true)
+	if got := stripSGR(rendered); got != "abc " {
+		t.Errorf("caret at end should paint a trailing cell: %q", got)
+	}
+	if !strings.Contains(rendered, bgCaret+" ") {
+		t.Errorf("trailing cursor cell missing: %q", rendered)
+	}
+}
+
+func TestGlyphForMutedBullets(t *testing.T) {
+	_, color := glyphFor(&item{layout: database.LayoutBullets})
+	if color != cDim {
+		t.Errorf("plain bullets should be muted gray, got %q", color)
+	}
+	_, color = glyphFor(&item{mirrorOf: "x"})
+	if color != cRed {
+		t.Errorf("mirrors keep their red identity, got %q", color)
 	}
 }
 

@@ -54,9 +54,10 @@ it never switches to the alternate screen — and quitting leaves the fully styl
 outline behind in your history. Changes are saved on quit, and `ctrl+s` saves
 explicitly.
 
-Rows are muted gray; the selected row and its inline caret are red. Glyphs: `○`
-bullet, `●` collapsed, `□` todo / `■` done, `◆` mirror, and headings show their
-level digit `1` `2` `3` instead of a circle.
+Bullets are muted gray and text keeps its own color; the selected row is marked
+by its bullet turning red and a dark red block cursor sitting on the character.
+Glyphs: `○` bullet, `●` collapsed, `□` todo / `■` done, `◆` mirror, and headings
+show their level digit `1` `2` `3` instead of a circle.
 
 Rows render what they mean: `**bold**` and `*italic*` style their text and the
 markers hide until the row is selected, code rows draw as a block, quote rows get
