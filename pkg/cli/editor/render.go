@@ -38,6 +38,13 @@ const (
 	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
 	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
 	cInvert = "\x1b[7m"              // the block cursor: inverts the cell beneath it
+	// cClearEOL erases from the cursor to the end of the line. Prefixed to every
+	// emitted View line so a frame fully overwrites the previous one: the inline
+	// renderer rewrites lines in place without clearing, so a grow after a shrink
+	// would otherwise leave the prior narrower line's cells behind the new one. It
+	// leads the line rather than trailing it so the renderer's width truncation,
+	// which drops escape bytes past the cut, cannot discard it on full-width rows.
+	cClearEOL = "\x1b[K"
 )
 
 // glyphs (locked)

@@ -374,6 +374,39 @@ func TestViewNeverExceedsHeightAcrossResize(t *testing.T) {
 	}
 }
 
+// TestViewClearsStaleCellsAfterResize is the F6 regression: the inline renderer
+// rewrites lines in place without clearing, so growing a frame after a shrink
+// (60->40->60) leaves the previous narrower line's trailing cells behind the new
+// one — the 40-col and 60-col renders overlaid on the same row. Every emitted
+// View line must lead with an erase-to-end-of-line so it clears the row before
+// painting. The clear has to lead, not trail: the renderer truncates full-width
+// rows to the terminal width and drops any escape bytes past the cut, so a
+// trailing clear would be silently discarded on exactly the wide rows that
+// overlap a narrower previous frame.
+func TestViewClearsStaleCellsAfterResize(t *testing.T) {
+	long := "this is a long node name that wraps differently at sixty columns than forty"
+	m := newTestModel(60, long)
+
+	cycle := []tea.WindowSizeMsg{
+		{Width: 60, Height: 24},
+		{Width: 40, Height: 24},
+		{Width: 60, Height: 24},
+	}
+	for _, sz := range cycle {
+		mm, _ := m.Update(sz)
+		m = mm.(*Model)
+	}
+
+	lines := strings.Split(m.View(), "\n")
+	for i, l := range lines {
+		if !strings.HasPrefix(l, cClearEOL) {
+			t.Fatalf("View line %d does not lead with a clear-to-end-of-line after "+
+				"60->40->60; stale cells from the narrower frame would survive the "+
+				"renderer's width truncation: %q", i, l)
+		}
+	}
+}
+
 // TestNarrowWidthRendersDeepNodeText is the F13 regression: at width 10
 // (maxLine 9) a depth-2 node's glyph prefix is 9 cols, leaving no room for
 // text, which trips wrapLine's pathological-width guard. The node text must still render — it

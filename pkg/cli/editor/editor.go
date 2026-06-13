@@ -1215,6 +1215,19 @@ func (m *Model) View() string {
 		lines = lines[:m.height]
 	}
 
+	// Erase the line before drawing it, not after. The inline renderer rewrites
+	// lines in place without clearing, so a frame that grows after a shrink would
+	// leave the previous narrower line's trailing cells behind the new one — the
+	// 40-col and 60-col renders overlaid. cClearEOL erases from the cursor to the
+	// end of the line; the renderer leaves the cursor at column 0 before painting
+	// each row, so prefixing clears the whole row first. It must lead the line: a
+	// full-width row is truncated to the terminal width by the renderer, and that
+	// truncation drops any escape bytes past the cut — a trailing cClearEOL would
+	// be silently discarded on exactly the wide rows that need clearing.
+	for i, l := range lines {
+		lines[i] = cClearEOL + l + cReset
+	}
+
 	return strings.Join(lines, "\n")
 }
 
