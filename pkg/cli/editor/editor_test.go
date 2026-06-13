@@ -87,6 +87,33 @@ func TestPasteLinesSanitizesControlBytes(t *testing.T) {
 	}
 }
 
+// TestPasteFanOutSkipsEmptySanitizedLines pastes three logical lines where the
+// middle one is only C0/DEL bytes. sanitizeName strips it to empty, so the
+// fan-out must not leave a ghost empty-named node between the two real lines.
+func TestPasteFanOutSkipsEmptySanitizedLines(t *testing.T) {
+	m := newTestModel(80, "root")
+	cur := m.tree.root.children[0]
+	cur.name = ""
+	m.caret = 0
+
+	lines := pasteLines("\x1b[200~hello world\n\x01\x02\x03\x1b\x7f\ngoodbye world\x1b[201~")
+	want := []string{"hello world", "", "goodbye world"}
+	if !reflect.DeepEqual(lines, want) {
+		t.Fatalf("pasteLines = %#v, want %#v", lines, want)
+	}
+
+	m.pasteFanOut(cur, lines)
+
+	var names []string
+	for _, it := range m.tree.root.children {
+		names = append(names, it.name)
+	}
+	wantNames := []string{"hello world", "goodbye world"}
+	if !reflect.DeepEqual(names, wantNames) {
+		t.Fatalf("after fan-out children = %#v, want %#v", names, wantNames)
+	}
+}
+
 // newTestModel builds a Model over a flat list of sibling names at the given
 // width so the wrapped-node Up/Down behaviour can be exercised without a DB.
 func newTestModel(width int, names ...string) *Model {

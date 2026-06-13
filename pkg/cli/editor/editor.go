@@ -523,13 +523,18 @@ func sanitizeName(text string) string {
 
 // pasteFanOut spreads a multiline paste over the outline: the first line
 // continues the current row at the caret, every following line becomes a new
-// sibling below it.
+// sibling below it. Lines are already sanitized by pasteLines; a line that
+// sanitized to empty (only C0/DEL bytes) creates no sibling so the paste never
+// leaves a ghost empty-named node between two real lines.
 func (m *Model) pasteFanOut(cur *item, lines []string) (tea.Model, tea.Cmd) {
 	runes := []rune(cur.name)
 	cur.name = string(runes[:m.caret]) + lines[0] + string(runes[m.caret:])
 
 	last := cur
 	for _, l := range lines[1:] {
+		if l == "" {
+			continue
+		}
 		it, err := m.tree.insertSiblingAfter(last)
 		if err != nil {
 			m.err = err
