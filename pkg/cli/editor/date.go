@@ -144,17 +144,14 @@ func buildDate(year, month, day, hour, min int, loc *time.Location) (time.Time, 
 	return t, true
 }
 
-// detectDate finds the leftmost convertible time phrase in name.
-func detectDate(name string, now time.Time) *dateMatch {
-	var best *dateMatch
-	consider := func(d *dateMatch) {
-		if d != nil && (best == nil || d.start < best.start) {
-			best = d
-		}
-	}
-
-	consider(detectRelative(name, now))
-	consider(detectPattern(name, reNamed, func(g []string) (time.Time, bool, bool) {
+// detectDate finds the convertible time phrase to act on: the one whose
+// span contains caret, else the one nearest caret. caret is a rune offset.
+// This keeps the bottom-bar hint and the ctrl+t conversion acting where the
+// user is editing instead of always grabbing the leftmost match.
+func detectDate(name string, caret int, now time.Time) *dateMatch {
+	var matches []*dateMatch
+	matches = append(matches, detectRelative(name, now)...)
+	matches = append(matches, detectPattern(name, reNamed, func(g []string) (time.Time, bool, bool) {
 		month, ok := monthLookup(g[2])
 		if !ok {
 			return time.Time{}, false, false
@@ -162,23 +159,46 @@ func detectDate(name string, now time.Time) *dateMatch {
 		hasTime := g[4] != ""
 		t, ok := buildDate(atoi(g[3]), int(month), atoi(g[1]), atoi(g[4]), atoi(g[5]), now.Location())
 		return t, hasTime, ok
-	}))
-	consider(detectPattern(name, reISO, func(g []string) (time.Time, bool, bool) {
+	})...)
+	matches = append(matches, detectPattern(name, reISO, func(g []string) (time.Time, bool, bool) {
 		hasTime := g[4] != ""
 		t, ok := buildDate(atoi(g[1]), atoi(g[2]), atoi(g[3]), atoi(g[4]), atoi(g[5]), now.Location())
 		return t, hasTime, ok
-	}))
-	consider(detectPattern(name, reNumeric, func(g []string) (time.Time, bool, bool) {
+	})...)
+	matches = append(matches, detectPattern(name, reNumeric, func(g []string) (time.Time, bool, bool) {
 		hasTime := g[4] != ""
 		t, ok := buildDate(atoi(g[3]), atoi(g[2]), atoi(g[1]), atoi(g[4]), atoi(g[5]), now.Location())
 		return t, hasTime, ok
-	}))
+	})...)
 
+	return pickByCaret(matches, caret)
+}
+
+// pickByCaret chooses the phrase containing caret, else the one whose span is
+// nearest it; ties resolve to the leftmost. caret is a rune offset.
+func pickByCaret(matches []*dateMatch, caret int) *dateMatch {
+	var best *dateMatch
+	bestDist := -1
+	for _, d := range matches {
+		if d == nil {
+			continue
+		}
+		dist := 0
+		if caret < d.start {
+			dist = d.start - caret
+		} else if caret > d.end {
+			dist = caret - d.end
+		}
+		if best == nil || dist < bestDist || (dist == bestDist && d.start < best.start) {
+			best, bestDist = d, dist
+		}
+	}
 	return best
 }
 
 // detectRelative finds the day words: now, bugün, tomorrow, dün...
-func detectRelative(name string, now time.Time) *dateMatch {
+func detectRelative(name string, now time.Time) []*dateMatch {
+	var out []*dateMatch
 	for _, loc := range reRelative.FindAllStringIndex(name, -1) {
 		if !wordBound(name, loc[0], loc[1]) {
 			continue
@@ -199,20 +219,21 @@ func detectRelative(name string, now time.Time) *dateMatch {
 		default:
 			continue
 		}
-		return &dateMatch{
+		out = append(out, &dateMatch{
 			start:   utf8.RuneCountInString(name[:loc[0]]),
 			end:     utf8.RuneCountInString(name[:loc[1]]),
 			t:       t,
 			hasTime: hasTime,
 			phrase:  name[loc[0]:loc[1]],
-		}
+		})
 	}
-	return nil
+	return out
 }
 
-// detectPattern runs one absolute-date regexp and converts the first hit
+// detectPattern runs one absolute-date regexp and converts every hit
 // whose boundaries and calendar parts hold up.
-func detectPattern(name string, re *regexp.Regexp, build func(groups []string) (time.Time, bool, bool)) *dateMatch {
+func detectPattern(name string, re *regexp.Regexp, build func(groups []string) (time.Time, bool, bool)) []*dateMatch {
+	var out []*dateMatch
 	for _, loc := range re.FindAllStringSubmatchIndex(name, -1) {
 		if !wordBound(name, loc[0], loc[1]) {
 			continue
@@ -227,13 +248,13 @@ func detectPattern(name string, re *regexp.Regexp, build func(groups []string) (
 		if !ok {
 			continue
 		}
-		return &dateMatch{
+		out = append(out, &dateMatch{
 			start:   utf8.RuneCountInString(name[:loc[0]]),
 			end:     utf8.RuneCountInString(name[:loc[1]]),
 			t:       t,
 			hasTime: hasTime,
 			phrase:  name[loc[0]:loc[1]],
-		}
+		})
 	}
-	return nil
+	return out
 }

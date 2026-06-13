@@ -23,7 +23,7 @@ import (
 var clock = time.Date(2026, time.June, 12, 19, 4, 0, 0, time.UTC)
 
 func TestDetectDateTurkishFullPhrase(t *testing.T) {
-	d := detectDate("toplantı 11 şubat 2025 saat 15:20 ofiste", clock)
+	d := detectDate("toplantı 11 şubat 2025 saat 15:20 ofiste", 0, clock)
 	if d == nil {
 		t.Fatal("phrase not detected")
 	}
@@ -36,7 +36,7 @@ func TestDetectDateTurkishFullPhrase(t *testing.T) {
 }
 
 func TestDetectDateEnglishNamedMonth(t *testing.T) {
-	d := detectDate("ship 11 february 2025 at 15:20", clock)
+	d := detectDate("ship 11 february 2025 at 15:20", 0, clock)
 	if d == nil {
 		t.Fatal("phrase not detected")
 	}
@@ -46,7 +46,7 @@ func TestDetectDateEnglishNamedMonth(t *testing.T) {
 }
 
 func TestDetectDateNamedMonthWithoutClock(t *testing.T) {
-	d := detectDate("due 1 mayıs 2025", clock)
+	d := detectDate("due 1 mayıs 2025", 0, clock)
 	if d == nil {
 		t.Fatal("phrase not detected")
 	}
@@ -70,7 +70,7 @@ func TestDetectDateRelativeWords(t *testing.T) {
 		{"dün oldu", "[[2026-06-11]]", false},
 	}
 	for _, tc := range cases {
-		d := detectDate(tc.text, clock)
+		d := detectDate(tc.text, 0, clock)
 		if d == nil {
 			t.Errorf("%q: not detected", tc.text)
 			continue
@@ -82,17 +82,17 @@ func TestDetectDateRelativeWords(t *testing.T) {
 }
 
 func TestDetectDateISOAndNumeric(t *testing.T) {
-	d := detectDate("retro 2025-02-11 14:00 cal", clock)
+	d := detectDate("retro 2025-02-11 14:00 cal", 0, clock)
 	if d == nil || d.pill() != "[[2025-02-11 14:00]]" {
 		t.Fatalf("iso: %+v", d)
 	}
 
-	d = detectDate("son tarih 11/02/2025", clock)
+	d = detectDate("son tarih 11/02/2025", 0, clock)
 	if d == nil || d.pill() != "[[2025-02-11]]" {
 		t.Fatalf("numeric slash: %+v", d)
 	}
 
-	d = detectDate("11.02.2025 saat 9.30", clock)
+	d = detectDate("11.02.2025 saat 9.30", 0, clock)
 	if d == nil || d.pill() != "[[2025-02-11 09:30]]" {
 		t.Fatalf("numeric dot with clock: %+v", d)
 	}
@@ -108,15 +108,41 @@ func TestDetectDateRejectsNoise(t *testing.T) {
 		"prefix [[tomorrow",  // unclosed bracket later in the string
 		"",
 	} {
-		if d := detectDate(text, clock); d != nil {
+		if d := detectDate(text, 0, clock); d != nil {
 			t.Errorf("%q: false positive %q", text, d.phrase)
 		}
 	}
 }
 
 func TestDetectDatePicksLeftmost(t *testing.T) {
-	d := detectDate("2025-02-11 then 2026-01-01", clock)
+	// caret at the start: nearest phrase is the leftmost one.
+	d := detectDate("2025-02-11 then 2026-01-01", 0, clock)
 	if d == nil || d.phrase != "2025-02-11" {
 		t.Fatalf("leftmost not picked: %+v", d)
+	}
+}
+
+func TestDetectDateCaretAware(t *testing.T) {
+	text := "tomorrow and yesterday"
+	// caret sits inside "yesterday" (begins at rune offset 13).
+	d := detectDate(text, 16, clock)
+	if d == nil {
+		t.Fatal("phrase not detected")
+	}
+	if d.phrase != "yesterday" {
+		t.Errorf("caret in second phrase: picked %q, want %q", d.phrase, "yesterday")
+	}
+	if d.pill() != "[[2026-06-11]]" {
+		t.Errorf("pill: %q", d.pill())
+	}
+
+	// caret in the first phrase still converts the first phrase.
+	if d := detectDate(text, 2, clock); d == nil || d.phrase != "tomorrow" {
+		t.Fatalf("caret in first phrase: %+v", d)
+	}
+
+	// caret between the two phrases falls to the nearer one.
+	if d := detectDate(text, 10, clock); d == nil || d.phrase != "tomorrow" {
+		t.Fatalf("caret nearest first: %+v", d)
 	}
 }

@@ -275,7 +275,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		// convert the detected time phrase into a date pill
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
-			if d := detectDate(cur.name, time.Now()); d != nil {
+			if d := detectDate(cur.name, m.caret, time.Now()); d != nil {
 				runes := []rune(cur.name)
 				pill := d.pill()
 				cur.name = string(runes[:d.start]) + pill + string(runes[d.end:])
@@ -1305,7 +1305,7 @@ func (m *Model) bottomBar(maxLine int) string {
 	// offer the date-pill conversion while a time phrase sits under the cursor
 	if m.mode == modeOutline {
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
-			if d := detectDate(cur.name, time.Now()); d != nil {
+			if d := detectDate(cur.name, m.caret, time.Now()); d != nil {
 				state += fmt.Sprintf(" · ctrl+t %q → %s", d.phrase, d.display())
 			}
 		}
