@@ -282,6 +282,35 @@ func TestWrapLineCursorDoesNotBleedAcrossWrap(t *testing.T) {
 	}
 }
 
+func TestWrapLinePastEndCursorNoBlankContinuation(t *testing.T) {
+	// The block cursor parked past the end of a node whose last visual line is
+	// exactly full appends a trailing inverted space (renderBody's past-end
+	// cell). That lone space must not spill onto a fresh continuation line that
+	// would carry only the dim rail prefix — keep the inverted cell on the
+	// trailing edge of the last text line instead.
+	prefix := cDim + "   "
+	// "word word" fills width 9 exactly; the trailing cursor space is the only
+	// content that would overflow.
+	styled := "word word" + cReset + cFG + cInvert + " " + cReset
+	lines := wrapLine(styled, 9, prefix)
+	for i, l := range lines {
+		if stripSGR(l) == "" || strings.TrimSpace(stripSGR(l)) == "" {
+			t.Errorf("line %d is a blank rail-only continuation: %q", i, l)
+		}
+	}
+	// the inverted cursor cell must survive exactly once.
+	var inverts int
+	for _, l := range lines {
+		inverts += strings.Count(l, cInvert)
+	}
+	if inverts != 1 {
+		t.Errorf("expected exactly one block cursor cell, got %d: %q", inverts, lines)
+	}
+	if strings.Contains(lines[len(lines)-1], cInvert) && strings.TrimSpace(stripSGR(lines[len(lines)-1])) == "" {
+		t.Errorf("cursor stranded on an otherwise-blank line: %q", lines[len(lines)-1])
+	}
+}
+
 func TestWrapLineHardBreaksUnbrokenRuns(t *testing.T) {
 	lines := wrapLine(strings.Repeat("x", 25), 10, cDim+"  ")
 	if len(lines) != 3 {

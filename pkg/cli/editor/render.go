@@ -304,7 +304,16 @@ func wrapLine(s string, width int, prefix string) []string {
 		curWidth += rw
 		i = clEnd
 	}
-	emitLine(len(runes), false)
+	// Don't open a final continuation line that would carry nothing but the
+	// dim rail prefix. This happens when the only content past the last full
+	// visual line is the trailing past-end cursor space: the overflow-space
+	// break above already re-emitted that inverted cell on the trailing edge
+	// of the last text line, so the trailing segment here holds no visible
+	// runes — only leftover escape sequences — and would just add a blank
+	// rail-only line below it.
+	if len(lines) == 0 || visibleWidth(string(runes[lineStart:])) > 0 {
+		emitLine(len(runes), false)
+	}
 	return lines
 }
 
