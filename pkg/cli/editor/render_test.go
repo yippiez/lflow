@@ -247,6 +247,55 @@ func TestWrapLineFillsBulletLineBeforeRun(t *testing.T) {
 	}
 }
 
+func TestWrapLineExpandsTabs(t *testing.T) {
+	// runewidth measures '\t' as zero, so without tab expansion wrapLine never
+	// sees the width a tab adds and the terminal hard-wraps with no hang
+	// indent. A tab-laden line that overflows must wrap, and the continuation
+	// must carry the hanging indent.
+	line := "ab\tcd\tef\tgh\tij\tkl\tmn\top"
+	lines := wrapLine(line, 20, cDim+"   ")
+	if len(lines) < 2 {
+		t.Fatalf("expected a wrap of the tab-laden line: %q", lines)
+	}
+	for i, l := range lines {
+		if w := visibleWidth(l); w > 20 {
+			t.Errorf("line %d too wide: %d %q", i, w, l)
+		}
+	}
+	for i, l := range lines[1:] {
+		if !strings.HasPrefix(stripSGR(l), "   ") {
+			t.Errorf("continuation %d missing hanging indent: %q", i+1, l)
+		}
+	}
+	// tabs must be gone from the rendered output, expanded to spaces
+	for i, l := range lines {
+		if strings.ContainsRune(l, '\t') {
+			t.Errorf("line %d still contains a raw tab: %q", i, l)
+		}
+	}
+}
+
+func TestExpandTabsToTabStops(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"a\tb", "a       b"},     // col 1 -> next stop is 8
+		{"\tx", "        x"},      // col 0 -> stop at 8
+		{"ab\tcd", "ab      cd"},  // col 2 -> stop at 8
+		{"12345678\tz", "12345678        z"}, // col 8 -> stop at 16
+		{"no tabs", "no tabs"},
+	}
+	for _, tc := range cases {
+		if got := expandTabs(tc.in); got != tc.want {
+			t.Errorf("expandTabs(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	// SGR sequences must not advance the tab-stop column
+	if got := expandTabs(cBold + "a" + cReset + "\tb"); !strings.HasSuffix(stripSGR(got), "a       b") {
+		t.Errorf("SGR should not shift tab stops: %q", stripSGR(got))
+	}
+}
+
 func TestContinuationPrefixKeepsRail(t *testing.T) {
 	// a depth-1 node with a later sibling and a child: its wrapped
 	// continuation must carry │ in its own branch column and under the

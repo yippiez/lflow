@@ -101,12 +101,55 @@ func clip(s string, width int) string {
 	return b.String()
 }
 
+// tabWidth is the terminal's hard tab stop: tabs advance to the next multiple.
+const tabWidth = 8
+
+// expandTabs replaces tabs with spaces up to the next tab stop, tracking the
+// display column across the (possibly SGR-styled) line so each \t advances to
+// the next multiple of tabWidth columns — exactly how the terminal expands
+// them. runewidth measures '\t' as zero, so wrapLine must see expanded spaces
+// to measure and wrap tab-laden lines correctly. SGR sequences pass through
+// untouched and do not advance the column.
+func expandTabs(s string) string {
+	if !strings.ContainsRune(s, '\t') {
+		return s
+	}
+	var b strings.Builder
+	col := 0
+	inEsc := false
+	for _, r := range s {
+		if inEsc {
+			b.WriteRune(r)
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		switch {
+		case r == '\x1b':
+			b.WriteRune(r)
+			inEsc = true
+		case r == '\t':
+			n := tabWidth - col%tabWidth
+			for k := 0; k < n; k++ {
+				b.WriteByte(' ')
+			}
+			col += n
+		default:
+			b.WriteRune(r)
+			col += runewidth.RuneWidth(r)
+		}
+	}
+	return b.String()
+}
+
 // wrapLine soft-wraps an SGR-styled line to the given display width, breaking
 // at spaces when one is available. Continuation lines carry the given prefix —
 // a dim-styled hanging indent that keeps the tree rail continuous under the
 // text column — and re-open the styles active at the break, so spans and the
 // cursor cell survive the wrap.
 func wrapLine(s string, width int, prefix string) []string {
+	s = expandTabs(s)
 	if width <= 0 || visibleWidth(s) <= width {
 		return []string{s}
 	}
