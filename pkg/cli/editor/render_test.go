@@ -190,6 +190,27 @@ func TestWrapLineCarriesStyle(t *testing.T) {
 	}
 }
 
+func TestWrapLineCursorDoesNotBleedAcrossWrap(t *testing.T) {
+	// the block cursor (reverse-video) lands on the wrap-break space: it must
+	// invert exactly that one cell and never re-open on the continuation line,
+	// where it would invert the whole hanging indent.
+	styled := "one two three" + cInvert + " " + cReset + "four five six"
+	lines := wrapLine(styled, 14, cDim+"   ")
+	if len(lines) < 2 {
+		t.Fatalf("expected a wrap: %q", lines)
+	}
+	for i, l := range lines[1:] {
+		if strings.Contains(l, cInvert) {
+			t.Errorf("continuation %d leaks the block cursor: %q", i+1, l)
+		}
+	}
+	// every emitted segment must close its styling so nothing leaks past a
+	// line end.
+	if !strings.HasSuffix(lines[0], cReset) {
+		t.Errorf("line 0 should end reset: %q", lines[0])
+	}
+}
+
 func TestWrapLineHardBreaksUnbrokenRuns(t *testing.T) {
 	lines := wrapLine(strings.Repeat("x", 25), 10, cDim+"  ")
 	if len(lines) != 3 {

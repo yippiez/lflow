@@ -129,9 +129,19 @@ func wrapLine(s string, width int, prefix string) []string {
 	emitLine := func(end int) {
 		seg := string(runes[lineStart:end])
 		if len(lines) == 0 {
-			lines = append(lines, seg)
+			lines = append(lines, seg+cReset)
 		} else {
-			lines = append(lines, prefix+cReset+strings.Join(startState, "")+seg)
+			// The cursor cell is a single cell and never spans a wrap, so the
+			// reverse-video sequence must never appear in a continuation
+			// prefix — drop it from the carried state.
+			carried := startState[:0:0]
+			for _, sgr := range startState {
+				if sgr == cInvert {
+					continue
+				}
+				carried = append(carried, sgr)
+			}
+			lines = append(lines, prefix+cReset+strings.Join(carried, "")+seg+cReset)
 		}
 	}
 
