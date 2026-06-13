@@ -226,12 +226,17 @@ func TestWrapLineCarriesStyle(t *testing.T) {
 
 func TestWrapLineCursorDoesNotBleedAcrossWrap(t *testing.T) {
 	// the block cursor (reverse-video) lands on the wrap-break space: it must
-	// invert exactly that one cell and never re-open on the continuation line,
-	// where it would invert the whole hanging indent.
+	// invert exactly that one cell at the trailing edge of the first visual
+	// line and never re-open on the continuation line, where it would invert
+	// the whole hanging indent.
 	styled := "one two three" + cInvert + " " + cReset + "four five six"
 	lines := wrapLine(styled, 14, cDim+"   ")
 	if len(lines) < 2 {
 		t.Fatalf("expected a wrap: %q", lines)
+	}
+	// exactly one inverted cell survives, on the first visual line.
+	if n := strings.Count(lines[0], cInvert); n != 1 {
+		t.Errorf("line 0 should carry exactly one block cursor cell, got %d: %q", n, lines[0])
 	}
 	for i, l := range lines[1:] {
 		if strings.Contains(l, cInvert) {

@@ -169,10 +169,22 @@ func wrapLine(s string, width int, prefix string) []string {
 	lastSpace := -1
 	var lastSpaceState []string
 
-	emitLine := func(end int) {
+	emitLine := func(end int, cursorBreak bool) {
 		seg := string(runes[lineStart:end])
+		// When the break consumes a space that carried the block cursor, the
+		// inverted space rune lands on neither line — re-emit a single inverted
+		// cell at the trailing edge of this line so the one-cell cursor stays
+		// visible there, without leaking reverse-video onto the continuation.
+		tail := ""
+		if cursorBreak {
+			// the cursor opener sits at the very end of seg with no cell after
+			// it (the space it inverted was dropped); strip that dangling opener
+			// and re-emit a single complete inverted cell in its place.
+			seg = strings.TrimSuffix(seg, cInvert)
+			tail = cInvert + " " + cReset
+		}
 		if len(lines) == 0 {
-			lines = append(lines, seg+cReset)
+			lines = append(lines, seg+tail+cReset)
 		} else {
 			// The cursor cell is a single cell and never spans a wrap, so the
 			// reverse-video sequence must never appear in a continuation
@@ -184,7 +196,7 @@ func wrapLine(s string, width int, prefix string) []string {
 				}
 				carried = append(carried, sgr)
 			}
-			lines = append(lines, prefix+cReset+strings.Join(carried, "")+seg+cReset)
+			lines = append(lines, prefix+cReset+strings.Join(carried, "")+seg+tail+cReset)
 		}
 	}
 
@@ -209,7 +221,7 @@ func wrapLine(s string, width int, prefix string) []string {
 		if curWidth+rw > avail {
 			if r == ' ' {
 				// the overflowing rune is itself a space: break right here
-				emitLine(i)
+				emitLine(i, hasInvert(state))
 				lineStart = i + 1
 				startState = append([]string(nil), state...)
 				curWidth = 0
@@ -220,13 +232,13 @@ func wrapLine(s string, width int, prefix string) []string {
 			}
 			if lastSpace > lineStart {
 				// break at the last space; what follows it moves down
-				emitLine(lastSpace)
+				emitLine(lastSpace, hasInvert(lastSpaceState))
 				lineStart = lastSpace + 1
 				startState = append([]string(nil), lastSpaceState...)
 				curWidth = visibleWidth(string(runes[lineStart:i]))
 			} else {
 				// no space on this line: hard break before the rune
-				emitLine(i)
+				emitLine(i, false)
 				lineStart = i
 				startState = append([]string(nil), state...)
 				curWidth = 0
@@ -246,8 +258,19 @@ func wrapLine(s string, width int, prefix string) []string {
 		curWidth += rw
 		i++
 	}
-	emitLine(len(runes))
+	emitLine(len(runes), false)
 	return lines
+}
+
+// hasInvert reports whether the reverse-video cursor sequence is active in the
+// given SGR state — i.e. a broken-at space carried the block cursor.
+func hasInvert(state []string) bool {
+	for _, sgr := range state {
+		if sgr == cInvert {
+			return true
+		}
+	}
+	return false
 }
 
 // glyphFor returns the bullet glyph and its color for an item. Bullets and
