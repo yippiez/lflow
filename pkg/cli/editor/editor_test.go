@@ -573,6 +573,45 @@ func TestZoomMirrorMissingSourceIsNoop(t *testing.T) {
 	}
 }
 
+// TestSlashBackspaceDismissKeepsStatusBar is the F8 regression: the slash menu
+// lists its commands above the status bar, never below it. The inline renderer
+// skips repainting a last line that is unchanged from the previous frame, so if
+// the bar were the final line with the menu below it, dismissing the menu with
+// Backspace on an empty query would shrink the frame without moving the bar's
+// row — the renderer would skip the bar, then erase below it, blanking the
+// status line for that one frame. The menu sits above the bar so the bar stays
+// every frame's last line, and dismiss still leaves a normal status bar.
+func TestSlashBackspaceDismissKeepsStatusBar(t *testing.T) {
+	m := newTestModel(60, "hello", "world")
+	m.cursor = 0
+	m.caret = len([]rune("hello"))
+
+	last := func() string {
+		lines := strings.Split(m.View(), "\n")
+		return lines[len(lines)-1]
+	}
+
+	m.press("/")
+	if m.mode != modeSlash {
+		t.Fatalf("pressing / should open the slash menu, mode=%v", m.mode)
+	}
+	// even with the menu open the bar is the frame's last line — the menu is
+	// listed above it, never below.
+	if got := last(); !strings.Contains(got, "1/2") || strings.Contains(got, "/mirror") {
+		t.Fatalf("slash frame's last line is not the status bar: %q", got)
+	}
+
+	// Backspace on an empty query dismisses the menu back to outline mode.
+	mm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	*m = *mm.(*Model)
+	if m.mode != modeOutline {
+		t.Fatalf("backspace on an empty query should dismiss the menu, mode=%v", m.mode)
+	}
+	if got := last(); !strings.Contains(got, "1/2") {
+		t.Fatalf("status bar absent on the last line after backspace dismiss: %q", got)
+	}
+}
+
 // TestSlashEscapeRemovesTriggeringSlash is the F10 regression: opening the slash
 // menu types a "/" into the editable node text, so escaping the menu must strip
 // that triggering slash and leave the node name exactly as it was before. A

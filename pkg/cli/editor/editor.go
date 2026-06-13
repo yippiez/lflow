@@ -17,7 +17,7 @@
 // black background, muted gray ○/●/◆/□ glyphs and connectors plus 1/2/3
 // heading digits, the selected row marked by its glyph turning red, a block
 // cursor that inverts the cell beneath it, a minimal dim bottom bar, a
-// type-to-filter slash menu under the bar, and a full-panel fuzzy finder for
+// type-to-filter slash menu above the bar, and a full-panel fuzzy finder for
 // /mirror /mirror_to /move_to /go. It never enters the alternate screen.
 package editor
 
@@ -1312,10 +1312,25 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	lines = append(lines, m.bottomBar(maxLine))
-
+	// The slash menu lists its commands above the status line, same as the
+	// confirm prompt and for the same reason: the inline renderer skips
+	// repainting an unchanged last line, so if the bottomBar were the final line
+	// with the menu below it, dismissing the menu (Backspace on an empty query)
+	// would shrink the frame without moving the bar's row — the renderer would
+	// skip the bar and then erase-below it, blanking the status bar for a frame.
+	// Listing the menu above the bar shifts the bar's row when the menu vanishes,
+	// which forces the repaint. The menu is trimmed to the rows left under the
+	// body so body + menu + bar still fits the window height.
 	if m.mode == modeSlash {
-		for i, c := range m.filteredSlash() {
+		menuRoom := len(flat[start:end]) // rows the body actually drew
+		if m.height > 0 {
+			menuRoom = m.height - 1 - len(flat[start:end]) // reserve the bar
+		}
+		cmds := m.filteredSlash()
+		for i, c := range cmds {
+			if m.height > 0 && i >= menuRoom {
+				break
+			}
 			mark := "  "
 			if i == m.slashSel {
 				mark = cAccent + "▸ " + cReset
@@ -1324,6 +1339,8 @@ func (m *Model) viewOutline(maxLine int) []string {
 			lines = append(lines, clip(line, maxLine))
 		}
 	}
+
+	lines = append(lines, m.bottomBar(maxLine))
 
 	return lines
 }
