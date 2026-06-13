@@ -219,6 +219,35 @@ func TestSelectedRowVisibleAtTinyHeight(t *testing.T) {
 	}
 }
 
+// TestViewNeverExceedsHeightAcrossResize is the F12 regression: the inline
+// renderer cannot move the cursor into scrollback, so a frame taller than the
+// terminal strands its top lines and they double the outline after a
+// shrink-then-grow resize cycle. View must cap every frame — including the
+// slash-menu overlay, which appends extra lines past the row budget — at the
+// window height so each node renders exactly once.
+func TestViewNeverExceedsHeightAcrossResize(t *testing.T) {
+	names := make([]string, 12)
+	for i := range names {
+		names[i] = "node"
+	}
+	m := newTestModel(60, names...)
+	m.mode = modeSlash // the overlay appends slash rows past the body budget
+
+	cycle := []tea.WindowSizeMsg{
+		{Width: 60, Height: 24},
+		{Width: 10, Height: 4},
+		{Width: 60, Height: 24},
+	}
+	for _, sz := range cycle {
+		mm, _ := m.Update(sz)
+		m = mm.(*Model)
+		if n := strings.Count(m.View(), "\n") + 1; n > m.height {
+			t.Fatalf("View rendered %d lines at %dx%d, exceeds height %d",
+				n, m.width, m.height, m.height)
+		}
+	}
+}
+
 // TestNarrowWidthRendersDeepNodeText is the F13 regression: at width 10 a
 // depth-2 node's glyph prefix is 6 cols, wider than width/2, which trips
 // wrapLine's pathological-width guard. The node text must still render — it

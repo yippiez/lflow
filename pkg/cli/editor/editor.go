@@ -1163,6 +1163,16 @@ func (m *Model) View() string {
 		lines = m.viewOutline(maxLine)
 	}
 
+	// The inline renderer (no alt screen) can only move the cursor back over the
+	// lines of the previous frame — it cannot reach into scrollback. A frame
+	// taller than the terminal therefore strands its top lines: on the next
+	// flush the renderer clears only what it last rendered, leaving the overflow
+	// behind, which is what doubles the outline across a shrink-then-grow resize.
+	// Cap every frame at the window height so each node renders exactly once.
+	if m.height > 0 && len(lines) > m.height {
+		lines = lines[:m.height]
+	}
+
 	return strings.Join(lines, "\n")
 }
 
