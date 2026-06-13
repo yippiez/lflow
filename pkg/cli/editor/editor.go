@@ -380,7 +380,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "home":
-		m.caret = 0
+		// move to the first position of the current visual line, not the start
+		// of the whole node: a wrapped node has several visual lines
+		starts := m.selectedVisualRows()
+		line := caretVisualLine(starts, m.caret)
+		m.caret = starts[line]
 		return m, nil
 	case "end":
 		if cur := m.cursorItem(); cur != nil {

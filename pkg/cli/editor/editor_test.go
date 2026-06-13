@@ -205,6 +205,37 @@ func TestUpWalksWrappedVisualLinesFirst(t *testing.T) {
 	}
 }
 
+// TestHomeMovesToStartOfCurrentVisualLine is the F3 regression: on a wrapped
+// node Home must move the caret to the first position of the current visual
+// line, not the start of the whole node.
+func TestHomeMovesToStartOfCurrentVisualLine(t *testing.T) {
+	// width 13 -> first visual line "aaaa bbbb", continuation holds "cccc".
+	m := newTestModel(13, "aaaa bbbb cccc", "second")
+	m.cursor = 0
+
+	starts := m.selectedVisualRows()
+	if len(starts) < 2 {
+		t.Fatalf("node should wrap to >=2 visual lines, got starts=%v", starts)
+	}
+	// place the caret on visual line 2, not at its start
+	m.caret = len([]rune("aaaa bbbb cccc"))
+	if line := caretVisualLine(m.selectedVisualRows(), m.caret); line != 1 {
+		t.Fatalf("setup: caret should be on visual line 1, got %d", line)
+	}
+
+	m.press("home")
+	if m.caret != starts[1] {
+		t.Fatalf("Home should move to the start of visual line 2 (%d), got %d", starts[1], m.caret)
+	}
+
+	// a second Home stays put; on the first visual line Home reaches 0
+	m.caret = starts[0]
+	m.press("home")
+	if m.caret != 0 {
+		t.Fatalf("Home on the first visual line should stay at 0, got %d", m.caret)
+	}
+}
+
 // TestDownSingleLineNodeMovesToNextNode keeps the simple case working: a node
 // that does not wrap moves straight to the next node.
 func TestDownSingleLineNodeMovesToNextNode(t *testing.T) {
