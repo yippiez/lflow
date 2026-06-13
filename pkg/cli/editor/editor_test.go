@@ -641,3 +641,43 @@ func TestSlashEscapeRemovesTriggeringSlash(t *testing.T) {
 		t.Fatalf("escape left a stray slash in the name: %q", m.cursorItem().name)
 	}
 }
+
+// TestSlashEscapeDismissKeepsStatusBar is the F9 regression: escaping the slash
+// menu shares the one-frame blank-status-bar seam the Backspace dismiss had. The
+// menu lists its commands above the bar so the bar stays the frame's last line;
+// dismissing via Escape — even after moving the selection within the menu — must
+// still leave a normal status bar on that last line, never a blank one.
+func TestSlashEscapeDismissKeepsStatusBar(t *testing.T) {
+	m := newTestModel(60, "hello", "world")
+	m.cursor = 0
+	m.caret = len([]rune("hello"))
+
+	last := func() string {
+		lines := strings.Split(m.View(), "\n")
+		return lines[len(lines)-1]
+	}
+
+	m.press("/")
+	if m.mode != modeSlash {
+		t.Fatalf("pressing / should open the slash menu, mode=%v", m.mode)
+	}
+	// even with the menu open the bar is the frame's last line — the menu is
+	// listed above it, never below.
+	if got := last(); !strings.Contains(got, "1/2") || strings.Contains(got, "/mirror") {
+		t.Fatalf("slash frame's last line is not the status bar: %q", got)
+	}
+
+	// move within the menu before escaping, matching the repro.
+	md, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	*m = *md.(*Model)
+
+	// escape dismisses the menu back to outline mode.
+	mm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	*m = *mm.(*Model)
+	if m.mode != modeOutline {
+		t.Fatalf("escape should dismiss the menu, mode=%v", m.mode)
+	}
+	if got := last(); !strings.Contains(got, "1/2") {
+		t.Fatalf("status bar absent on the last line after escape dismiss: %q", got)
+	}
+}
