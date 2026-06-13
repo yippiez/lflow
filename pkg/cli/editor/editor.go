@@ -32,6 +32,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )
 
@@ -327,14 +328,35 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "up":
-		if m.cursor > 0 {
+		starts := m.selectedVisualRows()
+		line := caretVisualLine(starts, m.caret)
+		if line > 0 {
+			// walk up one visual line of the wrapped node first
+			goal := m.caretColumn(starts, line)
+			m.caret = m.caretAtColumn(starts, line-1, goal)
+		} else if m.cursor > 0 {
+			// from the first visual line, cross to the previous node and land
+			// on its last visual line, keeping the horizontal column
+			goal := m.caretColumn(starts, 0)
 			m.cursor--
+			prev := m.selectedVisualRows()
+			m.caret = m.caretAtColumn(prev, len(prev)-1, goal)
 			m.clampCaret()
 		}
 		return m, nil
 	case "down":
-		if m.cursor < len(m.rows)-1 {
+		starts := m.selectedVisualRows()
+		line := caretVisualLine(starts, m.caret)
+		if line < len(starts)-1 {
+			// walk down one visual line of the wrapped node first
+			goal := m.caretColumn(starts, line)
+			m.caret = m.caretAtColumn(starts, line+1, goal)
+		} else if m.cursor < len(m.rows)-1 {
+			// from the last visual line, cross to the next node and land on its
+			// first visual line, keeping the horizontal column
+			goal := m.caretColumn(starts, line)
 			m.cursor++
+			m.caret = m.caretAtColumn(m.selectedVisualRows(), 0, goal)
 			m.clampCaret()
 		}
 		return m, nil
@@ -545,6 +567,77 @@ func (m *Model) handleConfirmKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeOutline
 	}
 	return m, nil
+}
+
+// selectedVisualRows returns the rune offsets at which each soft-wrapped
+// visual line of the selected node begins, measured with the same width and
+// hanging indent the renderer wraps the row at. A node that fits on one line
+// returns a single-element slice, so Up/Down can tell when the caret is on the
+// first or last visual line and only then cross to another node.
+func (m *Model) selectedVisualRows() []int {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return []int{0}
+	}
+	r := m.rows[m.cursor]
+	glyph, _ := glyphFor(r.it)
+	name := m.tree.displayName(r.it)
+	maxLine := m.width - 1
+	firstCol := visibleWidth(" " + connector(r) + glyph + " ")
+	below := m.cursor+1 < len(m.rows) && m.rows[m.cursor+1].depth > r.depth
+	hang := visibleWidth(continuationPrefix(r, below))
+	return visualRows(name, maxLine, firstCol, hang)
+}
+
+// caretColumn returns the caret's display column within its visual line: the
+// width of the runes between the line's start offset and the caret.
+func (m *Model) caretColumn(starts []int, line int) int {
+	cur := m.cursorItem()
+	if cur == nil || line < 0 || line >= len(starts) {
+		return 0
+	}
+	runes := []rune(m.tree.displayName(cur))
+	start := starts[line]
+	if m.caret < start {
+		return 0
+	}
+	end := m.caret
+	if end > len(runes) {
+		end = len(runes)
+	}
+	return visibleWidth(string(runes[start:end]))
+}
+
+// caretAtColumn returns the caret index on the given visual line nearest the
+// target display column, clamped to that line's runes. It is the inverse of
+// caretColumn and keeps vertical movement on a stable horizontal column.
+func (m *Model) caretAtColumn(starts []int, line, col int) int {
+	cur := m.cursorItem()
+	if cur == nil || len(starts) == 0 {
+		return m.caret
+	}
+	if line < 0 {
+		line = 0
+	}
+	if line >= len(starts) {
+		line = len(starts) - 1
+	}
+	runes := []rune(m.tree.displayName(cur))
+	start := starts[line]
+	end := len(runes)
+	if line+1 < len(starts) {
+		// stop before the next line's start; the trailing space that wrapped
+		// is consumed by the break, so land on the last rune of this line
+		end = starts[line+1]
+	}
+	w := 0
+	for i := start; i < end; i++ {
+		rw := runewidth.RuneWidth(runes[i])
+		if w+rw > col {
+			return i
+		}
+		w += rw
+	}
+	return end
 }
 
 func (m *Model) clampCaret() {

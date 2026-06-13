@@ -36,7 +36,7 @@ const (
 	cStrike = "\x1b[9m"
 	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
 	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
-	cInvert = "\x1b[7m" // the block cursor: inverts the cell beneath it
+	cInvert = "\x1b[7m"              // the block cursor: inverts the cell beneath it
 )
 
 // glyphs (locked)
@@ -333,6 +333,79 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 		cells[1+3*r.depth] = '│'
 	}
 	return cDim + string(cells)
+}
+
+// visualRows splits a node's plain name into the rune offsets at which each
+// soft-wrapped visual line begins, mirroring wrapLine's break logic so the
+// caret can be mapped to the same visual layout the renderer shows. firstCol
+// is the display column the body starts at (the glyph prefix width) and hang
+// is the continuation indent width. The returned slice always starts with 0;
+// its length is the number of visual lines the name occupies.
+func visualRows(name string, width, firstCol, hang int) []int {
+	starts := []int{0}
+	runes := []rune(name)
+	if width <= 0 {
+		return starts
+	}
+	// match wrapLine's clamp: pathological prefixes give the text the line.
+	if hang >= width/2 {
+		hang = 0
+	}
+	if firstCol >= width {
+		firstCol = 0
+	}
+
+	lineStart := 0
+	curWidth := firstCol // the body begins after the glyph prefix
+	avail := width
+	lastSpace := -1
+
+	emit := func(start int) {
+		starts = append(starts, start)
+		lineStart = start
+		curWidth = 0
+		avail = width - hang
+		lastSpace = -1
+	}
+
+	i := 0
+	for i < len(runes) {
+		r := runes[i]
+		rw := runewidth.RuneWidth(r)
+		if curWidth+rw > avail {
+			if r == ' ' {
+				emit(i + 1)
+				i++
+				continue
+			}
+			if lastSpace > lineStart {
+				next := lastSpace + 1
+				emit(next)
+				curWidth = visibleWidth(string(runes[next:i]))
+			} else {
+				emit(i)
+			}
+			continue // re-check the same rune on the new line
+		}
+		if r == ' ' && curWidth >= hang {
+			lastSpace = i
+		}
+		curWidth += rw
+		i++
+	}
+	return starts
+}
+
+// caretVisualLine returns which visual line of the wrapped name the caret sits
+// on, given the line-start offsets from visualRows.
+func caretVisualLine(starts []int, caret int) int {
+	line := 0
+	for j, s := range starts {
+		if caret >= s {
+			line = j
+		}
+	}
+	return line
 }
 
 // withCaret marks the rune at the caret index with the inverting block
