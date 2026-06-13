@@ -68,6 +68,37 @@ func TestSourceUUIDFollowsMirrorChain(t *testing.T) {
 	}
 }
 
+func TestFinderRowNameResolvesMirror(t *testing.T) {
+	nodes := map[string]database.Node{
+		"a": {UUID: "a", Name: "alpha"},
+		"b": {UUID: "b", MirrorOf: "a"}, // mirror of the original
+		"c": {UUID: "c", MirrorOf: "b"}, // mirror of a mirror
+	}
+	resolve := func(uuid string) (database.Node, bool) {
+		n, ok := nodes[uuid]
+		return n, ok
+	}
+
+	if got := finderRowName(nodes["a"], resolve); got != "alpha" {
+		t.Errorf("non-mirror keeps its name, got %q", got)
+	}
+	// the regression: a mirror's name is empty in the database, so the
+	// finder must resolve it to the source name rather than show a blank.
+	if got := finderRowName(nodes["b"], resolve); got != "alpha · mirror" {
+		t.Errorf("mirror should resolve to source name, got %q", got)
+	}
+	if got := finderRowName(nodes["c"], resolve); got != "alpha · mirror" {
+		t.Errorf("mirror of mirror should resolve to original, got %q", got)
+	}
+}
+
+func TestFinderRowNameMissingSource(t *testing.T) {
+	resolve := func(string) (database.Node, bool) { return database.Node{}, false }
+	if got := finderRowName(database.Node{UUID: "b", MirrorOf: "gone"}, resolve); got != "(missing) · mirror" {
+		t.Errorf("missing source falls back to placeholder, got %q", got)
+	}
+}
+
 func TestSourceUUIDStopsOnCycle(t *testing.T) {
 	a := &item{uuid: "a", mirrorOf: "b"}
 	b := &item{uuid: "b", mirrorOf: "a"}

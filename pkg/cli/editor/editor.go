@@ -1318,6 +1318,29 @@ func (m *Model) bottomBar(maxLine int) string {
 	return clip(cDim+bar+cReset, maxLine)
 }
 
+// finderRowName resolves the name shown for a finder row. A mirror node
+// carries an empty name in the database, so follow its mirror_of chain to
+// the source node and show that name, suffixed to mark it a mirror. resolve
+// looks up a node by uuid; a missing source falls back to a placeholder.
+func finderRowName(n database.Node, resolve func(string) (database.Node, bool)) string {
+	if n.MirrorOf == "" {
+		return n.Name
+	}
+	seen := map[string]bool{n.UUID: true}
+	cur := n.MirrorOf
+	for {
+		src, ok := resolve(cur)
+		if !ok {
+			return "(missing) · mirror"
+		}
+		if src.MirrorOf == "" || seen[cur] {
+			return src.Name + " · mirror"
+		}
+		seen[cur] = true
+		cur = src.MirrorOf
+	}
+}
+
 func (m *Model) viewFinder(maxLine int) []string {
 	var lines []string
 
@@ -1357,7 +1380,11 @@ func (m *Model) viewFinder(maxLine int) []string {
 		if err != nil {
 			count = 1
 		}
-		line := mark + cFG + fmt.Sprintf("%-28s", h.Name) + cDim + fmt.Sprintf(" %d nodes", count) + cReset
+		name := finderRowName(h, func(uuid string) (database.Node, bool) {
+			n, err := database.GetNode(m.db, uuid)
+			return n, err == nil
+		})
+		line := mark + cFG + fmt.Sprintf("%-28s", name) + cDim + fmt.Sprintf(" %d nodes", count) + cReset
 		lines = append(lines, clip(line, maxLine))
 	}
 	if overflow > 0 {
