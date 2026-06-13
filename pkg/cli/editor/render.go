@@ -187,9 +187,9 @@ func wrapLine(s string, width int, prefix string) []string {
 	// guard zeroes the visible continuation indent, so the glyph line still fills
 	// and the text renders rather than getting stranded or clipped away.
 	bodyCol := hang
-	if hang >= width/2 {
-		hang = 0 // pathological widths: give the continuation the whole line
-		prefix = ""
+	if hang >= width {
+		hang = 0 // pathological widths: the prefix leaves no room for text, so
+		prefix = "" // give the continuation the whole line
 	}
 	runes := []rune(s)
 
@@ -416,11 +416,11 @@ func visualRows(name string, width, firstCol, hang int) []int {
 	if width <= 0 {
 		return starts
 	}
-	// match wrapLine's clamp: pathological prefixes give the text the line, but
-	// keep the original indent as the wrap-candidate floor so the body fills the
-	// glyph line before breaking, exactly as wrapLine does.
+	// match wrapLine's clamp: when the prefix leaves no room for text it gives
+	// the text the whole line, but keep the original indent as the wrap-candidate
+	// floor so the body fills the glyph line before breaking, exactly as wrapLine.
 	bodyCol := hang
-	if hang >= width/2 {
+	if hang >= width {
 		hang = 0
 	}
 	if firstCol >= width {

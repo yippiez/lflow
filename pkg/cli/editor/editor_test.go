@@ -275,9 +275,9 @@ func TestViewNeverExceedsHeightAcrossResize(t *testing.T) {
 	}
 }
 
-// TestNarrowWidthRendersDeepNodeText is the F13 regression: at width 10 a
-// depth-2 node's glyph prefix is 6 cols, wider than width/2, which trips
-// wrapLine's pathological-width guard. The node text must still render — it
+// TestNarrowWidthRendersDeepNodeText is the F13 regression: at width 10
+// (maxLine 9) a depth-2 node's glyph prefix is 9 cols, leaving no room for
+// text, which trips wrapLine's pathological-width guard. The node text must still render — it
 // wraps to continuation lines rather than vanishing — and selected and
 // unselected rows must show the same text. Previously the unselected row showed
 // only the bullet and the selected row dropped the text to column 0.

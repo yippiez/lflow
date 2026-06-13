@@ -414,6 +414,33 @@ func TestContinuationPrefixKeepsRail(t *testing.T) {
 	}
 }
 
+// TestContinuationKeepsRailAtNarrowWidth is the F1 regression: at terminal
+// width 13 (maxLine 12) a depth-1 node's glyph prefix is 6 cols. The old guard
+// (hang >= width/2) tripped at 6 >= 6 and zeroed the prefix, dropping the rail
+// to column 0. Six text columns remain, so the rail and hanging indent must
+// survive — the prefix only collapses when no text columns are left.
+func TestContinuationKeepsRailAtNarrowWidth(t *testing.T) {
+	r := row{depth: 1, last: false, branch: []bool{true}}
+	prefix := continuationPrefix(r, true)
+	line := " " + cDim + connector(r) + cDim + glyphOpen + cReset + " " + strings.Repeat("word ", 8)
+	lines := wrapLine(line, 12, prefix)
+	if len(lines) < 2 {
+		t.Fatalf("expected a wrap at width 12: %q", lines)
+	}
+	for i, l := range lines[1:] {
+		if !strings.HasPrefix(l, prefix) {
+			t.Errorf("continuation %d dropped the rail prefix at width 12: %q", i+1, l)
+		}
+		if !strings.Contains(l, "│") {
+			t.Errorf("continuation %d missing the tree rail at width 12: %q", i+1, l)
+		}
+		// body text must still render past the prefix rather than vanish
+		if body := strings.TrimSpace(strings.TrimPrefix(stripSGR(l), stripSGR(prefix))); body == "" {
+			t.Errorf("continuation %d dropped the text at width 12: %q", i+1, l)
+		}
+	}
+}
+
 func TestRenderBodyCompletedStrikethrough(t *testing.T) {
 	it := &item{layout: database.LayoutTodo, completedAt: 1}
 
