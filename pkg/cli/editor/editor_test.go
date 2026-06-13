@@ -16,6 +16,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -124,5 +125,41 @@ func TestDownSingleLineNodeMovesToNextNode(t *testing.T) {
 	m.press("down")
 	if m.cursor != 1 {
 		t.Fatalf("Down on a single-line node should move to next node, cursor=%d", m.cursor)
+	}
+}
+
+// TestSelectedRowVisibleAtTinyHeight is the F12 regression: in a short terminal
+// the row budget must follow the real height (height-2) rather than fall back to
+// an 18-line budget that renders far more rows than fit and clips the selection
+// off the top. The selected first row must stay on screen.
+func TestSelectedRowVisibleAtTinyHeight(t *testing.T) {
+	// width 24 -> maxLine 23; "aaaa bbbb cccc dddd" wraps to >1 visual line.
+	m := newTestModel(24, "aaaa bbbb cccc dddd", "two", "three", "four", "five")
+	m.height = 4
+	m.cursor = 0
+
+	if got := m.rowBudget(); got != 2 {
+		t.Fatalf("rowBudget at height 4 = %d, want 2 (height-2)", got)
+	}
+
+	// the body lines (everything above the bottom bar) must fit the budget and
+	// must include the selected row, marked by its red bullet.
+	lines := strings.Split(m.View(), "\n")
+	body := lines[:len(lines)-1] // last line is the bottom bar
+	if len(body) > m.rowBudget() {
+		t.Fatalf("body rendered %d lines, exceeds budget %d", len(body), m.rowBudget())
+	}
+	if !strings.Contains(strings.Join(body, "\n"), cRed) {
+		t.Fatalf("selected row's red bullet is off-screen at 24x4")
+	}
+}
+
+// TestRowBudgetFallbackBeforeWindowSize keeps the default budget for the window
+// before the first WindowSizeMsg sets a real height.
+func TestRowBudgetFallbackBeforeWindowSize(t *testing.T) {
+	m := newTestModel(80, "one")
+	m.height = 0
+	if got := m.rowBudget(); got != 18 {
+		t.Fatalf("rowBudget with unknown height = %d, want 18 fallback", got)
 	}
 }

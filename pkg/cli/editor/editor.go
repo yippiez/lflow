@@ -127,14 +127,23 @@ func (m *Model) refreshRows() {
 	}
 }
 
+// rowBudget is how many screen lines the outline body may occupy: the terminal
+// height minus the two chrome lines (bottom bar plus its breathing room). When
+// the height is known we honour it down to a single line so the selected row
+// always stays on screen at tiny sizes; the default only covers the window
+// before the first WindowSizeMsg sets a real height.
+func (m *Model) rowBudget() int {
+	if m.height <= 0 {
+		return 18
+	}
+	return max(1, m.height-2)
+}
+
 // viewport returns the [start,end) slice of m.rows currently visible on
 // screen. Rendering and the background scheduler share it so they agree on
 // which anchors count as "visible".
 func (m *Model) viewport() (start, end int) {
-	maxRows := m.height - 2
-	if maxRows < 4 {
-		maxRows = 18
-	}
+	maxRows := m.rowBudget()
 	if m.cursor >= maxRows {
 		start = m.cursor - maxRows + 1
 	}
@@ -1147,10 +1156,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
 	}
 
-	maxRows := m.height - 2
-	if maxRows < 4 {
-		maxRows = 18
-	}
+	maxRows := m.rowBudget()
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
 	for i, g := range groups {
