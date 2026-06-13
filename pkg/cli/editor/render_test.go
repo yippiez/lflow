@@ -42,6 +42,40 @@ func stripSGR(s string) string {
 	return b.String()
 }
 
+func TestSourceUUIDFollowsMirrorChain(t *testing.T) {
+	orig := &item{uuid: "a", name: "alpha"}
+	mir1 := &item{uuid: "b", mirrorOf: "a"} // mirror of the original
+	mir2 := &item{uuid: "c", mirrorOf: "b"} // mirror of a mirror
+	tr := &tree{byUUID: map[string]*item{"a": orig, "b": mir1, "c": mir2}}
+
+	if got := tr.sourceUUID(orig); got != "a" {
+		t.Errorf("non-mirror resolves to itself, got %q", got)
+	}
+	if got := tr.sourceUUID(mir1); got != "a" {
+		t.Errorf("mirror resolves to original, got %q", got)
+	}
+	// the regression: a mirror of a mirror must resolve to the original,
+	// not the intermediate mirror whose name is empty.
+	if got := tr.sourceUUID(mir2); got != "a" {
+		t.Errorf("mirror of mirror should resolve to original, got %q", got)
+	}
+
+	// a new mirror pointed at the resolved source shows the original name.
+	newMir := &item{uuid: "d", mirrorOf: tr.sourceUUID(mir2)}
+	tr.byUUID["d"] = newMir
+	if got := tr.displayName(newMir); got != "alpha" {
+		t.Errorf("mirror-of-mirror should display original name, got %q", got)
+	}
+}
+
+func TestSourceUUIDStopsOnCycle(t *testing.T) {
+	a := &item{uuid: "a", mirrorOf: "b"}
+	b := &item{uuid: "b", mirrorOf: "a"}
+	tr := &tree{byUUID: map[string]*item{"a": a, "b": b}}
+	// must terminate rather than loop forever.
+	_ = tr.sourceUUID(a)
+}
+
 func TestRenderBodyHidesMarkersWhenUnselected(t *testing.T) {
 	it := &item{layout: database.LayoutBullets}
 
@@ -279,9 +313,9 @@ func TestExpandTabsToTabStops(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{"a\tb", "a       b"},     // col 1 -> next stop is 8
-		{"\tx", "        x"},      // col 0 -> stop at 8
-		{"ab\tcd", "ab      cd"},  // col 2 -> stop at 8
+		{"a\tb", "a       b"},                // col 1 -> next stop is 8
+		{"\tx", "        x"},                 // col 0 -> stop at 8
+		{"ab\tcd", "ab      cd"},             // col 2 -> stop at 8
 		{"12345678\tz", "12345678        z"}, // col 8 -> stop at 16
 		{"no tabs", "no tabs"},
 	}

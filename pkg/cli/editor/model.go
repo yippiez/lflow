@@ -129,6 +129,26 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 	return t, nil
 }
 
+// sourceUUID resolves the ultimate non-mirror node a new mirror should
+// point at. Mirroring a mirror must follow the chain to the original so
+// the new mirror's name resolves, rather than landing on an intermediate
+// mirror whose name is empty.
+func (t *tree) sourceUUID(it *item) string {
+	if it.mirrorOf == "" {
+		return it.uuid
+	}
+	seen := map[string]bool{it.uuid: true}
+	cur := it.mirrorOf
+	for {
+		next, ok := t.byUUID[cur]
+		if !ok || next.mirrorOf == "" || seen[cur] {
+			return cur
+		}
+		seen[cur] = true
+		cur = next.mirrorOf
+	}
+}
+
 // displayName resolves the visible name of an item: mirrors show the
 // original's name (same node everywhere).
 func (t *tree) displayName(it *item) string {

@@ -571,6 +571,7 @@ func (m *Model) maybeLinkToMirror(it *item) {
 		return
 	}
 
+	target = m.resolveSourceNode(target)
 	it.name = ""
 	it.mirrorOf = target.UUID
 	m.caret = 0
@@ -579,6 +580,22 @@ func (m *Model) maybeLinkToMirror(it *item) {
 	}
 	m.unsaved = true
 	m.flash = fmt.Sprintf("mirrored %q", target.Name)
+}
+
+// resolveSourceNode follows a node's mirror chain to its ultimate
+// non-mirror original, so a new mirror points at the real node and shows
+// its name. A node that is not a mirror is returned unchanged.
+func (m *Model) resolveSourceNode(n database.Node) database.Node {
+	seen := map[string]bool{}
+	for n.MirrorOf != "" && !seen[n.UUID] {
+		seen[n.UUID] = true
+		orig, err := database.GetNode(m.db, n.MirrorOf)
+		if err != nil {
+			break
+		}
+		n = orig
+	}
+	return n
 }
 
 // copyToClipboard puts s on the system clipboard via OSC 52, written to
@@ -996,6 +1013,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 
 	switch m.finderAct {
 	case actMirrorHere:
+		target = m.resolveSourceNode(target)
 		if cur.name == "" && cur.mirrorOf == "" && len(cur.children) == 0 {
 			// the empty node where "/" was typed becomes the mirror
 			cur.mirrorOf = target.UUID
@@ -1076,7 +1094,7 @@ func (m *Model) mirrorToDB(cur *item, target database.Node) error {
 		ParentUUID: target.UUID,
 		Rank:       rank,
 		Layout:     database.LayoutBullets,
-		MirrorOf:   cur.uuid,
+		MirrorOf:   m.tree.sourceUUID(cur),
 		Dirty:      true,
 	}
 	return n.Insert(m.db)
