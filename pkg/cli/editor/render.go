@@ -102,17 +102,19 @@ func clip(s string, width int) string {
 }
 
 // wrapLine soft-wraps an SGR-styled line to the given display width, breaking
-// at spaces when one is available. Continuation lines carry a hanging indent
-// aligned under the text column and re-open the styles active at the break,
-// so spans and the cursor cell survive the wrap.
-func wrapLine(s string, width, hang int) []string {
+// at spaces when one is available. Continuation lines carry the given prefix —
+// a dim-styled hanging indent that keeps the tree rail continuous under the
+// text column — and re-open the styles active at the break, so spans and the
+// cursor cell survive the wrap.
+func wrapLine(s string, width int, prefix string) []string {
 	if width <= 0 || visibleWidth(s) <= width {
 		return []string{s}
 	}
+	hang := visibleWidth(prefix)
 	if hang >= width/2 {
 		hang = 0 // pathological widths: give the text the whole line
+		prefix = ""
 	}
-	indent := strings.Repeat(" ", hang)
 	runes := []rune(s)
 
 	var lines []string
@@ -129,7 +131,7 @@ func wrapLine(s string, width, hang int) []string {
 		if len(lines) == 0 {
 			lines = append(lines, seg)
 		} else {
-			lines = append(lines, indent+cReset+strings.Join(startState, "")+seg)
+			lines = append(lines, prefix+cReset+strings.Join(startState, "")+seg)
 		}
 	}
 
@@ -248,6 +250,36 @@ func connector(r row) string {
 		b.WriteString("├─ ")
 	}
 	return b.String()
+}
+
+// continuationPrefix builds the dim-styled hanging indent for a row's wrapped
+// continuation lines. It keeps the tree rail continuous: a │ sits in every
+// ancestor column that has a later sibling, in the node's own branch column
+// when the node itself has a later sibling, and under the glyph when the
+// subtree continues below (the node has a visible child). Columns are laid
+// out as 1 margin + 3 per depth level + 2 for the glyph and its space.
+func continuationPrefix(r row, subtreeBelow bool) string {
+	width := 1 + 3*r.depth + 2
+	cells := make([]rune, width)
+	for i := range cells {
+		cells[i] = ' '
+	}
+	// ancestor columns: branch[i] for i in 1..depth-1 (i==0 has no column,
+	// depth-0 bullets sit at column 0).
+	for i := 1; i < r.depth; i++ {
+		if r.branch[i] {
+			cells[1+3*(i-1)] = '│'
+		}
+	}
+	// the node's own branch column, when it has a later sibling.
+	if r.depth > 0 && !r.last {
+		cells[1+3*(r.depth-1)] = '│'
+	}
+	// the glyph column, when the subtree continues below.
+	if subtreeBelow {
+		cells[1+3*r.depth] = '│'
+	}
+	return cDim + string(cells)
 }
 
 // withCaret marks the rune at the caret index with the inverting block

@@ -155,7 +155,7 @@ func TestGlyphForHeadingDigits(t *testing.T) {
 }
 
 func TestWrapLinePlain(t *testing.T) {
-	lines := wrapLine("aaa bbb ccc ddd", 7, 0)
+	lines := wrapLine("aaa bbb ccc ddd", 7, "")
 	want := []string{"aaa bbb", "ccc ddd"}
 	if len(lines) != 2 || stripSGR(lines[0]) != want[0] || stripSGR(lines[1]) != want[1] {
 		t.Errorf("wrap mismatch: %q", lines)
@@ -163,7 +163,7 @@ func TestWrapLinePlain(t *testing.T) {
 }
 
 func TestWrapLineHangingIndent(t *testing.T) {
-	lines := wrapLine("word word word word", 12, 3)
+	lines := wrapLine("word word word word", 12, cDim+"   ")
 	if len(lines) < 2 {
 		t.Fatalf("expected a wrap: %q", lines)
 	}
@@ -181,7 +181,7 @@ func TestWrapLineHangingIndent(t *testing.T) {
 
 func TestWrapLineCarriesStyle(t *testing.T) {
 	styled := cBold + "one two three four" + cReset
-	lines := wrapLine(styled, 9, 0)
+	lines := wrapLine(styled, 9, "")
 	if len(lines) < 2 {
 		t.Fatalf("expected a wrap: %q", lines)
 	}
@@ -191,7 +191,7 @@ func TestWrapLineCarriesStyle(t *testing.T) {
 }
 
 func TestWrapLineHardBreaksUnbrokenRuns(t *testing.T) {
-	lines := wrapLine(strings.Repeat("x", 25), 10, 2)
+	lines := wrapLine(strings.Repeat("x", 25), 10, cDim+"  ")
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 lines: %q", lines)
 	}
@@ -204,7 +204,7 @@ func TestWrapLineHardBreaksUnbrokenRuns(t *testing.T) {
 
 func TestWrapLineWideRunes(t *testing.T) {
 	// CJK runes are two cells wide; no line may exceed the width
-	lines := wrapLine(strings.Repeat("字", 12), 10, 0)
+	lines := wrapLine(strings.Repeat("字", 12), 10, "")
 	for i, l := range lines {
 		if w := visibleWidth(l); w > 10 {
 			t.Errorf("line %d too wide: %d %q", i, w, l)
@@ -216,13 +216,33 @@ func TestWrapLineFillsBulletLineBeforeRun(t *testing.T) {
 	// a bulleted node whose body is one long no-space run must fill the
 	// bullet line first, not strand "○" alone with the run on line 2
 	line := " " + cDim + glyphOpen + cReset + " " + strings.Repeat("x", 80)
-	lines := wrapLine(line, 40, 3)
+	lines := wrapLine(line, 40, cDim+"   ")
 	if len(lines) < 2 {
 		t.Fatalf("expected a wrap: %q", lines)
 	}
 	first := stripSGR(lines[0])
 	if strings.Count(first, "x") < 30 {
 		t.Errorf("bullet line should be filled with the run, got %q", first)
+	}
+}
+
+func TestContinuationPrefixKeepsRail(t *testing.T) {
+	// a depth-1 node with a later sibling and a child: its wrapped
+	// continuation must carry │ in its own branch column and under the
+	// glyph so the rail stays continuous down to the child.
+	r := row{depth: 1, last: false, branch: []bool{true}}
+	prefix := continuationPrefix(r, true)
+	if got := stripSGR(prefix); got != " │  │ " {
+		t.Fatalf("prefix rail mismatch: %q", got)
+	}
+
+	line := " " + cDim + connector(r) + cDim + glyphOpen + cReset + " " + strings.Repeat("word ", 12)
+	lines := wrapLine(line, 20, prefix)
+	if len(lines) < 2 {
+		t.Fatalf("expected a wrap: %q", lines)
+	}
+	if !strings.Contains(lines[1], "│") {
+		t.Errorf("continuation should carry the tree rail: %q", lines[1])
 	}
 }
 

@@ -1002,21 +1002,17 @@ func (m *Model) View() string {
 	return strings.Join(lines, "\n")
 }
 
-// rowHang is the hanging indent for a row's wrapped continuation lines:
-// the margin space, the connector and the glyph+space column.
-func rowHang(r row) int {
-	return 1 + visibleWidth(connector(r)) + 2
-}
-
 // finalView renders the complete tree with glyphs and connectors but no
 // cursor, caret or bottom bar. Long rows wrap.
 func (m *Model) finalView(maxLine int) []string {
 	var lines []string
-	for _, r := range m.tree.allRows() {
+	allRows := m.tree.allRows()
+	for i, r := range allRows {
 		glyph, glyphColor := glyphFor(r.it)
 		name := m.tree.displayName(r.it)
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
-		lines = append(lines, wrapLine(line, maxLine, rowHang(r))...)
+		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
+		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 	}
 	return lines
 }
@@ -1054,7 +1050,8 @@ func (m *Model) viewOutline(maxLine int) []string {
 			line += cDim + "  note: " + cReset + cFG + withCaret(it.note, m.caret) + cReset
 		}
 
-		groups[i] = wrapLine(line, maxLine, rowHang(r))
+		below := i+1 < len(rows) && rows[i+1].depth > r.depth
+		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
 	}
 
 	maxRows := m.height - 2
