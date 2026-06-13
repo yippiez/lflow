@@ -327,6 +327,67 @@ func TestWidthChangeClearsScreen(t *testing.T) {
 	}
 }
 
+// TestSlashMenuResizeLeavesNoStaleLine is the F11 break: with the slash menu
+// open, narrowing the terminal (60->30) must not strand a ghost of the wider
+// frame's menu below the redrawn one. Each menu line is wider at 60 cols than at
+// 30 (the command's long description fills the row), so the inline renderer's
+// in-place rewrite would leave the 60-col tail past column 30 — and a row that
+// reflowed differently would survive entirely. The guarantee is the same one the
+// resize handler returns for every width change: tea.ClearScreen wipes the whole
+// display before the narrower frame repaints. We open the menu, replay the
+// 60-col frame, then the clear + the 30-col frame, and assert the settled grid
+// holds each menu command's name exactly once with no wider tail surviving.
+func TestSlashMenuResizeLeavesNoStaleLine(t *testing.T) {
+	m := newTestModel(60, "alpha")
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
+	m = mm.(*Model)
+
+	// open the slash menu so the frame carries every command line
+	m.press("/")
+	if m.mode != modeSlash {
+		t.Fatalf("pressing / did not open the slash menu, mode=%v", m.mode)
+	}
+
+	sim := &flushSim{g: newVTGrid(24), firstRender: true, width: 60}
+	sim.flush(m.View())
+
+	// narrow the terminal: a width change must clear the whole screen
+	mm, cmd := m.Update(tea.WindowSizeMsg{Width: 30, Height: 24})
+	m = mm.(*Model)
+	if cmd == nil || cmd() != tea.ClearScreen() {
+		t.Fatalf("narrowing with the menu open did not return tea.ClearScreen; "+
+			"the wider menu lines would be stranded below the redrawn menu")
+	}
+	sim.clearScreen()
+	sim.resize(30)
+	sim.flush(m.View())
+
+	// every menu command name must appear exactly once in the settled grid: a
+	// stranded wider-frame menu line would show a second copy of some name. Match
+	// the name with a trailing space so "/mirror" does not also count "/mirror_to".
+	for _, c := range slashCommands {
+		got := 0
+		for _, row := range sim.g.rows {
+			got += strings.Count(string(row), c.name+" ")
+		}
+		if got > 1 {
+			t.Fatalf("menu command %q appears %d times after a 60->30 resize; "+
+				"the wider frame's menu line was stranded as a ghost", c.name, got)
+		}
+	}
+
+	// and no row may carry content past the new 30-col width — that tail could
+	// only be a leftover from the wider frame. The grid holds one rune per cell,
+	// so the trimmed rune count is the occupied width.
+	for r, row := range sim.g.rows {
+		trimmed := []rune(strings.TrimRight(string(row), " "))
+		if w := len(trimmed); w > 30 {
+			t.Fatalf("row %d holds %d cells after a 60->30 resize, past the 30-col "+
+				"width; a wider menu tail survived: %q", r, w, string(row))
+		}
+	}
+}
+
 // TestResizeStormRedrawsOneCleanFrame is the F22 break: rapidly cycling the
 // terminal between a wide/tall geometry and a tiny one with keypresses
 // interleaved must never leave stacked copies of the outline in the buffer.
