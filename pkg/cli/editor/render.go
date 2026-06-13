@@ -181,7 +181,10 @@ func wrapLine(s string, width, hang int) []string {
 			continue // re-check the same rune against the new line
 		}
 
-		if r == ' ' {
+		if r == ' ' && curWidth >= hang {
+			// only spaces past the prefix/indent column are wrap candidates:
+			// the glyph's trailing space must not strand the bullet on its own
+			// line when the body is one long unbroken run.
 			lastSpace = i
 			lastSpaceState = append([]string(nil), state...)
 		}

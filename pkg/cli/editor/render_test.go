@@ -212,6 +212,20 @@ func TestWrapLineWideRunes(t *testing.T) {
 	}
 }
 
+func TestWrapLineFillsBulletLineBeforeRun(t *testing.T) {
+	// a bulleted node whose body is one long no-space run must fill the
+	// bullet line first, not strand "○" alone with the run on line 2
+	line := " " + cDim + glyphOpen + cReset + " " + strings.Repeat("x", 80)
+	lines := wrapLine(line, 40, 3)
+	if len(lines) < 2 {
+		t.Fatalf("expected a wrap: %q", lines)
+	}
+	first := stripSGR(lines[0])
+	if strings.Count(first, "x") < 30 {
+		t.Errorf("bullet line should be filled with the run, got %q", first)
+	}
+}
+
 func TestRenderBodyCompletedStrikethrough(t *testing.T) {
 	it := &item{layout: database.LayoutTodo, completedAt: 1}
 
