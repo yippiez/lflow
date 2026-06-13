@@ -50,6 +50,43 @@ func TestPasteLinesNormalizesNewlines(t *testing.T) {
 	}
 }
 
+// TestSanitizeNameStripsControlBytes guards against pasted ESC sequences
+// executing on render. The reproducer pastes "BEFORE\x1b[HAFTER" wrapped in
+// bracketed-paste markers; the ESC[H must never reach the terminal as a
+// cursor-home, so sanitizeName drops the markers and every C0/DEL control byte
+// while leaving the literal printable text intact.
+func TestSanitizeNameStripsControlBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"esc cursor home", "BEFORE\x1b[HAFTER", "BEFORE[HAFTER"},
+		{"esc clear screen", "x\x1b[2Jy", "x[2Jy"},
+		{"bracketed paste markers", "\x1b[200~hello\x1b[201~", "hello"},
+		{"null and del", "a\x00b\x7fc", "abc"},
+		{"plain text unchanged", "plain text", "plain text"},
+		{"unicode preserved", "café — résumé", "café — résumé"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sanitizeName(tc.in); got != tc.want {
+				t.Fatalf("sanitizeName(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPasteLinesSanitizesControlBytes confirms the paste path strips the ESC
+// sequences from the reproducer before any text becomes a node name.
+func TestPasteLinesSanitizesControlBytes(t *testing.T) {
+	got := pasteLines("\x1b[200~BEFORE\x1b[HAFTER\x1b[201~")
+	want := []string{"BEFORE[HAFTER"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pasteLines = %#v, want %#v", got, want)
+	}
+}
+
 // newTestModel builds a Model over a flat list of sibling names at the given
 // width so the wrapped-node Up/Down behaviour can be exercised without a DB.
 func newTestModel(width int, names ...string) *Model {

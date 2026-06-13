@@ -489,12 +489,37 @@ func pasteLines(text string) []string {
 	if text == "" {
 		return nil
 	}
-	return strings.Split(text, "\n")
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = sanitizeName(lines[i])
+	}
+	return lines
 }
 
 // newlineRunRe matches any run of CR/LF as a single line break, so tmux ONLCR's
 // \r\r\n collapses to one break instead of spawning empty ghost rows.
 var newlineRunRe = regexp.MustCompile(`[\r\n]+`)
+
+// bracketedPasteRe matches the bracketed-paste markers a terminal wraps around
+// pasted text. A paste that itself contains the literal start/end sequences
+// would otherwise smuggle them into a node name and toggle paste mode on render.
+var bracketedPasteRe = regexp.MustCompile(`\x1b\[20[01]~`)
+
+// sanitizeName makes pasted or inserted text safe to store as a node name and
+// echo back to the terminal. It drops bracketed-paste markers and every C0
+// control byte (0x00-0x1F) plus DEL (0x7F), so an embedded ESC[H/ESC[2J never
+// executes as a cursor-home or clear-screen when the outline is rendered.
+// Newlines are the paste fan-out separator and are handled before this step;
+// tabs are normalized on the F3 path, so no control bytes should survive here.
+func sanitizeName(text string) string {
+	text = bracketedPasteRe.ReplaceAllString(text, "")
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return -1
+		}
+		return r
+	}, text)
+}
 
 // pasteFanOut spreads a multiline paste over the outline: the first line
 // continues the current row at the caret, every following line becomes a new
