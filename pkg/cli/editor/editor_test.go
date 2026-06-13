@@ -401,3 +401,38 @@ func TestConfirmCancelKeepsStatusBarLast(t *testing.T) {
 		t.Fatalf("status bar absent on the last line after ESC-cancel: %q", got)
 	}
 }
+
+// TestConfirmElidesLongName is the F5 regression: a node name longer than the
+// terminal width must not push the node count or the enter/esc hints off-screen.
+// The confirm line reserves the suffix and elides the middle of the name so the
+// count and the esc-keep hint always survive at a narrow width.
+func TestConfirmElidesLongName(t *testing.T) {
+	long := strings.Repeat("verylongname", 8) // ~96 cols, well past 60
+	m := newTestModelWithChildren(60, long, "child")
+	m.cursor = 0
+
+	m.press("ctrl+d")
+	if m.mode != modeConfirm {
+		t.Fatalf("ctrl+d on a node with children did not open the confirm")
+	}
+
+	var confirm string
+	for _, l := range strings.Split(m.View(), "\n") {
+		if strings.Contains(l, "enter delete") {
+			confirm = l
+			break
+		}
+	}
+	if confirm == "" {
+		t.Fatalf("confirm line not found in view")
+	}
+	if !strings.Contains(confirm, "2 nodes") {
+		t.Fatalf("node count clipped from confirm line: %q", confirm)
+	}
+	if !strings.Contains(confirm, "esc keep") {
+		t.Fatalf("esc-keep hint clipped from confirm line: %q", confirm)
+	}
+	if !strings.Contains(confirm, "…") {
+		t.Fatalf("long name was not elided: %q", confirm)
+	}
+}

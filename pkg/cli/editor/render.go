@@ -114,6 +114,53 @@ func clip(s string, width int) string {
 	return b.String()
 }
 
+// elideMiddle shortens plain text s to at most width display cells, dropping the
+// middle and joining the kept ends with a "…" marker so both the start and end
+// of the name stay legible. s must carry no SGR sequences. When s already fits
+// it is returned unchanged; when width is too small for the marker the head is
+// truncated instead.
+func elideMiddle(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if runewidth.StringWidth(s) <= width {
+		return s
+	}
+	if width <= 1 {
+		return runewidth.Truncate(s, width, "")
+	}
+	const marker = "…"
+	budget := width - 1 // one cell for the marker
+	head := budget - budget/2
+	tail := budget / 2
+	runes := []rune(s)
+	var h strings.Builder
+	w := 0
+	for _, r := range runes {
+		rw := runewidth.RuneWidth(r)
+		if w+rw > head {
+			break
+		}
+		h.WriteRune(r)
+		w += rw
+	}
+	var t strings.Builder
+	w = 0
+	for i := len(runes) - 1; i >= 0; i-- {
+		rw := runewidth.RuneWidth(runes[i])
+		if w+rw > tail {
+			break
+		}
+		t.WriteRune(runes[i])
+		w += rw
+	}
+	tr := []rune(t.String())
+	for i, j := 0, len(tr)-1; i < j; i, j = i+1, j-1 {
+		tr[i], tr[j] = tr[j], tr[i]
+	}
+	return h.String() + marker + string(tr)
+}
+
 // tabWidth is the terminal's hard tab stop: tabs advance to the next multiple.
 const tabWidth = 8
 

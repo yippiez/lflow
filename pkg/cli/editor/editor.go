@@ -1263,8 +1263,14 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// bottomBar as every frame's last line means ESC-cancel restores it at once.
 	if m.mode == modeConfirm {
 		if cur := m.cursorItem(); cur != nil {
-			line := " " + cRed + "delete " + cReset + cYellow + fmt.Sprintf("%q", m.tree.displayName(cur)) + cReset +
-				cDim + fmt.Sprintf(" · %s · enter delete · esc keep", nodeNoun(subtreeSize(cur))) + cReset
+			// Build suffix-first: the count and keybind hints must never be clipped,
+			// so reserve their width plus the fixed " delete " prefix and quotes,
+			// then elide the middle of the name to fit whatever room is left.
+			prefix := " " + cRed + "delete " + cReset
+			suffix := cDim + fmt.Sprintf(" · %s · enter delete · esc keep", nodeNoun(subtreeSize(cur))) + cReset
+			room := maxLine - visibleWidth(prefix) - visibleWidth(suffix) - 2 // 2 for the quotes
+			name := elideMiddle(m.tree.displayName(cur), room)
+			line := prefix + cYellow + fmt.Sprintf("%q", name) + cReset + suffix
 			lines = append(lines, clip(line, maxLine))
 		}
 	}
