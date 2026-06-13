@@ -219,6 +219,77 @@ func TestSelectedRowVisibleAtTinyHeight(t *testing.T) {
 	}
 }
 
+// TestNarrowWidthRendersDeepNodeText is the F13 regression: at width 10 a
+// depth-2 node's glyph prefix is 6 cols, wider than width/2, which trips
+// wrapLine's pathological-width guard. The node text must still render — it
+// wraps to continuation lines rather than vanishing — and selected and
+// unselected rows must show the same text. Previously the unselected row showed
+// only the bullet and the selected row dropped the text to column 0.
+func TestNarrowWidthRendersDeepNodeText(t *testing.T) {
+	root := &item{}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{},
+		externalNames: map[string]string{},
+	}
+	a := &item{name: "a", parent: root}
+	b := &item{name: "b", parent: a}
+	c := &item{name: "deep text here", parent: b}
+	a.children = []*item{b}
+	b.children = []*item{c}
+	root.children = []*item{a}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 10, height: 24}
+	m.refreshRows()
+
+	if m.rows[2].depth != 2 {
+		t.Fatalf("expected a depth-2 node, got depth %d", m.rows[2].depth)
+	}
+
+	render := func(cursor int) []string {
+		m.cursor = cursor
+		lines := m.viewOutline(m.width - 1)
+		out := make([]string, len(lines))
+		for i, l := range lines {
+			out[i] = stripSGR(l)
+		}
+		return out
+	}
+
+	unselected := render(0) // cursor on the depth-0 node
+	selected := render(2)   // cursor on the depth-2 node
+
+	for state, lines := range map[string][]string{"unselected": unselected, "selected": selected} {
+		joined := strings.Join(lines, "\n")
+		for _, word := range []string{"deep", "text", "here"} {
+			if !strings.Contains(joined, word) {
+				t.Errorf("%s render dropped %q at width 10:\n%s", state, word, joined)
+			}
+		}
+		// the depth-2 glyph line must reserve the body column after the bullet
+		// rather than collapse it away: the guard zeroes the continuation indent,
+		// but the glyph's trailing space must survive so the body begins in a
+		// consistent column instead of stranding the bullet alone.
+		var glyphLine string
+		for _, l := range lines {
+			if strings.Contains(l, "○") && strings.Contains(l, "╰─") {
+				glyphLine = l
+			}
+		}
+		if glyphLine == "" {
+			t.Fatalf("%s render: depth-2 glyph line missing:\n%s", state, joined)
+		}
+		if !strings.HasSuffix(glyphLine, "○ ") {
+			t.Errorf("%s render: glyph line dropped the body column, = %q", state, glyphLine)
+		}
+	}
+
+	// both states must render the node identically: selection never changes the
+	// text or its indent, only the bullet colour (stripped here).
+	if !reflect.DeepEqual(unselected, selected) {
+		t.Errorf("selected and unselected differ:\n unsel=%q\n sel  =%q", unselected, selected)
+	}
+}
+
 // TestRowBudgetFallbackBeforeWindowSize keeps the default budget for the window
 // before the first WindowSizeMsg sets a real height.
 func TestRowBudgetFallbackBeforeWindowSize(t *testing.T) {

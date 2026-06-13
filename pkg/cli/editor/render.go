@@ -154,8 +154,15 @@ func wrapLine(s string, width int, prefix string) []string {
 		return []string{s}
 	}
 	hang := visibleWidth(prefix)
+	// bodyCol is the column the node text begins at — the glyph prefix width,
+	// which matches the continuation indent. Spaces left of it (inside the glyph
+	// prefix) must never be wrap candidates, or the bullet strands on its own
+	// line while the text drops below. Keep this floor even when the pathological
+	// guard zeroes the visible continuation indent, so the glyph line still fills
+	// and the text renders rather than getting stranded or clipped away.
+	bodyCol := hang
 	if hang >= width/2 {
-		hang = 0 // pathological widths: give the text the whole line
+		hang = 0 // pathological widths: give the continuation the whole line
 		prefix = ""
 	}
 	runes := []rune(s)
@@ -248,7 +255,7 @@ func wrapLine(s string, width int, prefix string) []string {
 			continue // re-check the same rune against the new line
 		}
 
-		if r == ' ' && curWidth >= hang {
+		if r == ' ' && curWidth >= bodyCol {
 			// only spaces past the prefix/indent column are wrap candidates:
 			// the glyph's trailing space must not strand the bullet on its own
 			// line when the body is one long unbroken run.
@@ -370,7 +377,10 @@ func visualRows(name string, width, firstCol, hang int) []int {
 	if width <= 0 {
 		return starts
 	}
-	// match wrapLine's clamp: pathological prefixes give the text the line.
+	// match wrapLine's clamp: pathological prefixes give the text the line, but
+	// keep the original indent as the wrap-candidate floor so the body fills the
+	// glyph line before breaking, exactly as wrapLine does.
+	bodyCol := hang
 	if hang >= width/2 {
 		hang = 0
 	}
@@ -410,7 +420,7 @@ func visualRows(name string, width, firstCol, hang int) []int {
 			}
 			continue // re-check the same rune on the new line
 		}
-		if r == ' ' && curWidth >= hang {
+		if r == ' ' && curWidth >= bodyCol {
 			lastSpace = i
 		}
 		curWidth += rw
