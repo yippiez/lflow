@@ -16,11 +16,39 @@
 package editor
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// TestPasteLinesNormalizesNewlines guards the paste fan-out against empty ghost
+// nodes. tmux ONLCR rewrites \r\n into \r\r\n, which a naive replacement would
+// split into blank rows; pasteLines must collapse any CR/LF run to one break.
+func TestPasteLinesNormalizesNewlines(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"tmux onlcr crlf", "line one\r\r\nline two\r\r\nline three", []string{"line one", "line two", "line three"}},
+		{"plain crlf", "line one\r\nline two", []string{"line one", "line two"}},
+		{"lone cr", "line one\rline two", []string{"line one", "line two"}},
+		{"trailing newline", "only\r\n", []string{"only"}},
+		{"single line", "just one", []string{"just one"}},
+		{"empty", "", nil},
+		{"blank only", "\r\n\r\n", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pasteLines(tc.in)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("pasteLines(%q) = %#v, want %#v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
 
 // newTestModel builds a Model over a flat list of sibling names at the given
 // width so the wrapped-node Up/Down behaviour can be exercised without a DB.

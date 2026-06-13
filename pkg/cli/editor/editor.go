@@ -457,11 +457,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		text := string(k.Runes)
 		if k.Paste {
-			text = strings.ReplaceAll(text, "\r\n", "\n")
-			text = strings.ReplaceAll(text, "\r", "\n")
-			text = strings.TrimRight(text, "\n")
-			if strings.Contains(text, "\n") {
-				return m.pasteLines(cur, strings.Split(text, "\n"))
+			if lines := pasteLines(text); len(lines) > 1 {
+				return m.pasteFanOut(cur, lines)
+			} else if len(lines) == 1 {
+				text = lines[0]
+			} else {
+				text = ""
 			}
 		}
 
@@ -477,10 +478,28 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// pasteLines spreads a multiline paste over the outline: the first line
+// pasteLines normalizes pasted text into one line per logical row. tmux ONLCR
+// rewrites \r\n into \r\r\n, so a naive \r\n then \r replacement would yield
+// blank rows; instead we strip every \r before splitting on \n so any CR/LF run
+// collapses to a single break, then drop the trailing blank from a final
+// newline. Empty interior lines are preserved as the source intended.
+func pasteLines(text string) []string {
+	text = newlineRunRe.ReplaceAllString(text, "\n")
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
+}
+
+// newlineRunRe matches any run of CR/LF as a single line break, so tmux ONLCR's
+// \r\r\n collapses to one break instead of spawning empty ghost rows.
+var newlineRunRe = regexp.MustCompile(`[\r\n]+`)
+
+// pasteFanOut spreads a multiline paste over the outline: the first line
 // continues the current row at the caret, every following line becomes a new
 // sibling below it.
-func (m *Model) pasteLines(cur *item, lines []string) (tea.Model, tea.Cmd) {
+func (m *Model) pasteFanOut(cur *item, lines []string) (tea.Model, tea.Cmd) {
 	runes := []rune(cur.name)
 	cur.name = string(runes[:m.caret]) + lines[0] + string(runes[m.caret:])
 
