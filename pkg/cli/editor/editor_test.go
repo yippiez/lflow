@@ -138,6 +138,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
+	case "ctrl+right":
+		return tea.KeyMsg{Type: tea.KeyCtrlRight}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -505,5 +507,68 @@ func TestConfirmElidesLongName(t *testing.T) {
 	}
 	if !strings.Contains(confirm, "…") {
 		t.Fatalf("long name was not elided: %q", confirm)
+	}
+}
+
+// TestZoomMirrorShowsSourceChildren is the F15 regression: zooming into a mirror
+// row pushed the mirror itself, whose children are empty in memory, so the view
+// rendered blank. Zoom must resolve the mirror to its source and show the
+// original's children.
+func TestZoomMirrorShowsSourceChildren(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", parent: root}
+	src.children = []*item{
+		{uuid: "k1", name: "kid one", parent: src},
+		{uuid: "k2", name: "kid two", parent: src},
+	}
+	mir := &item{uuid: "mir", mirrorOf: "src", parent: root}
+	root.children = []*item{src, mir}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "k1": src.children[0], "k2": src.children[1], "mir": mir},
+		externalNames: map[string]string{},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+
+	// cursor on the mirror row, wherever it renders
+	m.cursor = m.rowIndexOf(mir)
+	if cur := m.cursorItem(); cur == nil || cur.mirrorOf == "" {
+		t.Fatalf("cursor should be on the mirror, got %#v", cur)
+	}
+
+	m.press("ctrl+right")
+
+	if root := m.viewRoot(); root != src {
+		t.Fatalf("zoom into mirror should land on the source node, got %#v", root)
+	}
+	names := []string{}
+	for _, r := range m.rows {
+		names = append(names, m.tree.displayName(r.it))
+	}
+	if !reflect.DeepEqual(names, []string{"kid one", "kid two"}) {
+		t.Fatalf("zoomed view should show the source children, got %v", names)
+	}
+}
+
+// TestZoomMirrorMissingSourceIsNoop guards the F15 fix against a missing source:
+// a mirror whose source is not in the tree must not push a bad view root.
+func TestZoomMirrorMissingSourceIsNoop(t *testing.T) {
+	root := &item{}
+	mir := &item{uuid: "mir", mirrorOf: "gone", parent: root}
+	root.children = []*item{mir}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"mir": mir},
+		externalNames: map[string]string{"gone": "(missing)"},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	m.cursor = 0
+
+	m.press("ctrl+right")
+
+	if got := len(m.viewStack); got != 1 {
+		t.Fatalf("zoom with missing source must not push a view, stack depth=%d", got)
 	}
 }

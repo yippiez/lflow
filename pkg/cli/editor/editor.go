@@ -304,6 +304,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// zoom into the cursor node — leaves too: the view starts empty
 		// and typing adds the first child
 		if cur := m.cursorItem(); cur != nil {
+			// a mirror carries no children in memory; zoom into its
+			// source so the original's children render
+			if cur.mirrorOf != "" {
+				src, ok := m.tree.byUUID[m.tree.sourceUUID(cur)]
+				if !ok {
+					return m, nil
+				}
+				cur = src
+			}
 			m.viewStack = append(m.viewStack, cur)
 			m.cursor = 0
 			m.caret = 0
