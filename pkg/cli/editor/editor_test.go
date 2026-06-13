@@ -328,3 +328,49 @@ func TestRowBudgetFallbackBeforeWindowSize(t *testing.T) {
 		t.Fatalf("rowBudget with unknown height = %d, want 18 fallback", got)
 	}
 }
+
+// newTestModelWithChildren builds a single parent that has the given child
+// names, so the ctrl+d delete confirm (which only triggers for nodes with
+// children) can be exercised without a DB.
+func newTestModelWithChildren(width int, parentName string, children ...string) *Model {
+	root := &item{}
+	t := &tree{root: root, byUUID: map[string]*item{}, externalNames: map[string]string{}}
+	parent := &item{name: parentName, parent: root}
+	for _, c := range children {
+		parent.children = append(parent.children, &item{name: c, parent: parent})
+	}
+	root.children = append(root.children, parent)
+	m := &Model{tree: t, viewStack: []*item{root}, width: width, height: 24}
+	m.refreshRows()
+	return m
+}
+
+// TestConfirmCancelKeepsStatusBarLast is the F6 regression: the inline renderer
+// leaves a shrinking frame's old last line in place, so if the delete-confirm
+// prompt were the frame's final line, ESC-canceling it (one line shorter) would
+// strand the status bar blank until the next keypress. The bottom bar must stay
+// every frame's last line, in the confirm and in the cancel that follows it.
+func TestConfirmCancelKeepsStatusBarLast(t *testing.T) {
+	m := newTestModelWithChildren(40, "parent", "child")
+	m.cursor = 0
+
+	m.press("ctrl+d")
+	if m.mode != modeConfirm {
+		t.Fatalf("ctrl+d on a node with children did not open the confirm")
+	}
+	last := func() string {
+		lines := strings.Split(m.View(), "\n")
+		return lines[len(lines)-1]
+	}
+	if got := last(); !strings.Contains(got, "1/2") || strings.Contains(got, "delete") {
+		t.Fatalf("confirm frame's last line is not the status bar: %q", got)
+	}
+
+	m.press("esc")
+	if m.mode != modeOutline {
+		t.Fatalf("esc did not cancel the confirm")
+	}
+	if got := last(); !strings.Contains(got, "1/2") {
+		t.Fatalf("status bar absent on the last line after ESC-cancel: %q", got)
+	}
+}

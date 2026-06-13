@@ -1251,6 +1251,19 @@ func (m *Model) viewOutline(maxLine int) []string {
 	}
 	lines = append(lines, flat[start:end]...)
 
+	// The delete confirm sits above the status line, not below it: the inline
+	// renderer leaves a shrinking frame's old last line in place, so if the
+	// confirm prompt were the final line, canceling it (one line shorter) would
+	// strand the status bar blank until the next keypress repainted. Keeping the
+	// bottomBar as every frame's last line means ESC-cancel restores it at once.
+	if m.mode == modeConfirm {
+		if cur := m.cursorItem(); cur != nil {
+			line := " " + cRed + "delete " + cReset + cYellow + fmt.Sprintf("%q", m.tree.displayName(cur)) + cReset +
+				cDim + fmt.Sprintf(" · %s · enter delete · esc keep", nodeNoun(subtreeSize(cur))) + cReset
+			lines = append(lines, clip(line, maxLine))
+		}
+	}
+
 	lines = append(lines, m.bottomBar(maxLine))
 
 	if m.mode == modeSlash {
@@ -1260,14 +1273,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 				mark = cAccent + "▸ " + cReset
 			}
 			line := " " + mark + cFG + fmt.Sprintf("%-11s", c.name) + cDim + " " + c.desc + cReset
-			lines = append(lines, clip(line, maxLine))
-		}
-	}
-
-	if m.mode == modeConfirm {
-		if cur := m.cursorItem(); cur != nil {
-			line := " " + cRed + "delete " + cReset + cYellow + fmt.Sprintf("%q", m.tree.displayName(cur)) + cReset +
-				cDim + fmt.Sprintf(" · %s · enter delete · esc keep", nodeNoun(subtreeSize(cur))) + cReset
 			lines = append(lines, clip(line, maxLine))
 		}
 	}
