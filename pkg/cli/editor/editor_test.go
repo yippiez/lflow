@@ -114,6 +114,32 @@ func TestPasteFanOutSkipsEmptySanitizedLines(t *testing.T) {
 	}
 }
 
+// TestNoteKeySanitizesControlBytes is the F16 regression: pasting text with an
+// embedded ESC sequence into note mode must strip the control bytes the same way
+// node-name input does, so an ESC[H cursor-home never reaches the terminal and
+// recolors the note on render. The literal printable text survives.
+func TestNoteKeySanitizesControlBytes(t *testing.T) {
+	m := newTestModel(80, "root")
+	cur := m.tree.root.children[0]
+	m.cursor = 0
+	m.mode = modeNote
+	m.notePrev = cur.note
+	m.caret = 0
+
+	m.handleNoteKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("BEFORE\x1b[HAFTER")})
+
+	want := "BEFORE[HAFTER"
+	if cur.note != want {
+		t.Fatalf("note = %q, want %q", cur.note, want)
+	}
+	if strings.ContainsAny(cur.note, "\x1b\x00\x7f") {
+		t.Fatalf("note retained control bytes: %q", cur.note)
+	}
+	if m.caret != len([]rune(want)) {
+		t.Fatalf("caret = %d, want %d", m.caret, len([]rune(want)))
+	}
+}
+
 // newTestModel builds a Model over a flat list of sibling names at the given
 // width so the wrapped-node Up/Down behaviour can be exercised without a DB.
 func newTestModel(width int, names ...string) *Model {

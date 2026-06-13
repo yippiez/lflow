@@ -963,7 +963,7 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if k.Type == tea.KeyRunes && !k.Alt {
 		runes := []rune(cur.note)
-		ins := []rune(string(k.Runes))
+		ins := []rune(sanitizeName(string(k.Runes)))
 		cur.note = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
 		m.caret += len(ins)
 	}
