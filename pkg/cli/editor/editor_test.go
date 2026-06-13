@@ -572,3 +572,33 @@ func TestZoomMirrorMissingSourceIsNoop(t *testing.T) {
 		t.Fatalf("zoom with missing source must not push a view, stack depth=%d", got)
 	}
 }
+
+// TestSlashEscapeRemovesTriggeringSlash is the F10 regression: opening the slash
+// menu types a "/" into the editable node text, so escaping the menu must strip
+// that triggering slash and leave the node name exactly as it was before. A
+// literal slash word is only committed when Enter runs an unknown command.
+func TestSlashEscapeRemovesTriggeringSlash(t *testing.T) {
+	m := newTestModel(80, "hello")
+	m.cursor = 0
+	m.caret = len([]rune("hello"))
+
+	// open the slash menu: this inserts the triggering "/"
+	m.press("/")
+	if m.mode != modeSlash {
+		t.Fatalf("pressing / should open the slash menu, mode=%v", m.mode)
+	}
+
+	// escape cancels the command and must remove the triggering slash
+	mm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	*m = *mm.(*Model)
+
+	if m.mode != modeOutline {
+		t.Fatalf("escape should return to outline mode, mode=%v", m.mode)
+	}
+	if got := m.cursorItem().name; got != "hello" {
+		t.Fatalf("escape must restore the name, got %q", got)
+	}
+	if strings.Contains(m.cursorItem().name, "/") {
+		t.Fatalf("escape left a stray slash in the name: %q", m.cursorItem().name)
+	}
+}

@@ -465,8 +465,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// "/" opens the slash menu anywhere in the row. On editable rows it
-		// is typed into the text and stripped when a command runs, so esc
-		// leaves a literal slash behind.
+		// is typed into the text and stripped when a command runs or the menu
+		// is cancelled, so esc restores the name to what it was before.
 		if string(k.Runes) == "/" && !k.Paste {
 			m.mode = modeSlash
 			m.slashQuery = ""
@@ -800,7 +800,13 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch k.String() {
 	case "esc":
-		// keep the typed text: this is how a literal slash is written
+		// escape cancels the command: strip the triggering "/" and any
+		// in-progress query so the node name returns to what it was before
+		// the menu opened. A literal slash is only committed when Enter runs
+		// an unknown command, never on escape.
+		if m.slashInline && cur != nil {
+			m.stripSlashText()
+		}
 		m.mode = modeOutline
 		return m, nil
 	case "up":
