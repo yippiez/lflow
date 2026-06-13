@@ -21,6 +21,7 @@ import (
 
 	"github.com/lflow/lflow/pkg/cli/database"
 	"github.com/mattn/go-runewidth"
+	"github.com/rivo/uniseg"
 )
 
 // the locked palette (design v4)
@@ -49,9 +50,19 @@ const (
 	glyphQuoteBar  = "▎"
 )
 
-// visibleWidth returns the display width of s ignoring SGR sequences.
+// visibleWidth returns the display width of s ignoring SGR sequences. Runs of
+// text between escapes are measured a grapheme cluster at a time so a ZWJ emoji
+// sequence counts as its true terminal width — StringWidth folds the cluster's
+// components into one cell-run — rather than the sum of its parts.
 func visibleWidth(s string) int {
 	w := 0
+	var run strings.Builder
+	flush := func() {
+		if run.Len() > 0 {
+			w += runewidth.StringWidth(run.String())
+			run.Reset()
+		}
+	}
 	inEsc := false
 	for _, r := range s {
 		if inEsc {
@@ -61,11 +72,13 @@ func visibleWidth(s string) int {
 			continue
 		}
 		if r == '\x1b' {
+			flush()
 			inEsc = true
 			continue
 		}
-		w += runewidth.RuneWidth(r)
+		run.WriteRune(r)
 	}
+	flush()
 	return w
 }
 
@@ -141,6 +154,19 @@ func expandTabs(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// firstCluster returns the first grapheme cluster at the start of runes (a run
+// of text runes containing no escape) and how many runes it spans. A ZWJ emoji
+// sequence such as a family emoji is a single cluster, so wrapLine advances over
+// it as one unit — measured with StringWidth — instead of summing its component
+// widths, which would overcount and wrap early.
+func firstCluster(runes []rune) (string, int) {
+	if len(runes) == 0 {
+		return "", 0
+	}
+	cluster, _, _, _ := uniseg.FirstGraphemeClusterInString(string(runes), -1)
+	return cluster, len([]rune(cluster))
 }
 
 // wrapLine soft-wraps an SGR-styled line to the given display width, breaking
@@ -224,7 +250,19 @@ func wrapLine(s string, width int, prefix string) []string {
 			continue
 		}
 
-		rw := runewidth.RuneWidth(r)
+		// Advance by grapheme cluster, not single rune: a ZWJ emoji sequence
+		// (e.g. a family emoji) is one terminal cell-run, so measure the whole
+		// cluster with StringWidth rather than summing each component's width —
+		// summing overcounts and forces a premature wrap. Clusters never start
+		// with an escape (handled above) and never contain one, so we segment
+		// the run of text runes up to the next escape.
+		clEnd := i + 1
+		for clEnd < len(runes) && runes[clEnd] != '\x1b' {
+			clEnd++
+		}
+		_, clusterLen := firstCluster(runes[i:clEnd])
+		clEnd = i + clusterLen
+		rw := runewidth.StringWidth(string(runes[i:clEnd]))
 		if curWidth+rw > avail {
 			if r == ' ' {
 				// the overflowing rune is itself a space: break right here
@@ -244,7 +282,8 @@ func wrapLine(s string, width int, prefix string) []string {
 				startState = append([]string(nil), lastSpaceState...)
 				curWidth = visibleWidth(string(runes[lineStart:i]))
 			} else {
-				// no space on this line: hard break before the rune
+				// no space on this line: hard break before the cluster — never
+				// in the middle of it.
 				emitLine(i, false)
 				lineStart = i
 				startState = append([]string(nil), state...)
@@ -252,7 +291,7 @@ func wrapLine(s string, width int, prefix string) []string {
 			}
 			avail = width - hang
 			lastSpace = -1
-			continue // re-check the same rune against the new line
+			continue // re-check the same cluster against the new line
 		}
 
 		if r == ' ' && curWidth >= bodyCol {
@@ -263,7 +302,7 @@ func wrapLine(s string, width int, prefix string) []string {
 			lastSpaceState = append([]string(nil), state...)
 		}
 		curWidth += rw
-		i++
+		i = clEnd
 	}
 	emitLine(len(runes), false)
 	return lines
@@ -404,7 +443,12 @@ func visualRows(name string, width, firstCol, hang int) []int {
 	i := 0
 	for i < len(runes) {
 		r := runes[i]
-		rw := runewidth.RuneWidth(r)
+		// advance by grapheme cluster, measured as one width unit — mirror
+		// wrapLine so the caret maps to the same break points (a ZWJ emoji is
+		// one cluster, never split, never overcounted).
+		_, clusterLen := firstCluster(runes[i:])
+		clEnd := i + clusterLen
+		rw := runewidth.StringWidth(string(runes[i:clEnd]))
 		if curWidth+rw > avail {
 			if r == ' ' {
 				emit(i + 1)
@@ -418,13 +462,13 @@ func visualRows(name string, width, firstCol, hang int) []int {
 			} else {
 				emit(i)
 			}
-			continue // re-check the same rune on the new line
+			continue // re-check the same cluster on the new line
 		}
 		if r == ' ' && curWidth >= bodyCol {
 			lastSpace = i
 		}
 		curWidth += rw
-		i++
+		i = clEnd
 	}
 	return starts
 }

@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/mattn/go-runewidth"
 )
 
 // stripSGR removes ANSI style sequences, leaving the visible text.
@@ -300,6 +301,33 @@ func TestWrapLineWideRunes(t *testing.T) {
 		if w := visibleWidth(l); w > 10 {
 			t.Errorf("line %d too wide: %d %q", i, w, l)
 		}
+	}
+}
+
+func TestWrapLineGraphemeCluster(t *testing.T) {
+	// A ZWJ family emoji is a single grapheme cluster two cells wide. Summing
+	// its component rune widths (2+0+2+0+2=6) would overcount and wrap early.
+	// The cluster plus trailing text fits in width 10, so it must not wrap.
+	family := "\U0001F468‍\U0001F469‍\U0001F467" // 👨‍👩‍👧
+	if w := runewidth.StringWidth(family); w != 2 {
+		t.Fatalf("test premise: family cluster should be 2 cells, got %d", w)
+	}
+	line := family + " abc" // 2 + 1 + 3 = 6 cells, fits in 10
+	lines := wrapLine(line, 10, "")
+	if len(lines) != 1 {
+		t.Fatalf("ZWJ cluster plus text fits but wrapped: %q", lines)
+	}
+	if stripSGR(lines[0]) != line {
+		t.Errorf("cluster mangled by wrap: got %q want %q", stripSGR(lines[0]), line)
+	}
+}
+
+func TestVisibleWidthGraphemeCluster(t *testing.T) {
+	// visibleWidth must fold a ZWJ cluster into its true terminal width, not
+	// sum its component widths.
+	family := "\U0001F468‍\U0001F469‍\U0001F467"
+	if w := visibleWidth(family); w != 2 {
+		t.Errorf("visibleWidth of ZWJ family emoji = %d, want 2", w)
 	}
 }
 
