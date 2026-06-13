@@ -236,6 +236,46 @@ func TestHomeMovesToStartOfCurrentVisualLine(t *testing.T) {
 	}
 }
 
+// TestEndMovesToEndOfCurrentVisualLine is the F4 regression: on a wrapped node
+// End must move the caret to the last position of the current visual line, not
+// the end of the whole node.
+func TestEndMovesToEndOfCurrentVisualLine(t *testing.T) {
+	// width 13 -> first visual line "aaaa bbbb", continuation holds "cccc".
+	m := newTestModel(13, "aaaa bbbb cccc", "second")
+	m.cursor = 0
+
+	starts := m.selectedVisualRows()
+	if len(starts) < 2 {
+		t.Fatalf("node should wrap to >=2 visual lines, got starts=%v", starts)
+	}
+	// place the caret on visual line 0
+	m.caret = 0
+	if line := caretVisualLine(starts, m.caret); line != 0 {
+		t.Fatalf("setup: caret should be on visual line 0, got %d", line)
+	}
+
+	m.press("end")
+	if line := caretVisualLine(m.selectedVisualRows(), m.caret); line != 0 {
+		t.Fatalf("End must stay on the current visual line, got line %d (caret=%d)", line, m.caret)
+	}
+	// the break space is consumed by the wrap, so End lands just before it
+	want := starts[1]
+	runes := []rune("aaaa bbbb cccc")
+	if want > 0 && runes[want-1] == ' ' {
+		want--
+	}
+	if m.caret != want {
+		t.Fatalf("End on visual line 0 should land at %d, got %d", want, m.caret)
+	}
+
+	// on the final visual line End reaches the node end
+	m.caret = starts[len(starts)-1]
+	m.press("end")
+	if m.caret != len(runes) {
+		t.Fatalf("End on the last visual line should reach the node end %d, got %d", len(runes), m.caret)
+	}
+}
+
 // TestDownSingleLineNodeMovesToNextNode keeps the simple case working: a node
 // that does not wrap moves straight to the next node.
 func TestDownSingleLineNodeMovesToNextNode(t *testing.T) {

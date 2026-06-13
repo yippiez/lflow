@@ -387,9 +387,27 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.caret = starts[line]
 		return m, nil
 	case "end":
-		if cur := m.cursorItem(); cur != nil {
-			m.caret = len([]rune(cur.name))
+		// move to the last position of the current visual line, not the end of
+		// the whole node: a wrapped node has several visual lines. On the final
+		// visual line this is the node end.
+		cur := m.cursorItem()
+		if cur == nil {
+			return m, nil
 		}
+		runes := []rune(cur.name)
+		starts := m.selectedVisualRows()
+		line := caretVisualLine(starts, m.caret)
+		if line+1 >= len(starts) {
+			m.caret = len(runes)
+			return m, nil
+		}
+		// stop before the next line's start; a space consumed by the wrap break
+		// lands the caret just before it, mirroring the on-break-space render.
+		end := starts[line+1]
+		if end > 0 && end <= len(runes) && runes[end-1] == ' ' {
+			end--
+		}
+		m.caret = end
 		return m, nil
 	case "backspace":
 		cur := m.cursorItem()
