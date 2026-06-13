@@ -73,6 +73,17 @@ func (g *vtGrid) eraseScreenBelow() {
 	}
 }
 
+// clearScreen models tea.ClearScreen: ESC[2J wipes every cell and ESC[H homes
+// the cursor to the top-left. The inline renderer issues this exact pair when
+// the resize handler returns tea.ClearScreen.
+func (g *vtGrid) clearScreen() {
+	for r := range g.rows {
+		g.rows[r] = []rune{}
+	}
+	g.cur = 0
+	g.col = 0
+}
+
 // write replays one rendered byte stream against the grid.
 func (g *vtGrid) write(s string) {
 	b := []byte(s)
@@ -97,8 +108,15 @@ func (g *vtGrid) write(s string) {
 				}
 			case 'K': // erase line right
 				g.eraseLineRight()
-			case 'J': // erase screen below
-				g.eraseScreenBelow()
+			case 'J': // erase: 2 = whole screen (ClearScreen), else below cursor
+				if atoiOr(params, 0) == 2 {
+					g.clearScreen()
+				} else {
+					g.eraseScreenBelow()
+				}
+			case 'H': // cursor home (ClearScreen pairs ESC[2J with ESC[H)
+				g.cur = 0
+				g.col = 0
 			case 'm': // SGR colour — no cell effect
 			default:
 				// CursorPosition etc. are unused by the inline renderer here.
@@ -204,6 +222,18 @@ func (s *flushSim) resize(w int) {
 	s.firstRender = true
 }
 
+// clearScreen models bubbletea executing the tea.ClearScreen command the resize
+// handler returns: the terminal is wiped (ESC[2J ESC[H) and the renderer forgets
+// the previous frame's height, so the next flush starts from a known-empty grid
+// with no stale rows to move the cursor up over.
+func (s *flushSim) clearScreen() {
+	s.g.write(ansi.EraseDisplay(2))
+	s.g.write(ansi.CursorOrigin)
+	s.linesRendered = 0
+	s.prevLines = nil
+	s.firstRender = true
+}
+
 // TestRenderedRowsHaveNoStaleOverlayAfterResize replays the editor's frames
 // through a faithful model of bubbletea's inline renderer across a 60->40->60
 // resize and asserts no terminal row ends up holding two node renders overlaid.
@@ -294,5 +324,76 @@ func TestWidthChangeClearsScreen(t *testing.T) {
 	// a pure height change must not clear the screen (no reflow, no leftover)
 	if _, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 30}); cmd != nil {
 		t.Fatalf("height-only change returned a command %#v; it should not force a clear", cmd())
+	}
+}
+
+// TestResizeStormRedrawsOneCleanFrame is the F22 break: rapidly cycling the
+// terminal between a wide/tall geometry and a tiny one with keypresses
+// interleaved must never leave stacked copies of the outline in the buffer.
+//
+// The mechanism that prevents the stacking is the full clear bubbletea's inline
+// renderer can only manage with tea.ClearScreen: on a plain WindowSizeMsg it
+// repaints (drops the line cache) but still moves the cursor up over only the
+// *previous* frame's line count and erases line-by-line from there, so when a
+// short 10x4 frame grows back to a tall 80x24 one the renderer cannot reach the
+// rows the earlier tall frame painted and the old outline is stranded above the
+// fresh one. tea.ClearScreen wipes the whole display and homes the cursor, so
+// the next frame repaints from an empty grid.
+//
+// We assert the load-bearing guarantee at the command level — every width change
+// in the storm must yield tea.ClearScreen — and then replay every frame and
+// every clear against the virtual terminal and assert the settled grid holds
+// each node's bullet exactly once. Drop the per-width clear and the grow-back
+// frames stack; this test catches that.
+func TestResizeStormRedrawsOneCleanFrame(t *testing.T) {
+	m := newTestModel(80, "alpha", "beta", "gamma")
+
+	sim := &flushSim{g: newVTGrid(24), firstRender: true, width: 80}
+	prevWidth := 80
+
+	// applySize feeds a WindowSizeMsg, requires a width change to clear the whole
+	// screen, replays that clear, repaints the renderer at the new width, then
+	// flushes the fresh frame.
+	applySize := func(w, h int) {
+		mm, cmd := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+		m = mm.(*Model)
+		if w != prevWidth {
+			if cmd == nil || cmd() != tea.ClearScreen() {
+				t.Fatalf("resize to %dx%d did not return tea.ClearScreen; a storm of "+
+					"width changes will stack frames without a full clear", w, h)
+			}
+			sim.clearScreen()
+		}
+		prevWidth = w
+		sim.resize(w)
+		sim.flush(m.View())
+	}
+	pressKey := func(s string) {
+		m.press(s)
+		sim.flush(m.View())
+	}
+
+	applySize(80, 24)
+	for i := 0; i < 4; i++ {
+		applySize(10, 4)
+		pressKey("down")
+		applySize(80, 24)
+		pressKey("up")
+	}
+
+	total := 0
+	for r, row := range sim.g.rows {
+		bullets := strings.Count(string(row), "○") + strings.Count(string(row), "●")
+		if bullets > 1 {
+			t.Fatalf("row %d has %d node bullets after a resize storm; the outline "+
+				"is stacked instead of redrawn once: %q",
+				r, bullets, strings.TrimRight(string(row), " "))
+		}
+		total += bullets
+	}
+	// every distinct node must survive exactly once in the settled frame
+	if total != 3 {
+		t.Fatalf("settled frame shows %d node bullets, want 3 (one per node); a "+
+			"resize storm duplicated or dropped rows", total)
 	}
 }
