@@ -168,8 +168,22 @@ func (m *Model) Init() tea.Cmd { return m.schedulerInit() }
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		// A width change reflows the physical terminal before bubbletea repaints:
+		// a row that occupied one physical line at the old width may now wrap to
+		// two (or collapse to one), so the inline (no-alt-screen) renderer's
+		// cursor-up count — measured in old-width lines — no longer matches the
+		// reflowed layout. It then rewrites the new frame starting one row off and
+		// strands the wider row's first physical line above it (the F7 leftover:
+		// the old 60-col row survives, truncated, above the fresh 40-col render).
+		// Per-line clear-to-EOL cannot reach a row the renderer never revisits.
+		// tea.ClearScreen wipes the whole terminal and homes the cursor, so the
+		// next frame repaints from a known-empty screen with no stale rows.
+		widthChanged := msg.Width != m.width
 		m.width = msg.Width
 		m.height = msg.Height
+		if widthChanged {
+			return m, tea.ClearScreen
+		}
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)

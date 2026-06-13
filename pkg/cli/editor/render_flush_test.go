@@ -234,3 +234,65 @@ func TestRenderedRowsHaveNoStaleOverlayAfterResize(t *testing.T) {
 		}
 	}
 }
+
+// TestViewLinesLeadWithClearAfterShrink is the F7 break: shrinking the terminal
+// alone (60->40, no grow back) must erase the characters the wider frame painted
+// to the right of the now-shorter line. The inline renderer rewrites rows in
+// place; its own auto-EraseLineRight only fires when a line is narrower than the
+// current width, so it cannot be relied on for a row that fills the shrunk width
+// exactly. The frame's own leading clear-to-end-of-line is the guarantee that
+// every row erases its prior, wider tail before being repainted. We assert it
+// directly on the post-shrink frame: every emitted line must lead with the
+// clear, independent of whether the renderer's own clear happens to fire.
+func TestViewLinesLeadWithClearAfterShrink(t *testing.T) {
+	long := "alpha with a deliberately long name that wraps differently at sixty columns than at forty columns"
+	m := newTestModel(60, long)
+
+	for _, w := range []int{60, 40} {
+		mm, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 24})
+		m = mm.(*Model)
+	}
+
+	lines := strings.Split(m.View(), "\n")
+	for i, l := range lines {
+		if !strings.HasPrefix(l, cClearEOL) {
+			t.Fatalf("View line %d does not lead with a clear-to-end-of-line after "+
+				"a 60->40 shrink; the previous 60-col line's tail would survive past "+
+				"column 40: %q", i, l)
+		}
+	}
+}
+
+// TestWidthChangeClearsScreen is the rest of the F7 break: clearing each frame
+// line's own tail is not enough. When the width changes the physical terminal
+// reflows before bubbletea repaints, so a 60-col row that filled one physical
+// line wraps to two at 40 — and the inline renderer's cursor-up count, measured
+// in old-width lines, lands one row off and strands the wider row's first
+// physical line above the fresh render. Per-line clear-to-EOL can never reach a
+// row the renderer doesn't revisit. The resize handler must therefore return
+// tea.ClearScreen so the whole terminal is wiped and the next frame repaints
+// from a known-empty screen. We assert the command the resize produces is
+// exactly bubbletea's ClearScreen, and that a pure height change does not force
+// the (visually jarring) full clear.
+func TestWidthChangeClearsScreen(t *testing.T) {
+	m := newTestModel(60, "alpha")
+
+	// establish a width so the next message is a real change, not the first size
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
+	m = mm.(*Model)
+
+	// a width change must clear the screen
+	mm, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+	m = mm.(*Model)
+	if cmd == nil {
+		t.Fatal("width change returned no command; the strand-above-the-frame leftover survives without a full screen clear")
+	}
+	if got, want := cmd(), tea.ClearScreen(); got != want {
+		t.Fatalf("width change command = %#v, want tea.ClearScreen %#v", got, want)
+	}
+
+	// a pure height change must not clear the screen (no reflow, no leftover)
+	if _, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 30}); cmd != nil {
+		t.Fatalf("height-only change returned a command %#v; it should not force a clear", cmd())
+	}
+}
