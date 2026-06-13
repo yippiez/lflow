@@ -117,6 +117,40 @@ func TestRenderBodyHidesMarkersWhenUnselected(t *testing.T) {
 	}
 }
 
+// TestRenderBodyStripsStoredControlBytes is the F17 regression: a name already
+// in the DB carrying a raw ESC[2J / ESC[H must render as inert text. The render
+// boundary strips C0 control and escape bytes so legacy or crafted content can
+// never execute a clear-screen or cursor-home, while lflow's own SGR styling
+// (terminated by 'm') stays intact.
+func TestRenderBodyStripsStoredControlBytes(t *testing.T) {
+	it := &item{layout: database.LayoutBullets}
+
+	rendered := renderBody(it, "x\x1b[2J\x1b[Hy", -1, false)
+	// no raw escape or other C0 control byte from the content survives: every
+	// ESC left in the output is one lflow itself added, terminated by 'm'.
+	inEsc := false
+	for _, r := range rendered {
+		if inEsc {
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		switch {
+		case r == '\x1b':
+			inEsc = true
+		case r < 0x20 || r == 0x7F:
+			t.Fatalf("control byte %#x leaked to the terminal: %q", r, rendered)
+		}
+	}
+	if inEsc {
+		t.Fatalf("a non-SGR escape sequence leaked to the terminal: %q", rendered)
+	}
+	if got := stripSGR(rendered); got != "x[2J[Hy" {
+		t.Fatalf("stored control bytes should render inert: %q", got)
+	}
+}
+
 func TestRenderBodyShowsMarkersWhenSelected(t *testing.T) {
 	it := &item{layout: database.LayoutBullets}
 

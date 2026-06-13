@@ -1263,7 +1263,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
 
 		if selected && m.mode == modeNote {
-			line += cDim + "  note: " + cReset + cFG + withCaret(it.note, m.caret) + cReset
+			line += cDim + "  note: " + cReset + cFG + withCaret(stripControlBytes(it.note), m.caret) + cReset
 		}
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth

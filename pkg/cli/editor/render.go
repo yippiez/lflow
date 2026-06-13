@@ -554,6 +554,25 @@ func withCaret(text string, caret int) string {
 	return string(runes[:caret]) + cInvert + string(runes[caret]) + cReset + cFG + string(runes[caret+1:])
 }
 
+// stripControlBytes removes every C0 control byte (0x00-0x1F) and DEL (0x7F)
+// from content before it is emitted to the terminal. Input is sanitized the
+// same way on the way in, but this is the render-boundary defense in depth: a
+// legacy or crafted name or note already in the DB carrying a raw ESC[2J or
+// ESC[H must render as inert text, never execute as a clear-screen or
+// cursor-home. lflow's own SGR styling is added after this strip, so it stays
+// intact — only control bytes that originate from stored content are dropped.
+func stripControlBytes(s string) string {
+	if strings.IndexFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7F }) < 0 {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // spanFlags is the per-rune style mask the inline parser produces.
 type spanFlags struct {
 	marker bool // part of ** * [[ ]] syntax, hidden unless the row is selected
@@ -629,6 +648,7 @@ func inlineSpans(runes []rune) []spanFlags {
 // hide the markdown markers; the selected row shows them and the block
 // cursor inverts the cell under the rune at the caret index (-1 for none).
 func renderBody(it *item, name string, caret int, selected bool) string {
+	name = stripControlBytes(name)
 	base := cFG
 
 	attrs := ""
