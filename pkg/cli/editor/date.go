@@ -102,7 +102,10 @@ func wordBound(s string, start, end int) bool {
 	return !insidePill(s, start)
 }
 
-// insidePill reports whether the byte offset falls inside a [[...]] span.
+// insidePill reports whether the byte offset falls inside a [[...]] span. An
+// open [[ with no matching ]] counts as a pill that runs to the end of the
+// string: an unclosed bracket is treated as inside-pill context so a half-typed
+// "[[now" suppresses the ctrl+t hint rather than nesting a second pill.
 func insidePill(s string, off int) bool {
 	i := 0
 	for {
@@ -113,7 +116,7 @@ func insidePill(s string, off int) bool {
 		open += i
 		closing := strings.Index(s[open+2:], "]]")
 		if closing < 0 {
-			return false
+			return off >= open
 		}
 		end := open + 2 + closing + 2
 		if off >= open && off < end {

@@ -104,6 +104,8 @@ func TestDetectDateRejectsNoise(t *testing.T) {
 		"the showdown ended", // "down" is not "dün"
 		"version 30.02.2025", // february 30 is not a date
 		"[[2025-02-11]] set", // already a pill
+		"[[now",              // unclosed bracket: half-typed pill, no double convert
+		"prefix [[tomorrow",  // unclosed bracket later in the string
 		"",
 	} {
 		if d := detectDate(text, clock); d != nil {
