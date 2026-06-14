@@ -270,7 +270,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+@", "ctrl+space":
-		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 {
+		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 {
 			cur.collapsed = !cur.collapsed
 			m.refreshRows()
 		}
@@ -345,7 +345,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "alt+up", "ctrl+up":
 		// collapse the cursor node
-		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 && !cur.collapsed {
+		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && !cur.collapsed {
 			cur.collapsed = true
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(cur)
@@ -353,7 +353,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "alt+down", "ctrl+down":
 		// expand the cursor node
-		if cur := m.cursorItem(); cur != nil && len(cur.children) > 0 && cur.collapsed {
+		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && cur.collapsed {
 			cur.collapsed = false
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(cur)
@@ -1255,6 +1255,9 @@ func (m *Model) finalView(maxLine int) []string {
 	allRows := m.tree.allRows()
 	for i, r := range allRows {
 		glyph, glyphColor := glyphFor(r.it)
+		if r.mirrored {
+			glyph, glyphColor = glyphMirror, cRed
+		}
 		name := m.tree.displayName(r.it)
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
@@ -1279,6 +1282,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 		selected := i == m.cursor
 
 		glyph, glyphColor := glyphFor(it)
+		if r.mirrored {
+			glyph, glyphColor = glyphMirror, cRed
+		}
 		if selected {
 			glyphColor = cRed
 		}

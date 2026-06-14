@@ -686,6 +686,115 @@ func TestNoteEditOnMirrorEditsSource(t *testing.T) {
 	}
 }
 
+// mirrorTree builds root → [source(+two kids), mirror-of-source] for the
+// show-through tests.
+func mirrorTree() (*tree, *item, *item) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", parent: root}
+	src.children = []*item{
+		{uuid: "k1", name: "kid one", parent: src},
+		{uuid: "k2", name: "kid two", parent: src},
+	}
+	mir := &item{uuid: "mir", mirrorOf: "src", parent: root}
+	root.children = []*item{src, mir}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "k1": src.children[0], "k2": src.children[1], "mir": mir},
+		externalNames: map[string]string{},
+	}
+	return tr, src, mir
+}
+
+// TestMirrorShowsSourceChildrenThrough is the round-4 show-through fix: an
+// expanded mirror renders the source's live children as mirrored ◆ rows below
+// the mirror reference.
+func TestMirrorShowsSourceChildrenThrough(t *testing.T) {
+	tr, _, mir := mirrorTree()
+	rows := tr.visibleRows(tr.root)
+	mi := -1
+	for i, r := range rows {
+		if r.it == mir {
+			mi = i
+		}
+	}
+	if mi < 0 {
+		t.Fatal("mirror reference row is missing")
+	}
+	var through []string
+	for _, r := range rows[mi+1:] {
+		if !r.mirrored {
+			t.Fatalf("row shown through the mirror is not marked mirrored: %q", tr.displayName(r.it))
+		}
+		through = append(through, tr.displayName(r.it))
+	}
+	if !reflect.DeepEqual(through, []string{"kid one", "kid two"}) {
+		t.Fatalf("mirror should show the source children through, got %v", through)
+	}
+}
+
+// TestCollapsedMirrorHidesChildren is the round-4 rule: a mirror only shows its
+// source's children through when it is not collapsed.
+func TestCollapsedMirrorHidesChildren(t *testing.T) {
+	tr, _, mir := mirrorTree()
+	mir.collapsed = true
+	rows := tr.visibleRows(tr.root)
+	// source, kid one, kid two, mirror — nothing renders through the collapsed mirror
+	if len(rows) != 4 {
+		t.Fatalf("collapsed mirror should hide through-children, got %d rows", len(rows))
+	}
+	if rows[len(rows)-1].it != mir {
+		t.Fatalf("collapsed mirror should be the last row with nothing after it")
+	}
+}
+
+// TestIndentUnderMirrorAttachesToSource is the round-4 fix: indenting a node
+// under a mirror gives the child to the one real node, the source.
+func TestIndentUnderMirrorAttachesToSource(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", parent: root}
+	mir := &item{uuid: "mir", mirrorOf: "src", parent: root}
+	nn := &item{uuid: "nn", name: "newbie", parent: root}
+	root.children = []*item{src, mir, nn}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "mir": mir, "nn": nn},
+		externalNames: map[string]string{},
+	}
+	if !tr.indent(nn) {
+		t.Fatalf("indent under the mirror should succeed")
+	}
+	if nn.parent != src {
+		t.Fatalf("child should attach to the source, got parent %#v", nn.parent)
+	}
+	if len(src.children) != 1 || src.children[0] != nn {
+		t.Fatalf("source should hold the new child, got %v", src.children)
+	}
+	if len(mir.children) != 0 {
+		t.Fatalf("the mirror must not hold a real child, got %v", mir.children)
+	}
+}
+
+// TestMirrorCycleDoesNotLoop guards the show-through walk: a mirror that points
+// at an ancestor renders as a leaf instead of expanding forever.
+func TestMirrorCycleDoesNotLoop(t *testing.T) {
+	root := &item{}
+	a := &item{uuid: "a", name: "a", parent: root}
+	cyc := &item{uuid: "cyc", mirrorOf: "a", parent: a}
+	a.children = []*item{cyc}
+	root.children = []*item{a}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"a": a, "cyc": cyc},
+		externalNames: map[string]string{},
+	}
+	if rows := tr.visibleRows(root); len(rows) > 8 {
+		t.Fatalf("mirror cycle should terminate, produced %d rows", len(rows))
+	}
+	if rows := tr.allRows(); len(rows) > 8 {
+		t.Fatalf("mirror cycle should terminate in allRows, produced %d rows", len(rows))
+	}
+}
+
 // TestSlashBackspaceDismissKeepsStatusBar is the F8 regression: the slash menu
 // lists its commands above the status bar, never below it. The inline renderer
 // skips repainting a last line that is unchanged from the previous frame, so if

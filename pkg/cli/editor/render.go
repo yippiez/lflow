@@ -734,14 +734,15 @@ func (m *Model) layoutSuffix(it *item) string {
 	if it.mirrorOf != "" {
 		parts = append(parts, "mirror")
 	}
-	if len(it.children) > 0 && it.collapsed {
+	if kids := m.tree.childItems(it); len(kids) > 0 && it.collapsed {
 		noun := "children"
-		if len(it.children) == 1 {
+		if len(kids) == 1 {
 			noun = "child"
 		}
-		parts = append(parts, fmt.Sprintf("%d %s", len(it.children), noun))
+		parts = append(parts, fmt.Sprintf("%d %s", len(kids), noun))
 	}
-	if it.note != "" {
+	// a mirror's note is its source's note: flag the indicator from the one node
+	if m.tree.resolve(it).note != "" {
 		parts = append(parts, "note")
 	}
 	if len(parts) == 0 {
