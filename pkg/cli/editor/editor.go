@@ -188,6 +188,77 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// mirrorContext is the single source of truth for how a mirror shapes the
+// structural keypress about to run. Read it — and the rules below — to audit in
+// one place every way mirrors react to keys.
+//
+// A mirror (mirrorOf != "") renders another node's live subtree "through" it, so
+// the same real node can appear twice: at its original location, where its rows
+// carry ctx == nil, and under a mirror of it, where its rows carry ctx == that
+// mirror. Two invariants drive all mirror behaviour:
+//
+//   - EDITS act on the one real node. The rows shown through a mirror are the
+//     real items, so a structural edit mutates the original and reflects in every
+//     mirror at once.
+//   - NAVIGATION stays local. After an edit the cursor is restored by (item, ctx)
+//     via findRow, so it stays in the mirror view the user is working in rather
+//     than jumping to the original copy.
+//
+// Per-key behaviour, all expressed through the fields below:
+//
+//	enter      · editable is false on a mirror reference, so Enter does not split
+//	             its text; it opens an empty sibling. Otherwise it splits at the
+//	             caret. The cursor is restored into ctx.
+//	tab        · indenting under a mirror attaches the child to the mirror's
+//	             source; indentInto names that mirror so the cursor follows into
+//	             its view instead of snapping back to the original.
+//	shift+tab  · outdent is bounded by localRoot — the mirror's source when the
+//	             cursor is inside a mirror — so a through-child cannot escape the
+//	             mirror view, and the cursor stays in ctx.
+//	reorder    · alt+shift+up/down move the real node among its siblings; the
+//	             cursor is restored into ctx.
+//	collapse   · fold/unfold counts the resolved children and restores into ctx.
+//	ctrl+t     · the date pill only converts on an editable node, never a mirror
+//	             reference.
+//	zoom       · alt/ctrl+right into a mirror enters its source node so the
+//	             original's children render rather than the empty reference.
+//	delete     · removing a node drops it from the original AND every mirror at
+//	             once, so the row set can shrink by more than one — clampCursor
+//	             reclamps after any manual cursor nudge.
+type mirrorContext struct {
+	ctx        *item // the mirror the cursor sits under, nil at the original location
+	editable   bool  // false on a mirror reference: its text is edited at the source
+	localRoot  *item // outdent boundary: the mirror's source, else the view root
+	indentInto *item // the mirror a Tab would indent under, so the cursor follows it
+}
+
+func (m *Model) mirrorContext() mirrorContext {
+	cur := m.cursorItem()
+	ctx := m.cursorCtx()
+
+	localRoot := m.viewRoot()
+	if ctx != nil {
+		localRoot = m.tree.resolve(ctx) // the mirror's source is the local root
+	}
+
+	var indentInto *item
+	if cur != nil {
+		// Tab indents under the previous visible sibling; when that sibling is a
+		// mirror the child attaches to its source, so the cursor should follow
+		// into that mirror's view rather than snap back to the original.
+		if idx := indexOf(cur); idx > 0 && cur.parent.children[idx-1].mirrorOf != "" {
+			indentInto = cur.parent.children[idx-1]
+		}
+	}
+
+	return mirrorContext{
+		ctx:        ctx,
+		editable:   cur == nil || cur.mirrorOf == "",
+		localRoot:  localRoot,
+		indentInto: indentInto,
+	}
+}
+
 func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
 	m.flash = "" // one-shot: whatever this key does sets the next status
@@ -229,7 +300,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		cur := m.cursorItem()
-		ctx := m.cursorCtx()
+		mc := m.mirrorContext()
 		var it *item
 		var err error
 		if cur == nil {
@@ -243,9 +314,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if it != nil {
 			// split the node at the caret: text after the caret moves into the new
-			// sibling, the part before stays. A mirror is edited at its original, so
-			// leave its text alone and just open an empty sibling.
-			if cur != nil && cur.mirrorOf == "" {
+			// sibling, the part before stays. A mirror reference is not editable, so
+			// it just opens an empty sibling — see mirrorContext.
+			if cur != nil && mc.editable {
 				runes := []rune(cur.name)
 				at := m.caret
 				if at < 0 {
@@ -259,37 +330,32 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.unsaved = true
 			m.refreshRows()
-			m.cursor = m.findRow(it, ctx)
+			m.cursor = m.findRow(it, mc.ctx)
 			m.caret = 0
 		}
 		return m, nil
 	case "tab":
 		if cur := m.cursorItem(); cur != nil {
-			ctx := m.cursorCtx()
-			// indenting under a mirror moves the cursor into that mirror's view
-			if idx := indexOf(cur); idx > 0 && cur.parent.children[idx-1].mirrorOf != "" {
-				ctx = cur.parent.children[idx-1]
-			}
+			mc := m.mirrorContext()
 			if m.tree.indent(cur) {
 				m.unsaved = true
 				m.refreshRows()
+				// follow the cursor into the mirror we indented under, if any
+				ctx := mc.ctx
+				if mc.indentInto != nil {
+					ctx = mc.indentInto
+				}
 				m.cursor = m.findRow(cur, ctx)
 			}
 		}
 		return m, nil
 	case "shift+tab":
 		if cur := m.cursorItem(); cur != nil {
-			ctx := m.cursorCtx()
-			// outdent stops at the mirror's source when the cursor is inside a
-			// mirror, so it moves locally instead of leaving the original
-			root := m.viewRoot()
-			if ctx != nil {
-				root = m.tree.resolve(ctx)
-			}
-			if m.tree.outdent(cur, root) {
+			mc := m.mirrorContext()
+			if m.tree.outdent(cur, mc.localRoot) {
 				m.unsaved = true
 				m.refreshRows()
-				m.cursor = m.findRow(cur, ctx)
+				m.cursor = m.findRow(cur, mc.ctx)
 			}
 		}
 		return m, nil
@@ -311,8 +377,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+t":
-		// convert the detected time phrase into a date pill
-		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
+		// convert the detected time phrase into a date pill — only on an editable
+		// node, never a mirror reference (see mirrorContext)
+		if cur := m.cursorItem(); cur != nil && m.mirrorContext().editable {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil {
 				runes := []rune(cur.name)
 				pill := d.pill()
@@ -326,21 +393,21 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// terminal grab alt+arrows for pane focus and never deliver them
 	case "alt+shift+up", "ctrl+shift+up", "ctrl+alt+up":
 		if cur := m.cursorItem(); cur != nil {
-			ctx := m.cursorCtx()
+			mc := m.mirrorContext()
 			if m.tree.move(cur, -1) {
 				m.unsaved = true
 				m.refreshRows()
-				m.cursor = m.findRow(cur, ctx)
+				m.cursor = m.findRow(cur, mc.ctx)
 			}
 		}
 		return m, nil
 	case "alt+shift+down", "ctrl+shift+down", "ctrl+alt+down":
 		if cur := m.cursorItem(); cur != nil {
-			ctx := m.cursorCtx()
+			mc := m.mirrorContext()
 			if m.tree.move(cur, 1) {
 				m.unsaved = true
 				m.refreshRows()
-				m.cursor = m.findRow(cur, ctx)
+				m.cursor = m.findRow(cur, mc.ctx)
 			}
 		}
 		return m, nil
@@ -348,8 +415,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// zoom into the cursor node — leaves too: the view starts empty
 		// and typing adds the first child
 		if cur := m.cursorItem(); cur != nil {
-			// a mirror carries no children in memory; zoom into its
-			// source so the original's children render
+			// a mirror carries no children in memory; zoom into its source so the
+			// original's children render — see mirrorContext, "zoom"
 			if cur.mirrorOf != "" {
 				src, ok := m.tree.byUUID[m.tree.sourceUUID(cur)]
 				if !ok {
@@ -376,7 +443,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+up", "ctrl+up":
 		// collapse the cursor node
 		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && !cur.collapsed {
-			ctx := m.cursorCtx()
+			ctx := m.mirrorContext().ctx
 			cur.collapsed = true
 			m.refreshRows()
 			m.cursor = m.findRow(cur, ctx)
@@ -385,7 +452,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+down", "ctrl+down":
 		// expand the cursor node
 		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && cur.collapsed {
-			ctx := m.cursorCtx()
+			ctx := m.mirrorContext().ctx
 			cur.collapsed = false
 			m.refreshRows()
 			m.cursor = m.findRow(cur, ctx)
@@ -466,6 +533,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "backspace":
 		cur := m.cursorItem()
+		// a mirror reference is edited at its original — see mirrorContext
 		if cur == nil || cur.mirrorOf != "" {
 			return m, nil
 		}
@@ -530,7 +598,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		if cur.mirrorOf != "" {
-			return m, nil // mirrors are edited at their original
+			return m, nil // a mirror reference is edited at its original — see mirrorContext
 		}
 
 		text := string(k.Runes)
