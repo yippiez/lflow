@@ -1718,7 +1718,7 @@ func (m *Model) finalView(maxLine int) []string {
 			glyph, glyphColor = glyphMirror, cRed
 		}
 		name := m.tree.displayName(r.it)
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it, false)
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 	}
@@ -1755,7 +1755,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 		body := renderBody(it, name, caret, selected)
 
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it, selected && m.mode == modeNote)
 
 		if selected && m.mode == modeNote {
 			line += cDim + "  note: " + cReset + cFG + withCaret(stripControlBytes(m.tree.displayNote(it)), m.caret) + cReset

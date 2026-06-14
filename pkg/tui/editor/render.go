@@ -686,7 +686,10 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	}
 	for i, r := range runes {
 		f := flags[i]
-		if f.marker && !selected {
+		// markers hide on unselected rows; the date-pill [[ ]] brackets hide
+		// always so a pill reads as a clean colored chip. Keep any hidden marker
+		// the caret sits on so the block cursor stays visible while editing.
+		if f.marker && (!selected || f.pill) && i != caret {
 			continue
 		}
 		if i == caret {
@@ -713,8 +716,10 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	return b.String()
 }
 
-// layoutSuffix returns a dim suffix describing non-default state.
-func (m *Model) layoutSuffix(it *item) string {
+// layoutSuffix returns a dim suffix describing non-default state. editingNote
+// drops the "note" flag while the note is shown inline, so it is not labelled
+// twice on the row being edited.
+func (m *Model) layoutSuffix(it *item, editingNote bool) string {
 	var parts []string
 	if it.mirrorOf != "" {
 		parts = append(parts, "mirror")
@@ -727,7 +732,7 @@ func (m *Model) layoutSuffix(it *item) string {
 		parts = append(parts, fmt.Sprintf("%d %s", len(kids), noun))
 	}
 	// a mirror's note is its source's note: flag the indicator from the one node
-	if m.tree.resolve(it).note != "" {
+	if !editingNote && m.tree.resolve(it).note != "" {
 		parts = append(parts, "note")
 	}
 	if len(parts) == 0 {
