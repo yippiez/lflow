@@ -65,37 +65,6 @@ func NewInternalClient(baseURL, sessionID string) *InternalClient {
 	}
 }
 
-// Login exchanges credentials for a session id.
-func Login(baseURL, username, password string) (string, error) {
-	if baseURL == "" {
-		baseURL = "https://workflowy.com"
-	}
-
-	form := url.Values{}
-	form.Set("username", username)
-	form.Set("password", password)
-
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	resp, err := client.PostForm(baseURL+"/ajax_login", form)
-	if err != nil {
-		return "", errors.Wrap(err, "posting login")
-	}
-	defer resp.Body.Close()
-
-	for _, c := range resp.Cookies() {
-		if c.Name == "sessionid" && c.Value != "" {
-			return c.Value, nil
-		}
-	}
-
-	return "", errors.New("login did not yield a session (check credentials; accounts with 2FA need a session id)")
-}
-
 // wfItem is the wire format of a node in get_initialization_data.
 type wfItem struct {
 	ID        string   `json:"id"`

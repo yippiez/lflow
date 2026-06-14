@@ -20,6 +20,13 @@ type Config struct {
 	// DBPath relocates the SQLite database. The config file is the only
 	// place to set it; there is no flag.
 	DBPath string `yaml:"dbPath,omitempty"`
+	// WorkflowySessionID enables the `lflow wf` commands. There is no login
+	// command — paste the value of the `sessionid` cookie from a logged-in
+	// workflowy.com browser session here.
+	WorkflowySessionID string `yaml:"workflowySessionId,omitempty"`
+	// WorkflowyBaseURL overrides the workflowy endpoint for a self-hosted
+	// instance or tests. Leave empty for workflowy.com.
+	WorkflowyBaseURL string `yaml:"workflowyBaseUrl,omitempty"`
 }
 
 func checkLegacyPath(ctx context.DnoteCtx) (string, bool) {

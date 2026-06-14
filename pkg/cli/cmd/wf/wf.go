@@ -1,11 +1,11 @@
 // Package wf provides the workflowy integration commands: mirror, list,
-// pull/push, unmirror and login.
+// pull/push and unmirror. The session id is set in the config file, not via a
+// login command.
 package wf
 
 import (
 	"fmt"
 	"os"
-	"syscall"
 	"time"
 
 	"github.com/fatih/color"
@@ -17,7 +17,6 @@ import (
 	wfpkg "github.com/lflow/lflow/pkg/cli/wf"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 var dim = color.New(color.FgHiBlack)
@@ -30,61 +29,11 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 		Short: "Workflowy integration",
 	}
 
-	cmd.AddCommand(newLoginCmd(ctx))
 	cmd.AddCommand(newMirrorCmd(ctx))
 	cmd.AddCommand(newListCmd(ctx))
 	cmd.AddCommand(newSyncCmd(ctx, "pull"))
 	cmd.AddCommand(newSyncCmd(ctx, "push"))
 	cmd.AddCommand(newUnmirrorCmd(ctx))
-
-	return cmd
-}
-
-func newLoginCmd(ctx context.DnoteCtx) *cobra.Command {
-	var sessionFlag, baseURLFlag string
-
-	cmd := &cobra.Command{
-		Use:   "login",
-		Short: "Log in to workflowy, or store a session id directly",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if baseURLFlag != "" {
-				if err := database.UpsertSystem(ctx.DB, wfpkg.SystemWfBaseURL, baseURLFlag); err != nil {
-					return err
-				}
-			}
-
-			session := sessionFlag
-			if session == "" {
-				var username string
-				fmt.Print("workflowy email: ")
-				fmt.Scanln(&username)
-				fmt.Print("password: ")
-				pw, err := term.ReadPassword(int(syscall.Stdin))
-				fmt.Println()
-				if err != nil {
-					return errors.Wrap(err, "reading password")
-				}
-
-				var baseURL string
-				database.GetSystem(ctx.DB, wfpkg.SystemWfBaseURL, &baseURL)
-				session, err = wfpkg.Login(baseURL, username, string(pw))
-				if err != nil {
-					return err
-				}
-			}
-
-			if err := database.UpsertSystem(ctx.DB, wfpkg.SystemWfSession, session); err != nil {
-				return err
-			}
-
-			log.Success("logged in to workflowy\n")
-			return nil
-		},
-	}
-
-	f := cmd.Flags()
-	f.StringVar(&sessionFlag, "session", "", "store a workflowy sessionid directly (for 2FA accounts)")
-	f.StringVar(&baseURLFlag, "base-url", "", "override the workflowy endpoint (testing/self-hosted)")
 
 	return cmd
 }

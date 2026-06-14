@@ -3,27 +3,23 @@ package wf
 import (
 	"path/filepath"
 
+	"github.com/lflow/lflow/pkg/cli/config"
 	"github.com/lflow/lflow/pkg/cli/consts"
 	"github.com/lflow/lflow/pkg/cli/context"
-	"github.com/lflow/lflow/pkg/cli/database"
 	"github.com/pkg/errors"
 )
 
-// system table keys for the workflowy session.
-const (
-	SystemWfSession = "wf_session_id"
-	SystemWfBaseURL = "wf_base_url"
-)
-
-// ClientFromCtx builds a workflowy client from the stored session.
+// ClientFromCtx builds a workflowy client from the session id in the config
+// file. Set workflowySessionId in the config — there is no login command.
 func ClientFromCtx(ctx context.DnoteCtx) (Client, error) {
-	var session, baseURL string
-	database.GetSystem(ctx.DB, SystemWfSession, &session)
-	database.GetSystem(ctx.DB, SystemWfBaseURL, &baseURL)
-	if session == "" {
-		return nil, errors.New("not logged in to workflowy (run lflow wf login)")
+	cf, err := config.Read(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "reading config")
 	}
-	return NewInternalClient(baseURL, session), nil
+	if cf.WorkflowySessionID == "" {
+		return nil, errors.Errorf("no workflowy session · set workflowySessionId in %s", config.GetPath(ctx))
+	}
+	return NewInternalClient(cf.WorkflowyBaseURL, cf.WorkflowySessionID), nil
 }
 
 // JournalFromCtx returns the journal for overwritten local values.
