@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func TestGetPath(t *testing.T) {

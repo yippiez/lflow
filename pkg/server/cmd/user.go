@@ -5,9 +5,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/lflow/lflow/pkg/prompt"
 	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/lflow/lflow/pkg/server/log"
+	"github.com/lflow/lflow/pkg/shared/prompt"
 	"github.com/pkg/errors"
 )
 

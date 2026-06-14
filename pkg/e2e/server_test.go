@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/shared/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

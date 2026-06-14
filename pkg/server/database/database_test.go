@@ -3,8 +3,8 @@ package database
 import (
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/server/log"
+	"github.com/lflow/lflow/pkg/shared/assert"
 	"gorm.io/gorm/logger"
 )
 

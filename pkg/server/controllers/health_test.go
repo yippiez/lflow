@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/lflow/lflow/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func TestHealth(t *testing.T) {

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/cli/consts"
 	"github.com/lflow/lflow/pkg/cli/database"
 	"github.com/lflow/lflow/pkg/cli/testutils"
 	"github.com/lflow/lflow/pkg/cli/utils"
+	"github.com/lflow/lflow/pkg/shared/assert"
 	"github.com/pkg/errors"
 )
 

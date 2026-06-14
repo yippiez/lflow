@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/server/database"
 	"github.com/lflow/lflow/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/shared/assert"
 	"github.com/pkg/errors"
 )
 

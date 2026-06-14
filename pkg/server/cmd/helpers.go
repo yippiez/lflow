@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/lflow/lflow/pkg/clock"
 	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/lflow/lflow/pkg/server/config"
 	"github.com/lflow/lflow/pkg/server/database"
 	"github.com/lflow/lflow/pkg/server/log"
 	"github.com/lflow/lflow/pkg/server/mailer"
+	"github.com/lflow/lflow/pkg/shared/clock"
 	"gorm.io/gorm"
 )
 

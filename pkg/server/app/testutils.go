@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/lflow/lflow/pkg/clock"
 	"github.com/lflow/lflow/pkg/server/assets"
 	"github.com/lflow/lflow/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/shared/clock"
 )
 
 // NewTest returns an app for a testing environment

@@ -3,7 +3,7 @@ package database
 import (
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func mustInsert(t *testing.T, db *DB, n Node) {

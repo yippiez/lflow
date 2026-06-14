@@ -17,8 +17,8 @@ import (
 	"github.com/lflow/lflow/pkg/cli/log"
 	"github.com/lflow/lflow/pkg/cli/migrate"
 	"github.com/lflow/lflow/pkg/cli/utils"
-	"github.com/lflow/lflow/pkg/clock"
-	"github.com/lflow/lflow/pkg/dirs"
+	"github.com/lflow/lflow/pkg/shared/clock"
+	"github.com/lflow/lflow/pkg/shared/dirs"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )

@@ -5,10 +5,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/cli/config"
 	"github.com/lflow/lflow/pkg/cli/database"
-	"github.com/lflow/lflow/pkg/dirs"
+	"github.com/lflow/lflow/pkg/shared/assert"
+	"github.com/lflow/lflow/pkg/shared/dirs"
 	"github.com/pkg/errors"
 )
 

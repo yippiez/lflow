@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/lflow/lflow/pkg/cli/database"
-	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/shared/clock"
 )
 
 // Paths contain directory definitions

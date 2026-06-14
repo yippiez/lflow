@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lflow/lflow/pkg/dirs"
 	"github.com/lflow/lflow/pkg/server/assets"
+	"github.com/lflow/lflow/pkg/shared/dirs"
 	"github.com/pkg/errors"
 )
 

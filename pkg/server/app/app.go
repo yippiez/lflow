@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/lflow/lflow/pkg/clock"
 	"github.com/lflow/lflow/pkg/server/mailer"
+	"github.com/lflow/lflow/pkg/shared/clock"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )

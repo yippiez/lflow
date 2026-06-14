@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func TestValidateBookName(t *testing.T) {

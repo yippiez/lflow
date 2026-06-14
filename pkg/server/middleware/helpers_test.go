@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/shared/assert"
 	"github.com/pkg/errors"
 )
 

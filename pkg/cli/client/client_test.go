@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/testutils"
+	"github.com/lflow/lflow/pkg/shared/assert"
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
 )

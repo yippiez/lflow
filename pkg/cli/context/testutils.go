@@ -6,7 +6,7 @@ import (
 
 	"github.com/lflow/lflow/pkg/cli/consts"
 	"github.com/lflow/lflow/pkg/cli/database"
-	"github.com/lflow/lflow/pkg/clock"
+	"github.com/lflow/lflow/pkg/shared/clock"
 	"github.com/pkg/errors"
 )
 

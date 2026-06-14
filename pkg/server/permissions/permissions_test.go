@@ -3,9 +3,9 @@ package permissions
 import (
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/server/database"
 	"github.com/lflow/lflow/pkg/server/testutils"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func TestViewNode(t *testing.T) {

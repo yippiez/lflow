@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func TestToDateTime(t *testing.T) {

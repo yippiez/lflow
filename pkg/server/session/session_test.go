@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/server/database"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func TestNew(t *testing.T) {

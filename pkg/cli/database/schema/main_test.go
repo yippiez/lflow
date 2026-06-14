@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func TestRun(t *testing.T) {

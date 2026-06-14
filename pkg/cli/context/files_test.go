@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/assert"
 	"github.com/lflow/lflow/pkg/cli/consts"
+	"github.com/lflow/lflow/pkg/shared/assert"
 )
 
 func assertDirsExist(t *testing.T, paths Paths) {
