@@ -105,6 +105,9 @@ func styleAttrs(style string) string {
 	if styleHas(style, "underline") {
 		s += cUnderline
 	}
+	if styleHas(style, "strike") {
+		s += cStrike
+	}
 	return s
 }
 

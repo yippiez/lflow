@@ -622,10 +622,10 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 
 	sgr := func(f spanFlags) string {
 		s := cReset + base + attrs
-		// a date chip overrides the node's color: blue background, default
-		// foreground, regardless of any /color set on the node.
+		// a detected date gets only its background colored — the chip. The
+		// foreground keeps the node's own color/attrs; nothing else is special.
 		if f.date {
-			s += bgPill + cFG
+			s += bgPill
 		}
 		return s
 	}

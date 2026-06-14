@@ -74,6 +74,7 @@ var slashCommands = []slashCommand{
 	{"/bold", "toggle bold text"},
 	{"/italic", "toggle italic text"},
 	{"/underline", "toggle underline text"},
+	{"/strikethrough", "toggle strikethrough text"},
 	{"/note", "edit this node's note"},
 }
 
@@ -1364,6 +1365,10 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.pushUndo("")
 		cur.style = styleToggle(cur.style, "underline")
 		m.unsaved = true
+	case "/strikethrough":
+		m.pushUndo("")
+		cur.style = styleToggle(cur.style, "strike")
+		m.unsaved = true
 	case "/color":
 		// open the picker; pre-select the color already in effect, if any
 		m.mode = modeColor
@@ -1960,7 +1965,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if i == m.slashSel {
 				mark = cAccent + "▸ " + cReset
 			}
-			line := " " + mark + cFG + fmt.Sprintf("%-11s", c.name) + cDim + " " + c.desc + cReset
+			line := " " + mark + cFG + fmt.Sprintf("%-14s", c.name) + cDim + " " + c.desc + cReset
 			lines = append(lines, clip(line, maxLine))
 		}
 	}

@@ -108,15 +108,19 @@ func TestRenderBodyChipsBareDate(t *testing.T) {
 	}
 }
 
-// TestRenderBodyDateChipOverridesColor: the date chip's color wins over the
-// node's own /color, so the date is never recolored to the node color.
-func TestRenderBodyDateChipOverridesColor(t *testing.T) {
+// TestRenderBodyDateChipBackgroundOnly: a detected date gets only its
+// background colored — the chip — regardless of the node's /color. The
+// foreground keeps the node's color rather than being forced to a default.
+func TestRenderBodyDateChipBackgroundOnly(t *testing.T) {
 	it := &item{layout: database.LayoutBullets, style: "color:red"}
 
 	rendered := renderBody(it, "2026-06-14", -1, false)
-	// the chip re-asserts the default foreground over the red base color
-	if !strings.Contains(rendered, bgPill+cFG) {
-		t.Errorf("date chip should override node color: %q", rendered)
+	if !strings.Contains(rendered, bgPill) {
+		t.Errorf("date should get the chip background: %q", rendered)
+	}
+	// the chip is background-only: the date keeps the node's red foreground
+	if !strings.Contains(rendered, styleColorCode["red"]) {
+		t.Errorf("date foreground should keep the node color: %q", rendered)
 	}
 }
 
@@ -138,10 +142,10 @@ func TestRenderBodyAsterisksAreLiteral(t *testing.T) {
 // bold/italic/underline codes appear and the chosen color recolors the text,
 // while the visible characters are untouched.
 func TestRenderBodyAppliesNodeStyle(t *testing.T) {
-	it := &item{layout: database.LayoutBullets, style: "bold,italic,underline,color:blue"}
+	it := &item{layout: database.LayoutBullets, style: "bold,italic,underline,strike,color:blue"}
 
 	rendered := renderBody(it, "hi", 0, false)
-	for _, code := range []string{cBold, cItalic, cUnderline, styleColorCode["blue"]} {
+	for _, code := range []string{cBold, cItalic, cUnderline, cStrike, styleColorCode["blue"]} {
 		if !strings.Contains(rendered, code) {
 			t.Errorf("style code %q missing from %q", code, rendered)
 		}
