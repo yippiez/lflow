@@ -576,14 +576,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+t":
-		// convert the detected time phrase into a date pill — only on an editable
-		// node, never a mirror reference (see mirrorContext)
+		// convert the detected time phrase into its canonical date text, which the
+		// renderer then chips by format — only on an editable node, never a mirror
+		// reference (see mirrorContext)
 		if cur := m.cursorItem(); cur != nil && m.mirrorContext().editable {
-			if d := detectDate(cur.name, m.caret, time.Now()); d != nil {
+			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
 				runes := []rune(cur.name)
-				pill := d.pill()
-				cur.name = string(runes[:d.start]) + pill + string(runes[d.end:])
-				m.caret = d.start + len([]rune(pill))
+				date := d.canonical()
+				cur.name = string(runes[:d.start]) + date + string(runes[d.end:])
+				m.caret = d.start + len([]rune(date))
 				m.unsaved = true
 			}
 		}
@@ -2000,11 +2001,12 @@ func (m *Model) bottomBar(maxLine int) string {
 	if m.flash != "" {
 		state += " · " + m.flash
 	}
-	// offer the date-pill conversion while a time phrase sits under the cursor
+	// offer the date conversion while a non-canonical time phrase sits under the
+	// cursor; an already-canonical date needs no conversion and is chipped as-is
 	if m.mode == modeOutline {
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
-			if d := detectDate(cur.name, m.caret, time.Now()); d != nil {
-				state += fmt.Sprintf(" · ctrl+t %q → %s", d.phrase, d.display())
+			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
+				state += fmt.Sprintf(" · ctrl+t %q → %s", d.phrase, d.canonical())
 			}
 		}
 	}

@@ -15,8 +15,8 @@ func TestDetectDateTurkishFullPhrase(t *testing.T) {
 	if d.phrase != "11 şubat 2025 saat 15:20" {
 		t.Errorf("phrase: %q", d.phrase)
 	}
-	if !d.hasTime || d.pill() != "[[2025-02-11 15:20]]" {
-		t.Errorf("pill: %q hasTime=%v", d.pill(), d.hasTime)
+	if !d.hasTime || d.canonical() != "2025-02-11 15:20" {
+		t.Errorf("canonical: %q hasTime=%v", d.canonical(), d.hasTime)
 	}
 }
 
@@ -25,8 +25,8 @@ func TestDetectDateEnglishNamedMonth(t *testing.T) {
 	if d == nil {
 		t.Fatal("phrase not detected")
 	}
-	if d.pill() != "[[2025-02-11 15:20]]" {
-		t.Errorf("pill: %q", d.pill())
+	if d.canonical() != "2025-02-11 15:20" {
+		t.Errorf("canonical: %q", d.canonical())
 	}
 }
 
@@ -35,24 +35,24 @@ func TestDetectDateNamedMonthWithoutClock(t *testing.T) {
 	if d == nil {
 		t.Fatal("phrase not detected")
 	}
-	if d.hasTime || d.pill() != "[[2025-05-01]]" {
-		t.Errorf("pill: %q hasTime=%v", d.pill(), d.hasTime)
+	if d.hasTime || d.canonical() != "2025-05-01" {
+		t.Errorf("canonical: %q hasTime=%v", d.canonical(), d.hasTime)
 	}
 }
 
 func TestDetectDateRelativeWords(t *testing.T) {
 	cases := []struct {
-		text    string
-		pill    string
-		hasTime bool
+		text      string
+		canonical string
+		hasTime   bool
 	}{
-		{"do it now", "[[2026-06-12 19:04]]", true},
-		{"şimdi başla", "[[2026-06-12 19:04]]", true},
-		{"bugün bitir", "[[2026-06-12]]", false},
-		{"finish today", "[[2026-06-12]]", false},
-		{"yarın sabah", "[[2026-06-13]]", false},
-		{"tomorrow first thing", "[[2026-06-13]]", false},
-		{"dün oldu", "[[2026-06-11]]", false},
+		{"do it now", "2026-06-12 19:04", true},
+		{"şimdi başla", "2026-06-12 19:04", true},
+		{"bugün bitir", "2026-06-12", false},
+		{"finish today", "2026-06-12", false},
+		{"yarın sabah", "2026-06-13", false},
+		{"tomorrow first thing", "2026-06-13", false},
+		{"dün oldu", "2026-06-11", false},
 	}
 	for _, tc := range cases {
 		d := detectDate(tc.text, 0, clock)
@@ -60,25 +60,25 @@ func TestDetectDateRelativeWords(t *testing.T) {
 			t.Errorf("%q: not detected", tc.text)
 			continue
 		}
-		if d.pill() != tc.pill || d.hasTime != tc.hasTime {
-			t.Errorf("%q: pill %q hasTime=%v, want %q %v", tc.text, d.pill(), d.hasTime, tc.pill, tc.hasTime)
+		if d.canonical() != tc.canonical || d.hasTime != tc.hasTime {
+			t.Errorf("%q: canonical %q hasTime=%v, want %q %v", tc.text, d.canonical(), d.hasTime, tc.canonical, tc.hasTime)
 		}
 	}
 }
 
 func TestDetectDateISOAndNumeric(t *testing.T) {
 	d := detectDate("retro 2025-02-11 14:00 cal", 0, clock)
-	if d == nil || d.pill() != "[[2025-02-11 14:00]]" {
+	if d == nil || d.canonical() != "2025-02-11 14:00" {
 		t.Fatalf("iso: %+v", d)
 	}
 
 	d = detectDate("son tarih 11/02/2025", 0, clock)
-	if d == nil || d.pill() != "[[2025-02-11]]" {
+	if d == nil || d.canonical() != "2025-02-11" {
 		t.Fatalf("numeric slash: %+v", d)
 	}
 
 	d = detectDate("11.02.2025 saat 9.30", 0, clock)
-	if d == nil || d.pill() != "[[2025-02-11 09:30]]" {
+	if d == nil || d.canonical() != "2025-02-11 09:30" {
 		t.Fatalf("numeric dot with clock: %+v", d)
 	}
 }
@@ -88,9 +88,6 @@ func TestDetectDateRejectsNoise(t *testing.T) {
 		"nowhere to go",      // "now" glued inside a word
 		"the showdown ended", // "down" is not "dün"
 		"version 30.02.2025", // february 30 is not a date
-		"[[2025-02-11]] set", // already a pill
-		"[[now",              // unclosed bracket: half-typed pill, no double convert
-		"prefix [[tomorrow",  // unclosed bracket later in the string
 		"",
 	} {
 		if d := detectDate(text, 0, clock); d != nil {
@@ -117,8 +114,8 @@ func TestDetectDateCaretAware(t *testing.T) {
 	if d.phrase != "yesterday" {
 		t.Errorf("caret in second phrase: picked %q, want %q", d.phrase, "yesterday")
 	}
-	if d.pill() != "[[2026-06-11]]" {
-		t.Errorf("pill: %q", d.pill())
+	if d.canonical() != "2026-06-11" {
+		t.Errorf("canonical: %q", d.canonical())
 	}
 
 	// caret in the first phrase still converts the first phrase.

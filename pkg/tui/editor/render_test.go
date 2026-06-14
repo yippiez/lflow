@@ -93,15 +93,30 @@ func TestSourceUUIDStopsOnCycle(t *testing.T) {
 	_ = tr.sourceUUID(a)
 }
 
-func TestRenderBodyHidesMarkersWhenUnselected(t *testing.T) {
+// TestRenderBodyChipsBareDate: a date is recognised by format in plain text —
+// no brackets stored — and painted as a chip. The visible text is unchanged
+// (no markers to hide) and the chip background appears in the SGR output.
+func TestRenderBodyChipsBareDate(t *testing.T) {
 	it := &item{layout: database.LayoutBullets}
 
-	// date-pill [[ ]] brackets are hidden on an unselected row, rendering as a
-	// clean chip. They are the only inline markers left now that styling is a
-	// per-node attribute.
-	got := stripSGR(renderBody(it, "due [[2026-06-14]] ok", -1, false))
-	if got != "due 2026-06-14 ok" {
-		t.Errorf("pill brackets should be hidden: %q", got)
+	rendered := renderBody(it, "due 2026-06-14 ok", -1, false)
+	if got := stripSGR(rendered); got != "due 2026-06-14 ok" {
+		t.Errorf("date text must render literally: %q", got)
+	}
+	if !strings.Contains(rendered, bgPill) {
+		t.Errorf("a bare date should be chipped: %q", rendered)
+	}
+}
+
+// TestRenderBodyDateChipOverridesColor: the date chip's color wins over the
+// node's own /color, so the date is never recolored to the node color.
+func TestRenderBodyDateChipOverridesColor(t *testing.T) {
+	it := &item{layout: database.LayoutBullets, style: "color:red"}
+
+	rendered := renderBody(it, "2026-06-14", -1, false)
+	// the chip re-asserts the default foreground over the red base color
+	if !strings.Contains(rendered, bgPill+cFG) {
+		t.Errorf("date chip should override node color: %q", rendered)
 	}
 }
 
@@ -212,16 +227,16 @@ func TestRenderBodyLoneAsteriskStaysPlain(t *testing.T) {
 	}
 }
 
-func TestRenderBodyDatePillBracketsHidden(t *testing.T) {
+func TestRenderBodyChipsDateWithTime(t *testing.T) {
 	it := &item{layout: database.LayoutBullets}
 
-	rendered := renderBody(it, "ship on [[2025-02-11 15:20]] sharp", -1, false)
+	rendered := renderBody(it, "ship on 2025-02-11 15:20 sharp", -1, false)
 	got := stripSGR(rendered)
 	if got != "ship on 2025-02-11 15:20 sharp" {
-		t.Errorf("pill brackets should be hidden: %q", got)
+		t.Errorf("date text must render literally: %q", got)
 	}
 	if !strings.Contains(rendered, bgPill) {
-		t.Errorf("pill background missing: %q", rendered)
+		t.Errorf("date chip background missing: %q", rendered)
 	}
 }
 

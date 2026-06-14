@@ -723,6 +723,42 @@ var lm16 = migration{
 	},
 }
 
+// lm17 unwraps the legacy [[date]] pill brackets in node names. Dates are now
+// recognised by format and chipped at render time, with no markers stored, so
+// the old [[YYYY-MM-DD HH:MM]] tokens become bare dates. Only bracket pairs
+// wrapping a canonical date are touched; any other [[ ]] text is left alone.
+var lm17 = migration{
+	name: "unwrap-date-pill-brackets",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		re := regexp.MustCompile(`\[\[(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)\]\]`)
+
+		rows, err := tx.Query("SELECT uuid, name FROM nodes WHERE name LIKE '%[[%'")
+		if err != nil {
+			return errors.Wrap(err, "querying nodes with brackets")
+		}
+		type update struct{ uuid, name string }
+		var updates []update
+		for rows.Next() {
+			var uuid, name string
+			if err := rows.Scan(&uuid, &name); err != nil {
+				rows.Close()
+				return errors.Wrap(err, "scanning node")
+			}
+			if stripped := re.ReplaceAllString(name, "$1"); stripped != name {
+				updates = append(updates, update{uuid, stripped})
+			}
+		}
+		rows.Close()
+
+		for _, u := range updates {
+			if _, err := tx.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", u.name, u.uuid); err != nil {
+				return errors.Wrapf(err, "unwrapping date pills in node %s", u.uuid)
+			}
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {

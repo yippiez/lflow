@@ -11,7 +11,9 @@ import (
 
 // dateMatch is a natural-language time phrase found in a row: "now",
 // "bugün", "11 şubat 2025 saat 15:20", "2025-02-11", "11/02/2025 9:30".
-// ctrl+t replaces the phrase with a [[...]] date pill.
+// ctrl+t replaces the phrase with its canonical YYYY-MM-DD[ HH:MM] form, which
+// the renderer then recognises by format and paints as a date chip — no
+// brackets or markers are stored.
 type dateMatch struct {
 	start, end int // rune offsets of the phrase in the name
 	t          time.Time
@@ -19,17 +21,39 @@ type dateMatch struct {
 	phrase     string
 }
 
-// pill renders the canonical pill token the phrase converts into.
-func (d dateMatch) pill() string {
+// canonical renders the canonical date text the phrase converts into. It is
+// bare — the chip styling comes from render detecting this format, not from any
+// stored marker.
+func (d dateMatch) canonical() string {
 	if d.hasTime {
-		return "[[" + d.t.Format("2006-01-02 15:04") + "]]"
+		return d.t.Format("2006-01-02 15:04")
 	}
-	return "[[" + d.t.Format("2006-01-02") + "]]"
+	return d.t.Format("2006-01-02")
 }
 
-// display is the pill content without brackets, for the bottom-bar hint.
-func (d dateMatch) display() string {
-	return strings.TrimSuffix(strings.TrimPrefix(d.pill(), "[["), "]]")
+// detectDateSpans returns the rune ranges [start,end) of every canonical date in
+// the name — a valid YYYY-MM-DD optionally followed by HH:MM, standing on its
+// own word boundary. The renderer chips these regardless of the node's color.
+func detectDateSpans(name string) [][2]int {
+	var spans [][2]int
+	for _, loc := range reISO.FindAllStringSubmatchIndex(name, -1) {
+		if !wordBound(name, loc[0], loc[1]) {
+			continue
+		}
+		group := func(i int) string {
+			if loc[2*i] >= 0 {
+				return name[loc[2*i]:loc[2*i+1]]
+			}
+			return ""
+		}
+		if _, ok := buildDate(atoi(group(1)), atoi(group(2)), atoi(group(3)), atoi(group(4)), atoi(group(5)), time.UTC); !ok {
+			continue
+		}
+		start := utf8.RuneCountInString(name[:loc[0]])
+		end := utf8.RuneCountInString(name[:loc[1]])
+		spans = append(spans, [2]int{start, end})
+	}
+	return spans
 }
 
 var monthsByName = map[string]time.Month{
@@ -69,8 +93,7 @@ var (
 )
 
 // wordBound reports whether the byte range [start,end) sits on its own:
-// not glued to a letter or digit on either side, and not already inside a
-// [[...]] pill.
+// not glued to a letter or digit on either side.
 func wordBound(s string, start, end int) bool {
 	if start > 0 {
 		r, _ := utf8.DecodeLastRuneInString(s[:start])
@@ -84,31 +107,7 @@ func wordBound(s string, start, end int) bool {
 			return false
 		}
 	}
-	return !insidePill(s, start)
-}
-
-// insidePill reports whether the byte offset falls inside a [[...]] span. An
-// open [[ with no matching ]] counts as a pill that runs to the end of the
-// string: an unclosed bracket is treated as inside-pill context so a half-typed
-// "[[now" suppresses the ctrl+t hint rather than nesting a second pill.
-func insidePill(s string, off int) bool {
-	i := 0
-	for {
-		open := strings.Index(s[i:], "[[")
-		if open < 0 {
-			return false
-		}
-		open += i
-		closing := strings.Index(s[open+2:], "]]")
-		if closing < 0 {
-			return off >= open
-		}
-		end := open + 2 + closing + 2
-		if off >= open && off < end {
-			return true
-		}
-		i = end
-	}
+	return true
 }
 
 func atoi(s string) int {

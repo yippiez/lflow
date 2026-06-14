@@ -566,39 +566,25 @@ func stripControlBytes(s string) string {
 	}, s)
 }
 
-// spanFlags is the per-rune mask the inline parser produces. Text styling
-// (bold, italic, underline, color) is a per-node attribute — see item.style —
-// not inline markup, so no syntax markers leak into the stored name, search or
-// export. The only inline spans left are date pills, whose [[ ]] brackets are
-// real inserted content that renders as a chip.
+// spanFlags is the per-rune mask the renderer uses. Text styling (bold, italic,
+// underline, color) is a per-node attribute — see item.style — not inline
+// markup, so no syntax markers leak into the stored name, search or export.
+// Dates carry no markers either: the renderer recognises the canonical date
+// format in the plain text and chips those runes.
 type spanFlags struct {
-	marker bool // part of [[ ]] pill syntax, hidden unless the row is selected
-	pill   bool
+	date bool // part of a canonical YYYY-MM-DD[ HH:MM] date, painted as a chip
 }
 
-// inlineSpans marks the [[date pill]] spans over the raw runes. A pill only
-// forms when a closing ]] exists, so a lone bracket stays plain text.
+// inlineSpans marks the runes that fall inside a canonical date so renderBody
+// can paint them as a chip. Detection is purely by format — the stored text has
+// no brackets.
 func inlineSpans(runes []rune) []spanFlags {
 	flags := make([]spanFlags, len(runes))
-
-	// date pills: [[ ... ]]
-	for i := 0; i+1 < len(runes); i++ {
-		if flags[i].pill || runes[i] != '[' || runes[i+1] != '[' {
-			continue
-		}
-		for j := i + 2; j+1 < len(runes); j++ {
-			if runes[j] == ']' && runes[j+1] == ']' {
-				for k := i; k <= j+1; k++ {
-					flags[k].pill = true
-				}
-				flags[i].marker, flags[i+1].marker = true, true
-				flags[j].marker, flags[j+1].marker = true, true
-				i = j + 1
-				break
-			}
+	for _, span := range detectDateSpans(string(runes)) {
+		for k := span[0]; k < span[1] && k < len(flags); k++ {
+			flags[k].date = true
 		}
 	}
-
 	return flags
 }
 
@@ -636,10 +622,9 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 
 	sgr := func(f spanFlags) string {
 		s := cReset + base + attrs
-		if f.marker {
-			s = cReset + cDim + attrs
-		}
-		if f.pill && !f.marker {
+		// a date chip overrides the node's color: blue background, default
+		// foreground, regardless of any /color set on the node.
+		if f.date {
 			s += bgPill + cFG
 		}
 		return s
@@ -653,12 +638,6 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	}
 	for i, r := range runes {
 		f := flags[i]
-		// markers hide on unselected rows; the date-pill [[ ]] brackets hide
-		// always so a pill reads as a clean colored chip. Keep any hidden marker
-		// the caret sits on so the block cursor stays visible while editing.
-		if f.marker && (!selected || f.pill) && i != caret {
-			continue
-		}
 		if i == caret {
 			// the block cursor sits ON the rune: same colors, dark red cell
 			b.WriteString(sgr(f) + cInvert)
