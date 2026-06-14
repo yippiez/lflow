@@ -14,7 +14,6 @@ import (
 	"github.com/lflow/lflow/pkg/cli/cmd/root"
 	"github.com/lflow/lflow/pkg/cli/cmd/server"
 	"github.com/lflow/lflow/pkg/cli/cmd/version"
-	wfcmd "github.com/lflow/lflow/pkg/cli/cmd/wf"
 )
 
 // apiEndpoint and versionTag are populated during link time
@@ -33,7 +32,6 @@ func main() {
 	root.Register(node.NewCmd(*ctx))
 	root.Register(export.NewCmd(*ctx))
 	root.Register(server.NewCmd(*ctx))
-	root.Register(wfcmd.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
 
 	if err := root.Execute(); err != nil {
