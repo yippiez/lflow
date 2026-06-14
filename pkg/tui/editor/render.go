@@ -566,17 +566,18 @@ func stripControlBytes(s string) string {
 	}, s)
 }
 
-// spanFlags is the per-rune style mask the inline parser produces.
+// spanFlags is the per-rune mask the inline parser produces. Text styling
+// (bold, italic, underline, color) is a per-node attribute — see item.style —
+// not inline markup, so no syntax markers leak into the stored name, search or
+// export. The only inline spans left are date pills, whose [[ ]] brackets are
+// real inserted content that renders as a chip.
 type spanFlags struct {
-	marker bool // part of ** * [[ ]] syntax, hidden unless the row is selected
-	bold   bool
-	italic bool
+	marker bool // part of [[ ]] pill syntax, hidden unless the row is selected
 	pill   bool
 }
 
-// inlineSpans marks inline markdown spans over the raw runes: **bold**,
-// *italic* and [[date pills]]. Markers only toggle when a closing marker
-// exists, so a lone asterisk stays plain text.
+// inlineSpans marks the [[date pill]] spans over the raw runes. A pill only
+// forms when a closing ]] exists, so a lone bracket stays plain text.
 func inlineSpans(runes []rune) []spanFlags {
 	flags := make([]spanFlags, len(runes))
 
@@ -593,41 +594,6 @@ func inlineSpans(runes []rune) []spanFlags {
 				flags[i].marker, flags[i+1].marker = true, true
 				flags[j].marker, flags[j+1].marker = true, true
 				i = j + 1
-				break
-			}
-		}
-	}
-
-	// bold: ** ... **
-	for i := 0; i+1 < len(runes); i++ {
-		if flags[i].pill || flags[i].marker || runes[i] != '*' || runes[i+1] != '*' {
-			continue
-		}
-		for j := i + 2; j+1 < len(runes); j++ {
-			if runes[j] == '*' && runes[j+1] == '*' && !flags[j].pill && j > i+2 {
-				for k := i; k <= j+1; k++ {
-					flags[k].bold = true
-				}
-				flags[i].marker, flags[i+1].marker = true, true
-				flags[j].marker, flags[j+1].marker = true, true
-				i = j + 1
-				break
-			}
-		}
-	}
-
-	// italic: * ... *
-	for i := 0; i < len(runes); i++ {
-		if flags[i].pill || flags[i].bold || runes[i] != '*' {
-			continue
-		}
-		for j := i + 1; j < len(runes); j++ {
-			if runes[j] == '*' && !flags[j].pill && !flags[j].bold && j > i+1 {
-				for k := i; k <= j; k++ {
-					flags[k].italic = true
-				}
-				flags[i].marker, flags[j].marker = true, true
-				i = j
 				break
 			}
 		}
@@ -675,12 +641,6 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 		}
 		if f.pill && !f.marker {
 			s += bgPill + cFG
-		}
-		if f.bold {
-			s += cBold
-		}
-		if f.italic {
-			s += cItalic
 		}
 		return s
 	}

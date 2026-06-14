@@ -96,9 +96,43 @@ func TestSourceUUIDStopsOnCycle(t *testing.T) {
 func TestRenderBodyHidesMarkersWhenUnselected(t *testing.T) {
 	it := &item{layout: database.LayoutBullets}
 
-	got := stripSGR(renderBody(it, "say **hello** to *world*", -1, false))
-	if got != "say hello to world" {
-		t.Errorf("markers should be hidden: %q", got)
+	// date-pill [[ ]] brackets are hidden on an unselected row, rendering as a
+	// clean chip. They are the only inline markers left now that styling is a
+	// per-node attribute.
+	got := stripSGR(renderBody(it, "due [[2026-06-14]] ok", -1, false))
+	if got != "due 2026-06-14 ok" {
+		t.Errorf("pill brackets should be hidden: %q", got)
+	}
+}
+
+// TestRenderBodyAsterisksAreLiteral pins the decision to drop inline markdown:
+// styling is a per-node attribute, so ** and * are now ordinary text that must
+// not be reinterpreted or stripped, on any row.
+func TestRenderBodyAsterisksAreLiteral(t *testing.T) {
+	it := &item{layout: database.LayoutBullets}
+
+	for _, selected := range []bool{false, true} {
+		got := stripSGR(renderBody(it, "say **hello** to *world*", -1, selected))
+		if got != "say **hello** to *world*" {
+			t.Errorf("asterisks must render literally (selected=%v): %q", selected, got)
+		}
+	}
+}
+
+// TestRenderBodyAppliesNodeStyle checks that item.style drives the SGR output:
+// bold/italic/underline codes appear and the chosen color recolors the text,
+// while the visible characters are untouched.
+func TestRenderBodyAppliesNodeStyle(t *testing.T) {
+	it := &item{layout: database.LayoutBullets, style: "bold,italic,underline,color:blue"}
+
+	rendered := renderBody(it, "hi", 0, false)
+	for _, code := range []string{cBold, cItalic, cUnderline, styleColorCode["blue"]} {
+		if !strings.Contains(rendered, code) {
+			t.Errorf("style code %q missing from %q", code, rendered)
+		}
+	}
+	if got := stripSGR(rendered); got != "hi" {
+		t.Errorf("styling must not change the text: %q", got)
 	}
 }
 
@@ -133,15 +167,6 @@ func TestRenderBodyStripsStoredControlBytes(t *testing.T) {
 	}
 	if got := stripSGR(rendered); got != "x[2J[Hy" {
 		t.Fatalf("stored control bytes should render inert: %q", got)
-	}
-}
-
-func TestRenderBodyShowsMarkersWhenSelected(t *testing.T) {
-	it := &item{layout: database.LayoutBullets}
-
-	got := stripSGR(renderBody(it, "say **hello**", -1, true))
-	if got != "say **hello**" {
-		t.Errorf("markers should be visible on the selected row: %q", got)
 	}
 }
 
