@@ -1,9 +1,0 @@
-services:
-  lflow:
-    image: lflow/lflow:latest
-    container_name: lflow
-    ports:
-      - 3001:3001
-    volumes:
-      - ./lflow_data:/data
-    restart: unless-stopped
