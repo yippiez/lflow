@@ -29,7 +29,7 @@ lflow server sync
 lflow wf pull
 ```
 
-See [pkg/cli/COMMANDS.md](pkg/cli/COMMANDS.md) for the full command and flag reference, and [SELF_HOSTING.md](SELF_HOSTING.md) for running the sync server.
+See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command and flag reference, and [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) for running the sync server.
 
 ## License
 
