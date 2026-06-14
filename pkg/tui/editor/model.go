@@ -45,6 +45,44 @@ type tree struct {
 }
 
 // loadTree loads the subtree rooted at rootUUID into memory.
+// cloneItem deep-copies an item subtree, re-linking parents, for the undo stack.
+func cloneItem(src, parent *item) *item {
+	if src == nil {
+		return nil
+	}
+	c := &item{
+		uuid:        src.uuid,
+		name:        src.name,
+		note:        src.note,
+		layout:      src.layout,
+		mirrorOf:    src.mirrorOf,
+		completedAt: src.completedAt,
+		collapsed:   src.collapsed,
+		isNew:       src.isNew,
+		parent:      parent,
+	}
+	for _, ch := range src.children {
+		c.children = append(c.children, cloneItem(ch, c))
+	}
+	return c
+}
+
+// rebuildByUUID re-indexes byUUID from the current item tree, used after an undo
+// swaps in a restored tree. externalNames and snapshots are left untouched.
+func (t *tree) rebuildByUUID() {
+	t.byUUID = map[string]*item{}
+	var walk func(it *item)
+	walk = func(it *item) {
+		if it.uuid != "" {
+			t.byUUID[it.uuid] = it
+		}
+		for _, c := range it.children {
+			walk(c)
+		}
+	}
+	walk(t.root)
+}
+
 func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 	nodes, err := database.GetSubtree(db, rootUUID)
 	if err != nil {

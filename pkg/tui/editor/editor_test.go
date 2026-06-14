@@ -159,6 +159,10 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -1146,5 +1150,114 @@ func TestSlashEscapeDismissKeepsStatusBar(t *testing.T) {
 	}
 	if got := last(); !strings.Contains(got, "1/2") {
 		t.Fatalf("status bar absent on the last line after escape dismiss: %q", got)
+	}
+}
+
+// mergeModel builds root → [A, B(child C)] with uuids, for the merge/undo tests.
+func mergeModel() (*Model, *item, *item, *item) {
+	root := &item{}
+	a := &item{uuid: "a", name: "A", parent: root}
+	b := &item{uuid: "b", name: "B", parent: root}
+	c := &item{uuid: "c", name: "C", parent: b}
+	b.children = []*item{c}
+	root.children = []*item{a, b}
+	tr := &tree{root: root, byUUID: map[string]*item{"a": a, "b": b, "c": c}, externalNames: map[string]string{}}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	return m, a, b, c
+}
+
+// TestLeftAtStartCrossesToPreviousNode is the round-5 fix: Left at the start of a
+// node moves the caret to the end of the previous node.
+func TestLeftAtStartCrossesToPreviousNode(t *testing.T) {
+	m := newTestModel(80, "Word 1", "Word 2")
+	m.cursor = 1
+	m.caret = 0
+
+	m.press("left")
+
+	if m.cursor != 0 {
+		t.Fatalf("Left at start should cross to the previous node, cursor=%d", m.cursor)
+	}
+	if want := len([]rune("Word 1")); m.caret != want {
+		t.Fatalf("caret should be at the end of the previous node, caret=%d want %d", m.caret, want)
+	}
+}
+
+// TestRightAtEndCrossesToNextNode: Right at the end of a node moves to the start
+// of the next node.
+func TestRightAtEndCrossesToNextNode(t *testing.T) {
+	m := newTestModel(80, "Word 1", "Word 2")
+	m.cursor = 0
+	m.caret = len([]rune("Word 1"))
+
+	m.press("right")
+
+	if m.cursor != 1 || m.caret != 0 {
+		t.Fatalf("Right at end should cross to the next node start, cursor=%d caret=%d", m.cursor, m.caret)
+	}
+}
+
+// TestBackspaceMergesIntoPrevious is the round-5 fix: backspace at the start of a
+// node merges it into the node above — text appends, children move up.
+func TestBackspaceMergesIntoPrevious(t *testing.T) {
+	m, a, _, c := mergeModel()
+	m.cursor = m.rowIndexOf(a) + 1 // on B
+	m.caret = 0
+
+	m.press("backspace")
+
+	if a.name != "AB" {
+		t.Fatalf("the previous node should absorb the text, got %q", a.name)
+	}
+	if len(a.children) != 1 || a.children[0] != c || c.parent != a {
+		t.Fatalf("the merged node's children should move to the previous node")
+	}
+	if cur := m.cursorItem(); cur != a {
+		t.Fatalf("cursor should land on the previous node")
+	}
+	if m.caret != 1 {
+		t.Fatalf("caret should sit at the merge point, got %d", m.caret)
+	}
+	if _, ok := m.tree.byUUID["b"]; ok {
+		t.Fatalf("the merged node should be removed")
+	}
+}
+
+// TestUndoReversesTyping: a run of typed characters is one undo step.
+func TestUndoReversesTyping(t *testing.T) {
+	m, a, _, _ := mergeModel()
+	m.cursor = m.rowIndexOf(a)
+	m.caret = len([]rune(a.name))
+
+	for _, r := range "BC" {
+		m.press(string(r))
+	}
+	if a.name != "ABC" {
+		t.Fatalf("typing should extend the name, got %q", a.name)
+	}
+
+	m.undo()
+
+	if got := m.tree.root.children[0].name; got != "A" {
+		t.Fatalf("undo should revert the typed burst, got %q", got)
+	}
+}
+
+// TestUndoReversesEnter: a structural action is reversible.
+func TestUndoReversesEnter(t *testing.T) {
+	m, a, _, _ := mergeModel()
+	m.cursor = m.rowIndexOf(a)
+	m.caret = len([]rune(a.name))
+	before := len(m.tree.root.children)
+
+	m.press("enter")
+	if len(m.tree.root.children) != before+1 {
+		t.Fatalf("enter should add a node, got %d", len(m.tree.root.children))
+	}
+
+	m.undo()
+	if len(m.tree.root.children) != before {
+		t.Fatalf("undo should remove the added node, got %d", len(m.tree.root.children))
 	}
 }

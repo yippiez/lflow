@@ -60,6 +60,7 @@ var slashCommands = []slashCommand{
 	{"/move", "move this node under another node"},
 	{"/go", "jump the editor to another node"},
 	{"/pull:wf", "pull a workflowy node in under this one"},
+	{"/undo", "undo the last action"},
 	{"/complete", "toggle done"},
 	{"/h1", "make heading 1"},
 	{"/h2", "make heading 2"},
@@ -101,6 +102,13 @@ type Model struct {
 	promptValue string
 	pullStage   int
 
+	// /undo: snapshots of the tree taken before each action
+	undoStack []undoState
+	undoMark  string
+
+	// breadcrumb names above the loaded root, from the forest root down
+	ancestors []string
+
 	escPending bool
 	unsaved    bool
 	quitting   bool
@@ -116,6 +124,152 @@ type Model struct {
 }
 
 func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
+
+// refreshAncestors recomputes the breadcrumb names above the loaded root by
+// walking the db parent chain up to the forest root.
+func (m *Model) refreshAncestors() {
+	m.ancestors = nil
+	base := m.viewStack[0]
+	if base == nil || base.uuid == "" || base.uuid == database.RootUUID {
+		return
+	}
+	puuid := ""
+	if n, err := database.GetNode(m.db, base.uuid); err == nil {
+		puuid = n.ParentUUID
+	}
+	for puuid != "" && puuid != database.RootUUID {
+		n, err := database.GetNode(m.db, puuid)
+		if err != nil {
+			break
+		}
+		name := n.Name
+		if name == "" {
+			name = "untitled"
+		}
+		m.ancestors = append([]string{name}, m.ancestors...)
+		puuid = n.ParentUUID
+	}
+}
+
+// reopenAt saves, reloads the tree rooted at rootUUID, and focuses focusUUID. It
+// is how alt+left walks up past the loaded root into the rest of the forest.
+func (m *Model) reopenAt(rootUUID, focusUUID string) {
+	if _, err := m.tree.save(); err != nil {
+		m.flash = "save: " + err.Error()
+		return
+	}
+	m.unsaved = false
+	t, err := loadTree(m.db, rootUUID)
+	if err != nil {
+		m.flash = err.Error()
+		return
+	}
+	m.tree = t
+	m.viewStack = []*item{t.root}
+	m.undoStack = nil // a reload is a fresh editing context
+	m.refreshAncestors()
+	m.refreshRows()
+	m.cursor = 0
+	m.caret = 0
+	if it, ok := t.byUUID[focusUUID]; ok {
+		m.cursor = m.rowIndexOf(it)
+	}
+}
+
+// undoState is a snapshot of the editable tree and cursor taken before an action.
+type undoState struct {
+	root    *item
+	deleted []string
+	view    []string // viewStack uuids
+	cursor  int
+	caret   int
+}
+
+// pushUndo snapshots the tree before a mutating action. The mark coalesces a run
+// of same-kind edits — typing a word is one undo step, not one per character —
+// by skipping the snapshot when the mark matches the previous one.
+func (m *Model) pushUndo(mark string) {
+	if mark != "" && mark == m.undoMark {
+		return
+	}
+	m.undoMark = mark
+	st := undoState{
+		root:    cloneItem(m.tree.root, nil),
+		deleted: append([]string(nil), m.tree.deleted...),
+		view:    make([]string, len(m.viewStack)),
+		cursor:  m.cursor,
+		caret:   m.caret,
+	}
+	for i, v := range m.viewStack {
+		st.view[i] = v.uuid
+	}
+	m.undoStack = append(m.undoStack, st)
+	const maxUndo = 100
+	if len(m.undoStack) > maxUndo {
+		m.undoStack = m.undoStack[len(m.undoStack)-maxUndo:]
+	}
+}
+
+// snapshotForKey pushes an undo snapshot before a mutating outline key. A run of
+// typed characters on one node coalesces into a single undo step; each
+// structural action is its own step.
+func (m *Model) snapshotForKey(key string, k tea.KeyMsg) {
+	cur := m.cursorItem()
+	switch key {
+	case "enter", "tab", "shift+tab",
+		"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
+		"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
+		"ctrl+d", "ctrl+shift+backspace", "ctrl+backspace", "ctrl+h",
+		"ctrl+t":
+		m.pushUndo("")
+	case "backspace":
+		if cur == nil {
+			return
+		}
+		if m.caret == 0 {
+			m.pushUndo("") // a merge or remove is its own step
+		} else {
+			m.pushUndo("type:" + cur.uuid)
+		}
+	default:
+		if (k.Type == tea.KeyRunes || k.Type == tea.KeySpace) && !k.Alt && cur != nil {
+			m.pushUndo("type:" + cur.uuid)
+		}
+	}
+}
+
+// undo restores the most recent snapshot.
+func (m *Model) undo() {
+	if len(m.undoStack) == 0 {
+		m.flash = "nothing to undo"
+		return
+	}
+	st := m.undoStack[len(m.undoStack)-1]
+	m.undoStack = m.undoStack[:len(m.undoStack)-1]
+	m.undoMark = "" // the next edit starts a fresh snapshot
+
+	m.tree.root = cloneItem(st.root, nil) // clone so the stacked entry stays pristine
+	m.tree.rebuildByUUID()
+	m.tree.deleted = append([]string(nil), st.deleted...)
+
+	// restore the zoom path by uuid, falling back to the tree root
+	var vs []*item
+	for _, uuid := range st.view {
+		if it, ok := m.tree.byUUID[uuid]; ok {
+			vs = append(vs, it)
+		}
+	}
+	if len(vs) == 0 {
+		vs = []*item{m.tree.root}
+	}
+	m.viewStack = vs
+	m.unsaved = true
+	m.refreshRows()
+	m.cursor = st.cursor
+	m.clampCursor()
+	m.caret = st.caret
+	m.clampCaret()
+}
 
 func (m *Model) refreshRows() {
 	m.rows = m.tree.visibleRows(m.viewRoot())
@@ -303,6 +457,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePromptKey(k)
 	}
 
+	// snapshot the tree before a mutating outline key so /undo can reverse it
+	m.snapshotForKey(key, k)
+
 	switch key {
 	case "ctrl+q", "ctrl+c":
 		return m.quit()
@@ -470,6 +627,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(zoomed)
 			m.caret = 0
+		} else if base := m.viewStack[0]; base.uuid != "" && base.uuid != database.RootUUID {
+			// at the loaded root: walk up to its parent in the forest, reloading the
+			// tree there and focusing the node we came from
+			if n, err := database.GetNode(m.db, base.uuid); err == nil && n.ParentUUID != "" {
+				m.reopenAt(n.ParentUUID, base.uuid)
+			}
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
@@ -526,11 +689,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "left":
 		if m.caret > 0 {
 			m.caret--
+		} else if m.cursor > 0 {
+			// at the start of a node, cross to the previous node and land at its end
+			m.cursor--
+			if c := m.cursorItem(); c != nil {
+				m.caret = len([]rune(c.name))
+			}
 		}
 		return m, nil
 	case "right":
-		if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(cur.name)) {
+		cur := m.cursorItem()
+		if cur != nil && m.caret < len([]rune(cur.name)) {
 			m.caret++
+		} else if cur != nil && m.cursor < len(m.rows)-1 {
+			// at the end of a node, cross to the next node and land at its start
+			m.cursor++
+			m.caret = 0
 		}
 		return m, nil
 	case "home":
@@ -574,19 +748,35 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
 			m.caret--
 			m.unsaved = true
-		} else if cur.name == "" && len(cur.children) == 0 {
-			// backspace on an empty leaf removes it
-			idx := m.cursor
+			return m, nil
+		}
+		// caret at the start: merge this node into the one above. Its text appends
+		// to the previous node and its children move under that node.
+		if m.cursor > 0 {
+			prev := m.rows[m.cursor-1].it
+			if prev.mirrorOf != "" {
+				return m, nil // can't merge into a mirror reference
+			}
+			mergeAt := len([]rune(prev.name))
+			prev.name += cur.name
+			for _, c := range cur.children {
+				c.parent = prev
+			}
+			prev.children = append(prev.children, cur.children...)
+			cur.children = nil
 			m.tree.remove(cur)
 			m.unsaved = true
 			m.refreshRows()
-			if idx > 0 {
-				m.cursor = idx - 1
-				m.clampCursor()
-			}
-			if c := m.cursorItem(); c != nil {
-				m.caret = len([]rune(c.name))
-			}
+			m.cursor = m.rowIndexOf(prev)
+			m.clampCursor()
+			m.caret = mergeAt
+			return m, nil
+		}
+		// the first node and empty: just remove it
+		if cur.name == "" && len(cur.children) == 0 {
+			m.tree.remove(cur)
+			m.unsaved = true
+			m.refreshRows()
 		}
 		return m, nil
 	}
@@ -1042,6 +1232,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	}
 
 	setLayout := func(layout string) {
+		m.pushUndo("")
 		cur.layout = layout
 		m.unsaved = true
 	}
@@ -1062,6 +1253,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/bullet":
 		setLayout(database.LayoutBullets)
 	case "/complete":
+		m.pushUndo("")
 		if cur.completedAt > 0 {
 			cur.completedAt = 0
 		} else {
@@ -1090,6 +1282,8 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.openFinder(actGo)
 	case "/pull:wf":
 		return m.startWfPull()
+	case "/undo":
+		m.undo()
 	}
 	return m, nil
 }
@@ -1308,6 +1502,11 @@ func (m *Model) refreshFinder() {
 		if cur != nil && h.UUID == cur.uuid {
 			continue
 		}
+		// /go is a jump target list: a node with no name and no mirror is empty
+		// noise, so leave it out
+		if m.finderAct == actGo && h.Name == "" && h.MirrorOf == "" {
+			continue
+		}
 		filtered = append(filtered, h)
 	}
 	m.finderHits = filtered
@@ -1408,6 +1607,8 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		}
 		m.tree = t
 		m.viewStack = []*item{t.root}
+		m.undoStack = nil
+		m.refreshAncestors()
 		m.cursor = 0
 		m.caret = 0
 		m.unsaved = false
@@ -1670,7 +1871,16 @@ func (m *Model) bottomBar(maxLine int) string {
 			}
 		}
 	}
-	title := m.tree.displayName(m.viewRoot())
+	// breadcrumb: the forest path down to the current view root
+	parts := append([]string(nil), m.ancestors...)
+	for _, v := range m.viewStack {
+		name := m.tree.displayName(v)
+		if name == "" {
+			name = "untitled"
+		}
+		parts = append(parts, name)
+	}
+	title := strings.Join(parts, " › ")
 	if title == "" {
 		title = "untitled"
 	}
@@ -1773,6 +1983,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		viewStack: []*item{t.root},
 	}
 	m.initScheduler(ctx)
+	m.refreshAncestors()
 	m.refreshRows()
 
 	p := tea.NewProgram(m) // inline: no alt screen
