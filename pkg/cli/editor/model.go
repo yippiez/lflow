@@ -198,6 +198,7 @@ type row struct {
 	last     bool   // last child of its parent (elbow connector)
 	branch   []bool // for each ancestor level: does it have later siblings (draw │)
 	mirrored bool   // shown through a mirror: same node, rendered with the ◆ glyph
+	ctx      *item  // the mirror this row is shown under, nil at the real location
 }
 
 // childItems returns the children to display under it. An expanded mirror shows
@@ -242,23 +243,29 @@ func (t *tree) expandTarget(it *item) *item {
 // honoring collapsed state. The view root itself is not a row.
 func (t *tree) visibleRows(viewRoot *item) []row {
 	var rows []row
-	var walk func(it *item, depth int, branch []bool, mirrored bool, seen map[*item]bool)
-	walk = func(it *item, depth int, branch []bool, mirrored bool, seen map[*item]bool) {
+	var walk func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool)
+	walk = func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool) {
 		kids := t.childItems(it)
 		for i, c := range kids {
 			last := i == len(kids)-1
 			cm := mirrored || c.mirrorOf != ""
-			rows = append(rows, row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...), mirrored: cm})
+			rows = append(rows, row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...), mirrored: cm, ctx: ctx})
 			tgt := t.expandTarget(c)
 			if c.collapsed || tgt == nil || seen[tgt] {
 				continue
 			}
+			// crossing into a mirror moves its subtree into that mirror's local
+			// context so the cursor can stay there instead of leaking to the original
+			childCtx := ctx
+			if c.mirrorOf != "" {
+				childCtx = c
+			}
 			next := cloneSeen(seen)
 			next[tgt] = true
-			walk(c, depth+1, append(branch, !last), cm, next)
+			walk(c, depth+1, append(branch, !last), cm, childCtx, next)
 		}
 	}
-	walk(viewRoot, 0, nil, false, map[*item]bool{viewRoot: true})
+	walk(viewRoot, 0, nil, false, nil, map[*item]bool{viewRoot: true})
 	return rows
 }
 
@@ -266,23 +273,27 @@ func (t *tree) visibleRows(viewRoot *item) []row {
 // scrollback dump on quit is the complete outline, not the current folding.
 func (t *tree) allRows() []row {
 	var rows []row
-	var walk func(it *item, depth int, branch []bool, mirrored bool, seen map[*item]bool)
-	walk = func(it *item, depth int, branch []bool, mirrored bool, seen map[*item]bool) {
+	var walk func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool)
+	walk = func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool) {
 		kids := t.childItems(it)
 		for i, c := range kids {
 			last := i == len(kids)-1
 			cm := mirrored || c.mirrorOf != ""
-			rows = append(rows, row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...), mirrored: cm})
+			rows = append(rows, row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...), mirrored: cm, ctx: ctx})
 			tgt := t.expandTarget(c)
 			if tgt == nil || seen[tgt] {
 				continue
 			}
+			childCtx := ctx
+			if c.mirrorOf != "" {
+				childCtx = c
+			}
 			next := cloneSeen(seen)
 			next[tgt] = true
-			walk(c, depth+1, append(branch, !last), cm, next)
+			walk(c, depth+1, append(branch, !last), cm, childCtx, next)
 		}
 	}
-	walk(t.root, 0, nil, false, map[*item]bool{t.root: true})
+	walk(t.root, 0, nil, false, nil, map[*item]bool{t.root: true})
 	return rows
 }
 

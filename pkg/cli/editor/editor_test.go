@@ -166,6 +166,12 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyDown}
 	case "ctrl+right":
 		return tea.KeyMsg{Type: tea.KeyCtrlRight}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyMsg{Type: tea.KeyShiftTab}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -792,6 +798,111 @@ func TestMirrorCycleDoesNotLoop(t *testing.T) {
 	}
 	if rows := tr.allRows(); len(rows) > 8 {
 		t.Fatalf("mirror cycle should terminate in allRows, produced %d rows", len(rows))
+	}
+}
+
+// rowOf finds the row index showing it within mirror context ctx.
+func rowOf(m *Model, it, ctx *item) int {
+	for i, r := range m.rows {
+		if r.it == it && r.ctx == ctx {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestCursorStaysLocalIndentingIntoMirror is the round-4 locality fix: Tab-ing a
+// node under a mirror gives the child to the source but leaves the cursor on the
+// through-row inside the mirror, not on the original's copy.
+func TestCursorStaysLocalIndentingIntoMirror(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", parent: root}
+	src.children = []*item{{uuid: "ka", name: "kidA", parent: src}}
+	mir := &item{uuid: "mir", mirrorOf: "src", parent: root}
+	empty := &item{uuid: "e", name: "", parent: root}
+	root.children = []*item{src, mir, empty}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "ka": src.children[0], "mir": mir, "e": empty},
+		externalNames: map[string]string{},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	m.cursor = m.rowIndexOf(empty)
+
+	m.press("tab")
+
+	if empty.parent != src {
+		t.Fatalf("indented node should attach to the source, parent=%#v", empty.parent)
+	}
+	r := m.rows[m.cursor]
+	if r.it != empty || r.ctx != mir {
+		t.Fatalf("cursor should stay local to the mirror, got it=%q ctx=%v", tr.displayName(r.it), r.ctx)
+	}
+}
+
+// TestCursorStaysLocalOutdentingInMirror is the round-4 locality fix: Shift+Tab
+// inside a mirror moves the node within the source subtree but keeps the cursor
+// on the through-row, not on the original.
+func TestCursorStaysLocalOutdentingInMirror(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", parent: root}
+	a := &item{uuid: "a", name: "a", parent: src}
+	b := &item{uuid: "b", name: "b", parent: a}
+	a.children = []*item{b}
+	src.children = []*item{a}
+	mir := &item{uuid: "mir", mirrorOf: "src", parent: root}
+	root.children = []*item{src, mir}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "a": a, "b": b, "mir": mir},
+		externalNames: map[string]string{},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	if i := rowOf(m, b, mir); i >= 0 {
+		m.cursor = i
+	} else {
+		t.Fatal("through-row of b under the mirror is missing")
+	}
+
+	m.press("shift+tab")
+
+	if b.parent != src {
+		t.Fatalf("b should outdent within the source, parent=%#v", b.parent)
+	}
+	r := m.rows[m.cursor]
+	if r.it != b || r.ctx != mir {
+		t.Fatalf("cursor should stay local to the mirror, got it=%q ctx=%v", tr.displayName(r.it), r.ctx)
+	}
+}
+
+// TestOutdentBlockedAtMirrorRoot guards the local boundary: a direct child shown
+// through a mirror cannot outdent past the mirror's source.
+func TestOutdentBlockedAtMirrorRoot(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", parent: root}
+	a := &item{uuid: "a", name: "a", parent: src}
+	src.children = []*item{a}
+	mir := &item{uuid: "mir", mirrorOf: "src", parent: root}
+	root.children = []*item{src, mir}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "a": a, "mir": mir},
+		externalNames: map[string]string{},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	if i := rowOf(m, a, mir); i >= 0 {
+		m.cursor = i
+	} else {
+		t.Fatal("through-row of a under the mirror is missing")
+	}
+
+	m.press("shift+tab")
+
+	if a.parent != src {
+		t.Fatalf("outdent past the mirror root must be blocked, a.parent=%#v", a.parent)
 	}
 }
 

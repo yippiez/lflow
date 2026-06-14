@@ -237,6 +237,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		cur := m.cursorItem()
+		ctx := m.cursorCtx()
 		var it *item
 		var err error
 		if cur == nil {
@@ -251,22 +252,38 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if it != nil {
 			m.unsaved = true
 			m.refreshRows()
-			m.cursor = m.rowIndexOf(it)
+			m.cursor = m.findRow(it, ctx)
 			m.caret = 0
 		}
 		return m, nil
 	case "tab":
-		if cur := m.cursorItem(); cur != nil && m.tree.indent(cur) {
-			m.unsaved = true
-			m.refreshRows()
-			m.cursor = m.rowIndexOf(cur)
+		if cur := m.cursorItem(); cur != nil {
+			ctx := m.cursorCtx()
+			// indenting under a mirror moves the cursor into that mirror's view
+			if idx := indexOf(cur); idx > 0 && cur.parent.children[idx-1].mirrorOf != "" {
+				ctx = cur.parent.children[idx-1]
+			}
+			if m.tree.indent(cur) {
+				m.unsaved = true
+				m.refreshRows()
+				m.cursor = m.findRow(cur, ctx)
+			}
 		}
 		return m, nil
 	case "shift+tab":
-		if cur := m.cursorItem(); cur != nil && m.tree.outdent(cur, m.viewRoot()) {
-			m.unsaved = true
-			m.refreshRows()
-			m.cursor = m.rowIndexOf(cur)
+		if cur := m.cursorItem(); cur != nil {
+			ctx := m.cursorCtx()
+			// outdent stops at the mirror's source when the cursor is inside a
+			// mirror, so it moves locally instead of leaving the original
+			root := m.viewRoot()
+			if ctx != nil {
+				root = m.tree.resolve(ctx)
+			}
+			if m.tree.outdent(cur, root) {
+				m.unsaved = true
+				m.refreshRows()
+				m.cursor = m.findRow(cur, ctx)
+			}
 		}
 		return m, nil
 	case "ctrl+@", "ctrl+space":
@@ -301,17 +318,23 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// every alt+arrow chord has a ctrl twin: terminals like windows
 	// terminal grab alt+arrows for pane focus and never deliver them
 	case "alt+shift+up", "ctrl+shift+up", "ctrl+alt+up":
-		if cur := m.cursorItem(); cur != nil && m.tree.move(cur, -1) {
-			m.unsaved = true
-			m.refreshRows()
-			m.cursor = m.rowIndexOf(cur)
+		if cur := m.cursorItem(); cur != nil {
+			ctx := m.cursorCtx()
+			if m.tree.move(cur, -1) {
+				m.unsaved = true
+				m.refreshRows()
+				m.cursor = m.findRow(cur, ctx)
+			}
 		}
 		return m, nil
 	case "alt+shift+down", "ctrl+shift+down", "ctrl+alt+down":
-		if cur := m.cursorItem(); cur != nil && m.tree.move(cur, 1) {
-			m.unsaved = true
-			m.refreshRows()
-			m.cursor = m.rowIndexOf(cur)
+		if cur := m.cursorItem(); cur != nil {
+			ctx := m.cursorCtx()
+			if m.tree.move(cur, 1) {
+				m.unsaved = true
+				m.refreshRows()
+				m.cursor = m.findRow(cur, ctx)
+			}
 		}
 		return m, nil
 	case "alt+right", "ctrl+right":
@@ -346,17 +369,19 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+up", "ctrl+up":
 		// collapse the cursor node
 		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && !cur.collapsed {
+			ctx := m.cursorCtx()
 			cur.collapsed = true
 			m.refreshRows()
-			m.cursor = m.rowIndexOf(cur)
+			m.cursor = m.findRow(cur, ctx)
 		}
 		return m, nil
 	case "alt+down", "ctrl+down":
 		// expand the cursor node
 		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && cur.collapsed {
+			ctx := m.cursorCtx()
 			cur.collapsed = false
 			m.refreshRows()
-			m.cursor = m.rowIndexOf(cur)
+			m.cursor = m.findRow(cur, ctx)
 		}
 		return m, nil
 	case "up":
@@ -775,6 +800,28 @@ func (m *Model) rowIndexOf(it *item) int {
 		}
 	}
 	return 0
+}
+
+// cursorCtx is the mirror the cursor row is shown under, or nil at the real
+// location. Structural edits use it to keep the cursor in the same mirror view.
+func (m *Model) cursorCtx() *item {
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		return m.rows[m.cursor].ctx
+	}
+	return nil
+}
+
+// findRow locates the row showing it within mirror context ctx, preferring an
+// exact context match so the cursor stays local to the mirror the user is in,
+// then any row for it. The same node can appear under the original and through
+// every mirror of it, so the context disambiguates which copy to land on.
+func (m *Model) findRow(it *item, ctx *item) int {
+	for i, r := range m.rows {
+		if r.it == it && r.ctx == ctx {
+			return i
+		}
+	}
+	return m.rowIndexOf(it)
 }
 
 func (m *Model) filteredSlash() []slashCommand {
