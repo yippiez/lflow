@@ -321,6 +321,22 @@ func (t *tree) insertSiblingAfter(after *item) (*item, error) {
 	return it, nil
 }
 
+// insertSiblingBefore inserts a new empty node before the given one, pushing it
+// (and its whole subtree) down a slot.
+func (t *tree) insertSiblingBefore(before *item) (*item, error) {
+	it, err := t.newItem()
+	if err != nil {
+		return nil, err
+	}
+	parent := before.parent
+	it.parent = parent
+	idx := indexOf(before)
+	parent.children = append(parent.children, nil)
+	copy(parent.children[idx+1:], parent.children[idx:])
+	parent.children[idx] = it
+	return it, nil
+}
+
 // insertFirstChild inserts a new empty node as the first child of parent.
 func (t *tree) insertFirstChild(parent *item) (*item, error) {
 	it, err := t.newItem()

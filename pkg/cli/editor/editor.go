@@ -301,6 +301,21 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		cur := m.cursorItem()
 		mc := m.mirrorContext()
+		// caret at the very start of a node that has text: don't split — keep the
+		// node and its whole subtree intact and push it down, opening an empty node
+		// above it with the cursor there.
+		if cur != nil && mc.editable && m.caret == 0 && cur.name != "" {
+			it, err := m.tree.insertSiblingBefore(cur)
+			if err != nil {
+				m.err = err
+				return m.quit()
+			}
+			m.unsaved = true
+			m.refreshRows()
+			m.cursor = m.findRow(it, mc.ctx)
+			m.caret = 0
+			return m, nil
+		}
 		var it *item
 		var err error
 		if cur == nil {
@@ -314,8 +329,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if it != nil {
 			// split the node at the caret: text after the caret moves into the new
-			// sibling, the part before stays. A mirror reference is not editable, so
-			// it just opens an empty sibling — see mirrorContext.
+			// sibling, the part before — and the node's children — stays. A mirror
+			// reference is not editable, so it just opens an empty sibling.
 			if cur != nil && mc.editable {
 				runes := []rune(cur.name)
 				at := m.caret

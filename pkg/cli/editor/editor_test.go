@@ -968,10 +968,11 @@ func TestEnterSplitsNodeAtCaret(t *testing.T) {
 	}
 }
 
-// TestEnterAtStartMovesTextDown: caret at column 0 leaves an empty node above and
-// moves all the text into the new sibling.
-func TestEnterAtStartMovesTextDown(t *testing.T) {
+// TestEnterAtStartPushesNodeDown: caret at column 0 pushes the node down intact
+// and opens an empty node above it, with the cursor on the empty node.
+func TestEnterAtStartPushesNodeDown(t *testing.T) {
 	m := newTestModel(80, "asdasd")
+	cur := m.tree.root.children[0]
 	m.cursor = 0
 	m.caret = 0
 
@@ -980,8 +981,45 @@ func TestEnterAtStartMovesTextDown(t *testing.T) {
 	if got := siblingNames(m); !reflect.DeepEqual(got, []string{"", "asdasd"}) {
 		t.Fatalf("split = %#v, want [\"\" asdasd]", got)
 	}
-	if m.cursorItem().name != "asdasd" {
-		t.Fatalf("cursor should follow the moved text, on %q", m.cursorItem().name)
+	if m.cursorItem().name != "" {
+		t.Fatalf("cursor should be on the new empty node, on %q", m.cursorItem().name)
+	}
+	if m.tree.root.children[1] != cur {
+		t.Fatalf("the original node should be the one pushed down, same item")
+	}
+}
+
+// TestEnterAtStartKeepsChildren: pushing a node down at caret 0 must take its
+// whole subtree with it — the empty node above stays childless.
+func TestEnterAtStartKeepsChildren(t *testing.T) {
+	root := &item{}
+	parent := &item{uuid: "p", name: "Test", parent: root}
+	kid := &item{uuid: "k", name: "child", parent: parent}
+	parent.children = []*item{kid}
+	root.children = []*item{parent}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"p": parent, "k": kid},
+		externalNames: map[string]string{},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	m.cursor = 0 // on "Test"
+	m.caret = 0
+
+	m.press("enter")
+
+	if got := siblingNames(m); !reflect.DeepEqual(got, []string{"", "Test"}) {
+		t.Fatalf("siblings = %#v, want [\"\" Test]", got)
+	}
+	if len(parent.children) != 1 || parent.children[0] != kid {
+		t.Fatalf("the node must keep its children, got %v", parent.children)
+	}
+	if m.tree.root.children[0].children != nil {
+		t.Fatalf("the new empty node above must be childless")
+	}
+	if m.cursorItem().name != "" {
+		t.Fatalf("cursor should be on the new empty node")
 	}
 }
 
