@@ -1,33 +1,13 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package migrate
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
-	"gopkg.in/yaml.v2"
-
 	"github.com/dnote/actions"
 	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/config"
 	"github.com/lflow/lflow/pkg/cli/consts"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
@@ -1024,34 +1004,20 @@ func TestLocalMigration12(t *testing.T) {
 	db := database.InitTestMemoryDBRaw(t, "./fixtures/local-12-pre-schema.sql")
 	ctx := context.InitTestCtxWithDB(t, db)
 
-	data := []byte("editor: vim")
-	path := fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.LflowDirName, consts.ConfigFilename)
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatal(errors.Wrap(err, "Failed to write schema file"))
+	if err := config.Write(ctx, config.Config{Editor: "vim"}); err != nil {
+		t.Fatal(errors.Wrap(err, "writing settings"))
 	}
 
 	// execute
-	err := lm12.run(ctx, nil)
-	if err != nil {
+	if err := lm12.run(ctx, nil); err != nil {
 		t.Fatal(errors.Wrap(err, "failed to run"))
 	}
 
 	// test
-	b, err := os.ReadFile(path)
+	cf, err := config.Read(ctx)
 	if err != nil {
-		t.Fatal(errors.Wrap(err, "reading config"))
+		t.Fatal(errors.Wrap(err, "reading settings"))
 	}
-
-	type config struct {
-		APIEndpoint string `yaml:"apiEndpoint"`
-	}
-
-	var cf config
-	err = yaml.Unmarshal(b, &cf)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "unmarshalling config"))
-	}
-
 	assert.NotEqual(t, cf.APIEndpoint, "", "apiEndpoint was not populated")
 }
 
@@ -1060,39 +1026,22 @@ func TestLocalMigration13(t *testing.T) {
 	db := database.InitTestMemoryDBRaw(t, "./fixtures/local-12-pre-schema.sql")
 	ctx := context.InitTestCtxWithDB(t, db)
 
-	data := []byte("editor: vim\napiEndpoint: https://test.com/api")
-
-	path := fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.LflowDirName, consts.ConfigFilename)
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatal(errors.Wrap(err, "Failed to write schema file"))
+	if err := config.Write(ctx, config.Config{Editor: "vim", APIEndpoint: "https://test.com/api"}); err != nil {
+		t.Fatal(errors.Wrap(err, "writing settings"))
 	}
 
 	// execute
-	err := lm13.run(ctx, nil)
-	if err != nil {
+	if err := lm13.run(ctx, nil); err != nil {
 		t.Fatal(errors.Wrap(err, "failed to run"))
 	}
 
 	// test
-	b, err := os.ReadFile(path)
+	cf, err := config.Read(ctx)
 	if err != nil {
-		t.Fatal(errors.Wrap(err, "reading config"))
+		t.Fatal(errors.Wrap(err, "reading settings"))
 	}
-
-	type config struct {
-		Editor             string `yaml:"editor"`
-		ApiEndpoint        string `yaml:"apiEndpoint"`
-		EnableUpgradeCheck bool   `yaml:"enableUpgradeCheck"`
-	}
-
-	var cf config
-	err = yaml.Unmarshal(b, &cf)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "unmarshalling config"))
-	}
-
 	assert.Equal(t, cf.Editor, "vim", "editor mismatch")
-	assert.Equal(t, cf.ApiEndpoint, "https://test.com/api", "apiEndpoint mismatch")
+	assert.Equal(t, cf.APIEndpoint, "https://test.com/api", "apiEndpoint mismatch")
 	assert.Equal(t, cf.EnableUpgradeCheck, true, "enableUpgradeCheck mismatch")
 }
 
@@ -1144,74 +1093,19 @@ func TestLocalMigration14(t *testing.T) {
 }
 
 func TestRemoteMigration1(t *testing.T) {
-	// set up
-	db := database.InitTestMemoryDBRaw(t, "./fixtures/remote-1-pre-schema.sql")
+	// rm1 is a no-op since the node model replaced books/notes.
+	db := database.InitTestMemoryDB(t)
 	ctx := context.InitTestCtxWithDB(t, db)
-	testutils.Login(t, &ctx)
-
-	JSBookUUID := "existing-js-book-uuid"
-	CSSBookUUID := "existing-css-book-uuid"
-	linuxBookUUID := "existing-linux-book-uuid"
-	newJSBookUUID := "new-js-book-uuid"
-	newCSSBookUUID := "new-css-book-uuid"
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.String() == "/v3/books" {
-			res := []struct {
-				UUID  string `json:"uuid"`
-				Label string `json:"label"`
-			}{
-				{
-					UUID:  newJSBookUUID,
-					Label: "js",
-				},
-				{
-					UUID:  newCSSBookUUID,
-					Label: "css",
-				},
-				// book that only exists on the server. client must ignore.
-				{
-					UUID:  "golang-book-uuid",
-					Label: "golang",
-				},
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(res); err != nil {
-				t.Fatal(errors.Wrap(err, "encoding response"))
-			}
-		}
-	}))
-	defer server.Close()
-
-	ctx.APIEndpoint = server.URL
-
-	database.MustExec(t, "inserting js book", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", JSBookUUID, "js")
-	database.MustExec(t, "inserting css book", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", CSSBookUUID, "css")
-	database.MustExec(t, "inserting linux book", db, "INSERT INTO books (uuid, label) VALUES (?, ?)", linuxBookUUID, "linux")
-	database.MustExec(t, "inserting sessionKey", db, "INSERT INTO system (key, value) VALUES (?, ?)", consts.SystemSessionKey, "someSessionKey")
-	database.MustExec(t, "inserting sessionKeyExpiry", db, "INSERT INTO system (key, value) VALUES (?, ?)", consts.SystemSessionKeyExpiry, time.Now().Add(24*time.Hour).Unix())
 
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "beginning a transaction"))
 	}
 
-	err = rm1.run(ctx, tx)
-	if err != nil {
+	if err := rm1.run(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(errors.Wrap(err, "failed to run"))
 	}
 
 	tx.Commit()
-
-	// test
-	var postJSBookUUID, postCSSBookUUID, postLinuxBookUUID string
-	database.MustScan(t, "getting js book uuid", db.QueryRow("SELECT uuid FROM books WHERE label = ?", "js"), &postJSBookUUID)
-	database.MustScan(t, "getting css book uuid", db.QueryRow("SELECT uuid FROM books WHERE label = ?", "css"), &postCSSBookUUID)
-	database.MustScan(t, "getting linux book uuid", db.QueryRow("SELECT uuid FROM books WHERE label = ?", "linux"), &postLinuxBookUUID)
-
-	assert.Equal(t, postJSBookUUID, newJSBookUUID, "js book uuid was not updated correctly")
-	assert.Equal(t, postCSSBookUUID, newCSSBookUUID, "css book uuid was not updated correctly")
-	assert.Equal(t, postLinuxBookUUID, linuxBookUUID, "linux book uuid changed")
 }

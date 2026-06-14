@@ -64,5 +64,5 @@ make version=v0.1.0 build-cli
 GOOS=[insert OS] GOARCH=[insert arch] make version=v0.1.0 build-cli
 
 # Debug mode
-LFLOW_DEBUG=1 lflow sync
+LFLOW_DEBUG=1 lflow server sync
 ```

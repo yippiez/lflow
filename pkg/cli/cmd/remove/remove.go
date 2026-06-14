@@ -1,212 +1,95 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Package remove tombstones a node subtree (pushed as a delete on sync).
 package remove
 
 import (
 	"fmt"
 	"os"
-	"strconv"
+	"strings"
 
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
 	"github.com/lflow/lflow/pkg/cli/infra"
 	"github.com/lflow/lflow/pkg/cli/log"
-	"github.com/lflow/lflow/pkg/cli/output"
+	"github.com/lflow/lflow/pkg/cli/resolve"
 	"github.com/lflow/lflow/pkg/cli/ui"
-	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
-var bookFlag string
-var yesFlag bool
+type options struct {
+	force  bool
+	strict bool
+}
 
-var example = `
-  * Delete a note by id
-  lflow delete 2
-
-  * Delete a book by name
-  lflow delete js
-`
-
-// NewCmd returns a new remove command
+// NewCmd returns a new rm command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+	opts := &options{}
+
 	cmd := &cobra.Command{
-		Use:     "remove <note id|book name>",
-		Short:   "Remove a note or a book",
-		Aliases: []string{"rm", "d", "delete"},
-		Example: example,
-		PreRunE: preRun,
-		RunE:    newRun(ctx),
+		Use:   "remove <node>",
+		Short: "Delete a node and its subtree",
+		RunE:  newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()
-	f.StringVarP(&bookFlag, "book", "b", "", "The book name to delete")
-	f.BoolVarP(&yesFlag, "yes", "y", false, "Assume yes to the prompts and run in non-interactive mode")
-
-	f.MarkDeprecated("book", "Pass the book name as an argument. e.g. `lflow rm book_name`")
+	f.BoolVarP(&opts.force, "force", "f", false, "skip confirmation")
+	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
 
 	return cmd
 }
 
-func preRun(cmd *cobra.Command, args []string) error {
-	if len(args) != 1 && len(args) != 2 {
-		return errors.New("Incorrect number of argument")
-	}
-
-	return nil
-}
-
-func maybeConfirm(message string, defaultValue bool) (bool, error) {
-	if yesFlag {
-		return true, nil
-	}
-
-	return ui.Confirm(message, defaultValue)
-}
-
-func newRun(ctx context.DnoteCtx) infra.RunEFunc {
+func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
-		// DEPRECATED: Remove in 1.0.0
-		if bookFlag != "" {
-			if err := runBook(ctx, bookFlag); err != nil {
-				return errors.Wrap(err, "removing the book")
-			}
+		if len(args) < 1 {
+			return errors.New("missing node reference")
+		}
+		ref := strings.Join(args, " ")
+		db := ctx.DB
 
-			return nil
+		r, err := resolve.Resolve(db, ref)
+		if err != nil {
+			if _, ok := err.(resolve.ErrNoMatch); ok {
+				resolve.PrintNoMatch(ref)
+				os.Exit(1)
+			}
+			return err
 		}
 
-		// DEPRECATED: Remove in 1.0.0
-		if len(args) == 2 {
-			log.Plain(log.ColorYellow.Sprintf("DEPRECATED: you no longer need to pass book name to the remove command. e.g. `lflow remove 123`.\n\n"))
-
-			target := args[1]
-			if err := runNote(ctx, target); err != nil {
-				return errors.Wrap(err, "removing the note")
-			}
-
-			return nil
+		if opts.strict && r.Total > 1 {
+			resolve.PrintMatches(db, r.Matches)
+			os.Exit(1)
 		}
 
-		target := args[0]
+		count, err := database.CountSubtree(db, r.Node.UUID)
+		if err != nil {
+			return errors.Wrap(err, "counting subtree")
+		}
 
-		if utils.IsNumber(target) {
-			if err := runNote(ctx, target); err != nil {
-				return errors.Wrap(err, "removing the note")
+		if !opts.force {
+			confirmed, err := ui.Confirm(fmt.Sprintf("delete %q · %d nodes?", r.Node.Name, count), false)
+			if err != nil {
+				return errors.Wrap(err, "getting confirmation")
 			}
-		} else {
-			if err := runBook(ctx, target); err != nil {
-				return errors.Wrap(err, "removing the book")
+			if !confirmed {
+				return nil
 			}
 		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			return errors.Wrap(err, "beginning a transaction")
+		}
+		deleted, err := database.MarkSubtreeDeleted(tx, r.Node.UUID)
+		if err != nil {
+			tx.Rollback()
+			return errors.Wrap(err, "deleting subtree")
+		}
+		if err := tx.Commit(); err != nil {
+			return errors.Wrap(err, "committing transaction")
+		}
+
+		log.Successf("deleted %q (%d nodes)\n", r.Node.Name, deleted)
 
 		return nil
 	}
-}
-
-func runNote(ctx context.DnoteCtx, rowIDArg string) error {
-	db := ctx.DB
-
-	noteRowID, err := strconv.Atoi(rowIDArg)
-	if err != nil {
-		return errors.Wrap(err, "invalid rowid")
-	}
-
-	noteInfo, err := database.GetNoteInfo(db, noteRowID)
-	if err != nil {
-		return err
-	}
-
-	output.NoteInfo(os.Stdout, noteInfo)
-
-	ok, err := maybeConfirm("remove this note?", false)
-	if err != nil {
-		return errors.Wrap(err, "getting confirmation")
-	}
-	if !ok {
-		log.Warnf("aborted by user\n")
-		return nil
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return errors.Wrap(err, "beginning a transaction")
-	}
-
-	if _, err = tx.Exec("UPDATE notes SET deleted = ?, dirty = ?, body = ? WHERE uuid = ?", true, true, "", noteInfo.UUID); err != nil {
-		tx.Rollback()
-		return errors.Wrap(err, "removing the note")
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		tx.Rollback()
-		return errors.Wrap(err, "comitting transaction")
-	}
-
-	log.Successf("removed from %s\n", noteInfo.BookLabel)
-
-	return nil
-}
-
-func runBook(ctx context.DnoteCtx, bookLabel string) error {
-	db := ctx.DB
-
-	bookUUID, err := database.GetBookUUID(db, bookLabel)
-	if err != nil {
-		return errors.Wrap(err, "finding book uuid")
-	}
-
-	ok, err := maybeConfirm(fmt.Sprintf("delete book '%s' and all its notes?", bookLabel), false)
-	if err != nil {
-		return errors.Wrap(err, "getting confirmation")
-	}
-	if !ok {
-		log.Warnf("aborted by user\n")
-		return nil
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return errors.Wrap(err, "beginning a transaction")
-	}
-
-	if _, err = tx.Exec("UPDATE notes SET deleted = ?, dirty = ?, body = ? WHERE book_uuid = ?", true, true, "", bookUUID); err != nil {
-		tx.Rollback()
-		return errors.Wrap(err, "removing notes in the book")
-	}
-
-	// override the label with a random string
-	uniqLabel, err := utils.GenerateUUID()
-	if err != nil {
-		return errors.Wrap(err, "generating uuid to override with")
-	}
-
-	if _, err = tx.Exec("UPDATE books SET deleted = ?, dirty = ?, label = ? WHERE uuid = ?", true, true, uniqLabel, bookUUID); err != nil {
-		tx.Rollback()
-		return errors.Wrap(err, "removing the book")
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		tx.Rollback()
-		return errors.Wrap(err, "committing transaction")
-	}
-
-	log.Success("removed book\n")
-
-	return nil
 }

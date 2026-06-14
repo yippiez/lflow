@@ -1,18 +1,3 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package login
 
 import (
@@ -31,24 +16,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var example = `
-  lflow login`
-
 var usernameFlag, passwordFlag, apiEndpointFlag string
 
 // NewCmd returns a new login command
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "login",
-		Short:   "Login to lflow server",
-		Example: example,
-		RunE:    newRun(ctx),
+		Use:   "login",
+		Short: "Log in to the lflow server",
+		RunE:  newRun(ctx),
 	}
 
 	f := cmd.Flags()
 	f.StringVarP(&usernameFlag, "username", "u", "", "email address for authentication")
 	f.StringVarP(&passwordFlag, "password", "p", "", "password for authentication")
-	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to (defaults to value in config)")
+	f.StringVar(&apiEndpointFlag, "apiEndpoint", "", "API endpoint to connect to, defaults to the config value")
 
 	return cmd
 }
@@ -133,7 +114,7 @@ func getServerDisplayURL(ctx context.DnoteCtx) string {
 }
 
 func getGreeting(ctx context.DnoteCtx) string {
-	base := "Welcome to Dnote"
+	base := "Welcome to Lflow"
 
 	serverURL := getServerDisplayURL(ctx)
 	if serverURL == "" {

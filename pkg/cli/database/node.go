@@ -1,0 +1,312 @@
+package database
+
+import (
+	"database/sql"
+	"strings"
+
+	"github.com/pkg/errors"
+)
+
+// Layout values for a node.
+const (
+	LayoutBullets = "bullets"
+	LayoutTodo    = "todo"
+	LayoutH1      = "h1"
+	LayoutH2      = "h2"
+	LayoutH3      = "h3"
+	LayoutCode    = "code"
+	LayoutQuote   = "quote"
+)
+
+// ValidLayouts is the set of accepted layout values.
+var ValidLayouts = map[string]bool{
+	LayoutBullets: true,
+	LayoutTodo:    true,
+	LayoutH1:      true,
+	LayoutH2:      true,
+	LayoutH3:      true,
+	LayoutCode:    true,
+	LayoutQuote:   true,
+}
+
+// Node is the single content model: every bullet, heading, todo and mirror
+// instance is a node. ParentUUID == "" means a root in the local forest.
+type Node struct {
+	RowID       int    `json:"rowid"`
+	UUID        string `json:"uuid"`
+	ParentUUID  string `json:"parent_uuid"`
+	Rank        int    `json:"rank"`
+	Name        string `json:"name"`
+	Note        string `json:"note"`
+	Layout      string `json:"layout"`
+	MirrorOf    string `json:"mirror_of"`
+	CompletedAt int64  `json:"completed_at"` // 0 = not completed
+	AddedOn     int64  `json:"added_on"`
+	EditedOn    int64  `json:"edited_on"`
+	USN         int    `json:"usn"`
+	Deleted     bool   `json:"deleted"`
+	Dirty       bool   `json:"dirty"`
+}
+
+const nodeColumns = "uuid, parent_uuid, rank, name, note, layout, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty"
+
+func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
+	var n Node
+	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Layout,
+		&n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty)
+	return n, err
+}
+
+// Insert inserts the node.
+func (n Node) Insert(db *DB) error {
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Layout, n.MirrorOf, n.CompletedAt,
+		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty)
+	if err != nil {
+		return errors.Wrapf(err, "inserting node %s", n.UUID)
+	}
+	return nil
+}
+
+// Update persists all mutable fields of the node.
+func (n Node) Update(db *DB) error {
+	_, err := db.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, layout = ?,
+		mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = ? WHERE uuid = ?`,
+		n.ParentUUID, n.Rank, n.Name, n.Note, n.Layout, n.MirrorOf, n.CompletedAt,
+		n.EditedOn, n.USN, n.Deleted, n.Dirty, n.UUID)
+	if err != nil {
+		return errors.Wrapf(err, "updating node %s", n.UUID)
+	}
+	return nil
+}
+
+// UpdateUUID rewrites the node's uuid and every reference to it
+// (children's parent_uuid, mirrors' mirror_of, wf_mirrors).
+func (n *Node) UpdateUUID(db *DB, newUUID string) error {
+	if _, err := db.Exec("UPDATE nodes SET uuid = ? WHERE uuid = ?", newUUID, n.UUID); err != nil {
+		return errors.Wrapf(err, "updating node uuid %s -> %s", n.UUID, newUUID)
+	}
+	if _, err := db.Exec("UPDATE nodes SET parent_uuid = ? WHERE parent_uuid = ?", newUUID, n.UUID); err != nil {
+		return errors.Wrapf(err, "reparenting children of %s", n.UUID)
+	}
+	if _, err := db.Exec("UPDATE nodes SET mirror_of = ? WHERE mirror_of = ?", newUUID, n.UUID); err != nil {
+		return errors.Wrapf(err, "updating mirrors of %s", n.UUID)
+	}
+	if _, err := db.Exec("UPDATE wf_mirrors SET node_uuid = ? WHERE node_uuid = ?", newUUID, n.UUID); err != nil {
+		return errors.Wrapf(err, "updating wf mirror of %s", n.UUID)
+	}
+	n.UUID = newUUID
+	return nil
+}
+
+// Expunge hard-deletes the node row.
+func (n Node) Expunge(db *DB) error {
+	if _, err := db.Exec("DELETE FROM nodes WHERE uuid = ?", n.UUID); err != nil {
+		return errors.Wrapf(err, "expunging node %s", n.UUID)
+	}
+	if _, err := db.Exec("DELETE FROM wf_mirrors WHERE node_uuid = ?", n.UUID); err != nil {
+		return errors.Wrapf(err, "expunging wf mirror of %s", n.UUID)
+	}
+	return nil
+}
+
+// GetNode returns the node with the given uuid.
+func GetNode(db *DB, uuid string) (Node, error) {
+	n, err := scanNode(db.QueryRow("SELECT "+nodeColumns+" FROM nodes WHERE uuid = ?", uuid))
+	if err == sql.ErrNoRows {
+		return n, errors.Errorf("node %s not found", uuid)
+	} else if err != nil {
+		return n, errors.Wrapf(err, "querying node %s", uuid)
+	}
+	return n, nil
+}
+
+// GetChildren returns the non-deleted children of the given parent ("" = roots),
+// ordered by rank.
+func GetChildren(db *DB, parentUUID string) ([]Node, error) {
+	rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE parent_uuid = ? AND deleted = 0 ORDER BY rank", parentUUID)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying children")
+	}
+	defer rows.Close()
+
+	var ret []Node
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, errors.Wrap(err, "scanning node")
+		}
+		ret = append(ret, n)
+	}
+	return ret, rows.Err()
+}
+
+// GetSubtree returns the node and all of its non-deleted descendants,
+// depth-first, siblings ordered by rank.
+func GetSubtree(db *DB, rootUUID string) ([]Node, error) {
+	root, err := GetNode(db, rootUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	ret := []Node{root}
+	var walk func(parent string) error
+	walk = func(parent string) error {
+		children, err := GetChildren(db, parent)
+		if err != nil {
+			return err
+		}
+		for _, c := range children {
+			ret = append(ret, c)
+			if err := walk(c.UUID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(rootUUID); err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
+// NextRank returns a rank that sorts after all existing children of the parent.
+func NextRank(db *DB, parentUUID string) (int, error) {
+	var maxRank sql.NullInt64
+	if err := db.QueryRow("SELECT MAX(rank) FROM nodes WHERE parent_uuid = ? AND deleted = 0", parentUUID).Scan(&maxRank); err != nil {
+		return 0, errors.Wrap(err, "querying max rank")
+	}
+	if !maxRank.Valid {
+		return 0, nil
+	}
+	return int(maxRank.Int64) + 1, nil
+}
+
+// MarkSubtreeDeleted tombstones the node and all descendants (dirty so the
+// deletion is pushed on the next sync).
+func MarkSubtreeDeleted(db *DB, rootUUID string) (int, error) {
+	subtree, err := GetSubtree(db, rootUUID)
+	if err != nil {
+		return 0, err
+	}
+	for _, n := range subtree {
+		if _, err := db.Exec("UPDATE nodes SET deleted = 1, dirty = 1 WHERE uuid = ?", n.UUID); err != nil {
+			return 0, errors.Wrapf(err, "tombstoning node %s", n.UUID)
+		}
+	}
+	return len(subtree), nil
+}
+
+// CountSubtree returns the number of non-deleted nodes in the subtree
+// including the root.
+func CountSubtree(db *DB, rootUUID string) (int, error) {
+	subtree, err := GetSubtree(db, rootUUID)
+	if err != nil {
+		return 0, err
+	}
+	return len(subtree), nil
+}
+
+// MatchScore describes a search hit with its relevance.
+type MatchScore struct {
+	Node  Node
+	Score float64
+}
+
+// RecentNodes returns non-deleted nodes ordered by recency, excluding the
+// fixed root. The editor finder lists it while the query is still empty so
+// the picker starts full instead of blank.
+func RecentNodes(db *DB, limit int) ([]Node, error) {
+	rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE deleted = 0 AND uuid != ? ORDER BY edited_on DESC LIMIT ?",
+		RootUUID, limit)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying recent nodes")
+	}
+	defer rows.Close()
+
+	var ret []Node
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, errors.Wrap(err, "scanning node")
+		}
+		ret = append(ret, n)
+	}
+	return ret, nil
+}
+
+// SearchNodes returns nodes matching the query, best match first. It combines
+// FTS5 ranking with simple lexical preferences (exact name, prefix, substring)
+// so that the top result is the "most probable" node for best-match commands.
+func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return nil, nil
+	}
+
+	seen := map[string]bool{}
+	var ret []Node
+
+	appendNode := func(n Node) {
+		if seen[n.UUID] {
+			return
+		}
+		seen[n.UUID] = true
+		if !includeCompleted && n.CompletedAt > 0 {
+			return
+		}
+		ret = append(ret, n)
+	}
+
+	// lexical pass: exact name, then prefix, then substring
+	for _, pattern := range []string{q, q + "%", "%" + q + "%"} {
+		rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE deleted = 0 AND name LIKE ? ORDER BY edited_on DESC LIMIT 50", pattern)
+		if err != nil {
+			return nil, errors.Wrap(err, "lexical node search")
+		}
+		for rows.Next() {
+			n, err := scanNode(rows)
+			if err != nil {
+				rows.Close()
+				return nil, errors.Wrap(err, "scanning node")
+			}
+			appendNode(n)
+		}
+		rows.Close()
+	}
+
+	// FTS pass over name+note for word matches the LIKE pass missed
+	ftsQuery := buildFTSQuery(q)
+	if ftsQuery != "" {
+		rows, err := db.Query(`SELECT `+nodeColumns+` FROM nodes
+			WHERE deleted = 0 AND id IN (SELECT rowid FROM node_fts WHERE node_fts MATCH ? ORDER BY rank LIMIT 50)`, ftsQuery)
+		if err == nil {
+			for rows.Next() {
+				n, scanErr := scanNode(rows)
+				if scanErr != nil {
+					rows.Close()
+					return nil, errors.Wrap(scanErr, "scanning node")
+				}
+				appendNode(n)
+			}
+			rows.Close()
+		}
+		// FTS syntax errors on odd queries are non-fatal; lexical results stand.
+	}
+
+	return ret, nil
+}
+
+// buildFTSQuery turns free text into a safe FTS5 prefix query.
+func buildFTSQuery(q string) string {
+	fields := strings.Fields(q)
+	terms := make([]string, 0, len(fields))
+	for _, f := range fields {
+		f = strings.ReplaceAll(f, `"`, "")
+		if f == "" {
+			continue
+		}
+		terms = append(terms, `"`+f+`"*`)
+	}
+	return strings.Join(terms, " ")
+}

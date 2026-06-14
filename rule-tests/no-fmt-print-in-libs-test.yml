@@ -1,0 +1,23 @@
+id: no-fmt-print-in-libs
+valid:
+  - |
+    func f(name string) string {
+        return fmt.Sprintf("hello %s", name)
+    }
+  - |
+    func f(line string) {
+        fmt.Fprintf(f, "%s\n", line)
+    }
+invalid:
+  - |
+    func f() {
+        fmt.Println("debug")
+    }
+  - |
+    func f(n int) {
+        fmt.Printf("written %d\n", n)
+    }
+  - |
+    func f() {
+        fmt.Print("status")
+    }

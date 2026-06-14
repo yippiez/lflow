@@ -1,18 +1,3 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package main
 
 import (
@@ -48,10 +33,10 @@ func TestRun(t *testing.T) {
 
 	// Verify schema contains expected tables
 	expectedTables := []string{
-		"CREATE TABLE books",
+		"CREATE TABLE nodes",
 		"CREATE TABLE system",
-		"CREATE TABLE \"notes\"",
-		"CREATE VIRTUAL TABLE note_fts",
+		"CREATE TABLE wf_mirrors",
+		"CREATE VIRTUAL TABLE node_fts",
 	}
 
 	for _, expected := range expectedTables {
@@ -60,9 +45,9 @@ func TestRun(t *testing.T) {
 
 	// Verify schema contains triggers
 	expectedTriggers := []string{
-		"CREATE TRIGGER notes_after_insert",
-		"CREATE TRIGGER notes_after_delete",
-		"CREATE TRIGGER notes_after_update",
+		"CREATE TRIGGER nodes_after_insert",
+		"CREATE TRIGGER nodes_after_delete",
+		"CREATE TRIGGER nodes_after_update",
 	}
 
 	for _, expected := range expectedTriggers {

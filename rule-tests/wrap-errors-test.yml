@@ -1,0 +1,8 @@
+id: wrap-errors
+valid:
+  - return errors.Errorf("rank %d out of range", rank)
+  - return errors.New("static message")
+  - return errors.Wrap(err, "opening db connection")
+invalid:
+  - return errors.New(fmt.Sprintf("rank %d out of range", rank))
+  - err := errors.New(fmt.Sprintf("bad node %s", uuid))

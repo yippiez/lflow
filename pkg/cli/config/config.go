@@ -1,93 +1,72 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package config
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
+	"path/filepath"
 
 	"github.com/lflow/lflow/pkg/cli/consts"
 	"github.com/lflow/lflow/pkg/cli/context"
-	"github.com/lflow/lflow/pkg/cli/log"
-	"github.com/lflow/lflow/pkg/cli/utils"
 	"github.com/pkg/errors"
-	"gopkg.in/yaml.v2"
 )
 
-// Config holds lflow configuration
+// Config holds lflow configuration, stored as JSON at ~/.lflow/settings.json.
 type Config struct {
-	Editor             string `yaml:"editor"`
-	APIEndpoint        string `yaml:"apiEndpoint"`
-	EnableUpgradeCheck bool   `yaml:"enableUpgradeCheck"`
+	Editor             string `json:"editor"`
+	APIEndpoint        string `json:"apiEndpoint"`
+	EnableUpgradeCheck bool   `json:"enableUpgradeCheck"`
+	// DBPath relocates the SQLite database. The settings file is the only
+	// place to set it; there is no flag.
+	DBPath string `json:"dbPath,omitempty"`
+	// Workflowy holds the official workflowy v1 API credentials.
+	Workflowy WorkflowyConfig `json:"workflowy,omitempty"`
 }
 
-func checkLegacyPath(ctx context.DnoteCtx) (string, bool) {
-	legacyPath := fmt.Sprintf("%s/%s", ctx.Paths.LegacyDnote, consts.ConfigFilename)
-
-	ok, err := utils.FileExists(legacyPath)
-	if err != nil {
-		log.Error(errors.Wrapf(err, "checking legacy dnote directory at %s", legacyPath).Error())
-	}
-	if ok {
-		return legacyPath, true
-	}
-
-	return "", false
+// WorkflowyConfig holds the official workflowy v1 API credentials.
+type WorkflowyConfig struct {
+	APIKey  string `json:"apiKey,omitempty"`
+	BaseURL string `json:"baseUrl,omitempty"`
 }
 
-// GetPath returns the path to the lflow config file
+// GetPath returns the path to the lflow settings file: ~/.lflow/settings.json.
 func GetPath(ctx context.DnoteCtx) string {
-	legacyPath, ok := checkLegacyPath(ctx)
-	if ok {
-		return legacyPath
-	}
-
-	return fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.LflowDirName, consts.ConfigFilename)
+	return filepath.Join(ctx.Paths.Home, consts.LflowHomeDirName, consts.SettingsFilename)
 }
 
-// Read reads the config file
+// Read reads the settings file. A missing file is not an error — it yields the
+// zero Config so first run and unconfigured commands keep working.
 func Read(ctx context.DnoteCtx) (Config, error) {
 	var ret Config
 
-	configPath := GetPath(ctx)
-	b, err := os.ReadFile(configPath)
+	b, err := os.ReadFile(GetPath(ctx))
 	if err != nil {
-		return ret, errors.Wrap(err, "reading config file")
+		if os.IsNotExist(err) {
+			return ret, nil
+		}
+		return ret, errors.Wrap(err, "reading settings file")
 	}
 
-	err = yaml.Unmarshal(b, &ret)
-	if err != nil {
-		return ret, errors.Wrap(err, "unmarshalling config")
+	if err := json.Unmarshal(b, &ret); err != nil {
+		return ret, errors.Wrap(err, "unmarshalling settings")
 	}
 
 	return ret, nil
 }
 
-// Write writes the config to the config file
+// Write writes the config to the settings file, creating ~/.lflow if needed.
 func Write(ctx context.DnoteCtx, cf Config) error {
 	path := GetPath(ctx)
-
-	b, err := yaml.Marshal(cf)
-	if err != nil {
-		return errors.Wrap(err, "marshalling config into YAML")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return errors.Wrap(err, "creating the settings directory")
 	}
 
-	err = os.WriteFile(path, b, 0644)
+	b, err := json.MarshalIndent(cf, "", "  ")
 	if err != nil {
-		return errors.Wrap(err, "writing the config file")
+		return errors.Wrap(err, "marshalling settings into JSON")
+	}
+
+	if err := os.WriteFile(path, b, 0644); err != nil {
+		return errors.Wrap(err, "writing the settings file")
 	}
 
 	return nil

@@ -1,0 +1,23 @@
+id: no-status-emoji
+valid:
+  - |
+    func f() {
+      log.Successf("→ saved %q\n", name)
+    }
+  - |
+    func f() {
+      fmt.Println("→ no node matching")
+    }
+invalid:
+  - |
+    func f() {
+      fmt.Println("✓ saved")
+    }
+  - |
+    func f() {
+      fmt.Println("✗ no match")
+    }
+  - |
+    func f() {
+      msg := "• item"
+    }

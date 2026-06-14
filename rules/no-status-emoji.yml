@@ -1,0 +1,17 @@
+id: no-status-emoji
+language: go
+severity: error
+message: Use a colored arrow (→), not a tick/cross glyph, in user-facing output.
+note: |
+  lflow's output style is locked: status is conveyed by a colored arrow
+  followed by text, with a middledot (·) separator — green arrow for success,
+  muted gray for default/info, red for errors. The tick/cross/bullet glyphs
+  ✓ ✔ ✗ ⨯ • are forbidden in string literals so the style stays consistent
+  across every command and the editor. Use the pkg/cli/log helpers (which
+  print the arrow) or a literal "→ " prefix.
+rule:
+  any:
+    - kind: interpreted_string_literal
+      regex: '[✓✔✗⨯•]'
+    - kind: raw_string_literal
+      regex: '[✓✔✗⨯•]'

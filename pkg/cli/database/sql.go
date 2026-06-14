@@ -1,22 +1,8 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package database
 
 import (
 	"database/sql"
+	"strings"
 
 	"github.com/pkg/errors"
 	// use sqlite
@@ -115,9 +101,19 @@ func (d *DB) Close() error {
 	return errors.New("can't close db")
 }
 
-// Open initializes a new connection to the sqlite database
+// Open initializes a new connection to the sqlite database.
+// A busy timeout is set because the editor's background mirror sync writes
+// from a separate goroutine; without it concurrent writers fail immediately
+// with SQLITE_BUSY instead of waiting.
 func Open(dbPath string) (*DB, error) {
-	dbConn, err := sql.Open("sqlite3", dbPath)
+	dsn := dbPath
+	if strings.Contains(dsn, "?") {
+		dsn += "&_busy_timeout=5000"
+	} else {
+		dsn += "?_busy_timeout=5000"
+	}
+
+	dbConn, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, errors.Wrap(err, "opening db connection")
 	}

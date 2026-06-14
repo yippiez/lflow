@@ -3,62 +3,34 @@
 
 ![Build Status](https://github.com/lflow/lflow/actions/workflows/ci.yml/badge.svg)
 
-Lflow is a simple command line notebook. Single binary, no dependencies.
+lflow is a fork of [dnote](https://github.com/dnote/dnote) reworked into a local-first terminal outline editor: your whole tree lives in one SQLite file, every command is one-shot and pipe-friendly, and `lflow node open` drops you into an inline editor that draws in the terminal scrollback rather than the alternate screen. Nodes can be bullets, headings, todos, code, quotes and mirrors; device sync against a self-hostable server and a Workflowy integration are optional.
 
-Your notes are stored in **one SQLite file** - portable, searchable, and completely under your control. Optional sync between devices via a self-hosted server with REST API access.
+## Examples
 
 ```sh
-# Add a note (or omit -c to launch your editor)
-lflow add linux -c "Check disk usage with df -h"
+# Build — lflow needs SQLite FTS5, so build with the fts5 tag
+go build --tags fts5 ./pkg/cli
 
-# View notes in a book
-lflow view linux
+# Add nodes: positional text, or pipe stdin where every line becomes a node
+lflow node add "reading list"
+lflow node add --parent "reading list" "Designing Data-Intensive Applications"
+make bench 2>&1 | lflow node add --parent "experiment results"
 
-# Full-text search
-lflow find "disk usage"
+# Open the inline editor on the best match, or the whole outline
+lflow node open "reading list"
+lflow node open
 
-# Sync notes
-lflow sync
+# List nodes, or dump a subtree as JSON for scripting
+lflow node list
+lflow node list "reading list" --format json | jq -r '.children[].name'
+
+# Sync to a self-hosted server, or reconcile a Workflowy mirror — both optional
+lflow server sync
+lflow wf pull
 ```
 
-## Installation
+See [pkg/cli/COMMANDS.md](pkg/cli/COMMANDS.md) for the full command and flag reference, and [SELF_HOSTING.md](SELF_HOSTING.md) for running the sync server.
 
-```bash
-# Quick install script
-curl -s https://raw.githubusercontent.com/lflow/lflow/master/install.sh | sh
+## License
 
-# macOS with Homebrew
-brew install lflow
-```
-
-Or [download binary](https://github.com/lflow/lflow/releases).
-
-## Server (Optional)
-
-Server is a binary with SQLite embedded. No database setup is required.
-
-If using docker, create a compose.yml:
-
-```yaml
-services:
-  lflow:
-    image: lflow/lflow:latest
-    container_name: lflow
-    ports:
-      - 3001:3001
-    volumes:
-      - ./lflow_data:/data
-    restart: unless-stopped
-```
-
-Then run:
-
-```bash
-docker-compose up -d
-```
-
-Or see the [guide](https://github.com/lflow/lflow) for binary installation.
-
-## Documentation
-
-See the [Lflow docs](https://github.com/lflow/lflow).
+Apache License 2.0.

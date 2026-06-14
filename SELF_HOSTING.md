@@ -1,5 +1,9 @@
 # Self-Hosting Lflow Server
 
+The lflow server is what `lflow server sync` talks to. It stores your outline nodes and
+speaks the USN-based sync protocol; the CLI works fully offline without it, so the
+server is only needed if you want to sync nodes across devices.
+
 Please see the [doc](https://github.com/lflow/lflow) for more.
 
 ## Docker Installation

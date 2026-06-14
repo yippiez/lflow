@@ -1,18 +1,3 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package app
 
 import (
@@ -345,16 +330,13 @@ func TestRemoveUser(t *testing.T) {
 		assert.Equal(t, err, ErrNotFound, "should return ErrNotFound")
 	})
 
-	t.Run("user has notes", func(t *testing.T) {
+	t.Run("user has nodes", func(t *testing.T) {
 		db := testutils.InitMemoryDB(t)
 
 		user := testutils.SetupUserData(db, "alice@example.com", "password123")
 
-		book := database.Book{UserID: user.ID, Label: "testbook", Deleted: false}
-		testutils.MustExec(t, db.Save(&book), "creating book")
-
-		note := database.Note{UserID: user.ID, BookUUID: book.UUID, Body: "test note", Deleted: false}
-		testutils.MustExec(t, db.Save(&note), "creating note")
+		node := database.Node{UserID: user.ID, Name: "test node", Deleted: false}
+		testutils.MustExec(t, db.Save(&node), "creating node")
 
 		a := NewTest()
 		a.DB = db
@@ -367,57 +349,29 @@ func TestRemoveUser(t *testing.T) {
 		var userCount int64
 		testutils.MustExec(t, db.Model(&database.User{}).Count(&userCount), "counting users")
 		assert.Equal(t, userCount, int64(1), "user should not be deleted")
-
 	})
 
-	t.Run("user has books", func(t *testing.T) {
+	t.Run("user has deleted nodes", func(t *testing.T) {
 		db := testutils.InitMemoryDB(t)
 
 		user := testutils.SetupUserData(db, "alice@example.com", "password123")
 
-		book := database.Book{UserID: user.ID, Label: "testbook", Deleted: false}
-		testutils.MustExec(t, db.Save(&book), "creating book")
+		node := database.Node{UserID: user.ID, Name: "test node", Deleted: false}
+		testutils.MustExec(t, db.Save(&node), "creating node")
+
+		// Soft delete the node
+		testutils.MustExec(t, db.Model(&node).Update("deleted", true), "soft deleting node")
 
 		a := NewTest()
 		a.DB = db
 
 		err := a.RemoveUser("alice@example.com")
 
-		assert.Equal(t, err, ErrUserHasExistingResources, "should return ErrUserHasExistingResources")
-
-		// Verify user was NOT deleted
-		var userCount int64
-		testutils.MustExec(t, db.Model(&database.User{}).Count(&userCount), "counting users")
-		assert.Equal(t, userCount, int64(1), "user should not be deleted")
-
-	})
-
-	t.Run("user has deleted notes and books", func(t *testing.T) {
-		db := testutils.InitMemoryDB(t)
-
-		user := testutils.SetupUserData(db, "alice@example.com", "password123")
-
-		book := database.Book{UserID: user.ID, Label: "testbook", Deleted: false}
-		testutils.MustExec(t, db.Save(&book), "creating book")
-
-		note := database.Note{UserID: user.ID, BookUUID: book.UUID, Body: "test note", Deleted: false}
-		testutils.MustExec(t, db.Save(&note), "creating note")
-
-		// Soft delete the note and book
-		testutils.MustExec(t, db.Model(&note).Update("deleted", true), "soft deleting note")
-		testutils.MustExec(t, db.Model(&book).Update("deleted", true), "soft deleting book")
-
-		a := NewTest()
-		a.DB = db
-
-		err := a.RemoveUser("alice@example.com")
-
-		assert.Equal(t, err, nil, "should not error when user only has deleted notes and books")
+		assert.Equal(t, err, nil, "should not error when user only has deleted nodes")
 
 		// Verify user was deleted
 		var userCount int64
 		testutils.MustExec(t, db.Model(&database.User{}).Count(&userCount), "counting users")
 		assert.Equal(t, userCount, int64(0), "user should be deleted")
-
 	})
 }

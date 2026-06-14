@@ -1,0 +1,14 @@
+id: wrap-errors
+language: go
+severity: warning
+message: Use errors.Errorf instead of errors.New(fmt.Sprintf(...)).
+note: |
+  This codebase uses github.com/pkg/errors throughout for wrapping and stack
+  traces. errors.New(fmt.Sprintf(...)) defeats that: it builds a flat,
+  format-free string and loses the formatting intent. errors.Errorf(...)
+  formats and captures a stack trace in one call. Prefer errors.Errorf for
+  formatted messages (and errors.Wrap / errors.Wrapf when wrapping a cause).
+rule:
+  pattern:
+    context: "v := errors.New(fmt.Sprintf($$$))"
+    selector: call_expression

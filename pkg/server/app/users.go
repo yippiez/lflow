@@ -1,18 +1,3 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package app
 
 import (
@@ -164,7 +149,7 @@ func UpdateUserPassword(db *gorm.DB, user *database.User, newPassword string) er
 }
 
 // RemoveUser removes a user from the system
-// Returns an error if the user has any notes or books
+// Returns an error if the user has any nodes
 func (a *App) RemoveUser(email string) error {
 	// Find the user
 	user, err := a.GetUserByEmail(email)
@@ -172,21 +157,12 @@ func (a *App) RemoveUser(email string) error {
 		return err
 	}
 
-	// Check if user has any notes
-	var noteCount int64
-	if err := a.DB.Model(&database.Note{}).Where("user_id = ? AND deleted = ?", user.ID, false).Count(&noteCount).Error; err != nil {
-		return pkgErrors.Wrap(err, "counting notes")
+	// Check if user has any nodes
+	var nodeCount int64
+	if err := a.DB.Model(&database.Node{}).Where("user_id = ? AND deleted = ?", user.ID, false).Count(&nodeCount).Error; err != nil {
+		return pkgErrors.Wrap(err, "counting nodes")
 	}
-	if noteCount > 0 {
-		return ErrUserHasExistingResources
-	}
-
-	// Check if user has any books
-	var bookCount int64
-	if err := a.DB.Model(&database.Book{}).Where("user_id = ? AND deleted = ?", user.ID, false).Count(&bookCount).Error; err != nil {
-		return pkgErrors.Wrap(err, "counting books")
-	}
-	if bookCount > 0 {
+	if nodeCount > 0 {
 		return ErrUserHasExistingResources
 	}
 

@@ -1,18 +1,3 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package migrate
 
 import (
@@ -21,13 +6,12 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/dnote/actions"
-	"github.com/lflow/lflow/pkg/cli/client"
 	"github.com/lflow/lflow/pkg/cli/config"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
-	"github.com/lflow/lflow/pkg/cli/log"
 	"github.com/pkg/errors"
 )
 
@@ -581,61 +565,157 @@ var lm14 = migration{
 	},
 }
 
+// lm15 converts the dnote book/note model into the lflow node outline model.
+// Every book becomes a root node (layout h1); every note becomes a child node
+// whose name is the first line of the note body and whose note field holds the
+// rest. Converted rows start over with usn=0/dirty=1 because the node-based
+// server protocol is incompatible with old book/note USNs.
+var lm15 = migration{
+	name: "convert-books-notes-to-nodes",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS nodes
+			(
+				id integer PRIMARY KEY AUTOINCREMENT,
+				uuid text NOT NULL UNIQUE,
+				parent_uuid text NOT NULL DEFAULT '',
+				rank integer NOT NULL DEFAULT 0,
+				name text NOT NULL DEFAULT '',
+				note text NOT NULL DEFAULT '',
+				layout text NOT NULL DEFAULT 'bullets',
+				mirror_of text NOT NULL DEFAULT '',
+				completed_at integer NOT NULL DEFAULT 0,
+				added_on integer NOT NULL DEFAULT 0,
+				edited_on integer NOT NULL DEFAULT 0,
+				usn integer NOT NULL DEFAULT 0,
+				deleted bool NOT NULL DEFAULT false,
+				dirty bool NOT NULL DEFAULT false
+			)`)
+		if err != nil {
+			return errors.Wrap(err, "creating nodes table")
+		}
+
+		_, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_uuid, rank);
+			CREATE INDEX IF NOT EXISTS idx_nodes_dirty ON nodes(dirty);`)
+		if err != nil {
+			return errors.Wrap(err, "creating node indices")
+		}
+
+		_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS wf_mirrors
+			(
+				node_uuid text PRIMARY KEY,
+				wf_id text NOT NULL,
+				anchor text NOT NULL DEFAULT '',
+				last_sync integer NOT NULL DEFAULT 0,
+				wf_modified integer NOT NULL DEFAULT 0
+			)`)
+		if err != nil {
+			return errors.Wrap(err, "creating wf_mirrors table")
+		}
+
+		_, err = tx.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(content=nodes, name, note, tokenize="porter unicode61 categories 'L* N* Co Ps Pe'");`)
+		if err != nil {
+			return errors.Wrap(err, "creating node_fts")
+		}
+		_, err = tx.Exec(`
+			CREATE TRIGGER IF NOT EXISTS nodes_after_insert AFTER INSERT ON nodes BEGIN
+				INSERT INTO node_fts(rowid, name, note) VALUES (new.id, new.name, new.note);
+			END;
+			CREATE TRIGGER IF NOT EXISTS nodes_after_delete AFTER DELETE ON nodes BEGIN
+				INSERT INTO node_fts(node_fts, rowid, name, note) VALUES ('delete', old.id, old.name, old.note);
+			END;
+			CREATE TRIGGER IF NOT EXISTS nodes_after_update AFTER UPDATE ON nodes BEGIN
+				INSERT INTO node_fts(node_fts, rowid, name, note) VALUES ('delete', old.id, old.name, old.note);
+				INSERT INTO node_fts(rowid, name, note) VALUES (new.id, new.name, new.note);
+			END;`)
+		if err != nil {
+			return errors.Wrap(err, "creating node_fts triggers")
+		}
+
+		// convert existing books/notes
+		bookRows, err := tx.Query("SELECT uuid, label FROM books ORDER BY label")
+		if err != nil {
+			return errors.Wrap(err, "querying books")
+		}
+		defer bookRows.Close()
+
+		type legacyBook struct{ uuid, label string }
+		var books []legacyBook
+		for bookRows.Next() {
+			var b legacyBook
+			if err := bookRows.Scan(&b.uuid, &b.label); err != nil {
+				return errors.Wrap(err, "scanning a book")
+			}
+			books = append(books, b)
+		}
+		if err := bookRows.Err(); err != nil {
+			return errors.Wrap(err, "iterating books")
+		}
+
+		now := time.Now().UnixNano()
+		for rank, b := range books {
+			if _, err := tx.Exec(`INSERT INTO nodes (uuid, parent_uuid, rank, name, layout, added_on, edited_on, usn, dirty)
+				VALUES (?, '', ?, ?, 'h1', ?, ?, 0, 1)`, b.uuid, rank, b.label, now, now); err != nil {
+				return errors.Wrapf(err, "converting book %s", b.label)
+			}
+
+			noteRows, err := tx.Query("SELECT uuid, content, added_on, edited_on FROM notes WHERE book_uuid = ? ORDER BY added_on", b.uuid)
+			if err != nil {
+				return errors.Wrapf(err, "querying notes of book %s", b.label)
+			}
+
+			type legacyNote struct {
+				uuid, content     string
+				addedOn, editedOn int64
+			}
+			var notes []legacyNote
+			for noteRows.Next() {
+				var n legacyNote
+				if err := noteRows.Scan(&n.uuid, &n.content, &n.addedOn, &n.editedOn); err != nil {
+					noteRows.Close()
+					return errors.Wrap(err, "scanning a note")
+				}
+				notes = append(notes, n)
+			}
+			noteRows.Close()
+
+			for noteRank, n := range notes {
+				name := n.content
+				note := ""
+				if idx := strings.Index(n.content, "\n"); idx >= 0 {
+					name = n.content[:idx]
+					note = strings.TrimLeft(n.content[idx+1:], "\n")
+				}
+				if _, err := tx.Exec(`INSERT INTO nodes (uuid, parent_uuid, rank, name, note, layout, added_on, edited_on, usn, dirty)
+					VALUES (?, ?, ?, ?, ?, 'bullets', ?, ?, 0, 1)`, n.uuid, b.uuid, noteRank, name, note, n.addedOn, n.editedOn); err != nil {
+					return errors.Wrapf(err, "converting note %s", n.uuid)
+				}
+			}
+		}
+
+		// the node protocol starts over; old book/note usn state is void
+		if _, err := tx.Exec("UPDATE system SET value = '0' WHERE key = ?", "last_max_usn"); err != nil {
+			return errors.Wrap(err, "resetting last_max_usn")
+		}
+
+		if _, err := tx.Exec(`DROP TRIGGER IF EXISTS notes_after_insert;
+			DROP TRIGGER IF EXISTS notes_after_delete;
+			DROP TRIGGER IF EXISTS notes_after_update;
+			DROP TABLE IF EXISTS note_fts;
+			DROP TABLE IF EXISTS notes;
+			DROP TABLE IF EXISTS books;`); err != nil {
+			return errors.Wrap(err, "dropping legacy tables")
+		}
+
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {
-		sessionKey := ctx.SessionKey
-		if sessionKey == "" {
-			return errors.New("not logged in")
-		}
-
-		resp, err := client.GetBooks(ctx, sessionKey)
-		if err != nil {
-			return errors.Wrap(err, "getting books from the server")
-		}
-		log.Debug("book details from the server: %+v\n", resp)
-
-		UUIDMap := map[string]string{}
-		for _, book := range resp {
-			// Build a map from uuid to label
-			UUIDMap[book.Label] = book.UUID
-		}
-
-		for _, book := range resp {
-			// update uuid in the books table
-			log.Debug("Updating book %s\n", book.Label)
-
-			//todo if does not exist, then continue loop
-			var count int
-			if err := tx.
-				QueryRow("SELECT count(*) FROM books WHERE label = ?", book.Label).
-				Scan(&count); err != nil {
-				return errors.Wrapf(err, "checking if book exists: %s", book.Label)
-			}
-
-			if count == 0 {
-				continue
-			}
-
-			var originalUUID string
-			if err := tx.
-				QueryRow("SELECT uuid FROM books WHERE label = ?", book.Label).
-				Scan(&originalUUID); err != nil {
-				return errors.Wrapf(err, "scanning the orignal uuid of the book %s", book.Label)
-			}
-			log.Debug("original uuid: %s. new_uuid %s\n", originalUUID, book.UUID)
-
-			_, err := tx.Exec("UPDATE books SET uuid = ? WHERE label = ?", book.UUID, book.Label)
-			if err != nil {
-				return errors.Wrapf(err, "updating book '%s'", book.Label)
-			}
-
-			_, err = tx.Exec("UPDATE notes SET book_uuid = ? WHERE book_uuid = ?", book.UUID, originalUUID)
-			if err != nil {
-				return errors.Wrapf(err, "updating book_uuids of notes")
-			}
-		}
-
+		// Obsolete: this migration synchronized dnote book uuids by label.
+		// The node model has no books; kept as a no-op to preserve the
+		// remote_schema version sequence of already-migrated databases.
 		return nil
 	},
 }

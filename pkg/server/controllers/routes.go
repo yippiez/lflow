@@ -1,27 +1,12 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package controllers
 
 import (
 	"net/http"
 
+	"github.com/gorilla/mux"
 	"github.com/lflow/lflow/pkg/server/app"
 	"github.com/lflow/lflow/pkg/server/assets"
 	mw "github.com/lflow/lflow/pkg/server/middleware"
-	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 )
 
@@ -78,18 +63,12 @@ func NewAPIRoutes(a *app.App, c *Controllers) []Route {
 		{"POST", "/v3/signin", c.Users.V3Login, true},
 		{"POST", "/v3/signout", c.Users.V3Logout, true},
 		{"OPTIONS", "/v3/signout", c.Users.logoutOptions, true},
-		{"GET", "/v3/notes", mw.Auth(a.DB, c.Notes.V3Index, nil), true},
-		{"GET", "/v3/notes/{noteUUID}", mw.Auth(a.DB, c.Notes.V3Show, nil), true},
-		{"POST", "/v3/notes", mw.Auth(a.DB, c.Notes.V3Create, nil), true},
-		{"DELETE", "/v3/notes/{noteUUID}", mw.Auth(a.DB, c.Notes.V3Delete, nil), true},
-		{"PATCH", "/v3/notes/{noteUUID}", mw.Auth(a.DB, c.Notes.V3Update, nil), true},
-		{"OPTIONS", "/v3/notes", c.Notes.IndexOptions, true},
-		{"GET", "/v3/books", mw.Auth(a.DB, c.Books.V3Index, nil), true},
-		{"GET", "/v3/books/{bookUUID}", mw.Auth(a.DB, c.Books.V3Show, nil), true},
-		{"POST", "/v3/books", mw.Auth(a.DB, c.Books.V3Create, nil), true},
-		{"PATCH", "/v3/books/{bookUUID}", mw.Auth(a.DB, c.Books.V3Update, nil), true},
-		{"DELETE", "/v3/books/{bookUUID}", mw.Auth(a.DB, c.Books.V3Delete, nil), true},
-		{"OPTIONS", "/v3/books", c.Books.IndexOptions, true},
+		{"GET", "/v3/nodes", mw.Auth(a.DB, c.Nodes.V3Index, nil), true},
+		{"GET", "/v3/nodes/{nodeUUID}", mw.Auth(a.DB, c.Nodes.V3Show, nil), true},
+		{"POST", "/v3/nodes", mw.Auth(a.DB, c.Nodes.V3Create, nil), true},
+		{"DELETE", "/v3/nodes/{nodeUUID}", mw.Auth(a.DB, c.Nodes.V3Delete, nil), true},
+		{"PATCH", "/v3/nodes/{nodeUUID}", mw.Auth(a.DB, c.Nodes.V3Update, nil), true},
+		{"OPTIONS", "/v3/nodes", c.Nodes.IndexOptions, true},
 	}
 }
 

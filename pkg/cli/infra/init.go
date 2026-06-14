@@ -1,18 +1,3 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // Package infra provides operations and definitions for the
 // local infrastructure for Dnote
 package infra
@@ -77,14 +62,21 @@ func getDBPath(paths context.Paths, customPath string) string {
 // newBaseCtx creates a minimal context with paths and database connection.
 // This base context is used for file and database initialization before
 // being enriched with config values by setupCtx.
-func newBaseCtx(versionTag, customDBPath string) (context.DnoteCtx, error) {
-	dnoteDir := getLegacyDnotePath(dirs.Home)
+func newBaseCtx(versionTag string) (context.DnoteCtx, error) {
+	legacyDnoteDir := getLegacyDnotePath(dirs.Home)
 	paths := context.Paths{
 		Home:        dirs.Home,
 		Config:      dirs.ConfigHome,
 		Data:        dirs.DataHome,
 		Cache:       dirs.CacheHome,
-		LegacyDnote: dnoteDir,
+		LegacyDnote: legacyDnoteDir,
+	}
+
+	// the config file is the only way to relocate the database; on a first
+	// run the file does not exist yet and the standard location is used
+	customDBPath := ""
+	if cf, err := config.Read(context.DnoteCtx{Paths: paths}); err == nil {
+		customDBPath = cf.DBPath
 	}
 
 	dbPath := getDBPath(paths, customDBPath)
@@ -103,10 +95,11 @@ func newBaseCtx(versionTag, customDBPath string) (context.DnoteCtx, error) {
 	return ctx, nil
 }
 
-// Init initializes the Lflow environment and returns a new lflow context
-// apiEndpoint is used when creating a new config file (e.g., from ldflags during tests)
-func Init(versionTag, apiEndpoint, dbPath string) (*context.DnoteCtx, error) {
-	ctx, err := newBaseCtx(versionTag, dbPath)
+// Init initializes the Lflow environment and returns a new lflow context.
+// apiEndpoint is used when creating a new config file, e.g. from ldflags
+// during tests.
+func Init(versionTag, apiEndpoint string) (*context.DnoteCtx, error) {
+	ctx, err := newBaseCtx(versionTag)
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing a context")
 	}
@@ -186,12 +179,34 @@ func getLegacyDnotePath(homeDir string) string {
 // InitDB initializes the database.
 // Ideally this process must be a part of migration sequence. But it is performed
 // seaprately because it is a prerequisite for legacy migration.
+//
+// The legacy dnote tables (notes/books/actions) are only created when the
+// database has not yet been converted to the node model: the lm1..lm14 legacy
+// migrations expect them, and lm15 converts them into nodes and drops them.
 func InitDB(ctx context.DnoteCtx) error {
 	log.Debug("initializing the database\n")
 
 	db := ctx.DB
 
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS notes
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS system
+		(
+			key string NOT NULL,
+			value text NOT NULL
+		)`)
+	if err != nil {
+		return errors.Wrap(err, "creating system table")
+	}
+
+	// if the node model already exists, the legacy tables are gone for good
+	var nodesCount int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'nodes'").Scan(&nodesCount); err != nil {
+		return errors.Wrap(err, "checking for nodes table")
+	}
+	if nodesCount > 0 {
+		return nil
+	}
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS notes
 		(
 			id integer PRIMARY KEY AUTOINCREMENT,
 			uuid text NOT NULL,
@@ -212,15 +227,6 @@ func InitDB(ctx context.DnoteCtx) error {
 		)`)
 	if err != nil {
 		return errors.Wrap(err, "creating books table")
-	}
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS system
-		(
-			key string NOT NULL,
-			value text NOT NULL
-		)`)
-	if err != nil {
-		return errors.Wrap(err, "creating system table")
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS actions
@@ -324,7 +330,6 @@ func getEditorCommand() string {
 
 	return ret
 }
-
 
 // initConfigFile populates a new config file if it does not exist yet
 func initConfigFile(ctx context.DnoteCtx, apiEndpoint string) error {

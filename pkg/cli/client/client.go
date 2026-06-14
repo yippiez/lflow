@@ -1,18 +1,3 @@
-/* Copyright 2025 Dnote Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // Package client provides interfaces for interacting with the Dnote server
 // and the data structures for responses
 package client
@@ -232,30 +217,23 @@ func GetSyncState(ctx context.DnoteCtx) (GetSyncStateResp, error) {
 	return ret, nil
 }
 
-// SyncFragNote represents a note in a sync fragment and contains only the necessary information
-// for the client to sync the note locally
-type SyncFragNote struct {
-	UUID      string    `json:"uuid"`
-	BookUUID  string    `json:"book_uuid"`
-	USN       int       `json:"usn"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	AddedOn   int64     `json:"added_on"`
-	EditedOn  int64     `json:"edited_on"`
-	Body      string    `json:"content"`
-	Deleted   bool      `json:"deleted"`
-}
-
-// SyncFragBook represents a book in a sync fragment and contains only the necessary information
-// for the client to sync the note locally
-type SyncFragBook struct {
-	UUID      string    `json:"uuid"`
-	USN       int       `json:"usn"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	AddedOn   int64     `json:"added_on"`
-	Label     string    `json:"label"`
-	Deleted   bool      `json:"deleted"`
+// SyncFragNode represents a node in a sync fragment and contains only the
+// necessary information for the client to sync the node locally
+type SyncFragNode struct {
+	UUID        string    `json:"uuid"`
+	ParentUUID  string    `json:"parent_uuid"`
+	Rank        int       `json:"rank"`
+	Name        string    `json:"name"`
+	Note        string    `json:"note"`
+	Layout      string    `json:"layout"`
+	MirrorOf    string    `json:"mirror_of"`
+	CompletedAt int64     `json:"completed_at"`
+	USN         int       `json:"usn"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	AddedOn     int64     `json:"added_on"`
+	EditedOn    int64     `json:"edited_on"`
+	Deleted     bool      `json:"deleted"`
 }
 
 // SyncFragment contains a piece of information about the server's state.
@@ -263,10 +241,8 @@ type SyncFragment struct {
 	FragMaxUSN    int            `json:"frag_max_usn"`
 	UserMaxUSN    int            `json:"user_max_usn"`
 	CurrentTime   int64          `json:"current_time"`
-	Notes         []SyncFragNote `json:"notes"`
-	Books         []SyncFragBook `json:"books"`
-	ExpungedNotes []string       `json:"expunged_notes"`
-	ExpungedBooks []string       `json:"expunged_books"`
+	Nodes         []SyncFragNode `json:"nodes"`
+	ExpungedNodes []string       `json:"expunged_nodes"`
 }
 
 // GetSyncFragmentResp is the response from the get sync fragment endpoint
@@ -299,235 +275,105 @@ func GetSyncFragment(ctx context.DnoteCtx, afterUSN int) (GetSyncFragmentResp, e
 	return resp, nil
 }
 
-// RespBook is the book in the response from the create book api
-type RespBook struct {
-	ID        int       `json:"id"`
-	UUID      string    `json:"uuid"`
-	USN       int       `json:"usn"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Label     string    `json:"label"`
+// RespNode is a node in API responses
+type RespNode struct {
+	UUID        string    `json:"uuid"`
+	ParentUUID  string    `json:"parent_uuid"`
+	Rank        int       `json:"rank"`
+	Name        string    `json:"name"`
+	Note        string    `json:"note"`
+	Layout      string    `json:"layout"`
+	MirrorOf    string    `json:"mirror_of"`
+	CompletedAt int64     `json:"completed_at"`
+	AddedOn     int64     `json:"added_on"`
+	EditedOn    int64     `json:"edited_on"`
+	USN         int       `json:"usn"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// CreateBookPayload is a payload for creating a book
-type CreateBookPayload struct {
-	Name string `json:"name"`
+// NodePayload carries the full client-side state of a node for create/update.
+type NodePayload struct {
+	ParentUUID  string `json:"parent_uuid"`
+	Rank        int    `json:"rank"`
+	Name        string `json:"name"`
+	Note        string `json:"note"`
+	Layout      string `json:"layout"`
+	MirrorOf    string `json:"mirror_of"`
+	CompletedAt int64  `json:"completed_at"`
+	AddedOn     int64  `json:"added_on"`
+	EditedOn    int64  `json:"edited_on"`
 }
 
-// CreateBookResp is the response from create book api
-type CreateBookResp struct {
-	Book RespBook `json:"book"`
+// CreateNodeResp is the response from the create node endpoint
+type CreateNodeResp struct {
+	Result RespNode `json:"result"`
 }
 
-// CreateBook creates a new book in the server
-func CreateBook(ctx context.DnoteCtx, label string) (CreateBookResp, error) {
-	payload := CreateBookPayload{
-		Name: label,
-	}
+// CreateNode creates a node in the server
+func CreateNode(ctx context.DnoteCtx, payload NodePayload) (CreateNodeResp, error) {
 	b, err := json.Marshal(payload)
 	if err != nil {
-		return CreateBookResp{}, errors.Wrap(err, "marshaling payload")
+		return CreateNodeResp{}, errors.Wrap(err, "marshaling payload")
 	}
 
-	res, err := doAuthorizedReq(ctx, "POST", "/v3/books", string(b), nil)
+	res, err := doAuthorizedReq(ctx, "POST", "/v3/nodes", string(b), nil)
 	if err != nil {
-		return CreateBookResp{}, errors.Wrap(err, "posting a book to the server")
+		return CreateNodeResp{}, errors.Wrap(err, "posting a node to the server")
 	}
 
-	var resp CreateBookResp
+	var resp CreateNodeResp
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, errors.Wrap(err, "decoding response payload")
+		return CreateNodeResp{}, errors.Wrap(err, "decoding payload")
 	}
 
 	return resp, nil
 }
 
-type updateBookPayload struct {
-	Name *string `json:"name"`
+// UpdateNodeResp is the response from the update node endpoint
+type UpdateNodeResp struct {
+	Status int      `json:"status"`
+	Result RespNode `json:"result"`
 }
 
-// UpdateBookResp is the response from create book api
-type UpdateBookResp struct {
-	Book RespBook `json:"book"`
-}
-
-// UpdateBook updates a book in the server
-func UpdateBook(ctx context.DnoteCtx, label, uuid string) (UpdateBookResp, error) {
-	payload := updateBookPayload{
-		Name: &label,
-	}
+// UpdateNode updates a node in the server
+func UpdateNode(ctx context.DnoteCtx, uuid string, payload NodePayload) (UpdateNodeResp, error) {
 	b, err := json.Marshal(payload)
 	if err != nil {
-		return UpdateBookResp{}, errors.Wrap(err, "marshaling payload")
+		return UpdateNodeResp{}, errors.Wrap(err, "marshaling payload")
 	}
 
-	endpoint := fmt.Sprintf("/v3/books/%s", uuid)
+	endpoint := fmt.Sprintf("/v3/nodes/%s", uuid)
 	res, err := doAuthorizedReq(ctx, "PATCH", endpoint, string(b), nil)
 	if err != nil {
-		return UpdateBookResp{}, errors.Wrap(err, "posting a book to the server")
+		return UpdateNodeResp{}, errors.Wrap(err, "patching a node to the server")
 	}
 
-	var resp UpdateBookResp
+	var resp UpdateNodeResp
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, errors.Wrap(err, "decoding payload")
+		return UpdateNodeResp{}, errors.Wrap(err, "decoding payload")
 	}
 
 	return resp, nil
 }
 
-// DeleteBookResp is the response from create book api
-type DeleteBookResp struct {
+// DeleteNodeResp is the response from the remove node endpoint
+type DeleteNodeResp struct {
 	Status int      `json:"status"`
-	Book   RespBook `json:"book"`
+	Result RespNode `json:"result"`
 }
 
-// DeleteBook deletes a book in the server
-func DeleteBook(ctx context.DnoteCtx, uuid string) (DeleteBookResp, error) {
-	endpoint := fmt.Sprintf("/v3/books/%s", uuid)
+// DeleteNode removes a node in the server
+func DeleteNode(ctx context.DnoteCtx, uuid string) (DeleteNodeResp, error) {
+	endpoint := fmt.Sprintf("/v3/nodes/%s", uuid)
 	res, err := doAuthorizedReq(ctx, "DELETE", endpoint, "", nil)
 	if err != nil {
-		return DeleteBookResp{}, errors.Wrap(err, "deleting a book in the server")
+		return DeleteNodeResp{}, errors.Wrap(err, "deleting a node in the server")
 	}
 
-	var resp DeleteBookResp
+	var resp DeleteNodeResp
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, errors.Wrap(err, "decoding the response")
-	}
-
-	return resp, nil
-}
-
-// CreateNotePayload is a payload for creating a note
-type CreateNotePayload struct {
-	BookUUID string `json:"book_uuid"`
-	Body     string `json:"content"`
-}
-
-// CreateNoteResp is the response from create note endpoint
-type CreateNoteResp struct {
-	Result RespNote `json:"result"`
-}
-
-type respNoteBook struct {
-	UUID  string `json:"uuid"`
-	Label string `json:"label"`
-}
-
-type respNoteUser struct {
-	Name string `json:"name"`
-}
-
-// RespNote is a note in the response
-type RespNote struct {
-	UUID      string       `json:"uuid"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
-	Body      string       `json:"content"`
-	AddedOn   int64        `json:"added_on"`
-	Public    bool         `json:"public"`
-	USN       int          `json:"usn"`
-	Book      respNoteBook `json:"book"`
-	User      respNoteUser `json:"user"`
-}
-
-// CreateNote creates a note in the server
-func CreateNote(ctx context.DnoteCtx, bookUUID, content string) (CreateNoteResp, error) {
-	payload := CreateNotePayload{
-		BookUUID: bookUUID,
-		Body:     content,
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return CreateNoteResp{}, errors.Wrap(err, "marshaling payload")
-	}
-
-	res, err := doAuthorizedReq(ctx, "POST", "/v3/notes", string(b), nil)
-	if err != nil {
-		return CreateNoteResp{}, errors.Wrap(err, "posting a book to the server")
-	}
-
-	var resp CreateNoteResp
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return CreateNoteResp{}, errors.Wrap(err, "decoding payload")
-	}
-
-	return resp, nil
-}
-
-type updateNotePayload struct {
-	BookUUID *string `json:"book_uuid"`
-	Body     *string `json:"content"`
-}
-
-// UpdateNoteResp is the response from create book api
-type UpdateNoteResp struct {
-	Status int      `json:"status"`
-	Result RespNote `json:"result"`
-}
-
-// UpdateNote updates a note in the server
-func UpdateNote(ctx context.DnoteCtx, uuid, bookUUID, content string) (UpdateNoteResp, error) {
-	payload := updateNotePayload{
-		BookUUID: &bookUUID,
-		Body:     &content,
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return UpdateNoteResp{}, errors.Wrap(err, "marshaling payload")
-	}
-
-	endpoint := fmt.Sprintf("/v3/notes/%s", uuid)
-	res, err := doAuthorizedReq(ctx, "PATCH", endpoint, string(b), nil)
-	if err != nil {
-		return UpdateNoteResp{}, errors.Wrap(err, "patching a note to the server")
-	}
-
-	var resp UpdateNoteResp
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return UpdateNoteResp{}, errors.Wrap(err, "decoding payload")
-	}
-
-	return resp, nil
-}
-
-// DeleteNoteResp is the response from remove note api
-type DeleteNoteResp struct {
-	Status int      `json:"status"`
-	Result RespNote `json:"result"`
-}
-
-// DeleteNote removes a note in the server
-func DeleteNote(ctx context.DnoteCtx, uuid string) (DeleteNoteResp, error) {
-	endpoint := fmt.Sprintf("/v3/notes/%s", uuid)
-	res, err := doAuthorizedReq(ctx, "DELETE", endpoint, "", nil)
-	if err != nil {
-		return DeleteNoteResp{}, errors.Wrap(err, "patching a note to the server")
-	}
-
-	var resp DeleteNoteResp
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return DeleteNoteResp{}, errors.Wrap(err, "decoding payload")
-	}
-
-	return resp, nil
-}
-
-// GetBooksResp is a response from get books endpoint
-type GetBooksResp []struct {
-	UUID  string `json:"uuid"`
-	Label string `json:"label"`
-}
-
-// GetBooks gets books from the server
-func GetBooks(ctx context.DnoteCtx, sessionKey string) (GetBooksResp, error) {
-	res, err := doAuthorizedReq(ctx, "GET", "/v3/books", "", nil)
-	if err != nil {
-		return GetBooksResp{}, errors.Wrap(err, "making http request")
-	}
-
-	var resp GetBooksResp
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return GetBooksResp{}, errors.Wrap(err, "decoding payload")
+		return DeleteNodeResp{}, errors.Wrap(err, "decoding payload")
 	}
 
 	return resp, nil
