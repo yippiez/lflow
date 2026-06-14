@@ -914,6 +914,8 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		}
 		m.unsaved = true
 	case "/note":
+		// a mirror is the same node everywhere: edit the original's note
+		cur = m.tree.resolve(cur)
 		m.mode = modeNote
 		m.notePrev = cur.note
 		m.caret = len([]rune(cur.note))
@@ -938,7 +940,8 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	cur := m.cursorItem()
+	// a mirror's note is its original's note: edit the one real node
+	cur := m.tree.resolve(m.cursorItem())
 	if cur == nil {
 		m.mode = modeOutline
 		return m, nil
@@ -1290,7 +1293,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
 
 		if selected && m.mode == modeNote {
-			line += cDim + "  note: " + cReset + cFG + withCaret(stripControlBytes(it.note), m.caret) + cReset
+			line += cDim + "  note: " + cReset + cFG + withCaret(stripControlBytes(m.tree.displayNote(it)), m.caret) + cReset
 		}
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth

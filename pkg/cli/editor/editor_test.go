@@ -632,6 +632,60 @@ func TestZoomMirrorMissingSourceIsNoop(t *testing.T) {
 	}
 }
 
+// TestDisplayNoteResolvesMirrorToSource is the round-4 note-staleness fix: a
+// mirror must show its source's live in-memory note, including an unsaved edit,
+// not a stale copy on the mirror row.
+func TestDisplayNoteResolvesMirrorToSource(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", note: "saved note", parent: root}
+	mir := &item{uuid: "mir", mirrorOf: "src", note: "stale", parent: root}
+	root.children = []*item{src, mir}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "mir": mir},
+		externalNames: map[string]string{},
+	}
+
+	if got := tr.displayNote(mir); got != "saved note" {
+		t.Fatalf("mirror note should resolve to the source, got %q", got)
+	}
+	// an unsaved edit to the source must show through the mirror at once
+	src.note = "edited but unsaved"
+	if got := tr.displayNote(mir); got != "edited but unsaved" {
+		t.Fatalf("mirror note should reflect the unsaved source edit, got %q", got)
+	}
+}
+
+// TestNoteEditOnMirrorEditsSource is the round-4 fix: typing a note while the
+// cursor is on a mirror edits the one real node, the source, not a divergent
+// copy on the mirror row — same node everywhere.
+func TestNoteEditOnMirrorEditsSource(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", parent: root}
+	mir := &item{uuid: "mir", mirrorOf: "src", parent: root}
+	root.children = []*item{src, mir}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "mir": mir},
+		externalNames: map[string]string{},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	m.cursor = m.rowIndexOf(mir)
+	m.mode = modeNote
+	m.notePrev = m.tree.resolve(m.cursorItem()).note
+	m.caret = 0
+
+	m.handleNoteKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello")})
+
+	if src.note != "hello" {
+		t.Fatalf("source note should be edited through the mirror, got %q", src.note)
+	}
+	if mir.note != "" {
+		t.Fatalf("mirror row must not hold a divergent note, got %q", mir.note)
+	}
+}
+
 // TestSlashBackspaceDismissKeepsStatusBar is the F8 regression: the slash menu
 // lists its commands above the status bar, never below it. The inline renderer
 // skips repainting a last line that is unchanged from the previous frame, so if

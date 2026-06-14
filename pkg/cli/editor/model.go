@@ -161,6 +161,36 @@ func (t *tree) displayName(it *item) string {
 	return t.externalNames[it.mirrorOf]
 }
 
+// resolve returns the live source item a mirror stands for, so content edits
+// act on the one real node — same node everywhere. A non-mirror, or a mirror
+// whose source lives outside the loaded subtree, returns itself.
+func (t *tree) resolve(it *item) *item {
+	if it == nil || it.mirrorOf == "" {
+		return it
+	}
+	if src, ok := t.byUUID[it.mirrorOf]; ok {
+		return src
+	}
+	return it
+}
+
+// displayNote resolves the visible note of an item: a mirror shows its
+// original's live note, so an unsaved edit on the source shows through at once.
+// When the source is outside the loaded subtree we query the DB for its current
+// note rather than fall back to a stale copy on the mirror row.
+func (t *tree) displayNote(it *item) string {
+	if it.mirrorOf == "" {
+		return it.note
+	}
+	if src, ok := t.byUUID[it.mirrorOf]; ok {
+		return src.note
+	}
+	if n, err := database.GetNode(t.db, it.mirrorOf); err == nil {
+		return n.Note
+	}
+	return ""
+}
+
 // row is a visible line of the outline.
 type row struct {
 	it     *item
