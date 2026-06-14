@@ -942,6 +942,66 @@ func TestDeleteEmptyLeafThroughMirrorNoPanic(t *testing.T) {
 	}
 }
 
+// siblingNames lists the names of the view root's direct children.
+func siblingNames(m *Model) []string {
+	var out []string
+	for _, c := range m.tree.root.children {
+		out = append(out, c.name)
+	}
+	return out
+}
+
+// TestEnterSplitsNodeAtCaret is the split fix: Enter mid-text keeps the part
+// before the caret and moves the part after it into a new sibling.
+func TestEnterSplitsNodeAtCaret(t *testing.T) {
+	m := newTestModel(80, "asdasd")
+	m.cursor = 0
+	m.caret = 3 // asd|asd
+
+	m.press("enter")
+
+	if got := siblingNames(m); !reflect.DeepEqual(got, []string{"asd", "asd"}) {
+		t.Fatalf("split = %#v, want [asd asd]", got)
+	}
+	if m.cursor != 1 || m.caret != 0 {
+		t.Fatalf("caret should sit at the start of the new node, cursor=%d caret=%d", m.cursor, m.caret)
+	}
+}
+
+// TestEnterAtStartMovesTextDown: caret at column 0 leaves an empty node above and
+// moves all the text into the new sibling.
+func TestEnterAtStartMovesTextDown(t *testing.T) {
+	m := newTestModel(80, "asdasd")
+	m.cursor = 0
+	m.caret = 0
+
+	m.press("enter")
+
+	if got := siblingNames(m); !reflect.DeepEqual(got, []string{"", "asdasd"}) {
+		t.Fatalf("split = %#v, want [\"\" asdasd]", got)
+	}
+	if m.cursorItem().name != "asdasd" {
+		t.Fatalf("cursor should follow the moved text, on %q", m.cursorItem().name)
+	}
+}
+
+// TestEnterAtEndCreatesEmptySibling: caret at the end opens a fresh empty node,
+// the common "new line" case.
+func TestEnterAtEndCreatesEmptySibling(t *testing.T) {
+	m := newTestModel(80, "asdasd")
+	m.cursor = 0
+	m.caret = len([]rune("asdasd"))
+
+	m.press("enter")
+
+	if got := siblingNames(m); !reflect.DeepEqual(got, []string{"asdasd", ""}) {
+		t.Fatalf("split = %#v, want [asdasd \"\"]", got)
+	}
+	if m.cursor != 1 || m.cursorItem().name != "" {
+		t.Fatalf("cursor should be on the new empty node, cursor=%d", m.cursor)
+	}
+}
+
 // TestSlashBackspaceDismissKeepsStatusBar is the F8 regression: the slash menu
 // lists its commands above the status bar, never below it. The inline renderer
 // skips repainting a last line that is unchanged from the previous frame, so if

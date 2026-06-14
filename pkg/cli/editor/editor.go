@@ -234,7 +234,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var err error
 		if cur == nil {
 			it, err = m.tree.insertFirstChild(m.viewRoot())
-		} else if cur.parent == m.viewRoot() || cur.parent != nil {
+		} else {
 			it, err = m.tree.insertSiblingAfter(cur)
 		}
 		if err != nil {
@@ -242,6 +242,21 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.quit()
 		}
 		if it != nil {
+			// split the node at the caret: text after the caret moves into the new
+			// sibling, the part before stays. A mirror is edited at its original, so
+			// leave its text alone and just open an empty sibling.
+			if cur != nil && cur.mirrorOf == "" {
+				runes := []rune(cur.name)
+				at := m.caret
+				if at < 0 {
+					at = 0
+				}
+				if at > len(runes) {
+					at = len(runes)
+				}
+				it.name = string(runes[at:])
+				cur.name = string(runes[:at])
+			}
 			m.unsaved = true
 			m.refreshRows()
 			m.cursor = m.findRow(it, ctx)
