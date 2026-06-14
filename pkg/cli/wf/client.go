@@ -1,16 +1,15 @@
 // Package wf integrates workflowy as a node-level mirror source: anchored
 // workflowy nodes are pulled into the local tree and pushed back. The client
-// speaks the internal (unofficial) workflowy API — session-cookie auth,
-// get_initialization_data for reads and push_and_poll for writes. The public
-// v1 API can later implement the same Client interface.
+// speaks the official workflowy v1 API — Bearer API-key auth, nodes-export for
+// reads and the /api/v1/nodes endpoints for writes.
 package wf
 
 import (
+	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,192 +38,182 @@ type Operation struct {
 
 // Client is the minimal surface lflow needs from a workflowy backend.
 type Client interface {
-	// FetchTree returns the full account tree and the current transaction id.
-	FetchTree() (TreeNode, string, error)
-	// Push applies operations on top of the given transaction id and returns
-	// the new transaction id.
-	Push(ops []Operation, txid string) (string, error)
+	FetchTree() (TreeNode, error)
+	// Push applies ops in order; returns each create op's ProjectID -> the
+	// workflowy-assigned node id so the caller can record the mapping.
+	Push(ops []Operation) (map[string]string, error)
 }
 
-// InternalClient talks to the unofficial workflowy API.
-type InternalClient struct {
-	BaseURL   string // https://workflowy.com for the real service
-	SessionID string
-	HTTP      *http.Client
+// APIClient talks to the official workflowy v1 API.
+type APIClient struct {
+	BaseURL string // https://workflowy.com for the real service
+	APIKey  string
+	HTTP    *http.Client
 }
 
-// NewInternalClient creates a client for the internal API.
-func NewInternalClient(baseURL, sessionID string) *InternalClient {
+// NewClient creates a client for the v1 API.
+func NewClient(baseURL, apiKey string) *APIClient {
 	if baseURL == "" {
 		baseURL = "https://workflowy.com"
 	}
-	return &InternalClient{
-		BaseURL:   baseURL,
-		SessionID: sessionID,
-		HTTP:      &http.Client{Timeout: 30 * time.Second},
+	return &APIClient{
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+		HTTP:    &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// wfItem is the wire format of a node in get_initialization_data.
-type wfItem struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"nm"`
-	Note      string   `json:"no"`
-	Completed int64    `json:"cp"` // nonzero when completed
-	Modified  int64    `json:"lm"`
-	Children  []wfItem `json:"ch"`
-}
-
-type initData struct {
-	ProjectTreeData struct {
-		MainProjectTreeInfo struct {
-			RootProjectChildren []wfItem `json:"rootProjectChildren"`
-			InitialTransaction  string   `json:"initialMostRecentOperationTransactionId"`
-		} `json:"mainProjectTreeInfo"`
-	} `json:"projectTreeData"`
-}
-
-func toTreeNode(it wfItem) TreeNode {
-	n := TreeNode{
-		ID:           it.ID,
-		Name:         it.Name,
-		Note:         it.Note,
-		Completed:    it.Completed != 0,
-		LastModified: it.Modified,
+// do executes an authenticated request. If body is non-nil it is marshalled to
+// JSON; if out is non-nil the response body is unmarshalled into it.
+func (c *APIClient) do(method, path string, body any, out any) error {
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return errors.Wrap(err, "marshalling request body")
+		}
+		reader = bytes.NewReader(b)
 	}
-	for _, c := range it.Children {
-		n.Children = append(n.Children, toTreeNode(c))
-	}
-	return n
-}
 
-func (c *InternalClient) do(req *http.Request) ([]byte, error) {
-	req.AddCookie(&http.Cookie{Name: "sessionid", Value: c.SessionID})
+	req, err := http.NewRequest(method, c.BaseURL+path, reader)
+	if err != nil {
+		return errors.Wrap(err, "constructing request")
+	}
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "making request")
+		return errors.Wrap(err, "making request")
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "reading response")
+		return errors.Wrap(err, "reading response")
 	}
 	if resp.StatusCode >= 400 {
-		return nil, errors.Errorf("workflowy responded %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return errors.Errorf("workflowy responded %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
-	return body, nil
+	if out != nil {
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return errors.Wrap(err, "decoding response")
+		}
+	}
+	return nil
+}
+
+// exportNode is the wire format of a node in nodes-export.
+type exportNode struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Note       *string `json:"note"`
+	ParentID   *string `json:"parent_id"`
+	Priority   float64 `json:"priority"`
+	Completed  bool    `json:"completed"`
+	ModifiedAt int64   `json:"modifiedAt"`
 }
 
 // FetchTree implements Client.
-func (c *InternalClient) FetchTree() (TreeNode, string, error) {
-	req, err := http.NewRequest("GET", c.BaseURL+"/get_initialization_data?client_version=21", nil)
-	if err != nil {
-		return TreeNode{}, "", errors.Wrap(err, "constructing request")
+func (c *APIClient) FetchTree() (TreeNode, error) {
+	var nodes []exportNode
+	if err := c.do("GET", "/api/v1/nodes-export", nil, &nodes); err != nil {
+		return TreeNode{}, err
 	}
 
-	body, err := c.do(req)
-	if err != nil {
-		return TreeNode{}, "", err
+	// index children by parent id, preserving export order
+	childrenOf := map[string][]exportNode{}
+	for _, n := range nodes {
+		parent := ""
+		if n.ParentID != nil {
+			parent = *n.ParentID
+		}
+		childrenOf[parent] = append(childrenOf[parent], n)
 	}
 
-	var data initData
-	if err := json.Unmarshal(body, &data); err != nil {
-		return TreeNode{}, "", errors.Wrap(err, "decoding initialization data")
+	var build func(parentID string) []TreeNode
+	build = func(parentID string) []TreeNode {
+		kids := childrenOf[parentID]
+		sort.SliceStable(kids, func(i, j int) bool {
+			return kids[i].Priority < kids[j].Priority
+		})
+		out := make([]TreeNode, 0, len(kids))
+		for _, n := range kids {
+			note := ""
+			if n.Note != nil {
+				note = *n.Note
+			}
+			out = append(out, TreeNode{
+				ID:           n.ID,
+				Name:         n.Name,
+				Note:         note,
+				Completed:    n.Completed,
+				LastModified: n.ModifiedAt,
+				Children:     build(n.ID),
+			})
+		}
+		return out
 	}
 
-	root := TreeNode{ID: "None"}
-	for _, it := range data.ProjectTreeData.MainProjectTreeInfo.RootProjectChildren {
-		root.Children = append(root.Children, toTreeNode(it))
-	}
-
-	return root, data.ProjectTreeData.MainProjectTreeInfo.InitialTransaction, nil
-}
-
-type pushOperation struct {
-	Type string                 `json:"type"`
-	Data map[string]interface{} `json:"data"`
-}
-
-type pushPayload struct {
-	MostRecentOperationTransactionID string          `json:"most_recent_operation_transaction_id"`
-	Operations                       []pushOperation `json:"operations"`
-}
-
-type pushResult struct {
-	Results []struct {
-		NewMostRecentOperationTransactionID string `json:"new_most_recent_operation_transaction_id"`
-		ErrorEncounteredInRemoteOperations  bool   `json:"error_encountered_in_remote_operations"`
-	} `json:"results"`
-}
-
-func toPushOperation(op Operation) pushOperation {
-	data := map[string]interface{}{"projectid": op.ProjectID}
-	switch op.Type {
-	case "create":
-		data["parentid"] = op.ParentID
-		data["priority"] = op.Priority
-	case "edit":
-		data["name"] = op.Name
-		data["description"] = op.Note
-	case "move":
-		data["parentid"] = op.ParentID
-		data["priority"] = op.Priority
-	}
-	return pushOperation{Type: op.Type, Data: data}
+	return TreeNode{ID: "None", Children: build("")}, nil
 }
 
 // Push implements Client.
-func (c *InternalClient) Push(ops []Operation, txid string) (string, error) {
-	if len(ops) == 0 {
-		return txid, nil
+func (c *APIClient) Push(ops []Operation) (map[string]string, error) {
+	idMap := map[string]string{}
+	resolve := func(id string) string {
+		if mapped, ok := idMap[id]; ok {
+			return mapped
+		}
+		return id
 	}
 
-	pushOps := make([]pushOperation, 0, len(ops))
 	for _, op := range ops {
-		pushOps = append(pushOps, toPushOperation(op))
+		switch op.Type {
+		case "create":
+			body := map[string]any{
+				"parent_id": resolve(op.ParentID),
+				"name":      op.Name,
+				"position":  "bottom",
+			}
+			if op.Note != "" {
+				body["note"] = op.Note
+			}
+			var res struct {
+				ItemID string `json:"item_id"`
+			}
+			if err := c.do("POST", "/api/v1/nodes", body, &res); err != nil {
+				return idMap, err
+			}
+			idMap[op.ProjectID] = res.ItemID
+		case "edit":
+			body := map[string]any{"name": op.Name, "note": op.Note}
+			if err := c.do("POST", "/api/v1/nodes/"+resolve(op.ProjectID), body, nil); err != nil {
+				return idMap, err
+			}
+		case "move":
+			body := map[string]any{"parent_id": resolve(op.ParentID)}
+			if err := c.do("POST", "/api/v1/nodes/"+resolve(op.ProjectID)+"/move", body, nil); err != nil {
+				return idMap, err
+			}
+		case "complete":
+			if err := c.do("POST", "/api/v1/nodes/"+resolve(op.ProjectID)+"/complete", nil, nil); err != nil {
+				return idMap, err
+			}
+		case "uncomplete":
+			if err := c.do("POST", "/api/v1/nodes/"+resolve(op.ProjectID)+"/uncomplete", nil, nil); err != nil {
+				return idMap, err
+			}
+		case "delete":
+			if err := c.do("DELETE", "/api/v1/nodes/"+resolve(op.ProjectID), nil, nil); err != nil {
+				return idMap, err
+			}
+		default:
+			return idMap, errors.Errorf("unknown operation type %q", op.Type)
+		}
 	}
 
-	payload := []pushPayload{{
-		MostRecentOperationTransactionID: txid,
-		Operations:                       pushOps,
-	}}
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		return "", errors.Wrap(err, "marshalling push payload")
-	}
-
-	form := url.Values{}
-	form.Set("client_id", "lflow")
-	form.Set("client_version", "21")
-	form.Set("push_poll_id", fmt.Sprintf("lflow-%d", time.Now().UnixNano()))
-	form.Set("push_poll_data", string(payloadJSON))
-
-	req, err := http.NewRequest("POST", c.BaseURL+"/push_and_poll", strings.NewReader(form.Encode()))
-	if err != nil {
-		return "", errors.Wrap(err, "constructing request")
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	body, err := c.do(req)
-	if err != nil {
-		return "", err
-	}
-
-	var result pushResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", errors.Wrap(err, "decoding push result")
-	}
-	if len(result.Results) == 0 {
-		return "", errors.New("push_and_poll returned no results")
-	}
-	r := result.Results[0]
-	if r.ErrorEncounteredInRemoteOperations {
-		return "", errors.New("workflowy reported an error applying operations")
-	}
-
-	return r.NewMostRecentOperationTransactionID, nil
+	return idMap, nil
 }
 
 // FindByID locates a node in the tree by full id or by the 12-char short id

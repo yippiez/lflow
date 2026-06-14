@@ -16,29 +16,32 @@ import (
 	"github.com/lflow/lflow/pkg/cli/wf"
 )
 
-// fakeItem mirrors the wfItem wire format the client expects.
+// fakeItem is a node in the in-memory mutable tree. parent points at the
+// containing item (nil for roots) so export can emit a flat parent_id list.
 type fakeItem struct {
 	id       string
 	name     string
 	note     string
 	cp       int64 // nonzero when completed
 	lm       int64
+	parent   *fakeItem
 	children []*fakeItem
 }
 
-// fakeServer is an in-memory mutable workflowy tree exposed over HTTP.
+// fakeServer is an in-memory mutable workflowy tree exposed over the v1 API.
 type fakeServer struct {
 	t      *testing.T
 	roots  []*fakeItem
-	txN    int
+	idN    int
 	server *httptest.Server
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
-	fs := &fakeServer{t: t, txN: 1}
+	fs := &fakeServer{t: t}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/get_initialization_data", fs.handleInit)
-	mux.HandleFunc("/push_and_poll", fs.handlePush)
+	mux.HandleFunc("GET /api/v1/nodes-export", fs.handleExport)
+	mux.HandleFunc("POST /api/v1/nodes", fs.handleCreate)
+	mux.HandleFunc("/api/v1/nodes/", fs.handleNode)
 	fs.server = httptest.NewServer(mux)
 	t.Cleanup(fs.server.Close)
 	return fs
@@ -46,8 +49,14 @@ func newFakeServer(t *testing.T) *fakeServer {
 
 func (fs *fakeServer) URL() string { return fs.server.URL }
 
-func (fs *fakeServer) client() *wf.InternalClient {
-	return wf.NewInternalClient(fs.URL(), "test-session")
+func (fs *fakeServer) client() *wf.APIClient {
+	return wf.NewClient(fs.URL(), "test-key")
+}
+
+func (fs *fakeServer) checkAuth(r *http.Request) {
+	if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+		fs.t.Errorf("Authorization = %q, want Bearer test-key", got)
+	}
 }
 
 // find locates an item anywhere in the tree by id, returning the item and its
@@ -68,134 +77,161 @@ func (fs *fakeServer) find(id string) (*fakeItem, *[]*fakeItem) {
 	return walk(&fs.roots)
 }
 
-func wireItem(it *fakeItem) map[string]interface{} {
-	ch := make([]map[string]interface{}, 0, len(it.children))
-	for _, c := range it.children {
-		ch = append(ch, wireItem(c))
-	}
-	return map[string]interface{}{
-		"id": it.id,
-		"nm": it.name,
-		"no": it.note,
-		"cp": it.cp,
-		"lm": it.lm,
-		"ch": ch,
+// wireParents fixes up parent pointers for tree literals built in tests, which
+// set children but not the back-pointer the export needs.
+func wireParents(list []*fakeItem, parent *fakeItem) {
+	for _, it := range list {
+		it.parent = parent
+		wireParents(it.children, it)
 	}
 }
 
-func (fs *fakeServer) handleInit(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("client_version") != "21" {
-		fs.t.Errorf("unexpected client_version %q", r.URL.Query().Get("client_version"))
-	}
-	roots := make([]map[string]interface{}, 0, len(fs.roots))
-	for _, it := range fs.roots {
-		roots = append(roots, wireItem(it))
-	}
-	resp := map[string]interface{}{
-		"projectTreeData": map[string]interface{}{
-			"mainProjectTreeInfo": map[string]interface{}{
-				"rootProjectChildren":                     roots,
-				"initialMostRecentOperationTransactionId": fmt.Sprintf("tx-%d", fs.txN),
-			},
-		},
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-type wireOp struct {
-	Type string `json:"type"`
-	Data struct {
-		ProjectID   string `json:"projectid"`
-		ParentID    string `json:"parentid"`
-		Priority    int    `json:"priority"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	} `json:"data"`
-}
-
-type wirePush struct {
-	Operations []wireOp `json:"operations"`
-}
-
-func (fs *fakeServer) handlePush(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		fs.t.Fatalf("parsing push form: %v", err)
-	}
-	raw := r.FormValue("push_poll_data")
-	var pushes []wirePush
-	if err := json.Unmarshal([]byte(raw), &pushes); err != nil {
-		fs.t.Fatalf("decoding push_poll_data %q: %v", raw, err)
-	}
-	if len(pushes) > 0 {
-		for _, op := range pushes[0].Operations {
-			fs.apply(op)
+// exportRows flattens the tree into v1 nodes-export rows.
+func (fs *fakeServer) exportRows() []map[string]interface{} {
+	wireParents(fs.roots, nil)
+	var rows []map[string]interface{}
+	var walk func(list []*fakeItem)
+	walk = func(list []*fakeItem) {
+		for i, it := range list {
+			var parentID interface{}
+			if it.parent != nil {
+				parentID = it.parent.id
+			}
+			var note interface{}
+			if it.note != "" {
+				note = it.note
+			}
+			rows = append(rows, map[string]interface{}{
+				"id":         it.id,
+				"name":       it.name,
+				"note":       note,
+				"parent_id":  parentID,
+				"priority":   i,
+				"completed":  it.cp != 0,
+				"modifiedAt": it.lm,
+			})
+			walk(it.children)
 		}
 	}
-
-	fs.txN++
-	resp := map[string]interface{}{
-		"results": []map[string]interface{}{{
-			"new_most_recent_operation_transaction_id": fmt.Sprintf("tx-%d", fs.txN),
-			"error_encountered_in_remote_operations":   false,
-		}},
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	walk(fs.roots)
+	return rows
 }
 
-func (fs *fakeServer) apply(op wireOp) {
-	switch op.Type {
-	case "create":
-		child := &fakeItem{id: op.Data.ProjectID, lm: time.Now().UnixNano()}
-		if op.Data.ParentID == "" || op.Data.ParentID == "None" {
-			fs.roots = insertAt(fs.roots, child, op.Data.Priority)
-			return
-		}
-		parent, _ := fs.find(op.Data.ParentID)
+func (fs *fakeServer) handleExport(w http.ResponseWriter, r *http.Request) {
+	fs.checkAuth(r)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(fs.exportRows())
+}
+
+func (fs *fakeServer) handleCreate(w http.ResponseWriter, r *http.Request) {
+	fs.checkAuth(r)
+	var body struct {
+		ParentID string `json:"parent_id"`
+		Name     string `json:"name"`
+		Note     string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		fs.t.Fatalf("decoding create body: %v", err)
+	}
+	fs.idN++
+	child := &fakeItem{id: fmt.Sprintf("srv-%d", fs.idN), name: body.Name, note: body.Note, lm: time.Now().UnixNano()}
+	if body.ParentID == "" || body.ParentID == "None" {
+		fs.roots = append(fs.roots, child)
+	} else {
+		parent, _ := fs.find(body.ParentID)
 		if parent == nil {
-			fs.t.Fatalf("create under unknown parent %q", op.Data.ParentID)
+			fs.t.Fatalf("create under unknown parent %q", body.ParentID)
 		}
-		parent.children = insertAt(parent.children, child, op.Data.Priority)
-	case "edit":
-		it, _ := fs.find(op.Data.ProjectID)
-		if it == nil {
-			fs.t.Fatalf("edit of unknown node %q", op.Data.ProjectID)
-		}
-		it.name = op.Data.Name
-		it.note = op.Data.Description
-		it.lm = time.Now().UnixNano()
-	case "delete":
-		it, list := fs.find(op.Data.ProjectID)
-		if it == nil {
-			return
-		}
-		*list = removeItem(*list, it)
-	case "complete":
-		it, _ := fs.find(op.Data.ProjectID)
-		if it == nil {
-			fs.t.Fatalf("complete of unknown node %q", op.Data.ProjectID)
-		}
-		it.cp = time.Now().Unix()
-	case "uncomplete":
-		it, _ := fs.find(op.Data.ProjectID)
-		if it == nil {
-			fs.t.Fatalf("uncomplete of unknown node %q", op.Data.ProjectID)
-		}
-		it.cp = 0
+		child.parent = parent
+		parent.children = append(parent.children, child)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"item_id": child.id})
+}
+
+// handleNode dispatches /api/v1/nodes/:id and its sub-actions.
+func (fs *fakeServer) handleNode(w http.ResponseWriter, r *http.Request) {
+	fs.checkAuth(r)
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/nodes/")
+
+	switch {
+	case r.Method == http.MethodDelete:
+		fs.applyDelete(rest)
+	case r.Method == http.MethodPost && strings.HasSuffix(rest, "/move"):
+		fs.applyMove(w, r, strings.TrimSuffix(rest, "/move"))
+	case r.Method == http.MethodPost && strings.HasSuffix(rest, "/complete"):
+		fs.applyComplete(strings.TrimSuffix(rest, "/complete"), true)
+	case r.Method == http.MethodPost && strings.HasSuffix(rest, "/uncomplete"):
+		fs.applyComplete(strings.TrimSuffix(rest, "/uncomplete"), false)
+	case r.Method == http.MethodPost:
+		fs.applyEdit(w, r, rest)
 	default:
-		fs.t.Fatalf("unhandled op type %q", op.Type)
+		fs.t.Fatalf("unhandled %s %s", r.Method, r.URL.Path)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok"})
+}
+
+func (fs *fakeServer) applyEdit(_ http.ResponseWriter, r *http.Request, id string) {
+	it, _ := fs.find(id)
+	if it == nil {
+		fs.t.Fatalf("edit of unknown node %q", id)
+	}
+	var body struct {
+		Name string `json:"name"`
+		Note string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		fs.t.Fatalf("decoding edit body: %v", err)
+	}
+	it.name = body.Name
+	it.note = body.Note
+	it.lm = time.Now().UnixNano()
+}
+
+func (fs *fakeServer) applyMove(_ http.ResponseWriter, r *http.Request, id string) {
+	it, list := fs.find(id)
+	if it == nil {
+		fs.t.Fatalf("move of unknown node %q", id)
+	}
+	var body struct {
+		ParentID string `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		fs.t.Fatalf("decoding move body: %v", err)
+	}
+	*list = removeItem(*list, it)
+	if body.ParentID == "" || body.ParentID == "None" {
+		it.parent = nil
+		fs.roots = append(fs.roots, it)
+		return
+	}
+	parent, _ := fs.find(body.ParentID)
+	if parent == nil {
+		fs.t.Fatalf("move under unknown parent %q", body.ParentID)
+	}
+	it.parent = parent
+	parent.children = append(parent.children, it)
+}
+
+func (fs *fakeServer) applyComplete(id string, completed bool) {
+	it, _ := fs.find(id)
+	if it == nil {
+		fs.t.Fatalf("complete of unknown node %q", id)
+	}
+	if completed {
+		it.cp = time.Now().Unix()
+	} else {
+		it.cp = 0
 	}
 }
 
-func insertAt(list []*fakeItem, child *fakeItem, priority int) []*fakeItem {
-	if priority < 0 || priority > len(list) {
-		priority = len(list)
+func (fs *fakeServer) applyDelete(id string) {
+	it, list := fs.find(id)
+	if it == nil {
+		return
 	}
-	list = append(list, nil)
-	copy(list[priority+1:], list[priority:])
-	list[priority] = child
-	return list
+	*list = removeItem(*list, it)
 }
 
 func removeItem(list []*fakeItem, target *fakeItem) []*fakeItem {

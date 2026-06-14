@@ -154,7 +154,7 @@ func (s *Syncer) Sync(anchorUUID string, now int64) (SyncResult, error) {
 		return res, err
 	}
 
-	root, txid, err := s.Client.FetchTree()
+	root, err := s.Client.FetchTree()
 	if err != nil {
 		return res, errors.Wrap(err, "fetching workflowy tree")
 	}
@@ -171,13 +171,22 @@ func (s *Syncer) Sync(anchorUUID string, now int64) (SyncResult, error) {
 
 	// push: local nodes without mappings -> create; locally edited -> edit;
 	// mapped-but-gone locals were handled by pull (wf wins)
-	ops, err := s.buildPushOps(anchorUUID, anchorUUID, &res)
+	var pending []pendingMap
+	ops, err := s.buildPushOps(anchorUUID, m.WfID, anchorUUID, &res, &pending)
 	if err != nil {
 		return res, err
 	}
 	if len(ops) > 0 {
-		if _, err := s.Client.Push(ops, txid); err != nil {
+		idMap, err := s.Client.Push(ops)
+		if err != nil {
 			return res, errors.Wrap(err, "pushing to workflowy")
+		}
+		for _, p := range pending {
+			if id, ok := idMap[p.placeholder]; ok {
+				if err := setMapping(s.DB, p.localUUID, id, p.anchorUUID, 0, p.editedOn); err != nil {
+					return res, err
+				}
+			}
 		}
 	}
 
@@ -314,18 +323,18 @@ func (s *Syncer) pullNode(wfNode TreeNode, localUUID, anchorUUID string, res *Sy
 	return nil
 }
 
-// buildPushOps creates workflowy operations for local-only and locally-edited
-// nodes under the anchor.
-func (s *Syncer) buildPushOps(localUUID, anchorUUID string, res *SyncResult) ([]Operation, error) {
-	var ops []Operation
+// pendingMap records a create op whose workflowy id is assigned by the server;
+// once Push returns the assigned id the mapping is written.
+type pendingMap struct {
+	localUUID, placeholder, anchorUUID string
+	editedOn                           int64
+}
 
-	parentWfID, _, _, parentMapped, err := mapping(s.DB, localUUID)
-	if err != nil {
-		return nil, err
-	}
-	if !parentMapped {
-		return nil, nil
-	}
+// buildPushOps creates workflowy operations for local-only and locally-edited
+// nodes under parentWfID. Created nodes get a placeholder ProjectID and a
+// pendingMap entry; the server assigns their real ids on Push.
+func (s *Syncer) buildPushOps(localUUID, parentWfID, anchorUUID string, res *SyncResult, pending *[]pendingMap) ([]Operation, error) {
+	var ops []Operation
 
 	children, err := database.GetChildren(s.DB, localUUID)
 	if err != nil {
@@ -348,27 +357,31 @@ func (s *Syncer) buildPushOps(localUUID, anchorUUID string, res *SyncResult) ([]
 		}
 
 		if !mapped {
-			newWfID, err := utils.GenerateUUID()
+			placeholder, err := utils.GenerateUUID()
 			if err != nil {
-				return nil, errors.Wrap(err, "generating wf uuid")
+				return nil, errors.Wrap(err, "generating placeholder id")
 			}
-			ops = append(ops,
-				Operation{Type: "create", ProjectID: newWfID, ParentID: parentWfID, Priority: rank},
-				Operation{Type: "edit", ProjectID: newWfID, Name: name, Note: child.Note},
-			)
+			ops = append(ops, Operation{Type: "create", ProjectID: placeholder, ParentID: parentWfID, Priority: rank, Name: name, Note: child.Note})
 			if child.CompletedAt > 0 {
-				ops = append(ops, Operation{Type: "complete", ProjectID: newWfID})
+				ops = append(ops, Operation{Type: "complete", ProjectID: placeholder})
 			}
-			if err := setMapping(s.DB, child.UUID, newWfID, anchorUUID, 0, child.EditedOn); err != nil {
+			*pending = append(*pending, pendingMap{localUUID: child.UUID, placeholder: placeholder, anchorUUID: anchorUUID, editedOn: child.EditedOn})
+			res.Pushed++
+
+			childOps, err := s.buildPushOps(child.UUID, placeholder, anchorUUID, res, pending)
+			if err != nil {
 				return nil, err
 			}
-			res.Pushed++
-		} else if child.EditedOn > rowLastSync {
+			ops = append(ops, childOps...)
+			continue
+		}
+
+		if child.EditedOn > rowLastSync {
 			ops = append(ops, Operation{Type: "edit", ProjectID: wfID, Name: name, Note: child.Note})
 			res.Pushed++
 		}
 
-		childOps, err := s.buildPushOps(child.UUID, anchorUUID, res)
+		childOps, err := s.buildPushOps(child.UUID, wfID, anchorUUID, res, pending)
 		if err != nil {
 			return nil, err
 		}

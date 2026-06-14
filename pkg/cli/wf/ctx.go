@@ -9,17 +9,17 @@ import (
 	"github.com/pkg/errors"
 )
 
-// ClientFromCtx builds a workflowy client from the session id in the config
-// file. Set workflowySessionId in the config — there is no login command.
+// ClientFromCtx builds a workflowy client from the api key in the config file.
+// Set workflowy.apiKey in the config — there is no login command.
 func ClientFromCtx(ctx context.DnoteCtx) (Client, error) {
 	cf, err := config.Read(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "reading config")
 	}
-	if cf.WorkflowySessionID == "" {
-		return nil, errors.Errorf("no workflowy session · set workflowySessionId in %s", config.GetPath(ctx))
+	if cf.Workflowy.APIKey == "" {
+		return nil, errors.Errorf("no workflowy api key · set workflowy.apiKey in %s", config.GetPath(ctx))
 	}
-	return NewInternalClient(cf.WorkflowyBaseURL, cf.WorkflowySessionID), nil
+	return NewClient(cf.Workflowy.BaseURL, cf.Workflowy.APIKey), nil
 }
 
 // JournalFromCtx returns the journal for overwritten local values.

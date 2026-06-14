@@ -18,13 +18,14 @@ type Config struct {
 	// DBPath relocates the SQLite database. The settings file is the only
 	// place to set it; there is no flag.
 	DBPath string `json:"dbPath,omitempty"`
-	// WorkflowySessionID enables the `lflow wf` commands. There is no login
-	// command — paste the value of the `sessionid` cookie from a logged-in
-	// workflowy.com browser session here.
-	WorkflowySessionID string `json:"workflowySessionId,omitempty"`
-	// WorkflowyBaseURL overrides the workflowy endpoint for a self-hosted
-	// instance or tests. Leave empty for workflowy.com.
-	WorkflowyBaseURL string `json:"workflowyBaseUrl,omitempty"`
+	// Workflowy holds the official workflowy v1 API credentials.
+	Workflowy WorkflowyConfig `json:"workflowy,omitempty"`
+}
+
+// WorkflowyConfig holds the official workflowy v1 API credentials.
+type WorkflowyConfig struct {
+	APIKey  string `json:"apiKey,omitempty"`
+	BaseURL string `json:"baseUrl,omitempty"`
 }
 
 // GetPath returns the path to the lflow settings file: ~/.lflow/settings.json.

@@ -1,6 +1,6 @@
 // Package wf provides the workflowy integration commands: mirror, list,
-// pull/push and unmirror. The session id is set in the config file, not via a
-// login command.
+// pull/push and unmirror. The workflowy api key is set in the config file, not
+// via a login command.
 package wf
 
 import (
@@ -56,7 +56,7 @@ func newMirrorCmd(ctx context.DnoteCtx) *cobra.Command {
 				return err
 			}
 
-			root, _, err := client.FetchTree()
+			root, err := client.FetchTree()
 			if err != nil {
 				return errors.Wrap(err, "fetching workflowy tree")
 			}
