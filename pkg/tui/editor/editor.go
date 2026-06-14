@@ -601,20 +601,37 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+right":
-		// jump to the next node — zoom is reserved for the alt chords
-		if m.cursor < len(m.rows)-1 {
-			m.cursor++
-			m.caret = 0
+		// jump forward one word; at the end of the text, cross to the next node
+		cur := m.cursorItem()
+		if cur == nil {
+			return m, nil
 		}
+		runes := []rune(cur.name)
+		if m.caret >= len(runes) {
+			if m.cursor < len(m.rows)-1 {
+				m.cursor++
+				m.caret = 0
+			}
+			return m, nil
+		}
+		m.caret = nextWordBoundary(runes, m.caret)
 		return m, nil
 	case "ctrl+left":
-		// jump to the previous node, landing at its end
-		if m.cursor > 0 {
-			m.cursor--
-			if c := m.cursorItem(); c != nil {
-				m.caret = len([]rune(c.name))
-			}
+		// jump back one word; at the start, cross to the previous node's end
+		cur := m.cursorItem()
+		if cur == nil {
+			return m, nil
 		}
+		if m.caret <= 0 {
+			if m.cursor > 0 {
+				m.cursor--
+				if c := m.cursorItem(); c != nil {
+					m.caret = len([]rune(c.name))
+				}
+			}
+			return m, nil
+		}
+		m.caret = prevWordBoundary([]rune(cur.name), m.caret)
 		return m, nil
 	case "alt+right":
 		// zoom into the cursor node — leaves too: the view starts empty
@@ -1105,6 +1122,31 @@ func (m *Model) clampCaret() {
 			m.caret = n
 		}
 	}
+}
+
+// nextWordBoundary returns the caret index at the start of the next word: it
+// skips the rest of the current word, then any spaces, like a normal editor.
+func nextWordBoundary(runes []rune, caret int) int {
+	i := caret
+	for i < len(runes) && runes[i] != ' ' {
+		i++
+	}
+	for i < len(runes) && runes[i] == ' ' {
+		i++
+	}
+	return i
+}
+
+// prevWordBoundary returns the caret index at the start of the previous word.
+func prevWordBoundary(runes []rune, caret int) int {
+	i := caret
+	for i > 0 && runes[i-1] == ' ' {
+		i--
+	}
+	for i > 0 && runes[i-1] != ' ' {
+		i--
+	}
+	return i
 }
 
 func (m *Model) rowIndexOf(it *item) int {

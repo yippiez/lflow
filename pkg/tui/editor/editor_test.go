@@ -1270,25 +1270,38 @@ func TestUndoReversesEnter(t *testing.T) {
 
 // TestCtrlArrowJumpsNodes is the round-6 rebind: ctrl+left/right jump between
 // nodes (zoom stays on the alt chords).
-func TestCtrlArrowJumpsNodes(t *testing.T) {
-	m := newTestModel(80, "one", "two", "three")
+func TestCtrlArrowJumpsWords(t *testing.T) {
+	m := newTestModel(80, "alpha beta gamma", "next")
 	m.cursor = 0
-	m.caret = 1
+	m.caret = 0
 
-	m.press("ctrl+right")
+	m.press("ctrl+right") // -> start of "beta"
+	if want := len("alpha "); m.caret != want {
+		t.Fatalf("ctrl+right should land at the start of the next word, caret=%d want %d", m.caret, want)
+	}
+	m.press("ctrl+right") // -> start of "gamma"
+	if want := len("alpha beta "); m.caret != want {
+		t.Fatalf("ctrl+right second jump, caret=%d want %d", m.caret, want)
+	}
+	m.press("ctrl+right") // -> end of text
+	if want := len("alpha beta gamma"); m.caret != want {
+		t.Fatalf("ctrl+right to end, caret=%d want %d", m.caret, want)
+	}
+	m.press("ctrl+right") // at end: cross to the next node
 	if m.cursor != 1 || m.caret != 0 {
-		t.Fatalf("ctrl+right should jump to the next node start, cursor=%d caret=%d", m.cursor, m.caret)
+		t.Fatalf("ctrl+right at end should cross to the next node, cursor=%d caret=%d", m.cursor, m.caret)
 	}
 
-	m.press("ctrl+left")
-	if m.cursor != 0 || m.caret != len([]rune("one")) {
-		t.Fatalf("ctrl+left should jump to the previous node end, cursor=%d caret=%d", m.cursor, m.caret)
+	m.press("ctrl+left") // at start of "next": cross back to the previous node end
+	if m.cursor != 0 || m.caret != len("alpha beta gamma") {
+		t.Fatalf("ctrl+left at start should cross to the previous node end, cursor=%d caret=%d", m.cursor, m.caret)
+	}
+	m.press("ctrl+left") // -> start of "gamma"
+	if want := len("alpha beta "); m.caret != want {
+		t.Fatalf("ctrl+left back one word, caret=%d want %d", m.caret, want)
 	}
 
-	// ctrl+right/left no longer zoom: the view root stays put
-	m.cursor = 0
-	m.press("ctrl+right")
 	if len(m.viewStack) != 1 {
-		t.Fatalf("ctrl+right must not zoom, viewStack depth=%d", len(m.viewStack))
+		t.Fatalf("ctrl arrows must not zoom, viewStack depth=%d", len(m.viewStack))
 	}
 }
