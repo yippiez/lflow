@@ -15,8 +15,10 @@ import (
 
 	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/pkg/cli/config"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
+	"github.com/lflow/lflow/pkg/cli/wf"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )
@@ -29,13 +31,20 @@ const (
 	modeFinder
 	modeNote
 	modeConfirm // inline delete confirmation for nodes with children
+	modePrompt  // single-line text prompt, e.g. the /pull:wf api key and link
+)
+
+// pull stages for the /pull:wf prompt flow.
+const (
+	pullNone = iota
+	pullAPIKey
+	pullLink
 )
 
 type finderAction int
 
 const (
 	actMirrorHere finderAction = iota
-	actMirrorTo
 	actMoveTo
 	actGo
 )
@@ -47,10 +56,10 @@ type slashCommand struct {
 
 var slashCommands = []slashCommand{
 	{"/mirror", "mirror a node here via the fuzzy finder"},
-	{"/mirror_to", "mirror THIS node somewhere else"},
 	{"/copy_link", "copy this node's link — paste on another node to mirror"},
-	{"/move_to", "move this node under another node"},
+	{"/move", "move this node under another node"},
 	{"/go", "jump the editor to another node"},
+	{"/pull:wf", "pull a workflowy node in under this one"},
 	{"/complete", "toggle done"},
 	{"/h1", "make heading 1"},
 	{"/h2", "make heading 2"},
@@ -65,6 +74,7 @@ var slashCommands = []slashCommand{
 // Model is the bubbletea model for the editor.
 type Model struct {
 	db   *database.DB
+	ctx  context.DnoteCtx // for config and the workflowy client
 	tree *tree
 
 	viewStack []*item // zoom stack; last is the current view root
@@ -85,6 +95,11 @@ type Model struct {
 	finderHits  []database.Node
 	finderAct   finderAction
 	notePrev    string // note backup for esc in note mode
+
+	// /pull:wf prompt flow
+	promptLabel string
+	promptValue string
+	pullStage   int
 
 	escPending bool
 	unsaved    bool
@@ -284,6 +299,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNoteKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
+	case modePrompt:
+		return m.handlePromptKey(k)
 	}
 
 	switch key {
@@ -1059,8 +1076,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.caret = len([]rune(cur.note))
 	case "/mirror":
 		m.openFinder(actMirrorHere)
-	case "/mirror_to":
-		m.openFinder(actMirrorTo)
 	case "/copy_link":
 		// a mirror's link points at the original: same node everywhere
 		target := cur.uuid
@@ -1069,12 +1084,150 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		}
 		copyToClipboard("lflow://node/" + target)
 		m.flash = "link copied — paste it on another node to mirror"
-	case "/move_to":
+	case "/move":
 		m.openFinder(actMoveTo)
 	case "/go":
 		m.openFinder(actGo)
+	case "/pull:wf":
+		return m.startWfPull()
 	}
 	return m, nil
+}
+
+// startWfPull begins the /pull:wf flow: ask for the api key when it is missing,
+// then for a workflowy node link, then mirror that node in under the cursor.
+func (m *Model) startWfPull() (tea.Model, tea.Cmd) {
+	cf, err := config.Read(m.ctx)
+	if err != nil {
+		m.flash = "config: " + err.Error()
+		return m, nil
+	}
+	m.mode = modePrompt
+	m.promptValue = ""
+	if cf.Workflowy.APIKey == "" {
+		m.pullStage = pullAPIKey
+		m.promptLabel = "workflowy api key"
+	} else {
+		m.pullStage = pullLink
+		m.promptLabel = "workflowy node link"
+	}
+	return m, nil
+}
+
+func (m *Model) handlePromptKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		m.pullStage = pullNone
+		m.promptValue = ""
+		return m, nil
+	case "enter":
+		value := strings.TrimSpace(m.promptValue)
+		m.promptValue = ""
+		switch m.pullStage {
+		case pullAPIKey:
+			if value == "" {
+				m.mode = modeOutline
+				m.pullStage = pullNone
+				m.flash = "no api key — cancelled"
+				return m, nil
+			}
+			if err := m.saveWfAPIKey(value); err != nil {
+				m.mode = modeOutline
+				m.pullStage = pullNone
+				m.flash = "saving api key: " + err.Error()
+				return m, nil
+			}
+			m.pullStage = pullLink
+			m.promptLabel = "workflowy node link"
+			return m, nil
+		case pullLink:
+			m.mode = modeOutline
+			m.pullStage = pullNone
+			if value == "" {
+				m.flash = "no link — cancelled"
+				return m, nil
+			}
+			m.doWfPull(value)
+			return m, nil
+		}
+		m.mode = modeOutline
+		return m, nil
+	case "backspace":
+		runes := []rune(m.promptValue)
+		if len(runes) > 0 {
+			m.promptValue = string(runes[:len(runes)-1])
+		}
+		return m, nil
+	}
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && !k.Alt {
+		m.promptValue += string(k.Runes)
+	}
+	return m, nil
+}
+
+// saveWfAPIKey persists the workflowy api key into the config file.
+func (m *Model) saveWfAPIKey(key string) error {
+	cf, err := config.Read(m.ctx)
+	if err != nil {
+		return err
+	}
+	cf.Workflowy.APIKey = key
+	return config.Write(m.ctx, cf)
+}
+
+// doWfPull anchors the given workflowy node under the cursor node and syncs it
+// in. It saves the tree first so the anchor exists in the database, then reloads
+// the view so the pulled children appear.
+func (m *Model) doWfPull(link string) {
+	cur := m.cursorItem()
+	if cur == nil {
+		m.flash = "no node to pull into"
+		return
+	}
+	if _, err := m.tree.save(); err != nil {
+		m.flash = "save: " + err.Error()
+		return
+	}
+	m.unsaved = false
+
+	client, err := wf.ClientFromCtx(m.ctx)
+	if err != nil {
+		m.flash = err.Error()
+		return
+	}
+	root, err := client.FetchTree()
+	if err != nil {
+		m.flash = "workflowy: " + err.Error()
+		return
+	}
+	wfNode, ok := wf.FindByID(root, wf.ParseNodeRef(link))
+	if !ok {
+		m.flash = "no workflowy node matching that link"
+		return
+	}
+	if err := wf.CreateMirror(m.db, cur.uuid, wfNode.ID); err != nil {
+		m.flash = "mirror: " + err.Error()
+		return
+	}
+	syncer := &wf.Syncer{DB: m.db, Client: client, Journal: wf.JournalFromCtx(m.ctx)}
+	res, err := syncer.Sync(cur.uuid, time.Now().Unix())
+	if err != nil {
+		m.flash = "sync: " + err.Error()
+		return
+	}
+	// reload the open tree so the pulled children appear
+	if t, err := loadTree(m.db, m.viewStack[0].uuid); err == nil {
+		m.tree = t
+		m.viewStack = []*item{t.root}
+		m.cursor = 0
+		m.caret = 0
+		m.refreshRows()
+	}
+	m.flash = fmt.Sprintf("pulled %q · %d nodes", wfNode.Name, res.Pulled)
 }
 
 func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1228,12 +1381,6 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 			m.tree.externalNames[target.UUID] = target.Name
 		}
 		m.unsaved = true
-	case actMirrorTo:
-		// the mirror instance lives outside this subtree: write it directly
-		if err := m.mirrorToDB(cur, target); err != nil {
-			m.err = err
-			return m.quit()
-		}
 	case actMoveTo:
 		if targetItem, inTree := m.tree.byUUID[target.UUID]; inTree {
 			if m.tree.reparent(cur, targetItem) {
@@ -1268,33 +1415,6 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 
 	m.refreshRows()
 	return m, nil
-}
-
-func (m *Model) mirrorToDB(cur *item, target database.Node) error {
-	if _, err := m.tree.save(); err != nil {
-		return err
-	}
-	m.unsaved = false
-
-	newIt, err := m.tree.newItem()
-	if err != nil {
-		return err
-	}
-	delete(m.tree.byUUID, newIt.uuid) // not part of this tree
-
-	rank, err := database.NextRank(m.db, target.UUID)
-	if err != nil {
-		return err
-	}
-	n := database.Node{
-		UUID:       newIt.uuid,
-		ParentUUID: target.UUID,
-		Rank:       rank,
-		Layout:     database.LayoutBullets,
-		MirrorOf:   m.tree.sourceUUID(cur),
-		Dirty:      true,
-	}
-	return n.Insert(m.db)
 }
 
 func (m *Model) moveToDB(cur *item, target database.Node) error {
@@ -1486,6 +1606,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
+	// the /pull:wf prompt sits above the status line, same as the confirm prompt
+	if m.mode == modePrompt {
+		line := " " + cDim + m.promptLabel + ": " + cReset + cFG + withCaret(m.promptValue, len([]rune(m.promptValue))) + cDim + " · esc cancel" + cReset
+		lines = append(lines, clip(line, maxLine))
+	}
+
 	// The slash menu lists its commands above the status line, same as the
 	// confirm prompt and for the same reason: the inline renderer skips
 	// repainting an unchanged last line, so if the bottomBar were the final line
@@ -1580,13 +1706,11 @@ func (m *Model) viewFinder(maxLine int) []string {
 
 	labels := map[finderAction]string{
 		actMirrorHere: "/mirror",
-		actMirrorTo:   "/mirror_to",
-		actMoveTo:     "/move_to",
+		actMoveTo:     "/move",
 		actGo:         "/go",
 	}
 	hints := map[finderAction]string{
 		actMirrorHere: "enter mirror at cursor",
-		actMirrorTo:   "enter mirror this node there",
 		actMoveTo:     "enter move this node there",
 		actGo:         "enter open node",
 	}
@@ -1644,6 +1768,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 
 	m := &Model{
 		db:        ctx.DB,
+		ctx:       ctx,
 		tree:      t,
 		viewStack: []*item{t.root},
 	}
