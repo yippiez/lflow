@@ -16,7 +16,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/pkg/errors v0.9.1
-	github.com/radovskyb/watcher v1.0.7
 	github.com/rivo/uniseg v0.4.7
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/cobra v1.10.1

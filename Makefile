@@ -30,28 +30,19 @@ endif
 .PHONY: install-js
 
 ## test
-test: test-cli test-api test-e2e
+test: generate-cli-schema
+	@echo "==> running tests"
+	@go test -tags fts5 ./...
 .PHONY: test
-
-test-cli: generate-cli-schema
-	@echo "==> running CLI test"
-	@(${currentDir}/scripts/cli/test.sh)
-.PHONY: test-cli
-
-test-api:
-	@echo "==> running API test"
-	@(${currentDir}/scripts/server/test-local.sh)
-.PHONY: test-api
-
-test-e2e:
-	@echo "==> running E2E test"
-	@(${currentDir}/scripts/e2e/test.sh)
-.PHONY: test-e2e
 
 # development
 dev-server:
 	@echo "==> running dev environment"
-	@VERSION=master ${currentDir}/scripts/server/dev.sh
+	@mkdir -p "${currentDir}/pkg/server/static"
+	@cp "${currentDir}"/pkg/server/assets/static/* "${currentDir}/pkg/server/static"
+	@(cd "${currentDir}/pkg/server/assets/" && ./styles/build.sh)
+	@(cd "${currentDir}/pkg/server/assets/" && ./js/build.sh)
+	@(cd "${currentDir}/pkg/server" && go run -ldflags "-X 'github.com/lflow/lflow/pkg/server/buildinfo.CSSFiles=main.css' -X 'github.com/lflow/lflow/pkg/server/buildinfo.JSFiles=main.js' -X 'github.com/lflow/lflow/pkg/server/buildinfo.Version=dev' -X 'github.com/lflow/lflow/pkg/server/buildinfo.Standalone=true'" --tags fts5 main.go start -port 3001)
 .PHONY: dev-server
 
 build-server:
@@ -64,7 +55,8 @@ endif
 	@(cd "${currentDir}/pkg/server/assets/" && ./js/build.sh)
 
 	@echo "==> building server"
-	@${currentDir}/scripts/server/build.sh $(version)
+	@mkdir -p "${serverOutputDir}"
+	@go build -tags fts5 -ldflags "-X 'github.com/lflow/lflow/pkg/server/buildinfo.CSSFiles=main.css' -X 'github.com/lflow/lflow/pkg/server/buildinfo.JSFiles=main.js' -X 'github.com/lflow/lflow/pkg/server/buildinfo.Version=$(version)' -X 'github.com/lflow/lflow/pkg/server/buildinfo.Standalone=true'" -o "${serverOutputDir}/lflow-server" ./pkg/server
 .PHONY: build-server
 
 build-server-docker: build-server
@@ -84,18 +76,13 @@ generate-cli-schema:
 .PHONY: generate-cli-schema
 
 build-cli: generate-cli-schema
-ifeq ($(debug), true)
-	@echo "==> building cli in dev mode"
-	@${currentDir}/scripts/cli/dev.sh
-else
-
 ifndef version
 	$(error version is required. Usage: make version=0.1.0 build-cli)
 endif
 
 	@echo "==> building cli"
-	@${currentDir}/scripts/cli/build.sh $(version)
-endif
+	@mkdir -p "${cliOutputDir}"
+	@go build -tags fts5 -ldflags "-X main.apiEndpoint=http://127.0.0.1:3001/api -X main.versionTag=$(version)" -o "${cliOutputDir}/lflow" ./pkg/cli
 .PHONY: build-cli
 
 clean:

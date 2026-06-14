@@ -2,7 +2,7 @@
 #
 # This script installs Lflow into your PATH (/usr/bin/local)
 # Use it like this:
-# $ curl https://raw.githubusercontent.com/lflow/lflow/master/install.sh | sh
+# $ curl https://raw.githubusercontent.com/lflow/lflow/master/scripts/install.sh | sh
 #
 
 set -eu
