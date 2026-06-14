@@ -32,6 +32,7 @@ const (
 	modeNote
 	modeConfirm // inline delete confirmation for nodes with children
 	modePrompt  // single-line text prompt, e.g. the /pull:wf api key and link
+	modeColor   // the /color picker: choose one of eight text colors
 )
 
 // pull stages for the /pull:wf prompt flow.
@@ -69,6 +70,10 @@ var slashCommands = []slashCommand{
 	{"/code", "make code"},
 	{"/quote", "make quote"},
 	{"/bullet", "back to a plain bullet"},
+	{"/color", "set this node's text color"},
+	{"/bold", "toggle bold text"},
+	{"/italic", "toggle italic text"},
+	{"/underline", "toggle underline text"},
 	{"/note", "edit this node's note"},
 }
 
@@ -101,6 +106,9 @@ type Model struct {
 	promptLabel string
 	promptValue string
 	pullStage   int
+
+	// /color picker selection (index into styleColorOrder)
+	colorSel int
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -455,6 +463,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(k)
 	case modePrompt:
 		return m.handlePromptKey(k)
+	case modeColor:
+		return m.handleColorKey(k)
 	}
 
 	// snapshot the tree before a mutating outline key so /undo can reverse it
@@ -1282,6 +1292,37 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleColorKey drives the /color picker: up/down move through the eight
+// colors, enter applies the highlighted one (re-picking the active color clears
+// it), esc cancels. The color is set on the cursor node's style string.
+func (m *Model) handleColorKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "up":
+		if m.colorSel > 0 {
+			m.colorSel--
+		}
+		return m, nil
+	case "down":
+		if m.colorSel < len(styleColorOrder)-1 {
+			m.colorSel++
+		}
+		return m, nil
+	case "enter":
+		cur := m.cursorItem()
+		if cur != nil {
+			m.pushUndo("")
+			cur.style = styleSetColor(cur.style, styleColorOrder[m.colorSel])
+			m.unsaved = true
+		}
+		m.mode = modeOutline
+		return m, nil
+	}
+	return m, nil
+}
+
 func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	cur := m.cursorItem()
@@ -1310,6 +1351,30 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		setLayout(database.LayoutQuote)
 	case "/bullet":
 		setLayout(database.LayoutBullets)
+	case "/bold":
+		m.pushUndo("")
+		cur.style = styleToggle(cur.style, "bold")
+		m.unsaved = true
+	case "/italic":
+		m.pushUndo("")
+		cur.style = styleToggle(cur.style, "italic")
+		m.unsaved = true
+	case "/underline":
+		m.pushUndo("")
+		cur.style = styleToggle(cur.style, "underline")
+		m.unsaved = true
+	case "/color":
+		// open the picker; pre-select the color already in effect, if any
+		m.mode = modeColor
+		m.colorSel = 0
+		if c := styleColor(cur.style); c != "" {
+			for i, name := range styleColorOrder {
+				if name == c {
+					m.colorSel = i
+					break
+				}
+			}
+		}
 	case "/complete":
 		m.pushUndo("")
 		if cur.completedAt > 0 {
@@ -1895,6 +1960,20 @@ func (m *Model) viewOutline(maxLine int) []string {
 				mark = cAccent + "▸ " + cReset
 			}
 			line := " " + mark + cFG + fmt.Sprintf("%-11s", c.name) + cDim + " " + c.desc + cReset
+			lines = append(lines, clip(line, maxLine))
+		}
+	}
+
+	// the /color picker lists its eight swatches above the status line, each name
+	// painted in the color it sets, with the highlighted one marked.
+	if m.mode == modeColor {
+		for i, name := range styleColorOrder {
+			mark := "  "
+			if i == m.colorSel {
+				mark = cAccent + "▸ " + cReset
+			}
+			swatch := styleColorCode[name] + "●" + cReset
+			line := " " + mark + swatch + " " + styleColorCode[name] + name + cReset
 			lines = append(lines, clip(line, maxLine))
 		}
 	}

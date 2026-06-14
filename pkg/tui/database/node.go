@@ -39,6 +39,7 @@ type Node struct {
 	Name        string `json:"name"`
 	Note        string `json:"note"`
 	Layout      string `json:"layout"`
+	Style       string `json:"style"` // comma-separated style tokens, e.g. "bold,color:blue"
 	MirrorOf    string `json:"mirror_of"`
 	CompletedAt int64  `json:"completed_at"` // 0 = not completed
 	AddedOn     int64  `json:"added_on"`
@@ -48,19 +49,19 @@ type Node struct {
 	Dirty       bool   `json:"dirty"`
 }
 
-const nodeColumns = "uuid, parent_uuid, rank, name, note, layout, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty"
+const nodeColumns = "uuid, parent_uuid, rank, name, note, layout, style, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty"
 
 func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 	var n Node
 	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Layout,
-		&n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty)
+		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty)
 	return n, err
 }
 
 // Insert inserts the node.
 func (n Node) Insert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Layout, n.MirrorOf, n.CompletedAt,
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Layout, n.Style, n.MirrorOf, n.CompletedAt,
 		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty)
 	if err != nil {
 		return errors.Wrapf(err, "inserting node %s", n.UUID)
@@ -71,8 +72,8 @@ func (n Node) Insert(db *DB) error {
 // Update persists all mutable fields of the node.
 func (n Node) Update(db *DB) error {
 	_, err := db.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, layout = ?,
-		mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = ? WHERE uuid = ?`,
-		n.ParentUUID, n.Rank, n.Name, n.Note, n.Layout, n.MirrorOf, n.CompletedAt,
+		style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = ? WHERE uuid = ?`,
+		n.ParentUUID, n.Rank, n.Name, n.Note, n.Layout, n.Style, n.MirrorOf, n.CompletedAt,
 		n.EditedOn, n.USN, n.Deleted, n.Dirty, n.UUID)
 	if err != nil {
 		return errors.Wrapf(err, "updating node %s", n.UUID)

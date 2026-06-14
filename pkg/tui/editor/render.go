@@ -17,9 +17,10 @@ const (
 	cAccent = "\x1b[38;2;86;156;214m"  // #569cd6
 	cRed    = "\x1b[38;2;244;71;71m"   // #f44747
 	cYellow = "\x1b[38;2;220;220;170m" // #dcdcaa
-	cBold   = "\x1b[1m"
-	cItalic = "\x1b[3m"
-	cStrike = "\x1b[9m"
+	cBold      = "\x1b[1m"
+	cItalic    = "\x1b[3m"
+	cUnderline = "\x1b[4m"
+	cStrike    = "\x1b[9m"
 	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
 	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
 	cInvert = "\x1b[7m"              // the block cursor: inverts the cell beneath it
@@ -642,6 +643,10 @@ func inlineSpans(runes []rune) []spanFlags {
 func renderBody(it *item, name string, caret int, selected bool) string {
 	name = stripControlBytes(name)
 	base := cFG
+	// a /color picks the node's foreground; default stays the palette gray
+	if c := styleBaseColor(it.style); c != "" {
+		base = c
+	}
 
 	attrs := ""
 	prefix := ""
@@ -654,6 +659,8 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	case database.LayoutCode:
 		attrs += bgCode
 	}
+	// /bold, /italic, /underline layer on top of the layout's own attributes
+	attrs += styleAttrs(it.style)
 	if it.completedAt > 0 {
 		attrs += cStrike
 	}

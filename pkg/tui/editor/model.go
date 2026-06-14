@@ -14,6 +14,7 @@ type item struct {
 	name        string
 	note        string
 	layout      string
+	style       string // comma-separated style tokens, e.g. "bold,color:blue"
 	mirrorOf    string
 	completedAt int64
 	children    []*item
@@ -29,6 +30,7 @@ type snapshot struct {
 	name        string
 	note        string
 	layout      string
+	style       string
 	mirrorOf    string
 	completedAt int64
 }
@@ -55,6 +57,7 @@ func cloneItem(src, parent *item) *item {
 		name:        src.name,
 		note:        src.note,
 		layout:      src.layout,
+		style:       src.style,
 		mirrorOf:    src.mirrorOf,
 		completedAt: src.completedAt,
 		collapsed:   src.collapsed,
@@ -103,6 +106,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			name:        n.Name,
 			note:        n.Note,
 			layout:      n.Layout,
+			style:       n.Style,
 			mirrorOf:    n.MirrorOf,
 			completedAt: n.CompletedAt,
 		}
@@ -112,6 +116,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			name:        n.Name,
 			note:        n.Note,
 			layout:      n.Layout,
+			style:       n.Style,
 			mirrorOf:    n.MirrorOf,
 			completedAt: n.CompletedAt,
 		}
@@ -512,7 +517,7 @@ func (t *tree) changed(it *item) bool {
 		return true
 	}
 	return s.name != it.name || s.note != it.note || s.layout != it.layout ||
-		s.mirrorOf != it.mirrorOf || s.completedAt != it.completedAt
+		s.style != it.style || s.mirrorOf != it.mirrorOf || s.completedAt != it.completedAt
 }
 
 // save writes the in-memory tree back to the database in one transaction.
@@ -539,6 +544,7 @@ func (t *tree) save() (int, error) {
 				Name:        it.name,
 				Note:        it.note,
 				Layout:      it.layout,
+				Style:       it.style,
 				MirrorOf:    it.mirrorOf,
 				CompletedAt: it.completedAt,
 				AddedOn:     now,
@@ -551,8 +557,8 @@ func (t *tree) save() (int, error) {
 			written++
 		} else if t.changed(it) || structChanged {
 			if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, layout = ?,
-				mirror_of = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
-				parentUUID, rank, it.name, it.note, it.layout, it.mirrorOf, it.completedAt, now, it.uuid); err != nil {
+				style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
+				parentUUID, rank, it.name, it.note, it.layout, it.style, it.mirrorOf, it.completedAt, now, it.uuid); err != nil {
 				return errors.Wrapf(err, "updating node %s", it.uuid)
 			}
 			written++
@@ -568,8 +574,8 @@ func (t *tree) save() (int, error) {
 
 	// the root's own parent/rank are not managed by this editor
 	if t.changed(t.root) {
-		if _, err := tx.Exec(`UPDATE nodes SET name = ?, note = ?, layout = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
-			t.root.name, t.root.note, t.root.layout, t.root.completedAt, now, t.root.uuid); err != nil {
+		if _, err := tx.Exec(`UPDATE nodes SET name = ?, note = ?, layout = ?, style = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
+			t.root.name, t.root.note, t.root.layout, t.root.style, t.root.completedAt, now, t.root.uuid); err != nil {
 			tx.Rollback()
 			return 0, errors.Wrap(err, "updating root node")
 		}
@@ -612,6 +618,7 @@ func (t *tree) refreshSnapshots() {
 			name:        it.name,
 			note:        it.note,
 			layout:      it.layout,
+			style:       it.style,
 			mirrorOf:    it.mirrorOf,
 			completedAt: it.completedAt,
 		}

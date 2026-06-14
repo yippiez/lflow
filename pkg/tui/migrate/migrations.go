@@ -710,6 +710,19 @@ var lm15 = migration{
 	},
 }
 
+// lm16 adds the per-node style column that backs the /color, /bold, /italic
+// and /underline editor commands. It holds a comma-separated token list, e.g.
+// "bold,italic,color:blue"; empty means an unstyled node.
+var lm16 = migration{
+	name: "add-style-to-nodes",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`ALTER TABLE nodes ADD COLUMN style text NOT NULL DEFAULT '';`); err != nil {
+			return errors.Wrap(err, "adding style column to nodes")
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {
