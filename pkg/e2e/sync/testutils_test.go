@@ -55,9 +55,11 @@ func setupTestEnv(t *testing.T) testEnv {
 	apiEndpoint := fmt.Sprintf("%s/api", server.URL)
 	updateConfigAPIEndpoint(t, tmpDir, apiEndpoint)
 
-	// Create command options with XDG paths pointing to temp dir
+	// Create command options with HOME and XDG paths pointing to temp dir.
+	// HOME isolates ~/.lflow/settings.json to the test dir.
 	cmdOpts := clitest.RunDnoteCmdOptions{
 		Env: []string{
+			fmt.Sprintf("HOME=%s", tmpDir),
 			fmt.Sprintf("XDG_CONFIG_HOME=%s", tmpDir),
 			fmt.Sprintf("XDG_DATA_HOME=%s", tmpDir),
 			fmt.Sprintf("XDG_CACHE_HOME=%s", tmpDir),
@@ -105,13 +107,17 @@ func setupNewServer(t *testing.T) (*httptest.Server, *gorm.DB) {
 	return server, serverDB
 }
 
-// updateConfigAPIEndpoint updates the config file with the given API endpoint
+// updateConfigAPIEndpoint writes the JSON settings file with the given API
+// endpoint, at ~/.lflow/settings.json relative to the test's HOME.
 func updateConfigAPIEndpoint(t *testing.T, tmpDir string, apiEndpoint string) {
-	lflowDir := filepath.Join(tmpDir, consts.LflowDirName)
-	configPath := filepath.Join(lflowDir, consts.ConfigFilename)
-	configContent := fmt.Sprintf("apiEndpoint: %s\n", apiEndpoint)
+	lflowDir := filepath.Join(tmpDir, consts.LflowHomeDirName)
+	if err := os.MkdirAll(lflowDir, 0755); err != nil {
+		t.Fatal(errors.Wrap(err, "creating settings directory"))
+	}
+	configPath := filepath.Join(lflowDir, consts.SettingsFilename)
+	configContent := fmt.Sprintf("{\n  \"apiEndpoint\": %q\n}\n", apiEndpoint)
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
-		t.Fatal(errors.Wrap(err, "writing config file"))
+		t.Fatal(errors.Wrap(err, "writing settings file"))
 	}
 }
 
