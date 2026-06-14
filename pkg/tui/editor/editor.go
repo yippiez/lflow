@@ -600,7 +600,23 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case "alt+right", "ctrl+right":
+	case "ctrl+right":
+		// jump to the next node — zoom is reserved for the alt chords
+		if m.cursor < len(m.rows)-1 {
+			m.cursor++
+			m.caret = 0
+		}
+		return m, nil
+	case "ctrl+left":
+		// jump to the previous node, landing at its end
+		if m.cursor > 0 {
+			m.cursor--
+			if c := m.cursorItem(); c != nil {
+				m.caret = len([]rune(c.name))
+			}
+		}
+		return m, nil
+	case "alt+right":
 		// zoom into the cursor node — leaves too: the view starts empty
 		// and typing adds the first child
 		if cur := m.cursorItem(); cur != nil {
@@ -619,7 +635,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 		}
 		return m, nil
-	case "alt+left", "alt+backspace", "ctrl+left":
+	case "alt+left", "alt+backspace":
 		// zoom back out
 		if len(m.viewStack) > 1 {
 			zoomed := m.viewRoot()

@@ -151,6 +151,12 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyDown}
 	case "ctrl+right":
 		return tea.KeyMsg{Type: tea.KeyCtrlRight}
+	case "ctrl+left":
+		return tea.KeyMsg{Type: tea.KeyCtrlLeft}
+	case "alt+right":
+		return tea.KeyMsg{Type: tea.KeyRight, Alt: true}
+	case "alt+left":
+		return tea.KeyMsg{Type: tea.KeyLeft, Alt: true}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
 	case "shift+tab":
@@ -593,7 +599,7 @@ func TestZoomMirrorShowsSourceChildren(t *testing.T) {
 		t.Fatalf("cursor should be on the mirror, got %#v", cur)
 	}
 
-	m.press("ctrl+right")
+	m.press("alt+right")
 
 	if root := m.viewRoot(); root != src {
 		t.Fatalf("zoom into mirror should land on the source node, got %#v", root)
@@ -622,7 +628,7 @@ func TestZoomMirrorMissingSourceIsNoop(t *testing.T) {
 	m.refreshRows()
 	m.cursor = 0
 
-	m.press("ctrl+right")
+	m.press("alt+right")
 
 	if got := len(m.viewStack); got != 1 {
 		t.Fatalf("zoom with missing source must not push a view, stack depth=%d", got)
@@ -1259,5 +1265,30 @@ func TestUndoReversesEnter(t *testing.T) {
 	m.undo()
 	if len(m.tree.root.children) != before {
 		t.Fatalf("undo should remove the added node, got %d", len(m.tree.root.children))
+	}
+}
+
+// TestCtrlArrowJumpsNodes is the round-6 rebind: ctrl+left/right jump between
+// nodes (zoom stays on the alt chords).
+func TestCtrlArrowJumpsNodes(t *testing.T) {
+	m := newTestModel(80, "one", "two", "three")
+	m.cursor = 0
+	m.caret = 1
+
+	m.press("ctrl+right")
+	if m.cursor != 1 || m.caret != 0 {
+		t.Fatalf("ctrl+right should jump to the next node start, cursor=%d caret=%d", m.cursor, m.caret)
+	}
+
+	m.press("ctrl+left")
+	if m.cursor != 0 || m.caret != len([]rune("one")) {
+		t.Fatalf("ctrl+left should jump to the previous node end, cursor=%d caret=%d", m.cursor, m.caret)
+	}
+
+	// ctrl+right/left no longer zoom: the view root stays put
+	m.cursor = 0
+	m.press("ctrl+right")
+	if len(m.viewStack) != 1 {
+		t.Fatalf("ctrl+right must not zoom, viewStack depth=%d", len(m.viewStack))
 	}
 }
