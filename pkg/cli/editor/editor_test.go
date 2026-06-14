@@ -157,6 +157,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyShiftTab}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -888,6 +890,55 @@ func TestOutdentBlockedAtMirrorRoot(t *testing.T) {
 
 	if a.parent != src {
 		t.Fatalf("outdent past the mirror root must be blocked, a.parent=%#v", a.parent)
+	}
+}
+
+// TestDeleteEmptyLeafThroughMirrorNoPanic reproduces the index-out-of-range
+// crash: deleting an empty leaf that is also shown through a mirror drops two
+// rows at once, so the cursor nudge after the delete must reclamp or it indexes
+// past the now-shorter row set.
+func TestDeleteEmptyLeafThroughMirrorNoPanic(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "ADR", parent: root}
+	src.children = []*item{
+		{uuid: "a", name: "a", parent: src},
+		{uuid: "b", name: "b", parent: src},
+		{uuid: "c", name: "c", parent: src},
+		{uuid: "e", name: "", parent: src},
+	}
+	mir := &item{uuid: "mir", mirrorOf: "src", parent: root}
+	root.children = []*item{mir, src} // mirror above, original below — as in the repro
+	tr := &tree{
+		root: root,
+		byUUID: map[string]*item{
+			"src": src, "a": src.children[0], "b": src.children[1],
+			"c": src.children[2], "e": src.children[3], "mir": mir,
+		},
+		externalNames: map[string]string{},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+
+	empty := src.children[3]
+	if i := rowOf(m, empty, nil); i >= 0 { // the original copy, not the through one
+		m.cursor = i
+	} else {
+		t.Fatal("original empty leaf row not found")
+	}
+	m.caret = 0
+
+	m.press("backspace") // must not panic on the shrunken row set
+
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		t.Fatalf("cursor out of range after delete: %d / %d", m.cursor, len(m.rows))
+	}
+	if indexOf(empty) != -1 {
+		t.Fatalf("empty leaf should be removed from the tree")
+	}
+	for _, r := range m.rows {
+		if r.it == empty {
+			t.Fatalf("deleted node still rendered")
+		}
 	}
 }
 

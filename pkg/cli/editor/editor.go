@@ -104,6 +104,13 @@ func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
 
 func (m *Model) refreshRows() {
 	m.rows = m.tree.visibleRows(m.viewRoot())
+	m.clampCursor()
+}
+
+// clampCursor holds the cursor inside the current rows. A single delete can drop
+// more than one row when the node is also shown through a mirror, so any code
+// that nudges the cursor after a structural change must reclamp.
+func (m *Model) clampCursor() {
 	if m.cursor >= len(m.rows) {
 		m.cursor = len(m.rows) - 1
 	}
@@ -140,7 +147,7 @@ func (m *Model) viewport() (start, end int) {
 }
 
 func (m *Model) cursorItem() *item {
-	if len(m.rows) == 0 {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
 	return m.rows[m.cursor].it
@@ -460,6 +467,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 			if idx > 0 {
 				m.cursor = idx - 1
+				m.clampCursor()
 			}
 			if c := m.cursorItem(); c != nil {
 				m.caret = len([]rune(c.name))
