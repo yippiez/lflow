@@ -1850,7 +1850,7 @@ func (m *Model) finalView(maxLine int) []string {
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
-		lines = append(lines, m.noteBandLines(r, maxLine, below)...)
+		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 	}
 	return lines
 }
@@ -1888,27 +1888,32 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
 
-		if selected && m.mode == modeNote {
-			line += cDim + "  note: " + cReset + cFG + withCaret(stripControlBytes(m.tree.displayNote(it)), m.caret) + cReset
-		}
-
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
-		// the note hangs beneath the node as a tinted band; while the note is
-		// being edited it shows inline on the row instead, so skip it there
-		if !(selected && m.mode == modeNote) {
-			bands[i] = m.noteBandLines(r, maxLine, below)
+		// the note hangs beneath the node as a tinted band; on the selected row in
+		// note mode that same band becomes the editing surface (block cursor)
+		noteCaret := -1
+		if selected && m.mode == modeNote {
+			noteCaret = m.caret
 		}
+		bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
 	}
 
 	maxRows := m.rowBudget()
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
+	// the zoomed-in (view-root) node has no row of its own, so surface its note
+	// as a band at the top of the view — the same band a row would hang below it.
+	flat = append(flat, m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)...)
 	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)
-			// scroll to keep the node itself in view, not the tail of its band
+			// scroll to keep the node itself in view, not the tail of its band —
+			// except while editing the note, where the band is what needs to show
 			cursorEnd = len(flat) + len(groups[i]) - 1
+			if m.mode == modeNote {
+				cursorEnd += len(bands[i])
+			}
 		}
 		flat = append(flat, groups[i]...)
 		flat = append(flat, bands[i]...)

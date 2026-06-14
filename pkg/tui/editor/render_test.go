@@ -239,7 +239,7 @@ func TestNoteBandLines(t *testing.T) {
 	tr := &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}
 	m := &Model{tree: tr}
 
-	lines := m.noteBandLines(row{it: it, depth: 0}, 60, true)
+	lines := m.noteBandLines(row{it: it, depth: 0}, 60, true, -1)
 	if len(lines) == 0 {
 		t.Fatal("expected band lines for a noted node")
 	}
@@ -254,8 +254,34 @@ func TestNoteBandLines(t *testing.T) {
 		t.Errorf("band rail should draw │ above children: %q", joined)
 	}
 
-	if b := m.noteBandLines(row{it: &item{uuid: "x"}, depth: 0}, 60, true); b != nil {
+	if b := m.noteBandLines(row{it: &item{uuid: "x"}, depth: 0}, 60, true, -1); b != nil {
 		t.Errorf("a note-less node should yield no band, got %v", b)
+	}
+}
+
+// TestNoteBandEditing: with a caret >= 0 the band is the editing surface — it
+// draws a block cursor at the caret, and even an empty note yields a band (an
+// empty editable strip) so there is somewhere to type.
+func TestNoteBandEditing(t *testing.T) {
+	it := &item{uuid: "n", note: "abcd"}
+	tr := &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}
+	m := &Model{tree: tr}
+
+	lines := m.noteBandLines(row{it: it, depth: 0}, 60, false, 2)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, cInvert) {
+		t.Errorf("editing band should draw a block cursor: %q", joined)
+	}
+	if got := stripSGR(joined); !strings.Contains(got, "abcd") {
+		t.Errorf("editing band should show the note: %q", got)
+	}
+
+	// an empty note still yields an editable band with a trailing cursor cell
+	empty := &item{uuid: "e", note: ""}
+	tr.byUUID["e"] = empty
+	eb := m.noteBandLines(row{it: empty, depth: 0}, 60, false, 0)
+	if len(eb) == 0 || !strings.Contains(strings.Join(eb, ""), cInvert) {
+		t.Errorf("empty note in edit mode should still give a cursor band: %v", eb)
 	}
 }
 

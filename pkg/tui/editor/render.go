@@ -459,12 +459,20 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 // continuation rail so the tree line runs down the band's left edge and curves
 // into the children below (subtreeBelow draws the │ under the glyph column when
 // the node has visible children). The band is sized to its widest wrapped line
-// so it reads as a clean panel — clearly content, never another node. Returns
-// nil when the node has no note.
-func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool) []string {
-	note := strings.TrimSpace(stripControlBytes(m.tree.displayNote(r.it)))
-	if note == "" {
-		return nil
+// so it reads as a clean panel — clearly content, never another node.
+//
+// caret < 0 renders the band read-only (whitespace tidied for display). caret
+// >= 0 makes the band the editing surface for the note: the exact text is kept
+// so offsets line up, and a block cursor is drawn at caret. Returns nil only
+// when there is no note and we are not editing.
+func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool, caret int) []string {
+	note := stripControlBytes(m.tree.displayNote(r.it))
+	editing := caret >= 0
+	if !editing {
+		note = strings.TrimSpace(note)
+		if note == "" {
+			return nil
+		}
 	}
 	rail := continuationPrefix(r, subtreeBelow)
 	railW := 1 + 3*r.depth + 2
@@ -472,23 +480,123 @@ func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool) []string {
 	if textW < 8 {
 		textW = 8
 	}
-	segs := wrapPlain(note, textW)
-	if len(segs) == 0 {
-		return nil
+	style := bgNote + cDim + cItalic
+
+	if !editing {
+		segs := wrapPlain(note, textW)
+		if len(segs) == 0 {
+			return nil
+		}
+		bandW := 0
+		for _, s := range segs {
+			if w := runewidth.StringWidth(s); w > bandW {
+				bandW = w
+			}
+		}
+		var out []string
+		for _, seg := range segs {
+			gap := strings.Repeat(" ", bandW-runewidth.StringWidth(seg))
+			out = append(out, rail+cReset+style+" "+seg+gap+" "+cReset)
+		}
+		return out
 	}
-	bandW := 0
+
+	runes := []rune(note)
+	segs := wrapNoteSegs(runes, textW)
+	bandW := 1
 	for _, s := range segs {
-		if w := runewidth.StringWidth(s); w > bandW {
+		if w := runewidth.StringWidth(string(runes[s.start:s.end])); w > bandW {
 			bandW = w
 		}
 	}
 	var out []string
-	for _, seg := range segs {
-		gap := strings.Repeat(" ", bandW-runewidth.StringWidth(seg))
-		content := " " + seg + gap + " "
-		out = append(out, rail+cReset+bgNote+cDim+cItalic+content+cReset)
+	for idx, s := range segs {
+		seg := runes[s.start:s.end]
+		caretInSeg := -1
+		if caret >= s.start && caret < s.end {
+			caretInSeg = caret - s.start
+		} else if caret >= len(runes) && idx == len(segs)-1 {
+			caretInSeg = len(seg) // the block cursor sits past the last rune
+		}
+		out = append(out, rail+cReset+style+renderBandSeg(seg, caretInSeg, bandW, style)+cReset)
 	}
 	return out
+}
+
+// renderBandSeg renders one wrapped note segment's inner content, side-padded to
+// bandW columns. It inverts the cell at caretInSeg for the block cursor and
+// re-asserts the band style afterwards; caretInSeg < 0 draws no cursor, and
+// caretInSeg == len(seg) draws a trailing cursor cell past the text.
+func renderBandSeg(seg []rune, caretInSeg, bandW int, style string) string {
+	var b strings.Builder
+	b.WriteString(" ")
+	w := 0
+	for i, r := range seg {
+		if i == caretInSeg {
+			b.WriteString(cInvert + string(r) + cReset + style)
+		} else {
+			b.WriteString(string(r))
+		}
+		w += runewidth.RuneWidth(r)
+	}
+	if caretInSeg == len(seg) {
+		b.WriteString(cInvert + " " + cReset + style)
+		w++
+	}
+	if w < bandW {
+		b.WriteString(strings.Repeat(" ", bandW-w))
+	}
+	b.WriteString(" ")
+	return b.String()
+}
+
+// bandSeg is a [start,end) rune range of one wrapped note line.
+type bandSeg struct{ start, end int }
+
+// wrapNoteSegs splits runes into wrapped segments fitting width, breaking at the
+// last space before the limit when possible, hard-breaking an over-long word,
+// and honoring explicit newlines. Unlike wrapPlain it preserves exact offsets so
+// the editing band can map the caret back to the text.
+func wrapNoteSegs(runes []rune, width int) []bandSeg {
+	if width < 1 {
+		width = 1
+	}
+	n := len(runes)
+	if n == 0 {
+		return []bandSeg{{0, 0}}
+	}
+	var segs []bandSeg
+	i := 0
+	for i < n {
+		col, j, lastSpace := 0, i, -1
+		for j < n && runes[j] != '\n' {
+			rw := runewidth.RuneWidth(runes[j])
+			if col+rw > width {
+				break
+			}
+			if runes[j] == ' ' {
+				lastSpace = j
+			}
+			col += rw
+			j++
+		}
+		end := j
+		if j < n && runes[j] != '\n' && lastSpace > i {
+			end = lastSpace + 1
+		}
+		if end == i {
+			end = i + 1 // always make progress
+		}
+		segs = append(segs, bandSeg{i, end})
+		i = end
+		if i < n && runes[i] == '\n' {
+			i++
+			if i == n {
+				segs = append(segs, bandSeg{n, n}) // a blank line after a trailing newline
+			}
+		}
+	}
+	return segs
 }
 
 // wrapPlain word-wraps plain text to a display width, breaking on spaces and
