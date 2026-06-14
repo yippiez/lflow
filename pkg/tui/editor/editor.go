@@ -1847,9 +1847,10 @@ func (m *Model) finalView(maxLine int) []string {
 			glyph, glyphColor = glyphMirror, cRed
 		}
 		name := m.tree.displayName(r.it)
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it, false)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
+		lines = append(lines, m.noteBandLines(r, maxLine, below)...)
 	}
 	return lines
 }
@@ -1865,6 +1866,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// render every row to its wrapped lines first: the viewport then works
 	// in screen lines, so wrapped rows never push the cursor off screen
 	groups := make([][]string, len(rows))
+	bands := make([][]string, len(rows))
 	for i, r := range rows {
 		it := r.it
 		selected := i == m.cursor
@@ -1884,7 +1886,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 		body := renderBody(it, name, caret, selected)
 
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it, selected && m.mode == modeNote)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
 
 		if selected && m.mode == modeNote {
 			line += cDim + "  note: " + cReset + cFG + withCaret(stripControlBytes(m.tree.displayNote(it)), m.caret) + cReset
@@ -1892,17 +1894,24 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
+		// the note hangs beneath the node as a tinted band; while the note is
+		// being edited it shows inline on the row instead, so skip it there
+		if !(selected && m.mode == modeNote) {
+			bands[i] = m.noteBandLines(r, maxLine, below)
+		}
 	}
 
 	maxRows := m.rowBudget()
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
-	for i, g := range groups {
+	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)
-			cursorEnd = len(flat) + len(g) - 1
+			// scroll to keep the node itself in view, not the tail of its band
+			cursorEnd = len(flat) + len(groups[i]) - 1
 		}
-		flat = append(flat, g...)
+		flat = append(flat, groups[i]...)
+		flat = append(flat, bands[i]...)
 	}
 	start := 0
 	if cursorEnd >= maxRows {

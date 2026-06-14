@@ -23,6 +23,7 @@ const (
 	cStrike    = "\x1b[9m"
 	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
 	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
+	bgNote  = "\x1b[48;2;34;40;49m"  // #222831 subtle band behind a node's note
 	cInvert = "\x1b[7m"              // the block cursor: inverts the cell beneath it
 	// cClearEOL erases from the cursor to the end of the line. Prefixed to every
 	// emitted View line so a frame fully overwrites the previous one: the inline
@@ -453,6 +454,97 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 	return cDim + string(cells)
 }
 
+// noteBandLines renders a node's note as a muted, background-tinted band that
+// hangs under the node, in the child-indent region. It reuses the row's
+// continuation rail so the tree line runs down the band's left edge and curves
+// into the children below (subtreeBelow draws the │ under the glyph column when
+// the node has visible children). The band is sized to its widest wrapped line
+// so it reads as a clean panel — clearly content, never another node. Returns
+// nil when the node has no note.
+func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool) []string {
+	note := strings.TrimSpace(stripControlBytes(m.tree.displayNote(r.it)))
+	if note == "" {
+		return nil
+	}
+	rail := continuationPrefix(r, subtreeBelow)
+	railW := 1 + 3*r.depth + 2
+	textW := maxLine - railW - 2 // room inside the band, minus a space of pad each side
+	if textW < 8 {
+		textW = 8
+	}
+	segs := wrapPlain(note, textW)
+	if len(segs) == 0 {
+		return nil
+	}
+	bandW := 0
+	for _, s := range segs {
+		if w := runewidth.StringWidth(s); w > bandW {
+			bandW = w
+		}
+	}
+	var out []string
+	for _, seg := range segs {
+		gap := strings.Repeat(" ", bandW-runewidth.StringWidth(seg))
+		content := " " + seg + gap + " "
+		out = append(out, rail+cReset+bgNote+cDim+cItalic+content+cReset)
+	}
+	return out
+}
+
+// wrapPlain word-wraps plain text to a display width, breaking on spaces and
+// hard-breaking any single word too long to fit. Explicit newlines start a new
+// line. It is the note band's wrapper; the outline body uses wrapLine instead,
+// which carries SGR state across breaks.
+func wrapPlain(s string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		line := ""
+		for _, w := range strings.Fields(para) {
+			for runewidth.StringWidth(w) > width {
+				head := cutToWidth(w, width)
+				if line != "" {
+					out = append(out, line)
+					line = ""
+				}
+				out = append(out, head)
+				w = string([]rune(w)[len([]rune(head)):])
+			}
+			cand := w
+			if line != "" {
+				cand = line + " " + w
+			}
+			if runewidth.StringWidth(cand) > width {
+				out = append(out, line)
+				line = w
+			} else {
+				line = cand
+			}
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// cutToWidth returns the longest prefix of s whose display width fits in width.
+func cutToWidth(s string, width int) string {
+	var b strings.Builder
+	w := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if w+rw > width {
+			break
+		}
+		b.WriteRune(r)
+		w += rw
+	}
+	return b.String()
+}
+
 // visualRows splits a node's plain name into the rune offsets at which each
 // soft-wrapped visual line begins, mirroring wrapLine's break logic so the
 // caret can be mapped to the same visual layout the renderer shows. firstCol
@@ -662,10 +754,10 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	return b.String()
 }
 
-// layoutSuffix returns a dim suffix describing non-default state. editingNote
-// drops the "note" flag while the note is shown inline, so it is not labelled
-// twice on the row being edited.
-func (m *Model) layoutSuffix(it *item, editingNote bool) string {
+// layoutSuffix returns a dim suffix describing non-default state. The note is no
+// longer flagged here — it shows in full as a tinted band under the node (see
+// noteBandLines) — so the suffix only carries mirror and collapsed-child counts.
+func (m *Model) layoutSuffix(it *item) string {
 	var parts []string
 	if it.mirrorOf != "" {
 		parts = append(parts, "mirror")
@@ -676,10 +768,6 @@ func (m *Model) layoutSuffix(it *item, editingNote bool) string {
 			noun = "child"
 		}
 		parts = append(parts, fmt.Sprintf("%d %s", len(kids), noun))
-	}
-	// a mirror's note is its source's note: flag the indicator from the one node
-	if !editingNote && m.tree.resolve(it).note != "" {
-		parts = append(parts, "note")
 	}
 	if len(parts) == 0 {
 		return ""

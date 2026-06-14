@@ -231,6 +231,34 @@ func TestRenderBodyLoneAsteriskStaysPlain(t *testing.T) {
 	}
 }
 
+// TestNoteBandLines: a noted node renders a tinted band that shows the note
+// text, draws the tree rail to its left when children follow, and is empty for
+// a note-less node.
+func TestNoteBandLines(t *testing.T) {
+	it := &item{uuid: "n", note: "hello world note"}
+	tr := &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}
+	m := &Model{tree: tr}
+
+	lines := m.noteBandLines(row{it: it, depth: 0}, 60, true)
+	if len(lines) == 0 {
+		t.Fatal("expected band lines for a noted node")
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, bgNote) {
+		t.Errorf("band should carry the tint background: %q", joined)
+	}
+	if got := stripSGR(joined); !strings.Contains(got, "hello world note") {
+		t.Errorf("band should show the note text: %q", got)
+	}
+	if !strings.Contains(joined, "│") {
+		t.Errorf("band rail should draw │ above children: %q", joined)
+	}
+
+	if b := m.noteBandLines(row{it: &item{uuid: "x"}, depth: 0}, 60, true); b != nil {
+		t.Errorf("a note-less node should yield no band, got %v", b)
+	}
+}
+
 func TestRenderBodyChipsDateWithTime(t *testing.T) {
 	it := &item{layout: database.LayoutBullets}
 
