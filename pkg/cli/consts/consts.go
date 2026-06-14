@@ -14,6 +14,11 @@ var (
 	TmpContentFileExt = "md"
 	// ConfigFilename is the name of the config file
 	ConfigFilename = "lflowrc"
+	// LflowHomeDirName is the dot-directory under the home dir that holds the
+	// user settings file
+	LflowHomeDirName = ".lflow"
+	// SettingsFilename is the JSON settings file inside LflowHomeDirName
+	SettingsFilename = "settings.json"
 
 	// SystemSchema is the key for schema in the system table
 	SystemSchema = "schema"

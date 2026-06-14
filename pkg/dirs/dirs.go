@@ -32,6 +32,12 @@ func Reload() {
 }
 
 func getHomeDir() string {
+	// $HOME is authoritative when set, matching os.UserHomeDir, so tests and
+	// sandboxes can redirect the home directory; fall back to the passwd record.
+	if h := os.Getenv("HOME"); h != "" {
+		return h
+	}
+
 	usr, err := user.Current()
 	if err != nil {
 		panic(errors.Wrap(err, "getting home dir"))

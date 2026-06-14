@@ -2,14 +2,12 @@ package migrate
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
-	"gopkg.in/yaml.v2"
-
 	"github.com/dnote/actions"
 	"github.com/lflow/lflow/pkg/assert"
+	"github.com/lflow/lflow/pkg/cli/config"
 	"github.com/lflow/lflow/pkg/cli/consts"
 	"github.com/lflow/lflow/pkg/cli/context"
 	"github.com/lflow/lflow/pkg/cli/database"
@@ -1006,34 +1004,20 @@ func TestLocalMigration12(t *testing.T) {
 	db := database.InitTestMemoryDBRaw(t, "./fixtures/local-12-pre-schema.sql")
 	ctx := context.InitTestCtxWithDB(t, db)
 
-	data := []byte("editor: vim")
-	path := fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.LflowDirName, consts.ConfigFilename)
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatal(errors.Wrap(err, "Failed to write schema file"))
+	if err := config.Write(ctx, config.Config{Editor: "vim"}); err != nil {
+		t.Fatal(errors.Wrap(err, "writing settings"))
 	}
 
 	// execute
-	err := lm12.run(ctx, nil)
-	if err != nil {
+	if err := lm12.run(ctx, nil); err != nil {
 		t.Fatal(errors.Wrap(err, "failed to run"))
 	}
 
 	// test
-	b, err := os.ReadFile(path)
+	cf, err := config.Read(ctx)
 	if err != nil {
-		t.Fatal(errors.Wrap(err, "reading config"))
+		t.Fatal(errors.Wrap(err, "reading settings"))
 	}
-
-	type config struct {
-		APIEndpoint string `yaml:"apiEndpoint"`
-	}
-
-	var cf config
-	err = yaml.Unmarshal(b, &cf)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "unmarshalling config"))
-	}
-
 	assert.NotEqual(t, cf.APIEndpoint, "", "apiEndpoint was not populated")
 }
 
@@ -1042,39 +1026,22 @@ func TestLocalMigration13(t *testing.T) {
 	db := database.InitTestMemoryDBRaw(t, "./fixtures/local-12-pre-schema.sql")
 	ctx := context.InitTestCtxWithDB(t, db)
 
-	data := []byte("editor: vim\napiEndpoint: https://test.com/api")
-
-	path := fmt.Sprintf("%s/%s/%s", ctx.Paths.Config, consts.LflowDirName, consts.ConfigFilename)
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatal(errors.Wrap(err, "Failed to write schema file"))
+	if err := config.Write(ctx, config.Config{Editor: "vim", APIEndpoint: "https://test.com/api"}); err != nil {
+		t.Fatal(errors.Wrap(err, "writing settings"))
 	}
 
 	// execute
-	err := lm13.run(ctx, nil)
-	if err != nil {
+	if err := lm13.run(ctx, nil); err != nil {
 		t.Fatal(errors.Wrap(err, "failed to run"))
 	}
 
 	// test
-	b, err := os.ReadFile(path)
+	cf, err := config.Read(ctx)
 	if err != nil {
-		t.Fatal(errors.Wrap(err, "reading config"))
+		t.Fatal(errors.Wrap(err, "reading settings"))
 	}
-
-	type config struct {
-		Editor             string `yaml:"editor"`
-		ApiEndpoint        string `yaml:"apiEndpoint"`
-		EnableUpgradeCheck bool   `yaml:"enableUpgradeCheck"`
-	}
-
-	var cf config
-	err = yaml.Unmarshal(b, &cf)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "unmarshalling config"))
-	}
-
 	assert.Equal(t, cf.Editor, "vim", "editor mismatch")
-	assert.Equal(t, cf.ApiEndpoint, "https://test.com/api", "apiEndpoint mismatch")
+	assert.Equal(t, cf.APIEndpoint, "https://test.com/api", "apiEndpoint mismatch")
 	assert.Equal(t, cf.EnableUpgradeCheck, true, "enableUpgradeCheck mismatch")
 }
 

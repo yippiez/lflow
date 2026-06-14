@@ -25,6 +25,8 @@ func setupTestEnv(t *testing.T) (string, testutils.RunDnoteCmdOptions) {
 	testDir := t.TempDir()
 	opts := testutils.RunDnoteCmdOptions{
 		Env: []string{
+			// HOME isolates ~/.lflow/settings.json to the test dir
+			fmt.Sprintf("HOME=%s", testDir),
 			fmt.Sprintf("XDG_CONFIG_HOME=%s", testDir),
 			fmt.Sprintf("XDG_DATA_HOME=%s", testDir),
 			fmt.Sprintf("XDG_CACHE_HOME=%s", testDir),
@@ -50,12 +52,12 @@ func TestInit(t *testing.T) {
 
 	db := database.OpenTestDB(t, testDir)
 
-	ok, err := utils.FileExists(fmt.Sprintf("%s/%s/%s", testDir, consts.LflowDirName, consts.ConfigFilename))
+	ok, err := utils.FileExists(fmt.Sprintf("%s/%s/%s", testDir, consts.LflowHomeDirName, consts.SettingsFilename))
 	if err != nil {
-		t.Fatal(errors.Wrap(err, "checking if lflow config exists"))
+		t.Fatal(errors.Wrap(err, "checking if lflow settings exist"))
 	}
 	if !ok {
-		t.Errorf("config file was not initialized")
+		t.Errorf("settings file was not initialized")
 	}
 
 	// the node model should exist; legacy tables should be gone (converted)
@@ -310,15 +312,15 @@ func TestExport(t *testing.T) {
 func TestDBPathConfig(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	// dbPath is configured in the config file, never by flag
+	// dbPath is configured in the settings file, never by flag
 	customDBPath := fmt.Sprintf("%s/custom.db", testDir)
-	configDir := fmt.Sprintf("%s/lflow", testDir)
+	configDir := fmt.Sprintf("%s/%s", testDir, consts.LflowHomeDirName)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatal(errors.Wrap(err, "creating config dir"))
 	}
-	configBody := fmt.Sprintf("editor: vi\napiEndpoint: http://localhost:3001/api\ndbPath: %s\n", customDBPath)
-	if err := os.WriteFile(fmt.Sprintf("%s/lflowrc", configDir), []byte(configBody), 0644); err != nil {
-		t.Fatal(errors.Wrap(err, "writing config"))
+	configBody := fmt.Sprintf("{\n  \"editor\": \"vi\",\n  \"apiEndpoint\": \"http://localhost:3001/api\",\n  \"dbPath\": %q\n}\n", customDBPath)
+	if err := os.WriteFile(fmt.Sprintf("%s/%s", configDir, consts.SettingsFilename), []byte(configBody), 0644); err != nil {
+		t.Fatal(errors.Wrap(err, "writing settings"))
 	}
 
 	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
