@@ -24,7 +24,7 @@ func init() {
 func TestMain(m *testing.M) {
 	// Build CLI binary without hardcoded API endpoint
 	// Each test will create its own server and config file
-	cmd := exec.Command("go", "build", "--tags", "fts5", "-o", cliBinaryName, "github.com/lflow/lflow/pkg/cli")
+	cmd := exec.Command("go", "build", "--tags", "fts5", "-o", cliBinaryName, "github.com/lflow/lflow/pkg/tui")
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

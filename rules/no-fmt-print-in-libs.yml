@@ -3,12 +3,12 @@ language: go
 severity: warning
 message: Do not write to stdout from editor/wf library code — they don't own stdout.
 note: |
-  pkg/cli/editor and pkg/cli/wf are library packages that must not write to
+  pkg/tui/editor and pkg/tui/wf are library packages that must not write to
   stdout. While the editor's bubbletea program is running it owns the whole
   terminal: a stray fmt.Print would corrupt the rendered outline. The wf
   package runs as a background mirror-sync goroutine and likewise has no
   business printing to the user's terminal. Use the bubbletea View, the
-  pkg/cli/log helpers, or return a value to the caller instead.
+  pkg/tui/log helpers, or return a value to the caller instead.
 
   Exemptions: editor.go is the Run() entry point that prints the final
   "saved" summary AFTER the program exits and the terminal is handed back —
@@ -26,7 +26,7 @@ rule:
         context: "func f() { fmt.Print($$$) }"
         selector: call_expression
 files:
-  - pkg/cli/editor/**
-  - pkg/cli/wf/**
+  - pkg/tui/editor/**
+  - pkg/tui/wf/**
 ignores:
-  - pkg/cli/editor/editor.go
+  - pkg/tui/editor/editor.go

@@ -7,7 +7,7 @@ note: |
   followed by text, with a middledot (·) separator — green arrow for success,
   muted gray for default/info, red for errors. The tick/cross/bullet glyphs
   ✓ ✔ ✗ ⨯ • are forbidden in string literals so the style stays consistent
-  across every command and the editor. Use the pkg/cli/log helpers (which
+  across every command and the editor. Use the pkg/tui/log helpers (which
   print the arrow) or a literal "→ " prefix.
 rule:
   any:

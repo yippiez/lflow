@@ -3,10 +3,10 @@ language: go
 severity: error
 message: Do not use tea.WithAltScreen — the editor is inline (scrollback) by design.
 note: |
-  The lflow editor (pkg/cli/editor) deliberately runs in inline / scrollback
+  The lflow editor (pkg/tui/editor) deliberately runs in inline / scrollback
   mode: it draws bullets, connectors and the cursor marker straight into the
   terminal's normal buffer and never enters the alternate screen (see the
-  package doc in pkg/cli/editor/editor.go and the `tea.NewProgram(m) // inline:
+  package doc in pkg/tui/editor/editor.go and the `tea.NewProgram(m) // inline:
   no alt screen` call in Run). Adding tea.WithAltScreen would clear the
   scrollback and break that design invariant, so it is forbidden everywhere.
 rule:

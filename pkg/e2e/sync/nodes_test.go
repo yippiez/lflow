@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	cliDatabase "github.com/lflow/lflow/pkg/cli/database"
-	clitest "github.com/lflow/lflow/pkg/cli/testutils"
 	"github.com/lflow/lflow/pkg/server/database"
 	"github.com/lflow/lflow/pkg/shared/assert"
+	cliDatabase "github.com/lflow/lflow/pkg/tui/database"
+	clitest "github.com/lflow/lflow/pkg/tui/testutils"
 )
 
 func clientNode(t *testing.T, db *cliDatabase.DB, uuid string) cliDatabase.Node {

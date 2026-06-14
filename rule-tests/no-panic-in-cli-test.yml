@@ -1,8 +1,0 @@
-id: no-panic-in-cli
-valid:
-  - return errors.Wrap(err, "running command")
-  - return err
-invalid:
-  - panic(err)
-  - panic("unreachable")
-  - panic(errors.Wrap(err, "initializing context"))

@@ -7,6 +7,6 @@ node_modules
 tmp
 *.db
 /server
-pkg/cli/test-lflow
-pkg/cli/tmp/
+pkg/tui/test-lflow
+pkg/tui/tmp/
 pkg/e2e/sync/tmp/
