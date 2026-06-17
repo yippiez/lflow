@@ -770,6 +770,18 @@ var lm18 = migration{
 	},
 }
 
+// lm19 adds the per-node collapsed flag — local view-state (never synced) so the
+// editor can restore each node's fold across restarts.
+var lm19 = migration{
+	name: "add-collapsed-to-nodes",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`ALTER TABLE nodes ADD COLUMN collapsed bool NOT NULL DEFAULT false;`); err != nil {
+			return errors.Wrap(err, "adding collapsed column to nodes")
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {

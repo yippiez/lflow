@@ -47,24 +47,34 @@ type Node struct {
 	USN         int    `json:"usn"`
 	Deleted     bool   `json:"deleted"`
 	Dirty       bool   `json:"dirty"`
+	Collapsed   bool   `json:"collapsed"` // local view-state, never synced
 }
 
-const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty"
+const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty, collapsed"
 
 func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 	var n Node
 	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Type,
-		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty)
+		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty, &n.Collapsed)
 	return n, err
 }
 
 // Insert inserts the node.
 func (n Node) Insert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty)
+		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty, n.Collapsed)
 	if err != nil {
 		return errors.Wrapf(err, "inserting node %s", n.UUID)
+	}
+	return nil
+}
+
+// SetCollapsed persists a node's collapsed flag. It is local view-state, so it
+// leaves dirty/usn/edited_on untouched and never syncs to the server.
+func SetCollapsed(db *DB, uuid string, collapsed bool) error {
+	if _, err := db.Exec("UPDATE nodes SET collapsed = ? WHERE uuid = ?", collapsed, uuid); err != nil {
+		return errors.Wrapf(err, "setting collapsed for %s", uuid)
 	}
 	return nil
 }
