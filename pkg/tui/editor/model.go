@@ -529,6 +529,9 @@ func (t *tree) changed(it *item) bool {
 // save writes the in-memory tree back to the database in one transaction.
 // It returns the number of nodes that were inserted or updated.
 func (t *tree) save() (int, error) {
+	if t.db == nil {
+		return 0, nil // the ephemeral Temporary Domain tree is never persisted
+	}
 	tx, err := t.db.Begin()
 	if err != nil {
 		return 0, errors.Wrap(err, "beginning a transaction")

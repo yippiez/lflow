@@ -159,6 +159,11 @@ type Model struct {
 	voiceEnv map[string][]int
 	voiceDur map[string]float64
 
+	// Temporary Domain — an ephemeral scratch tree (alt+t), never persisted
+	tempActive bool
+	tempTree   *tree
+	mainStash  tempStash
+
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
 	undoMark  string
@@ -795,6 +800,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, run(m, cur)
 			}
 		}
+		return m, nil
+	case "alt+t":
+		m.toggleTemp() // enter/leave the ephemeral Temporary Domain
 		return m, nil
 	case "alt+up", "ctrl+up":
 		// collapse the cursor node
@@ -1907,6 +1915,9 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
+	if m.tempActive {
+		m.exitTemp() // back to the main tree so save persists it, not the scratch
+	}
 	if m.err == nil {
 		written, err := m.tree.save()
 		if err != nil {
@@ -2205,11 +2216,21 @@ func (m *Model) bottomBar(maxLine int) string {
 		}
 		parts = append(parts, name)
 	}
+	if m.tempActive {
+		// inside the ephemeral Temporary Domain — a dashed boundary, no title
+		d := strings.Repeat("╌", 6)
+		bar := fmt.Sprintf(" %s  scratch %d/%d · alt+t leave  %s", d, pos, total, d)
+		return clip(cDim+bar+cReset, maxLine)
+	}
 	title := strings.Join(parts, " › ")
 	if title == "" {
 		title = "untitled"
 	}
 	bar := fmt.Sprintf(" %s - %d/%d%s", title, pos, total, state)
+	if m.mode == modeOutline {
+		// muted dashed access affordance for the Temporary Domain (alt+t)
+		bar += "  " + strings.Repeat("╌", 6) + " alt+t"
+	}
 	return clip(cDim+bar+cReset, maxLine)
 }
 
