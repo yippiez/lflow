@@ -34,6 +34,7 @@ const (
 	modePrompt  // single-line text prompt, e.g. the /mirror:wf api key and link
 	modeType    // the /type picker: choose one of seven node types
 	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeJSON    // the alt+e full-panel json editor
 )
 
 // pull stages for the /mirror:wf prompt flow.
@@ -163,6 +164,12 @@ type Model struct {
 
 	// /style picker selection (index into stylePickerItems)
 	styleSel int
+
+	// alt+e json editor (modeJSON) state
+	jsonNode   *item  // the json node being edited
+	jsonBuf    string // the editable, pretty-printed JSON buffer
+	jsonCaret  int    // rune index into jsonBuf
+	jsonScroll int    // first visible buffer line
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -543,6 +550,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTypeKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
+	case modeJSON:
+		return m.handleJSONKey(k)
 	}
 
 	// snapshot the tree before a mutating outline key so /undo can reverse it
@@ -757,6 +766,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if n, err := database.GetNode(m.db, base.uuid); err == nil && n.ParentUUID != "" {
 				m.reopenAt(n.ParentUUID, base.uuid)
 			}
+		}
+		return m, nil
+	case "alt+e":
+		// open the full-panel json editor (json is edited only here)
+		if cur := m.cursorItem(); cur != nil && cur.typ == database.TypeJSON {
+			m.openJSON(cur)
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
@@ -1905,6 +1920,8 @@ func (m *Model) View() string {
 
 	if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
+	} else if m.mode == modeJSON {
+		lines = m.viewJSON(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
