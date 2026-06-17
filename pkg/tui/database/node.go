@@ -20,6 +20,7 @@ const (
 	TypeBash    = "bash"
 	TypeQuery   = "query"
 	TypeVoice   = "voice"
+	TypeWorker  = "worker"
 )
 
 // ValidTypes is the set of accepted type values.
@@ -35,6 +36,7 @@ var ValidTypes = map[string]bool{
 	TypeBash:    true,
 	TypeQuery:   true,
 	TypeVoice:   true,
+	TypeWorker:  true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror

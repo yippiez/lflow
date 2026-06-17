@@ -56,6 +56,10 @@ var nodeTypes = []nodeType{
 		run:     runVoice,
 		expand:  playVoice,
 	},
+	{
+		key: database.TypeWorker, label: "Worker (Pi agent)", inlineEditable: true,
+		run: runWorker,
+	},
 }
 
 var byType = func() map[string]nodeType {
