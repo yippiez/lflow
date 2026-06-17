@@ -932,6 +932,15 @@ func (m *Model) typeSuffix(it *item) string {
 	if it.mirrorOf != "" {
 		parts = append(parts, "mirror")
 	}
+	if it.typ == database.TypeQuery {
+		if out := m.runOut[it.uuid]; len(out) > 0 {
+			if len(out) == 1 && !strings.Contains(out[0].text, ":") {
+				parts = append(parts, out[0].text) // placeholder, e.g. "no matches"
+			} else {
+				parts = append(parts, fmt.Sprintf("%d hits", len(out)))
+			}
+		}
+	}
 	if kids := m.tree.childItems(it); len(kids) > 0 && it.collapsed {
 		noun := "children"
 		if len(kids) == 1 {

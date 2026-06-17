@@ -45,6 +45,10 @@ var nodeTypes = []nodeType{
 		key: database.TypeBash, label: "Bash", sign: "$ ", inlineEditable: true,
 		run: runBash,
 	},
+	{
+		key: database.TypeQuery, label: "Query (codebase)", sign: "⌕ ", inlineEditable: true,
+		run: runQuery,
+	},
 }
 
 var byType = func() map[string]nodeType {

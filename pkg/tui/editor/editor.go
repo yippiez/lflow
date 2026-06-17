@@ -432,6 +432,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(m.runCancel, msg.uuid)
 		delete(m.runCh, msg.uuid)
 		return m, nil
+	case queryDoneMsg:
+		if m.runOut == nil {
+			m.runOut = map[string][]outLine{}
+		}
+		m.runOut[msg.uuid] = msg.lines
+		return m, nil
 	case syncTickMsg:
 		return m, m.onSyncTick(time.Time(msg))
 	case syncDoneMsg:
