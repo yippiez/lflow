@@ -33,6 +33,7 @@ type snapshot struct {
 	style       string
 	mirrorOf    string
 	completedAt int64
+	collapsed   bool
 }
 
 // tree is the in-memory model of the subtree being edited.
@@ -120,6 +121,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			style:       n.Style,
 			mirrorOf:    n.MirrorOf,
 			completedAt: n.CompletedAt,
+			collapsed:   n.Collapsed,
 		}
 	}
 
@@ -569,6 +571,14 @@ func (t *tree) save() (int, error) {
 			written++
 		}
 
+		// collapse is local view-state: persist it on save without dirty/sync, as a
+		// backstop to the immediate SetCollapsed write (new nodes carry it via Insert).
+		if existed && s.collapsed != it.collapsed {
+			if _, err := tx.Exec("UPDATE nodes SET collapsed = ? WHERE uuid = ?", it.collapsed, it.uuid); err != nil {
+				return errors.Wrapf(err, "persisting collapsed for %s", it.uuid)
+			}
+		}
+
 		for i, c := range it.children {
 			if err := walk(c, it.uuid, i); err != nil {
 				return err
@@ -626,6 +636,7 @@ func (t *tree) refreshSnapshots() {
 			style:       it.style,
 			mirrorOf:    it.mirrorOf,
 			completedAt: it.completedAt,
+			collapsed:   it.collapsed,
 		}
 		for i, c := range it.children {
 			walk(c, it.uuid, i)
