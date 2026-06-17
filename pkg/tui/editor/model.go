@@ -109,6 +109,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			style:       n.Style,
 			mirrorOf:    n.MirrorOf,
 			completedAt: n.CompletedAt,
+			collapsed:   n.Collapsed,
 		}
 		t.snapshots[n.UUID] = snapshot{
 			parentUUID:  n.ParentUUID,
@@ -427,6 +428,9 @@ func (t *tree) indent(it *item) bool {
 	it.parent = prev
 	prev.children = append(prev.children, it)
 	prev.collapsed = false
+	if t.db != nil {
+		_ = database.SetCollapsed(t.db, prev.uuid, false) // persist the auto-expand
+	}
 	return true
 }
 
@@ -550,6 +554,7 @@ func (t *tree) save() (int, error) {
 				AddedOn:     now,
 				EditedOn:    now,
 				Dirty:       true,
+				Collapsed:   it.collapsed,
 			}
 			if err := n.Insert(tx); err != nil {
 				return err

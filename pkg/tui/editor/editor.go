@@ -383,6 +383,17 @@ func (m *Model) cursorItem() *item {
 	return m.rows[m.cursor].it
 }
 
+// persistCollapsed writes an item's fold state to the DB. Collapse is local
+// view-state, so this never marks the node dirty or syncs it.
+func (m *Model) persistCollapsed(it *item) {
+	if it == nil {
+		return
+	}
+	if err := database.SetCollapsed(m.db, it.uuid, it.collapsed); err != nil {
+		m.err = err
+	}
+}
+
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd { return m.startAnim(m.schedulerInit()) }
 
@@ -626,6 +637,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+@", "ctrl+space":
 		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 {
 			cur.collapsed = !cur.collapsed
+			m.persistCollapsed(cur)
 			m.refreshRows()
 		}
 		return m, nil
@@ -749,6 +761,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && !cur.collapsed {
 			ctx := m.mirrorContext().ctx
 			cur.collapsed = true
+			m.persistCollapsed(cur)
 			m.refreshRows()
 			m.cursor = m.findRow(cur, ctx)
 		}
@@ -758,6 +771,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && cur.collapsed {
 			ctx := m.mirrorContext().ctx
 			cur.collapsed = false
+			m.persistCollapsed(cur)
 			m.refreshRows()
 			m.cursor = m.findRow(cur, ctx)
 		}
