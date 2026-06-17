@@ -169,11 +169,12 @@ type Model struct {
 	// breadcrumb names above the loaded root, from the forest root down
 	ancestors []string
 
-	escPending bool
-	unsaved    bool
-	quitting   bool
-	flash      string // one-shot status for the bottom bar, cleared on keypress
-	err        error
+	escPending  bool
+	unsaved     bool
+	quitting    bool
+	animTicking bool   // the magic-keyword animation tick is currently scheduled
+	flash       string // one-shot status for the bottom bar, cleared on keypress
+	err         error
 
 	saved struct {
 		written int
@@ -383,7 +384,7 @@ func (m *Model) cursorItem() *item {
 }
 
 // Init implements tea.Model.
-func (m *Model) Init() tea.Cmd { return m.schedulerInit() }
+func (m *Model) Init() tea.Cmd { return m.startAnim(m.schedulerInit()) }
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -407,7 +408,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
-		return m.handleKey(msg)
+		_, cmd := m.handleKey(msg)
+		// a keyword may have just been typed (or scrolled into view) — kick the
+		// animation tick if it isn't already running.
+		return m, m.startAnim(cmd)
+	case animTickMsg:
+		animFrame++
+		if m.hasMagicKeyword() {
+			return m, animTick() // keep animating while a keyword is on screen
+		}
+		m.animTicking = false // none visible — stop redrawing
+		return m, nil
 	case syncTickMsg:
 		return m, m.onSyncTick(time.Time(msg))
 	case syncDoneMsg:

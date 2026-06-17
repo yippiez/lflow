@@ -772,7 +772,8 @@ func stripControlBytes(s string) string {
 // Dates carry no markers either: the renderer recognises the canonical date
 // format in the plain text and chips those runes.
 type spanFlags struct {
-	date bool // part of a canonical YYYY-MM-DD[ HH:MM] date, painted as a chip
+	date    bool   // part of a canonical YYYY-MM-DD[ HH:MM] date, painted as a chip
+	kwColor string // animated magic-keyword foreground (ultracode/ultraloop), "" = none
 }
 
 // inlineSpans marks the runes that fall inside a canonical date so renderBody
@@ -819,9 +820,16 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 
 	runes := []rune(name)
 	flags := inlineSpans(runes)
+	markKeywords(runes, flags, animFrame) // ultracode/ultraloop: render-time only
 
 	sgr := func(f spanFlags) string {
-		s := cReset + base + attrs
+		fg := base
+		// a magic keyword paints its runes with the animated color, replacing the
+		// node's foreground for those cells only.
+		if f.kwColor != "" {
+			fg = f.kwColor
+		}
+		s := cReset + fg + attrs
 		// a detected date gets only its background colored — the chip. The
 		// foreground keeps the node's own color/attrs; nothing else is special.
 		if f.date {
