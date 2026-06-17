@@ -1,6 +1,10 @@
 package editor
 
-import "github.com/lflow/lflow/pkg/tui/database"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/tui/database"
+)
 
 // nodeType is the per-type descriptor — the single place a node type's editor
 // behavior is declared. Adding a type = one entry here (plus optional render /
@@ -15,10 +19,12 @@ import "github.com/lflow/lflow/pkg/tui/database"
 // a type with an alt+e panel sets `expand`.
 type nodeType struct {
 	key, label     string
-	glyph          func(it *item) (string, string) // per-type glyph+color; nil → default ○/●
+	sign           string                             // inline prefix sign, e.g. "$ "; "" = none
+	glyph          func(it *item) (string, string)    // per-type glyph+color; nil → default ○/●
 	render         func(it *item, name string) string // full inline-body override; nil → default
 	inlineEditable bool                               // false → typing/backspace/enter is a no-op
 	expand         func(m *Model, it *item)           // alt+e action; nil → none
+	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 }
 
 // nodeTypes is the ordered registry; the /type picker shows it in this order.
@@ -34,6 +40,10 @@ var nodeTypes = []nodeType{
 		key: database.TypeJSON, label: "JSON", inlineEditable: false,
 		render: func(it *item, name string) string { return renderJSONPreview(name) },
 		expand: func(m *Model, it *item) { m.openJSON(it) },
+	},
+	{
+		key: database.TypeBash, label: "Bash", sign: "$ ", inlineEditable: true,
+		run: runBash,
 	},
 }
 

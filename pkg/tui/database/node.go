@@ -17,6 +17,7 @@ const (
 	TypeCode    = "code"
 	TypeQuote   = "quote"
 	TypeJSON    = "json"
+	TypeBash    = "bash"
 )
 
 // ValidTypes is the set of accepted type values.
@@ -29,6 +30,7 @@ var ValidTypes = map[string]bool{
 	TypeCode:    true,
 	TypeQuote:   true,
 	TypeJSON:    true,
+	TypeBash:    true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror

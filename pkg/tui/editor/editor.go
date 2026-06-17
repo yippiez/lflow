@@ -149,6 +149,11 @@ type Model struct {
 	jsonCaret  int    // rune index into jsonBuf
 	jsonScroll int    // first visible buffer line
 
+	// alt+r run output (bash) — ephemeral, in-memory only, keyed by node uuid
+	runOut    map[string][]outLine
+	runCancel map[string]func()        // cancel a running command
+	runCh     map[string]chan tea.Msg  // stream channel for a running command
+
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
 	undoMark  string
@@ -416,6 +421,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, animTick() // keep animating while a keyword is on screen
 		}
 		m.animTicking = false // none visible — stop redrawing
+		return m, nil
+	case bashLineMsg:
+		if _, running := m.runCancel[msg.uuid]; !running {
+			return m, nil // canceled — stop streaming
+		}
+		m.runOut[msg.uuid] = append(m.runOut[msg.uuid], outLine{text: msg.text, err: msg.err})
+		return m, waitBashCmd(m.runCh[msg.uuid])
+	case bashDoneMsg:
+		delete(m.runCancel, msg.uuid)
+		delete(m.runCh, msg.uuid)
 		return m, nil
 	case syncTickMsg:
 		return m, m.onSyncTick(time.Time(msg))
@@ -751,6 +766,14 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if e := typeOf(cur.typ).expand; e != nil {
 				e(m, cur)
+			}
+		}
+		return m, nil
+	case "alt+r":
+		// run a type's action, if it has one (bash command today)
+		if cur := m.cursorItem(); cur != nil {
+			if run := typeOf(cur.typ).run; run != nil {
+				return m, run(m, cur)
 			}
 		}
 		return m, nil
@@ -1993,6 +2016,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			noteCaret = m.caret
 		}
 		bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+		bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
 	}
 
 	maxRows := m.rowBudget()

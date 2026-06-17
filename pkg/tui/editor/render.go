@@ -445,6 +445,37 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 	return cDim + string(cells)
 }
 
+// runBandLines renders a bash node's ephemeral run output beneath it: stdout in
+// the normal color, stderr red, capped to the last few lines, with a running
+// indicator. Output is in-memory only and never persisted.
+func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
+	uuid := r.it.uuid
+	out := m.runOut[uuid]
+	_, running := m.runCancel[uuid]
+	if len(out) == 0 && !running {
+		return nil
+	}
+	rail := continuationPrefix(r, subtreeBelow)
+	var lines []string
+	shown := out
+	const capN = 8
+	if len(shown) > capN {
+		lines = append(lines, clip(rail+cReset+cDim+fmt.Sprintf("  ⋯ %d more", len(shown)-capN)+cReset, maxLine))
+		shown = shown[len(shown)-capN:]
+	}
+	for _, l := range shown {
+		col := cFG
+		if l.err {
+			col = cRed
+		}
+		lines = append(lines, clip(rail+cReset+col+"  "+l.text+cReset, maxLine))
+	}
+	if running {
+		lines = append(lines, clip(rail+cReset+cDim+"  running…"+cReset, maxLine))
+	}
+	return lines
+}
+
 // noteBandLines renders a node's note as a muted, background-tinted band that
 // hangs under the node, in the child-indent region. It reuses the row's
 // continuation rail so the tree line runs down the band's left edge and curves
@@ -805,6 +836,9 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 		prefix = cAccent + glyphQuoteBar + cReset + " "
 	case database.TypeCode:
 		attrs += bgCode
+	}
+	if s := typeOf(it.typ).sign; s != "" {
+		prefix = cDim + s + cReset // type sign, e.g. "$ " for bash
 	}
 	// /bold, /italic, /underline layer on top of the layout's own attributes
 	attrs += styleAttrs(it.style)
