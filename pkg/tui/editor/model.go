@@ -13,7 +13,7 @@ type item struct {
 	uuid        string
 	name        string
 	note        string
-	layout      string
+	typ         string
 	style       string // comma-separated style tokens, e.g. "bold,color:blue"
 	mirrorOf    string
 	completedAt int64
@@ -29,7 +29,7 @@ type snapshot struct {
 	rank        int
 	name        string
 	note        string
-	layout      string
+	typ         string
 	style       string
 	mirrorOf    string
 	completedAt int64
@@ -56,7 +56,7 @@ func cloneItem(src, parent *item) *item {
 		uuid:        src.uuid,
 		name:        src.name,
 		note:        src.note,
-		layout:      src.layout,
+		typ:         src.typ,
 		style:       src.style,
 		mirrorOf:    src.mirrorOf,
 		completedAt: src.completedAt,
@@ -105,7 +105,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			uuid:        n.UUID,
 			name:        n.Name,
 			note:        n.Note,
-			layout:      n.Layout,
+			typ:         n.Type,
 			style:       n.Style,
 			mirrorOf:    n.MirrorOf,
 			completedAt: n.CompletedAt,
@@ -115,7 +115,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			rank:        n.Rank,
 			name:        n.Name,
 			note:        n.Note,
-			layout:      n.Layout,
+			typ:         n.Type,
 			style:       n.Style,
 			mirrorOf:    n.MirrorOf,
 			completedAt: n.CompletedAt,
@@ -344,7 +344,7 @@ func (t *tree) newItem() (*item, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "generating uuid")
 	}
-	it := &item{uuid: uuid, layout: database.LayoutBullets, isNew: true}
+	it := &item{uuid: uuid, typ: database.TypeBullets, isNew: true}
 	t.byUUID[uuid] = it
 	return it, nil
 }
@@ -516,7 +516,7 @@ func (t *tree) changed(it *item) bool {
 	if !ok {
 		return true
 	}
-	return s.name != it.name || s.note != it.note || s.layout != it.layout ||
+	return s.name != it.name || s.note != it.note || s.typ != it.typ ||
 		s.style != it.style || s.mirrorOf != it.mirrorOf || s.completedAt != it.completedAt
 }
 
@@ -543,7 +543,7 @@ func (t *tree) save() (int, error) {
 				Rank:        rank,
 				Name:        it.name,
 				Note:        it.note,
-				Layout:      it.layout,
+				Type:        it.typ,
 				Style:       it.style,
 				MirrorOf:    it.mirrorOf,
 				CompletedAt: it.completedAt,
@@ -556,9 +556,9 @@ func (t *tree) save() (int, error) {
 			}
 			written++
 		} else if t.changed(it) || structChanged {
-			if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, layout = ?,
+			if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
 				style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
-				parentUUID, rank, it.name, it.note, it.layout, it.style, it.mirrorOf, it.completedAt, now, it.uuid); err != nil {
+				parentUUID, rank, it.name, it.note, it.typ, it.style, it.mirrorOf, it.completedAt, now, it.uuid); err != nil {
 				return errors.Wrapf(err, "updating node %s", it.uuid)
 			}
 			written++
@@ -574,8 +574,8 @@ func (t *tree) save() (int, error) {
 
 	// the root's own parent/rank are not managed by this editor
 	if t.changed(t.root) {
-		if _, err := tx.Exec(`UPDATE nodes SET name = ?, note = ?, layout = ?, style = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
-			t.root.name, t.root.note, t.root.layout, t.root.style, t.root.completedAt, now, t.root.uuid); err != nil {
+		if _, err := tx.Exec(`UPDATE nodes SET name = ?, note = ?, type = ?, style = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
+			t.root.name, t.root.note, t.root.typ, t.root.style, t.root.completedAt, now, t.root.uuid); err != nil {
 			tx.Rollback()
 			return 0, errors.Wrap(err, "updating root node")
 		}
@@ -617,7 +617,7 @@ func (t *tree) refreshSnapshots() {
 			rank:        rank,
 			name:        it.name,
 			note:        it.note,
-			layout:      it.layout,
+			typ:         it.typ,
 			style:       it.style,
 			mirrorOf:    it.mirrorOf,
 			completedAt: it.completedAt,

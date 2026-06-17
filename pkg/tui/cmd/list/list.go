@@ -57,7 +57,7 @@ func listRoots(db *database.DB) error {
 		if len(shortID) > 6 {
 			shortID = shortID[:6]
 		}
-		fmt.Printf("%s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %s", n.Layout, resolve.CountNoun(count, "node")))
+		fmt.Printf("%s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %s", n.Type, resolve.CountNoun(count, "node")))
 	}
 	return nil
 }

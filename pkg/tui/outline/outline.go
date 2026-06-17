@@ -16,7 +16,7 @@ type JSONNode struct {
 	UUID        string     `json:"uuid"`
 	Name        string     `json:"name"`
 	Note        string     `json:"note,omitempty"`
-	Layout      string     `json:"layout"`
+	Type        string     `json:"type"`
 	MirrorOf    string     `json:"mirror_of,omitempty"`
 	CompletedAt int64      `json:"completed_at,omitempty"`
 	Children    []JSONNode `json:"children"`
@@ -41,7 +41,7 @@ func BuildJSON(db *database.DB, root database.Node, depth int, includeCompleted 
 		UUID:        root.UUID,
 		Name:        resolveName(db, root),
 		Note:        root.Note,
-		Layout:      root.Layout,
+		Type:        root.Type,
 		MirrorOf:    root.MirrorOf,
 		CompletedAt: root.CompletedAt,
 		Children:    []JSONNode{},
@@ -93,14 +93,14 @@ func renderLines(db *database.DB, root database.Node, depth int, includeComplete
 			name += " (mirror)"
 		}
 		if markdown {
-			switch n.Layout {
-			case database.LayoutH1:
+			switch n.Type {
+			case database.TypeH1:
 				name = "# " + name
-			case database.LayoutH2:
+			case database.TypeH2:
 				name = "## " + name
-			case database.LayoutH3:
+			case database.TypeH3:
 				name = "### " + name
-			case database.LayoutTodo:
+			case database.TypeTodo:
 				if n.CompletedAt > 0 {
 					name = "[x] " + name
 				} else {

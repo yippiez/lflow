@@ -111,6 +111,6 @@ func PrintMatches(db *database.DB, matches []database.Node) {
 		if len(shortID) > 6 {
 			shortID = shortID[:6]
 		}
-		fmt.Printf("    %s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %s", n.Layout, CountNoun(count, "node")))
+		fmt.Printf("    %s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %s", n.Type, CountNoun(count, "node")))
 	}
 }

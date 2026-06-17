@@ -28,8 +28,8 @@ func SetupNodes2(t *testing.T, db *database.DB) {
 	insertNode(t, db, "root-2-uuid", "", 1, "reading list", "bullets", 13)
 }
 
-func insertNode(t *testing.T, db *database.DB, uuid, parentUUID string, rank int, name, layout string, usn int) {
+func insertNode(t *testing.T, db *database.DB, uuid, parentUUID string, rank int, name, nodeType string, usn int) {
 	database.MustExec(t, "setting up node "+name, db,
-		"INSERT INTO nodes (uuid, parent_uuid, rank, name, note, layout, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty) VALUES (?, ?, ?, ?, '', ?, '', 0, ?, ?, ?, 0, ?)",
-		uuid, parentUUID, rank, name, layout, 1515199943, 1515199943, usn, usn == 0)
+		"INSERT INTO nodes (uuid, parent_uuid, rank, name, note, type, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty) VALUES (?, ?, ?, ?, '', ?, '', 0, ?, ?, ?, 0, ?)",
+		uuid, parentUUID, rank, name, nodeType, 1515199943, 1515199943, usn, usn == 0)
 }

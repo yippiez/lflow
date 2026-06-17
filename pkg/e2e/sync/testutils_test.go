@@ -160,7 +160,7 @@ func login(t *testing.T, db *cliDatabase.DB, serverDB *gorm.DB, user database.Us
 
 // nodeJSON builds a JSON payload for node create/update.
 func nodeJSON(parentUUID string, rank int, name string) string {
-	return fmt.Sprintf(`{"parent_uuid": "%s", "rank": %d, "name": "%s", "layout": "bullets"}`, parentUUID, rank, name)
+	return fmt.Sprintf(`{"parent_uuid": "%s", "rank": %d, "name": "%s", "type": "bullets"}`, parentUUID, rank, name)
 }
 
 // apiCreateNode creates a node via the API and returns its UUID

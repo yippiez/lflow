@@ -166,9 +166,9 @@ func getSyncFragments(ctx context.DnoteCtx, afterUSN int) ([]client.SyncFragment
 //     node is revived (matching dnote's behavior for deleted-locally edits).
 func mergeNode(tx *database.DB, serverNode client.SyncFragNode, localNode database.Node) error {
 	if localNode.Deleted || !localNode.Dirty {
-		if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, layout = ?,
+		if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
 			mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = 0 WHERE uuid = ?`,
-			serverNode.ParentUUID, serverNode.Rank, serverNode.Name, serverNode.Note, serverNode.Layout,
+			serverNode.ParentUUID, serverNode.Rank, serverNode.Name, serverNode.Note, serverNode.Type,
 			serverNode.MirrorOf, serverNode.CompletedAt, serverNode.EditedOn, serverNode.USN,
 			serverNode.Deleted, serverNode.UUID); err != nil {
 			return errors.Wrapf(err, "updating local node %s", serverNode.UUID)
@@ -190,7 +190,7 @@ func insertServerNode(tx *database.DB, n client.SyncFragNode) error {
 		Rank:        n.Rank,
 		Name:        n.Name,
 		Note:        n.Note,
-		Layout:      n.Layout,
+		Type:        n.Type,
 		MirrorOf:    n.MirrorOf,
 		CompletedAt: n.CompletedAt,
 		AddedOn:     n.AddedOn,
@@ -385,7 +385,7 @@ type dirtyNode struct {
 }
 
 func getDirtyNodes(tx *database.DB) ([]dirtyNode, error) {
-	rows, err := tx.Query("SELECT uuid, parent_uuid, rank, name, note, layout, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty FROM nodes WHERE dirty AND uuid != ?", database.RootUUID)
+	rows, err := tx.Query("SELECT uuid, parent_uuid, rank, name, note, type, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty FROM nodes WHERE dirty AND uuid != ?", database.RootUUID)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting syncable nodes")
 	}
@@ -394,7 +394,7 @@ func getDirtyNodes(tx *database.DB) ([]dirtyNode, error) {
 	var dirty []database.Node
 	for rows.Next() {
 		var n database.Node
-		if err = rows.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Layout, &n.MirrorOf,
+		if err = rows.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Type, &n.MirrorOf,
 			&n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty); err != nil {
 			return nil, errors.Wrap(err, "scanning a syncable node")
 		}
@@ -443,7 +443,7 @@ func nodePayload(n database.Node) client.NodePayload {
 		Rank:        n.Rank,
 		Name:        n.Name,
 		Note:        n.Note,
-		Layout:      n.Layout,
+		Type:        n.Type,
 		MirrorOf:    n.MirrorOf,
 		CompletedAt: n.CompletedAt,
 		AddedOn:     n.AddedOn,

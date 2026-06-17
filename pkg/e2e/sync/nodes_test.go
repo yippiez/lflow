@@ -97,12 +97,12 @@ func TestSyncUpdatePropagation(t *testing.T) {
 	rootUUID := apiCreateNode(t, env, user, "", 0, "notes", "creating root")
 	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
-	apiPatchNode(t, env, user, rootUUID, `{"parent_uuid": "", "rank": 0, "name": "notes v2", "layout": "h1"}`, "updating node")
+	apiPatchNode(t, env, user, rootUUID, `{"parent_uuid": "", "rank": 0, "name": "notes v2", "type": "h1"}`, "updating node")
 	clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
 
 	n := clientNode(t, env.DB, rootUUID)
 	assert.Equal(t, n.Name, "notes v2", "updated name not propagated")
-	assert.Equal(t, n.Layout, "h1", "updated layout not propagated")
+	assert.Equal(t, n.Type, "h1", "updated type not propagated")
 }
 
 // TestSyncLocalEditPushed propagates a local edit to the server.

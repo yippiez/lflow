@@ -97,7 +97,7 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, top bool
 			ParentUUID: parentUUID,
 			Rank:       rank + i,
 			Name:       line,
-			Layout:     database.LayoutBullets,
+			Type:     database.TypeBullets,
 			AddedOn:    now,
 			EditedOn:   now,
 			Dirty:      true,

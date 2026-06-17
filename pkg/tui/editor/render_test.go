@@ -70,17 +70,17 @@ func TestFinderRowNameResolvesMirror(t *testing.T) {
 	}
 	// the regression: a mirror's name is empty in the database, so the
 	// finder must resolve it to the source name rather than show a blank.
-	if got := finderRowName(nodes["b"], resolve); got != "alpha · mirror" {
+	if got := finderRowName(nodes["b"], resolve); got != "alpha - mirror" {
 		t.Errorf("mirror should resolve to source name, got %q", got)
 	}
-	if got := finderRowName(nodes["c"], resolve); got != "alpha · mirror" {
+	if got := finderRowName(nodes["c"], resolve); got != "alpha - mirror" {
 		t.Errorf("mirror of mirror should resolve to original, got %q", got)
 	}
 }
 
 func TestFinderRowNameMissingSource(t *testing.T) {
 	resolve := func(string) (database.Node, bool) { return database.Node{}, false }
-	if got := finderRowName(database.Node{UUID: "b", MirrorOf: "gone"}, resolve); got != "(missing) · mirror" {
+	if got := finderRowName(database.Node{UUID: "b", MirrorOf: "gone"}, resolve); got != "(missing) - mirror" {
 		t.Errorf("missing source falls back to placeholder, got %q", got)
 	}
 }
@@ -97,7 +97,7 @@ func TestSourceUUIDStopsOnCycle(t *testing.T) {
 // no brackets stored — and painted as a chip. The visible text is unchanged
 // (no markers to hide) and the chip background appears in the SGR output.
 func TestRenderBodyChipsBareDate(t *testing.T) {
-	it := &item{layout: database.LayoutBullets}
+	it := &item{typ: database.TypeBullets}
 
 	rendered := renderBody(it, "due 2026-06-14 ok", -1, false)
 	if got := stripSGR(rendered); got != "due 2026-06-14 ok" {
@@ -112,7 +112,7 @@ func TestRenderBodyChipsBareDate(t *testing.T) {
 // background colored — the chip — regardless of the node's /color. The
 // foreground keeps the node's color rather than being forced to a default.
 func TestRenderBodyDateChipBackgroundOnly(t *testing.T) {
-	it := &item{layout: database.LayoutBullets, style: "color:red"}
+	it := &item{typ: database.TypeBullets, style: "color:red"}
 
 	rendered := renderBody(it, "2026-06-14", -1, false)
 	if !strings.Contains(rendered, bgPill) {
@@ -128,7 +128,7 @@ func TestRenderBodyDateChipBackgroundOnly(t *testing.T) {
 // styling is a per-node attribute, so ** and * are now ordinary text that must
 // not be reinterpreted or stripped, on any row.
 func TestRenderBodyAsterisksAreLiteral(t *testing.T) {
-	it := &item{layout: database.LayoutBullets}
+	it := &item{typ: database.TypeBullets}
 
 	for _, selected := range []bool{false, true} {
 		got := stripSGR(renderBody(it, "say **hello** to *world*", -1, selected))
@@ -142,7 +142,7 @@ func TestRenderBodyAsterisksAreLiteral(t *testing.T) {
 // bold/italic/underline codes appear and the chosen color recolors the text,
 // while the visible characters are untouched.
 func TestRenderBodyAppliesNodeStyle(t *testing.T) {
-	it := &item{layout: database.LayoutBullets, style: "bold,italic,underline,strike,color:blue"}
+	it := &item{typ: database.TypeBullets, style: "bold,italic,underline,strike,color:blue"}
 
 	rendered := renderBody(it, "hi", 0, false)
 	for _, code := range []string{cBold, cItalic, cUnderline, cStrike, styleColorCode["blue"]} {
@@ -161,7 +161,7 @@ func TestRenderBodyAppliesNodeStyle(t *testing.T) {
 // never execute a clear-screen or cursor-home, while lflow's own SGR styling
 // (terminated by 'm') stays intact.
 func TestRenderBodyStripsStoredControlBytes(t *testing.T) {
-	it := &item{layout: database.LayoutBullets}
+	it := &item{typ: database.TypeBullets}
 
 	rendered := renderBody(it, "x\x1b[2J\x1b[Hy", -1, false)
 	// no raw escape or other C0 control byte from the content survives: every
@@ -190,7 +190,7 @@ func TestRenderBodyStripsStoredControlBytes(t *testing.T) {
 }
 
 func TestRenderBodyBlockCursor(t *testing.T) {
-	it := &item{layout: database.LayoutBullets}
+	it := &item{typ: database.TypeBullets}
 
 	// the cursor is a painted cell, never an inserted character
 	rendered := renderBody(it, "abc", 1, true)
@@ -212,7 +212,7 @@ func TestRenderBodyBlockCursor(t *testing.T) {
 }
 
 func TestGlyphForMutedBullets(t *testing.T) {
-	_, color := glyphFor(&item{layout: database.LayoutBullets})
+	_, color := glyphFor(&item{typ: database.TypeBullets})
 	if color != cDim {
 		t.Errorf("plain bullets should be muted gray, got %q", color)
 	}
@@ -223,7 +223,7 @@ func TestGlyphForMutedBullets(t *testing.T) {
 }
 
 func TestRenderBodyLoneAsteriskStaysPlain(t *testing.T) {
-	it := &item{layout: database.LayoutBullets}
+	it := &item{typ: database.TypeBullets}
 
 	got := stripSGR(renderBody(it, "2 * 3 yields 6x", -1, false))
 	if got != "2 * 3 yields 6x" {
@@ -286,7 +286,7 @@ func TestNoteBandEditing(t *testing.T) {
 }
 
 func TestRenderBodyChipsDateWithTime(t *testing.T) {
-	it := &item{layout: database.LayoutBullets}
+	it := &item{typ: database.TypeBullets}
 
 	rendered := renderBody(it, "ship on 2025-02-11 15:20 sharp", -1, false)
 	got := stripSGR(rendered)
@@ -299,7 +299,7 @@ func TestRenderBodyChipsDateWithTime(t *testing.T) {
 }
 
 func TestRenderBodyCodeBlock(t *testing.T) {
-	it := &item{layout: database.LayoutCode}
+	it := &item{typ: database.TypeCode}
 
 	rendered := renderBody(it, "rm -rf ./dist", -1, false)
 	if !strings.Contains(rendered, bgCode) {
@@ -311,7 +311,7 @@ func TestRenderBodyCodeBlock(t *testing.T) {
 }
 
 func TestRenderBodyQuoteBar(t *testing.T) {
-	it := &item{layout: database.LayoutQuote}
+	it := &item{typ: database.TypeQuote}
 
 	rendered := renderBody(it, "less is more", -1, false)
 	if got := stripSGR(rendered); got != glyphQuoteBar+" less is more" {
@@ -321,18 +321,18 @@ func TestRenderBodyQuoteBar(t *testing.T) {
 
 func TestGlyphForHeadingDigits(t *testing.T) {
 	cases := []struct {
-		layout string
-		want   string
+		typ  string
+		want string
 	}{
-		{database.LayoutH1, "1"},
-		{database.LayoutH2, "2"},
-		{database.LayoutH3, "3"},
-		{database.LayoutBullets, glyphOpen},
+		{database.TypeH1, "1"},
+		{database.TypeH2, "2"},
+		{database.TypeH3, "3"},
+		{database.TypeBullets, glyphOpen},
 	}
 	for _, tc := range cases {
-		glyph, _ := glyphFor(&item{layout: tc.layout})
+		glyph, _ := glyphFor(&item{typ: tc.typ})
 		if glyph != tc.want {
-			t.Errorf("layout %s: glyph %q, want %q", tc.layout, glyph, tc.want)
+			t.Errorf("type %s: glyph %q, want %q", tc.typ, glyph, tc.want)
 		}
 	}
 }
@@ -588,7 +588,7 @@ func TestContinuationKeepsRailAtNarrowWidth(t *testing.T) {
 }
 
 func TestRenderBodyCompletedStrikethrough(t *testing.T) {
-	it := &item{layout: database.LayoutTodo, completedAt: 1}
+	it := &item{typ: database.TypeTodo, completedAt: 1}
 
 	rendered := renderBody(it, "done thing", -1, false)
 	if !strings.Contains(rendered, cStrike) {

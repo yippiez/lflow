@@ -119,12 +119,12 @@ Edit a node's properties. At least one of the property flags is required.
 | `--state` | "" | `complete` or `uncomplete` |
 | `--name` | "" | rename the node |
 | `--note` | "" | replace the node's note |
-| `--layout` | "" | `bullets`, `todo`, `h1`, `h2`, `h3`, `code` or `quote` |
+| `--type` | "" | `bullets`, `todo`, `h1`, `h2`, `h3`, `code` or `quote` |
 | `--strict` | false | list matches instead of acting on the best match |
 
 ```
 lflow node edit "attempt 2" --state complete
-lflow node edit "attempt 2" --name "attempt 3" --layout todo
+lflow node edit "attempt 2" --name "attempt 3" --type todo
 ```
 
 ## lflow export

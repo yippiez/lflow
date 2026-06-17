@@ -566,7 +566,7 @@ var lm14 = migration{
 }
 
 // lm15 converts the dnote book/note model into the lflow node outline model.
-// Every book becomes a root node (layout h1); every note becomes a child node
+// Every book becomes a root node (type h1); every note becomes a child node
 // whose name is the first line of the note body and whose note field holds the
 // rest. Converted rows start over with usn=0/dirty=1 because the node-based
 // server protocol is incompatible with old book/note USNs.
@@ -754,6 +754,17 @@ var lm17 = migration{
 			if _, err := tx.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", u.name, u.uuid); err != nil {
 				return errors.Wrapf(err, "unwrapping date pills in node %s", u.uuid)
 			}
+		}
+		return nil
+	},
+}
+
+// lm18 renames the layout column to type across the nodes table.
+var lm18 = migration{
+	name: "rename-layout-to-type",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`ALTER TABLE nodes RENAME COLUMN layout TO type`); err != nil {
+			return errors.Wrap(err, "renaming layout column to type")
 		}
 		return nil
 	},

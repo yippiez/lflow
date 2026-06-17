@@ -15,15 +15,15 @@ type NodeParams struct {
 	Rank        int    `schema:"rank" json:"rank"`
 	Name        string `schema:"name" json:"name"`
 	Note        string `schema:"note" json:"note"`
-	Layout      string `schema:"layout" json:"layout"`
+	Type        string `schema:"type" json:"type"`
 	MirrorOf    string `schema:"mirror_of" json:"mirror_of"`
 	CompletedAt int64  `schema:"completed_at" json:"completed_at"`
 	AddedOn     *int64 `schema:"added_on" json:"added_on"`
 	EditedOn    *int64 `schema:"edited_on" json:"edited_on"`
 }
 
-// validLayouts is the set of accepted layout values.
-var validLayouts = map[string]bool{
+// validTypes is the set of accepted type values.
+var validTypes = map[string]bool{
 	"bullets": true,
 	"todo":    true,
 	"h1":      true,
@@ -33,13 +33,13 @@ var validLayouts = map[string]bool{
 	"quote":   true,
 }
 
-// ErrInvalidLayout is returned when the layout value is not recognized.
-var ErrInvalidLayout = errors.New("invalid layout")
+// ErrInvalidType is returned when the type value is not recognized.
+var ErrInvalidType = errors.New("invalid type")
 
 // ValidateNodeParams validates the node payload.
 func ValidateNodeParams(p NodeParams) error {
-	if p.Layout != "" && !validLayouts[p.Layout] {
-		return ErrInvalidLayout
+	if p.Type != "" && !validTypes[p.Type] {
+		return ErrInvalidType
 	}
 	return nil
 }
@@ -66,7 +66,7 @@ func (a *App) CreateNode(user database.User, p NodeParams, client string) (datab
 		editedOn = *p.EditedOn
 	}
 
-	layout := p.Layout
+	layout := p.Type
 	if layout == "" {
 		layout = "bullets"
 	}
@@ -84,7 +84,7 @@ func (a *App) CreateNode(user database.User, p NodeParams, client string) (datab
 		Rank:        p.Rank,
 		Name:        p.Name,
 		Note:        p.Note,
-		Layout:      layout,
+		Type:        layout,
 		MirrorOf:    p.MirrorOf,
 		CompletedAt: p.CompletedAt,
 		AddedOn:     addedOn,
@@ -114,8 +114,8 @@ func (a *App) UpdateNode(tx *gorm.DB, user database.User, node database.Node, p 
 	node.Rank = p.Rank
 	node.Name = p.Name
 	node.Note = p.Note
-	if p.Layout != "" {
-		node.Layout = p.Layout
+	if p.Type != "" {
+		node.Type = p.Type
 	}
 	node.MirrorOf = p.MirrorOf
 	node.CompletedAt = p.CompletedAt

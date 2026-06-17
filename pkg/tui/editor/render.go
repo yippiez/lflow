@@ -378,17 +378,17 @@ func glyphFor(it *item) (string, string) {
 	if it.mirrorOf != "" {
 		return glyphMirror, cRed
 	}
-	switch it.layout {
-	case database.LayoutTodo:
+	switch it.typ {
+	case database.TypeTodo:
 		if it.completedAt > 0 {
 			return glyphTodoDone, cDim
 		}
 		return glyphTodo, cDim
-	case database.LayoutH1:
+	case database.TypeH1:
 		return "1", cBold + cYellow
-	case database.LayoutH2:
+	case database.TypeH2:
 		return "2", cBold + cYellow
-	case database.LayoutH3:
+	case database.TypeH3:
 		return "3", cBold + cYellow
 	}
 	if len(it.children) > 0 && it.collapsed {
@@ -802,13 +802,13 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 
 	attrs := ""
 	prefix := ""
-	switch it.layout {
-	case database.LayoutH1, database.LayoutH2, database.LayoutH3:
+	switch it.typ {
+	case database.TypeH1, database.TypeH2, database.TypeH3:
 		attrs += cBold
-	case database.LayoutQuote:
+	case database.TypeQuote:
 		attrs += cItalic
 		prefix = cAccent + glyphQuoteBar + cReset + " "
-	case database.LayoutCode:
+	case database.TypeCode:
 		attrs += bgCode
 	}
 	// /bold, /italic, /underline layer on top of the layout's own attributes
@@ -833,7 +833,7 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	var b strings.Builder
 	b.WriteString(prefix)
 	cur := ""
-	if it.layout == database.LayoutCode {
+	if it.typ == database.TypeCode {
 		b.WriteString(cReset + attrs + " ") // pad the code block
 	}
 	for i, r := range runes {
@@ -855,17 +855,17 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 		// past the last rune: paint one trailing cell
 		b.WriteString(cReset + cFG + cInvert + " ")
 	}
-	if it.layout == database.LayoutCode {
+	if it.typ == database.TypeCode {
 		b.WriteString(cReset + attrs + " ")
 	}
 	b.WriteString(cReset)
 	return b.String()
 }
 
-// layoutSuffix returns a dim suffix describing non-default state. The note is no
+// typeSuffix returns a dim suffix describing non-default state. The note is no
 // longer flagged here — it shows in full as a tinted band under the node (see
 // noteBandLines) — so the suffix only carries mirror and collapsed-child counts.
-func (m *Model) layoutSuffix(it *item) string {
+func (m *Model) typeSuffix(it *item) string {
 	var parts []string
 	if it.mirrorOf != "" {
 		parts = append(parts, "mirror")

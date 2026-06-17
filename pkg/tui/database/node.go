@@ -7,26 +7,26 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Layout values for a node.
+// Type values for a node.
 const (
-	LayoutBullets = "bullets"
-	LayoutTodo    = "todo"
-	LayoutH1      = "h1"
-	LayoutH2      = "h2"
-	LayoutH3      = "h3"
-	LayoutCode    = "code"
-	LayoutQuote   = "quote"
+	TypeBullets = "bullets"
+	TypeTodo    = "todo"
+	TypeH1      = "h1"
+	TypeH2      = "h2"
+	TypeH3      = "h3"
+	TypeCode    = "code"
+	TypeQuote   = "quote"
 )
 
-// ValidLayouts is the set of accepted layout values.
-var ValidLayouts = map[string]bool{
-	LayoutBullets: true,
-	LayoutTodo:    true,
-	LayoutH1:      true,
-	LayoutH2:      true,
-	LayoutH3:      true,
-	LayoutCode:    true,
-	LayoutQuote:   true,
+// ValidTypes is the set of accepted type values.
+var ValidTypes = map[string]bool{
+	TypeBullets: true,
+	TypeTodo:    true,
+	TypeH1:      true,
+	TypeH2:      true,
+	TypeH3:      true,
+	TypeCode:    true,
+	TypeQuote:   true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror
@@ -38,7 +38,7 @@ type Node struct {
 	Rank        int    `json:"rank"`
 	Name        string `json:"name"`
 	Note        string `json:"note"`
-	Layout      string `json:"layout"`
+	Type        string `json:"type"`
 	Style       string `json:"style"` // comma-separated style tokens, e.g. "bold,color:blue"
 	MirrorOf    string `json:"mirror_of"`
 	CompletedAt int64  `json:"completed_at"` // 0 = not completed
@@ -49,11 +49,11 @@ type Node struct {
 	Dirty       bool   `json:"dirty"`
 }
 
-const nodeColumns = "uuid, parent_uuid, rank, name, note, layout, style, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty"
+const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty"
 
 func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 	var n Node
-	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Layout,
+	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Type,
 		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty)
 	return n, err
 }
@@ -61,7 +61,7 @@ func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 // Insert inserts the node.
 func (n Node) Insert(db *DB) error {
 	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Layout, n.Style, n.MirrorOf, n.CompletedAt,
+		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
 		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty)
 	if err != nil {
 		return errors.Wrapf(err, "inserting node %s", n.UUID)
@@ -71,9 +71,9 @@ func (n Node) Insert(db *DB) error {
 
 // Update persists all mutable fields of the node.
 func (n Node) Update(db *DB) error {
-	_, err := db.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, layout = ?,
+	_, err := db.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
 		style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = ? WHERE uuid = ?`,
-		n.ParentUUID, n.Rank, n.Name, n.Note, n.Layout, n.Style, n.MirrorOf, n.CompletedAt,
+		n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
 		n.EditedOn, n.USN, n.Deleted, n.Dirty, n.UUID)
 	if err != nil {
 		return errors.Wrapf(err, "updating node %s", n.UUID)

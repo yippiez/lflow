@@ -13,7 +13,7 @@ type Node struct {
 	Rank        int       `json:"rank"`
 	Name        string    `json:"name"`
 	Note        string    `json:"note"`
-	Layout      string    `json:"layout"`
+	Type        string    `json:"type"`
 	MirrorOf    string    `json:"mirror_of"`
 	CompletedAt int64     `json:"completed_at"`
 	AddedOn     int64     `json:"added_on"`
@@ -31,7 +31,7 @@ func PresentNode(node database.Node) Node {
 		Rank:        node.Rank,
 		Name:        node.Name,
 		Note:        node.Note,
-		Layout:      node.Layout,
+		Type:        node.Type,
 		MirrorOf:    node.MirrorOf,
 		CompletedAt: node.CompletedAt,
 		AddedOn:     node.AddedOn,

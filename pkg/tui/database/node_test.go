@@ -8,8 +8,8 @@ import (
 
 func mustInsert(t *testing.T, db *DB, n Node) {
 	t.Helper()
-	if n.Layout == "" {
-		n.Layout = LayoutBullets
+	if n.Type == "" {
+		n.Type = TypeBullets
 	}
 	if err := n.Insert(db); err != nil {
 		t.Fatalf("inserting node %s: %v", n.UUID, err)
@@ -18,7 +18,7 @@ func mustInsert(t *testing.T, db *DB, n Node) {
 
 func seedTree(t *testing.T, db *DB) {
 	t.Helper()
-	mustInsert(t, db, Node{UUID: "r1", Name: "experiment results", Layout: LayoutH1, Rank: 0})
+	mustInsert(t, db, Node{UUID: "r1", Name: "experiment results", Type: TypeH1, Rank: 0})
 	mustInsert(t, db, Node{UUID: "c1", ParentUUID: "r1", Name: "baseline numbers", Rank: 0})
 	mustInsert(t, db, Node{UUID: "g1", ParentUUID: "c1", Name: "parse: 1.42s", Rank: 0})
 	mustInsert(t, db, Node{UUID: "c2", ParentUUID: "r1", Name: "attempt 2", Rank: 1})
@@ -29,7 +29,7 @@ func TestNodeCRUD(t *testing.T) {
 	db := InitTestMemoryDB(t)
 	defer db.Close()
 
-	n := Node{UUID: "n1", Name: "hello", Note: "world", Layout: LayoutTodo, AddedOn: 1, EditedOn: 2, Dirty: true}
+	n := Node{UUID: "n1", Name: "hello", Note: "world", Type: TypeTodo, AddedOn: 1, EditedOn: 2, Dirty: true}
 	mustInsert(t, db, n)
 
 	got, err := GetNode(db, "n1")
@@ -38,7 +38,7 @@ func TestNodeCRUD(t *testing.T) {
 	}
 	assert.Equal(t, got.Name, "hello", "name mismatch")
 	assert.Equal(t, got.Note, "world", "note mismatch")
-	assert.Equal(t, got.Layout, LayoutTodo, "layout mismatch")
+	assert.Equal(t, got.Type, TypeTodo, "type mismatch")
 	assert.Equal(t, got.Dirty, true, "dirty mismatch")
 
 	got.Name = "updated"

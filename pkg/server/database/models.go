@@ -22,7 +22,7 @@ type Node struct {
 	Rank        int    `json:"rank"`
 	Name        string `json:"name"`
 	Note        string `json:"note"`
-	Layout      string `json:"layout" gorm:"default:bullets"`
+	Type        string `json:"type" gorm:"default:bullets"`
 	MirrorOf    string `json:"mirror_of" gorm:"type:text"`
 	CompletedAt int64  `json:"completed_at" gorm:"default:0"`
 	AddedOn     int64  `json:"added_on"`

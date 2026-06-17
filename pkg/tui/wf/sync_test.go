@@ -255,7 +255,7 @@ func insertAnchor(t *testing.T, db *database.DB, wfID string) string {
 	n := database.Node{
 		UUID:     uuid,
 		Name:     "anchor",
-		Layout:   database.LayoutBullets,
+		Layout:   database.TypeBullets,
 		AddedOn:  now,
 		EditedOn: now,
 	}
@@ -439,7 +439,7 @@ func TestSyncLocalCreatePushes(t *testing.T) {
 		ParentUUID: anchor,
 		Name:       "Local child",
 		Note:       "ln",
-		Layout:     database.LayoutBullets,
+		Layout:     database.TypeBullets,
 		AddedOn:    now,
 		EditedOn:   now,
 	}
@@ -631,7 +631,7 @@ func TestSyncCompletedBothWays(t *testing.T) {
 		UUID:        doneUUID,
 		ParentUUID:  anchor,
 		Name:        "Done task",
-		Layout:      database.LayoutBullets,
+		Layout:      database.TypeBullets,
 		CompletedAt: time.Now().Unix(),
 		AddedOn:     now,
 		EditedOn:    now,

@@ -17,18 +17,18 @@ type editOptions struct {
 	state  string
 	name   string
 	note   string
-	layout string
+	typ    string
 	strict bool
 }
 
 // newEditCmd returns the node edit command: one command for every node
-// property — state, name, note and layout.
+// property — state, name, note and type.
 func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
 	opts := &editOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "edit <node>",
-		Short: "Edit a node's state, name, note or layout",
+		Short: "Edit a node's state, name, note or type",
 		RunE:  newEditRun(ctx, opts),
 	}
 
@@ -36,7 +36,7 @@ func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
 	f.StringVar(&opts.state, "state", "", "complete or uncomplete")
 	f.StringVar(&opts.name, "name", "", "rename the node")
 	f.StringVar(&opts.note, "note", "", "replace the node's note")
-	f.StringVar(&opts.layout, "layout", "", "bullets, todo, h1, h2, h3, code or quote")
+	f.StringVar(&opts.typ, "type", "", "bullets, todo, h1, h2, h3, code or quote")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
 
 	return cmd
@@ -48,8 +48,8 @@ func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command
 			return errors.New("missing node reference")
 		}
 		flags := cmd.Flags()
-		if !flags.Changed("state") && !flags.Changed("name") && !flags.Changed("note") && !flags.Changed("layout") {
-			return errors.New("nothing to edit: pass --state, --name, --note or --layout")
+		if !flags.Changed("state") && !flags.Changed("name") && !flags.Changed("note") && !flags.Changed("type") {
+			return errors.New("nothing to edit: pass --state, --name, --note or --type")
 		}
 
 		ref := strings.Join(args, " ")
@@ -90,12 +90,12 @@ func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command
 			sets = append(sets, "note = ?")
 			vals = append(vals, opts.note)
 		}
-		if flags.Changed("layout") {
-			if !database.ValidLayouts[opts.layout] {
-				return errors.Errorf("unknown layout %q: bullets, todo, h1, h2, h3, code or quote", opts.layout)
+		if flags.Changed("type") {
+			if !database.ValidTypes[opts.typ] {
+				return errors.Errorf("unknown type %q: bullets, todo, h1, h2, h3, code or quote", opts.typ)
 			}
-			sets = append(sets, "layout = ?")
-			vals = append(vals, opts.layout)
+			sets = append(sets, "type = ?")
+			vals = append(vals, opts.typ)
 		}
 
 		vals = append(vals, r.Node.UUID)

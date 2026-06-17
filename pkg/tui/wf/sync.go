@@ -243,7 +243,7 @@ func (s *Syncer) pullNode(wfNode TreeNode, localUUID, anchorUUID string, res *Sy
 				Rank:        rank,
 				Name:        wfChild.Name,
 				Note:        wfChild.Note,
-				Layout:      database.LayoutBullets,
+				Type:        database.TypeBullets,
 				CompletedAt: completedAt,
 				AddedOn:     time.Now().UnixNano(),
 				EditedOn:    time.Now().UnixNano(),

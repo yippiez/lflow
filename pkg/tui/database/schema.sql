@@ -13,7 +13,7 @@ CREATE TABLE nodes
 				rank integer NOT NULL DEFAULT 0,
 				name text NOT NULL DEFAULT '',
 				note text NOT NULL DEFAULT '',
-				layout text NOT NULL DEFAULT 'bullets',
+				type text NOT NULL DEFAULT 'bullets',
 				mirror_of text NOT NULL DEFAULT '',
 				completed_at integer NOT NULL DEFAULT 0,
 				added_on integer NOT NULL DEFAULT 0,
@@ -45,5 +45,5 @@ CREATE TRIGGER nodes_after_update AFTER UPDATE ON nodes BEGIN
 			END;
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 17);
+INSERT INTO system (key, value) VALUES ('schema', 18);
 INSERT INTO system (key, value) VALUES ('remote_schema', 1);

@@ -225,7 +225,7 @@ type SyncFragNode struct {
 	Rank        int       `json:"rank"`
 	Name        string    `json:"name"`
 	Note        string    `json:"note"`
-	Layout      string    `json:"layout"`
+	Type        string    `json:"type"`
 	MirrorOf    string    `json:"mirror_of"`
 	CompletedAt int64     `json:"completed_at"`
 	USN         int       `json:"usn"`
@@ -282,7 +282,7 @@ type RespNode struct {
 	Rank        int       `json:"rank"`
 	Name        string    `json:"name"`
 	Note        string    `json:"note"`
-	Layout      string    `json:"layout"`
+	Type        string    `json:"type"`
 	MirrorOf    string    `json:"mirror_of"`
 	CompletedAt int64     `json:"completed_at"`
 	AddedOn     int64     `json:"added_on"`
@@ -298,7 +298,7 @@ type NodePayload struct {
 	Rank        int    `json:"rank"`
 	Name        string `json:"name"`
 	Note        string `json:"note"`
-	Layout      string `json:"layout"`
+	Type        string `json:"type"`
 	MirrorOf    string `json:"mirror_of"`
 	CompletedAt int64  `json:"completed_at"`
 	AddedOn     int64  `json:"added_on"`

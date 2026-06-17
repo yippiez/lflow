@@ -3,7 +3,7 @@
 // heading digits, the selected row marked by its glyph turning red, a block
 // cursor that inverts the cell beneath it, a minimal dim bottom bar, a
 // type-to-filter slash menu above the bar, and a full-panel fuzzy finder for
-// /mirror /mirror_to /move_to /go. It never enters the alternate screen.
+// /mirror /mirror_to /move_to /goto. It never enters the alternate screen.
 package editor
 
 import (
@@ -31,11 +31,12 @@ const (
 	modeFinder
 	modeNote
 	modeConfirm // inline delete confirmation for nodes with children
-	modePrompt  // single-line text prompt, e.g. the /pull:wf api key and link
-	modeColor   // the /color picker: choose one of eight text colors
+	modePrompt  // single-line text prompt, e.g. the /mirror:wf api key and link
+	modeType    // the /type picker: choose one of seven node types
+	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
 )
 
-// pull stages for the /pull:wf prompt flow.
+// pull stages for the /mirror:wf prompt flow.
 const (
 	pullNone = iota
 	pullAPIKey
@@ -47,7 +48,7 @@ type finderAction int
 const (
 	actMirrorHere finderAction = iota
 	actMoveTo
-	actGo
+	actGoto
 )
 
 type slashCommand struct {
@@ -56,26 +57,73 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/mirror", "mirror a node here via the fuzzy finder"},
-	{"/copy_link", "copy this node's link — paste on another node to mirror"},
-	{"/move", "move this node under another node"},
-	{"/go", "jump the editor to another node"},
-	{"/pull:wf", "pull a workflowy node in under this one"},
-	{"/undo", "undo the last action"},
-	{"/complete", "toggle done"},
-	{"/h1", "make heading 1"},
-	{"/h2", "make heading 2"},
-	{"/h3", "make heading 3"},
-	{"/todo", "make todo"},
-	{"/code", "make code"},
-	{"/quote", "make quote"},
-	{"/bullet", "back to a plain bullet"},
-	{"/color", "set this node's text color"},
-	{"/bold", "toggle bold text"},
-	{"/italic", "toggle italic text"},
-	{"/underline", "toggle underline text"},
-	{"/strikethrough", "toggle strikethrough text"},
-	{"/note", "edit this node's note"},
+	{"/complete", "Toggle done"},
+	{"/goto", "Jump the editor to another node"},
+	{"/link", "Copy this node's link - paste on another node to mirror"},
+	{"/mirror", "Mirror a node here via the fuzzy finder"},
+	{"/mirror:wf", "Pull a workflowy node in under this one"},
+	{"/move", "Move this node under another node"},
+	{"/note", "Edit this node's note"},
+	{"/style", "Set this node's text style or color"},
+	{"/type", "Set this node's type"},
+	{"/undo", "Undo the last action"},
+}
+
+// stylePickerItem groups the text-attribute toggles and the color choices
+// into a single /style picker list.
+type stylePickerItem struct {
+	kind  string // "toggle" or "color"
+	value string
+}
+
+var stylePickerItems = []stylePickerItem{
+	{"toggle", "bold"},
+	{"toggle", "italic"},
+	{"toggle", "underline"},
+	{"toggle", "strike"},
+	{"color", "red"},
+	{"color", "orange"},
+	{"color", "yellow"},
+	{"color", "green"},
+	{"color", "cyan"},
+	{"color", "blue"},
+	{"color", "purple"},
+	{"color", "gray"},
+}
+
+var stylePickerLabels = map[string]string{
+	"bold":      "Bold",
+	"italic":    "Italic",
+	"underline": "Underline",
+	"strike":    "Strikethrough",
+	"red":       "Red",
+	"orange":    "Orange",
+	"yellow":    "Yellow",
+	"green":     "Green",
+	"cyan":      "Cyan",
+	"blue":      "Blue",
+	"purple":    "Purple",
+	"gray":      "Gray",
+}
+
+var typeOrder = []string{
+	database.TypeBullets,
+	database.TypeTodo,
+	database.TypeH1,
+	database.TypeH2,
+	database.TypeH3,
+	database.TypeCode,
+	database.TypeQuote,
+}
+
+var typeLabels = map[string]string{
+	database.TypeBullets: "Bullet",
+	database.TypeTodo:    "Todo",
+	database.TypeH1:      "Heading 1",
+	database.TypeH2:      "Heading 2",
+	database.TypeH3:      "Heading 3",
+	database.TypeCode:    "Code",
+	database.TypeQuote:   "Quote",
 }
 
 // Model is the bubbletea model for the editor.
@@ -103,13 +151,16 @@ type Model struct {
 	finderAct   finderAction
 	notePrev    string // note backup for esc in note mode
 
-	// /pull:wf prompt flow
+	// /mirror:wf prompt flow
 	promptLabel string
 	promptValue string
 	pullStage   int
 
-	// /color picker selection (index into styleColorOrder)
-	colorSel int
+	// /type picker selection (index into typeOrder)
+	typeSel int
+
+	// /style picker selection (index into stylePickerItems)
+	styleSel int
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -464,8 +515,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(k)
 	case modePrompt:
 		return m.handlePromptKey(k)
-	case modeColor:
-		return m.handleColorKey(k)
+	case modeType:
+		return m.handleTypeKey(k)
+	case modeStyle:
+		return m.handleStyleKey(k)
 	}
 
 	// snapshot the tree before a mutating outline key so /undo can reverse it
@@ -1294,29 +1347,59 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleColorKey drives the /color picker: up/down move through the eight
-// colors, enter applies the highlighted one (re-picking the active color clears
-// it), esc cancels. The color is set on the cursor node's style string.
-func (m *Model) handleColorKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleTypeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
 		m.mode = modeOutline
 		return m, nil
 	case "up":
-		if m.colorSel > 0 {
-			m.colorSel--
+		if m.typeSel > 0 {
+			m.typeSel--
 		}
 		return m, nil
 	case "down":
-		if m.colorSel < len(styleColorOrder)-1 {
-			m.colorSel++
+		if m.typeSel < len(typeOrder)-1 {
+			m.typeSel++
 		}
 		return m, nil
 	case "enter":
 		cur := m.cursorItem()
 		if cur != nil {
 			m.pushUndo("")
-			cur.style = styleSetColor(cur.style, styleColorOrder[m.colorSel])
+			cur.typ = typeOrder[m.typeSel]
+			m.unsaved = true
+		}
+		m.mode = modeOutline
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *Model) handleStyleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "up":
+		if m.styleSel > 0 {
+			m.styleSel--
+		}
+		return m, nil
+	case "down":
+		if m.styleSel < len(stylePickerItems)-1 {
+			m.styleSel++
+		}
+		return m, nil
+	case "enter":
+		cur := m.cursorItem()
+		if cur != nil {
+			m.pushUndo("")
+			it := stylePickerItems[m.styleSel]
+			if it.kind == "toggle" {
+				cur.style = styleToggle(cur.style, it.value)
+			} else {
+				cur.style = styleSetColor(cur.style, it.value)
+			}
 			m.unsaved = true
 		}
 		m.mode = modeOutline
@@ -1332,51 +1415,33 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	setLayout := func(layout string) {
-		m.pushUndo("")
-		cur.layout = layout
-		m.unsaved = true
-	}
-
 	switch name {
-	case "/h1":
-		setLayout(database.LayoutH1)
-	case "/h2":
-		setLayout(database.LayoutH2)
-	case "/h3":
-		setLayout(database.LayoutH3)
-	case "/todo":
-		setLayout(database.LayoutTodo)
-	case "/code":
-		setLayout(database.LayoutCode)
-	case "/quote":
-		setLayout(database.LayoutQuote)
-	case "/bullet":
-		setLayout(database.LayoutBullets)
-	case "/bold":
-		m.pushUndo("")
-		cur.style = styleToggle(cur.style, "bold")
-		m.unsaved = true
-	case "/italic":
-		m.pushUndo("")
-		cur.style = styleToggle(cur.style, "italic")
-		m.unsaved = true
-	case "/underline":
-		m.pushUndo("")
-		cur.style = styleToggle(cur.style, "underline")
-		m.unsaved = true
-	case "/strikethrough":
-		m.pushUndo("")
-		cur.style = styleToggle(cur.style, "strike")
-		m.unsaved = true
-	case "/color":
-		// open the picker; pre-select the color already in effect, if any
-		m.mode = modeColor
-		m.colorSel = 0
-		if c := styleColor(cur.style); c != "" {
-			for i, name := range styleColorOrder {
-				if name == c {
-					m.colorSel = i
+	case "/type":
+		// open the picker; pre-select the type already in effect, if any
+		m.mode = modeType
+		m.typeSel = 0
+		for i, t := range typeOrder {
+			if t == cur.typ {
+				m.typeSel = i
+				break
+			}
+		}
+	case "/style":
+		// open the picker; pre-select the first active toggle, then the
+		// active color, otherwise default to the first item.
+		m.mode = modeStyle
+		m.styleSel = 0
+		for i, it := range stylePickerItems {
+			if it.kind == "toggle" && styleHas(cur.style, it.value) {
+				m.styleSel = i
+				break
+			}
+		}
+		if m.styleSel == 0 {
+			c := styleColor(cur.style)
+			for i, it := range stylePickerItems {
+				if it.kind == "color" && it.value == c {
+					m.styleSel = i
 					break
 				}
 			}
@@ -1397,19 +1462,19 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.caret = len([]rune(cur.note))
 	case "/mirror":
 		m.openFinder(actMirrorHere)
-	case "/copy_link":
+	case "/link":
 		// a mirror's link points at the original: same node everywhere
 		target := cur.uuid
 		if cur.mirrorOf != "" {
 			target = cur.mirrorOf
 		}
 		copyToClipboard("lflow://node/" + target)
-		m.flash = "link copied — paste it on another node to mirror"
+		m.flash = "link copied - paste it on another node to mirror"
 	case "/move":
 		m.openFinder(actMoveTo)
-	case "/go":
-		m.openFinder(actGo)
-	case "/pull:wf":
+	case "/goto":
+		m.openFinder(actGoto)
+	case "/mirror:wf":
 		return m.startWfPull()
 	case "/undo":
 		m.undo()
@@ -1417,7 +1482,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// startWfPull begins the /pull:wf flow: ask for the api key when it is missing,
+// startWfPull begins the /mirror:wf flow: ask for the api key when it is missing,
 // then for a workflowy node link, then mirror that node in under the cursor.
 func (m *Model) startWfPull() (tea.Model, tea.Cmd) {
 	cf, err := config.Read(m.ctx)
@@ -1452,7 +1517,7 @@ func (m *Model) handlePromptKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if value == "" {
 				m.mode = modeOutline
 				m.pullStage = pullNone
-				m.flash = "no api key — cancelled"
+				m.flash = "no api key - cancelled"
 				return m, nil
 			}
 			if err := m.saveWfAPIKey(value); err != nil {
@@ -1468,7 +1533,7 @@ func (m *Model) handlePromptKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeOutline
 			m.pullStage = pullNone
 			if value == "" {
-				m.flash = "no link — cancelled"
+				m.flash = "no link - cancelled"
 				return m, nil
 			}
 			m.doWfPull(value)
@@ -1550,7 +1615,7 @@ func (m *Model) doWfPull(link string) {
 		m.caret = 0
 		m.refreshRows()
 	}
-	m.flash = fmt.Sprintf("pulled %q · %d nodes", wfNode.Name, res.Pulled)
+	m.flash = fmt.Sprintf("pulled %q - %d nodes", wfNode.Name, res.Pulled)
 }
 
 func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1631,9 +1696,9 @@ func (m *Model) refreshFinder() {
 		if cur != nil && h.UUID == cur.uuid {
 			continue
 		}
-		// /go is a jump target list: a node with no name and no mirror is empty
+		// /goto is a jump target list: a node with no name and no mirror is empty
 		// noise, so leave it out
-		if m.finderAct == actGo && h.Name == "" && h.MirrorOf == "" {
+		if m.finderAct == actGoto && h.Name == "" && h.MirrorOf == "" {
 			continue
 		}
 		filtered = append(filtered, h)
@@ -1723,7 +1788,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 				return m.quit()
 			}
 		}
-	case actGo:
+	case actGoto:
 		// save, then reopen on the target
 		if _, err := m.tree.save(); err != nil {
 			m.err = err
@@ -1847,7 +1912,7 @@ func (m *Model) finalView(maxLine int) []string {
 			glyph, glyphColor = glyphMirror, cRed
 		}
 		name := m.tree.displayName(r.it)
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.layoutSuffix(r.it)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.typeSuffix(r.it)
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
@@ -1860,7 +1925,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 	rows := m.rows
 	if len(rows) == 0 {
-		lines = append(lines, cDim+" empty — type to add a node"+cReset)
+		lines = append(lines, cDim+" empty - type to add a node"+cReset)
 	}
 
 	// render every row to its wrapped lines first: the viewport then works
@@ -1886,7 +1951,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 		body := renderBody(it, name, caret, selected)
 
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.layoutSuffix(it)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
@@ -1942,7 +2007,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			// so reserve their width plus the fixed " delete " prefix and quotes,
 			// then elide the middle of the name to fit whatever room is left.
 			prefix := " " + cRed + "delete " + cReset
-			suffix := cDim + fmt.Sprintf(" · %s · enter delete · esc keep", nodeNoun(subtreeSize(cur))) + cReset
+			suffix := cDim + fmt.Sprintf(" - %s - enter delete - esc keep", nodeNoun(subtreeSize(cur))) + cReset
 			room := maxLine - visibleWidth(prefix) - visibleWidth(suffix) - 2 // 2 for the quotes
 			name := elideMiddle(m.tree.displayName(cur), room)
 			line := prefix + cYellow + fmt.Sprintf("%q", name) + cReset + suffix
@@ -1950,9 +2015,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// the /pull:wf prompt sits above the status line, same as the confirm prompt
+	// the /mirror:wf prompt sits above the status line, same as the confirm prompt
 	if m.mode == modePrompt {
-		line := " " + cDim + m.promptLabel + ": " + cReset + cFG + withCaret(m.promptValue, len([]rune(m.promptValue))) + cDim + " · esc cancel" + cReset
+		line := " " + cDim + m.promptLabel + ": " + cReset + cFG + withCaret(m.promptValue, len([]rune(m.promptValue))) + cDim + " - esc cancel" + cReset
 		lines = append(lines, clip(line, maxLine))
 	}
 
@@ -1984,17 +2049,38 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// the /color picker lists its eight swatches above the status line, each name
-	// painted in the color it sets, with the highlighted one marked.
-	if m.mode == modeColor {
-		for i, name := range styleColorOrder {
+	// the /type picker lists its node type options above the status line
+	if m.mode == modeType {
+		for i, t := range typeOrder {
 			mark := "  "
-			if i == m.colorSel {
+			if i == m.typeSel {
 				mark = cAccent + "▸ " + cReset
 			}
-			swatch := styleColorCode[name] + "●" + cReset
-			line := " " + mark + swatch + " " + styleColorCode[name] + name + cReset
+			line := " " + mark + cFG + typeLabels[t] + cReset
 			lines = append(lines, clip(line, maxLine))
+		}
+	}
+
+	// the /style picker lists text style toggles and color swatches above the status line
+	if m.mode == modeStyle {
+		cur := m.cursorItem()
+		for i, it := range stylePickerItems {
+			mark := "  "
+			if i == m.styleSel {
+				mark = cAccent + "▸ " + cReset
+			}
+			if it.kind == "toggle" {
+				active := ""
+				if cur != nil && styleHas(cur.style, it.value) {
+					active = cDim + " (on)" + cReset
+				}
+				line := " " + mark + cFG + stylePickerLabels[it.value] + active + cReset
+				lines = append(lines, clip(line, maxLine))
+			} else {
+				swatch := styleColorCode[it.value] + "●" + cReset
+				line := " " + mark + swatch + " " + styleColorCode[it.value] + stylePickerLabels[it.value] + cReset
+				lines = append(lines, clip(line, maxLine))
+			}
 		}
 	}
 
@@ -2011,21 +2097,21 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	state := ""
 	if m.unsaved {
-		state = " · unsaved"
+		state = " - unsaved"
 	}
 	if m.sched.inFlight {
 		// state, not a countdown: only shown while a sync is actually running
-		state += " · syncing"
+		state += " - syncing"
 	}
 	if m.flash != "" {
-		state += " · " + m.flash
+		state += " - " + m.flash
 	}
 	// offer the date conversion while a non-canonical time phrase sits under the
 	// cursor; an already-canonical date needs no conversion and is chipped as-is
 	if m.mode == modeOutline {
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
-				state += fmt.Sprintf(" · ctrl+t %q → %s", d.phrase, d.canonical())
+				state += fmt.Sprintf(" - ctrl+t %q -> %s", d.phrase, d.canonical())
 			}
 		}
 	}
@@ -2042,7 +2128,7 @@ func (m *Model) bottomBar(maxLine int) string {
 	if title == "" {
 		title = "untitled"
 	}
-	bar := fmt.Sprintf(" %s · %d/%d%s", title, pos, total, state)
+	bar := fmt.Sprintf(" %s - %d/%d%s", title, pos, total, state)
 	return clip(cDim+bar+cReset, maxLine)
 }
 
@@ -2059,10 +2145,10 @@ func finderRowName(n database.Node, resolve func(string) (database.Node, bool)) 
 	for {
 		src, ok := resolve(cur)
 		if !ok {
-			return "(missing) · mirror"
+			return "(missing) - mirror"
 		}
 		if src.MirrorOf == "" || seen[cur] {
-			return src.Name + " · mirror"
+			return src.Name + " - mirror"
 		}
 		seen[cur] = true
 		cur = src.MirrorOf
@@ -2075,12 +2161,12 @@ func (m *Model) viewFinder(maxLine int) []string {
 	labels := map[finderAction]string{
 		actMirrorHere: "/mirror",
 		actMoveTo:     "/move",
-		actGo:         "/go",
+		actGoto:       "/goto",
 	}
 	hints := map[finderAction]string{
-		actMirrorHere: "enter mirror at cursor",
-		actMoveTo:     "enter move this node there",
-		actGo:         "enter open node",
+		actMirrorHere: "Enter mirror at cursor",
+		actMoveTo:     "Enter move this node there",
+		actGoto:       "Enter open node",
 	}
 
 	query := cDim + " " + labels[m.finderAct] + " " + cFG + withCaret(m.finderQuery, len([]rune(m.finderQuery))) + cReset
@@ -2121,7 +2207,7 @@ func (m *Model) viewFinder(maxLine int) []string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, clip(cDim+" "+hints[m.finderAct]+" · esc back to outline"+cReset, maxLine))
+	lines = append(lines, clip(cDim+" "+hints[m.finderAct]+" - esc back to outline"+cReset, maxLine))
 	lines = append(lines, m.bottomBar(maxLine))
 
 	return lines
@@ -2161,7 +2247,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	total, _ := fm.tree.stats()
 	name := fm.tree.displayName(fm.tree.root)
 	// muted gray throughout, only the node name in yellow
-	fmt.Printf("%s→ saved %s%q%s · %s · %s written%s\n",
+	fmt.Printf("%s→ saved %s%q%s - %s - %s written%s\n",
 		cDim, cYellow, name, cDim,
 		nodeNoun(total), nodeNoun(fm.saved.written), cReset)
 
