@@ -10,3 +10,4 @@ tmp
 pkg/tui/test-lflow
 pkg/tui/tmp/
 pkg/e2e/sync/tmp/
+.venv/
