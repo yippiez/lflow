@@ -377,20 +377,10 @@ func hasInvert(state []string) bool {
 // h1/h2/h3 stay visible in a single-line wysiwyg row.
 func glyphFor(it *item) (string, string) {
 	if it.mirrorOf != "" {
-		return glyphMirror, cRed
+		return glyphMirror, cRed // cross-cutting: a mirror is always the red ◆
 	}
-	switch it.typ {
-	case database.TypeTodo:
-		if it.completedAt > 0 {
-			return glyphTodoDone, cDim
-		}
-		return glyphTodo, cDim
-	case database.TypeH1:
-		return "1", cBold + cYellow
-	case database.TypeH2:
-		return "2", cBold + cYellow
-	case database.TypeH3:
-		return "3", cBold + cYellow
+	if g := typeOf(it.typ).glyph; g != nil {
+		return g(it) // per-type glyph (todo box, heading digit)
 	}
 	if len(it.children) > 0 && it.collapsed {
 		return glyphCollapsed, cDim
@@ -796,8 +786,8 @@ func inlineSpans(runes []rune) []spanFlags {
 // cursor inverts the cell under the rune at the caret index (-1 for none).
 func renderBody(it *item, name string, caret int, selected bool) string {
 	name = stripControlBytes(name)
-	if it.typ == database.TypeJSON {
-		return renderJSONPreview(name)
+	if r := typeOf(it.typ).render; r != nil {
+		return r(it, name) // per-type inline-body override (json preview)
 	}
 	base := cFG
 	// a /color picks the node's foreground; default stays the palette gray
