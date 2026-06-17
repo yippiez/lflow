@@ -20,9 +20,10 @@ import (
 type nodeType struct {
 	key, label     string
 	sign           string                             // inline prefix sign, e.g. "$ "; "" = none
-	glyph          func(it *item) (string, string)    // per-type glyph+color; nil → default ○/●
-	render         func(it *item, name string) string // full inline-body override; nil → default
-	inlineEditable bool                               // false → typing/backspace/enter is a no-op
+	glyph          func(it *item) (string, string)     // per-type glyph+color; nil → default ○/●
+	render         func(it *item, name string) string  // stateless inline-body override; nil → default
+	renderM        func(m *Model, it *item) string     // Model-aware inline-body override (voice waveform)
+	inlineEditable bool                                // false → typing/backspace/enter is a no-op
 	expand         func(m *Model, it *item)           // alt+e action; nil → none
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 }
@@ -48,6 +49,12 @@ var nodeTypes = []nodeType{
 	{
 		key: database.TypeQuery, label: "Query (codebase)", sign: "⌕ ", inlineEditable: true,
 		run: runQuery,
+	},
+	{
+		key: database.TypeVoice, label: "Voice note", inlineEditable: false,
+		renderM: func(m *Model, it *item) string { return m.voiceRender(it) },
+		run:     runVoice,
+		expand:  playVoice,
 	},
 }
 

@@ -151,8 +151,13 @@ type Model struct {
 
 	// alt+r run output (bash) — ephemeral, in-memory only, keyed by node uuid
 	runOut    map[string][]outLine
-	runCancel map[string]func()        // cancel a running command
-	runCh     map[string]chan tea.Msg  // stream channel for a running command
+	runCancel map[string]func()       // cancel a running command
+	runCh     map[string]chan tea.Msg // stream channel for a running command
+
+	// voice notes — local wav files, in-memory recording state + cached waveform
+	voiceRec map[string]*voiceRecording
+	voiceEnv map[string][]int
+	voiceDur map[string]float64
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -437,6 +442,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.runOut = map[string][]outLine{}
 		}
 		m.runOut[msg.uuid] = msg.lines
+		return m, nil
+	case voiceDoneMsg:
+		if m.voiceEnv == nil {
+			m.voiceEnv = map[string][]int{}
+			m.voiceDur = map[string]float64{}
+		}
+		m.voiceEnv[msg.uuid] = msg.env
+		m.voiceDur[msg.uuid] = msg.dur
 		return m, nil
 	case syncTickMsg:
 		return m, m.onSyncTick(time.Time(msg))
@@ -1972,7 +1985,11 @@ func (m *Model) finalView(maxLine int) []string {
 			glyph, glyphColor = glyphMirror, cRed
 		}
 		name := m.tree.displayName(r.it)
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + renderBody(r.it, name, -1, false) + m.typeSuffix(r.it)
+		body := renderBody(r.it, name, -1, false)
+		if rm := typeOf(r.it.typ).renderM; rm != nil {
+			body = rm(m, r.it)
+		}
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r.it)
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
@@ -2010,6 +2027,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 			caret = m.caret
 		}
 		body := renderBody(it, name, caret, selected)
+		if rm := typeOf(it.typ).renderM; rm != nil {
+			body = rm(m, it) // Model-aware override (voice waveform)
+		}
 
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
 
