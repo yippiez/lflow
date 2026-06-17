@@ -93,21 +93,29 @@ func renderLines(db *database.DB, root database.Node, depth int, includeComplete
 			name += " (mirror)"
 		}
 		if markdown {
-			switch n.Type {
-			case database.TypeH1:
-				name = "# " + name
-			case database.TypeH2:
-				name = "## " + name
-			case database.TypeH3:
-				name = "### " + name
-			case database.TypeTodo:
-				if n.CompletedAt > 0 {
-					name = "[x] " + name
-				} else {
-					name = "[ ] " + name
+			if n.Type == database.TypeJSON {
+				lines = append(lines, fmt.Sprintf("%s- ```json", indent))
+				for _, jl := range strings.Split(name, "\n") {
+					lines = append(lines, fmt.Sprintf("%s  %s", indent, jl))
 				}
+				lines = append(lines, fmt.Sprintf("%s  ```", indent))
+			} else {
+				switch n.Type {
+				case database.TypeH1:
+					name = "# " + name
+				case database.TypeH2:
+					name = "## " + name
+				case database.TypeH3:
+					name = "### " + name
+				case database.TypeTodo:
+					if n.CompletedAt > 0 {
+						name = "[x] " + name
+					} else {
+						name = "[ ] " + name
+					}
+				}
+				lines = append(lines, fmt.Sprintf("%s- %s", indent, name))
 			}
-			lines = append(lines, fmt.Sprintf("%s- %s", indent, name))
 			if n.Note != "" {
 				for _, noteLine := range strings.Split(n.Note, "\n") {
 					lines = append(lines, fmt.Sprintf("%s  %s", indent, noteLine))

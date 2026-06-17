@@ -114,6 +114,7 @@ var typeOrder = []string{
 	database.TypeH3,
 	database.TypeCode,
 	database.TypeQuote,
+	database.TypeJSON,
 }
 
 var typeLabels = map[string]string{
@@ -124,6 +125,7 @@ var typeLabels = map[string]string{
 	database.TypeH3:      "Heading 3",
 	database.TypeCode:    "Code",
 	database.TypeQuote:   "Quote",
+	database.TypeJSON:    "JSON",
 }
 
 // Model is the bubbletea model for the editor.
@@ -590,8 +592,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if it != nil {
 			// split the node at the caret: text after the caret moves into the new
 			// sibling, the part before — and the node's children — stays. A mirror
-			// reference is not editable, so it just opens an empty sibling.
-			if cur != nil && mc.editable {
+			// reference is not editable, so it just opens an empty sibling. A json
+			// node is not edited inline either, so it just opens an empty sibling.
+			if cur != nil && mc.editable && cur.typ != database.TypeJSON {
 				runes := []rune(cur.name)
 				at := m.caret
 				if at < 0 {
@@ -866,6 +869,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur == nil || cur.mirrorOf != "" {
 			return m, nil
 		}
+		if cur.typ == database.TypeJSON {
+			return m, nil // json is edited only in the alt+e editor
+		}
 		if m.caret > 0 {
 			runes := []rune(cur.name)
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
@@ -944,6 +950,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		if cur.mirrorOf != "" {
 			return m, nil // a mirror reference is edited at its original — see mirrorContext
+		}
+		if cur.typ == database.TypeJSON {
+			return m, nil // json is edited only in the alt+e editor (slash above still works)
 		}
 
 		text := string(k.Runes)

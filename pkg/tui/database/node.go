@@ -16,6 +16,7 @@ const (
 	TypeH3      = "h3"
 	TypeCode    = "code"
 	TypeQuote   = "quote"
+	TypeJSON    = "json"
 )
 
 // ValidTypes is the set of accepted type values.
@@ -27,6 +28,7 @@ var ValidTypes = map[string]bool{
 	TypeH3:      true,
 	TypeCode:    true,
 	TypeQuote:   true,
+	TypeJSON:    true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror

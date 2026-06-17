@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -795,6 +796,9 @@ func inlineSpans(runes []rune) []spanFlags {
 // cursor inverts the cell under the rune at the caret index (-1 for none).
 func renderBody(it *item, name string, caret int, selected bool) string {
 	name = stripControlBytes(name)
+	if it.typ == database.TypeJSON {
+		return renderJSONPreview(name)
+	}
 	base := cFG
 	// a /color picks the node's foreground; default stays the palette gray
 	if c := styleBaseColor(it.style); c != "" {
@@ -868,6 +872,32 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	}
 	b.WriteString(cReset)
 	return b.String()
+}
+
+// renderJSONPreview renders a json node as a one-line entry: a {} marker plus a
+// whitespace-collapsed, truncated preview of the JSON. Invalid JSON turns the {}
+// marker red and appends a red " · JSON parsing failed". Editing happens only in
+// the alt+e editor, so this is never an inline edit surface.
+func renderJSONPreview(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return cDim + "{}" + cReset + " " + cDim + "empty" + cReset
+	}
+	if json.Valid([]byte(trimmed)) {
+		return cDim + "{}" + cReset + " " + cFG + jsonPreview(name, 50) + cReset
+	}
+	return cRed + "{}" + cReset + " " + cFG + jsonPreview(name, 50) + cReset +
+		cRed + " · JSON parsing failed" + cReset
+}
+
+// jsonPreview collapses whitespace and truncates to n display runes.
+func jsonPreview(s string, n int) string {
+	one := strings.Join(strings.Fields(s), " ")
+	r := []rune(one)
+	if len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return one
 }
 
 // typeSuffix returns a dim suffix describing non-default state. The note is no
