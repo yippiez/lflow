@@ -609,9 +609,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		var it *item
 		var err error
-		if cur == nil {
+		// On an expanded node that already has children, the new node belongs
+		// inside it as the first child — not as a sibling after the whole subtree.
+		expandedParent := cur != nil && cur.mirrorOf == "" && !cur.collapsed && len(m.tree.childItems(cur)) > 0
+		switch {
+		case cur == nil:
 			it, err = m.tree.insertFirstChild(m.viewRoot())
-		} else {
+		case expandedParent:
+			it, err = m.tree.insertFirstChild(cur)
+		default:
 			it, err = m.tree.insertSiblingAfter(cur)
 		}
 		if err != nil {
