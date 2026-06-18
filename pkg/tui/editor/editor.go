@@ -2071,22 +2071,21 @@ func (m *Model) viewOutline(maxLine int) []string {
 		bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
 	}
 
-	// The Temporary Domain panel is always visible (anchored at the bottom) during
-	// normal editing — only modal overlays (slash menu, pickers, prompts) take the
-	// full body. Split the body budget between the focused region and the panel.
-	// Layout during normal editing: main notes on top, a dashed divider, then the
-	// always-visible Temporary Domain panel, then the status bar. Below ~3 body
-	// rows there is no room for that stack, so fall back to the plain outline.
+	// The Temporary Domain panel is always visible during normal editing — only
+	// modal overlays (slash menu, pickers, prompts) take the full body. Layout:
+	// main notes on top, the status bar acting as the divider, then the
+	// always-visible Temporary Domain panel below it. Below ~3 body rows there is
+	// no room for that stack, so fall back to the plain outline.
 	rowBudget := m.rowBudget()
 	showTemp := (m.mode == modeOutline || m.mode == modeNote) && rowBudget >= 3
 	tempBudget, mainBudget := 0, rowBudget
 	if showTemp {
-		m.ensureTempTree()                          // always-visible panel must exist before we render it
-		tempBudget = m.tempPanelBudget(rowBudget - 1) // reserve one row for the divider
-		mainBudget = rowBudget - tempBudget - 1     // -1 for the divider line
+		m.ensureTempTree() // always-visible panel must exist before we render it
+		tempBudget = m.tempPanelBudget(rowBudget)
+		mainBudget = rowBudget - tempBudget
 		if mainBudget < 1 {
 			mainBudget = 1
-			tempBudget = rowBudget - 2
+			tempBudget = rowBudget - 1
 		}
 	}
 	focusedBudget := mainBudget
@@ -2214,10 +2213,11 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// Assemble the body: main notes, then the dashed divider, then the Temporary
-	// Domain panel — clustered at the top with the status bar pinned to the bottom.
-	// `lines` here is the focused region's body (no modal menus are open in showTemp
-	// modes, so nothing else is in it yet).
+	// Assemble the body: main notes, then the status bar (which doubles as the
+	// divider), then the Temporary Domain panel below it. `lines` here is the
+	// focused region's body (no modal menus are open in showTemp modes). The frame
+	// is padded to a constant height so the inline renderer never strands stale
+	// lines despite the status bar sitting mid-frame.
 	if showTemp {
 		focused := lines
 		if len(focused) > focusedBudget {
@@ -2233,15 +2233,16 @@ func (m *Model) viewOutline(maxLine int) []string {
 			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
 		}
 		body := mainLines
-		body = append(body, m.tempDivider(maxLine))
+		body = append(body, m.bottomBar(maxLine)) // the status bar is the divider
 		body = append(body, tempLines...)
-		for len(body) < rowBudget { // pad so the status bar stays at the bottom row
+		total := rowBudget + 1 // main + status + temp, fixed for a stable frame
+		for len(body) < total {
 			body = append(body, "")
 		}
-		if len(body) > rowBudget {
-			body = body[:rowBudget]
+		if len(body) > total {
+			body = body[:total]
 		}
-		lines = body
+		return body
 	}
 
 	lines = append(lines, m.bottomBar(maxLine))

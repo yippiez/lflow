@@ -532,9 +532,24 @@ func TestConfirmCancelKeepsStatusBarLast(t *testing.T) {
 	if m.mode != modeOutline {
 		t.Fatalf("esc did not cancel the confirm")
 	}
-	if got := last(); !strings.Contains(got, "1/2") {
-		t.Fatalf("status bar absent on the last line after ESC-cancel: %q", got)
+	// Back in outline mode the status bar is the divider between the notes and the
+	// always-visible temp panel, so it sits mid-frame, not on the last line. The
+	// regression guard is that it is still PRESENT and not stranded blank.
+	if !frameHasStatusBar(m.View()) {
+		t.Fatalf("status bar absent after ESC-cancel:\n%s", m.View())
 	}
+}
+
+// frameHasStatusBar reports whether the rendered frame still shows the status bar
+// (the "1/2" position counter the two-node test models produce), used by the
+// dismiss-regression tests now that the bar renders mid-frame in outline mode.
+func frameHasStatusBar(view string) bool {
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, "1/2") {
+			return true
+		}
+	}
+	return false
 }
 
 // TestConfirmElidesLongName is the F5 regression: a node name longer than the
@@ -1084,8 +1099,10 @@ func TestSlashBackspaceDismissKeepsStatusBar(t *testing.T) {
 	if m.mode != modeOutline {
 		t.Fatalf("backspace on an empty query should dismiss the menu, mode=%v", m.mode)
 	}
-	if got := last(); !strings.Contains(got, "1/2") {
-		t.Fatalf("status bar absent on the last line after backspace dismiss: %q", got)
+	// In outline mode the bar is mid-frame (divider above the temp panel); guard
+	// that the dismiss leaves it present, not stranded blank.
+	if !frameHasStatusBar(m.View()) {
+		t.Fatalf("status bar absent after backspace dismiss:\n%s", m.View())
 	}
 }
 
@@ -1154,8 +1171,10 @@ func TestSlashEscapeDismissKeepsStatusBar(t *testing.T) {
 	if m.mode != modeOutline {
 		t.Fatalf("escape should dismiss the menu, mode=%v", m.mode)
 	}
-	if got := last(); !strings.Contains(got, "1/2") {
-		t.Fatalf("status bar absent on the last line after escape dismiss: %q", got)
+	// In outline mode the bar is mid-frame (divider above the temp panel); guard
+	// that the dismiss leaves it present, not stranded blank.
+	if !frameHasStatusBar(m.View()) {
+		t.Fatalf("status bar absent after escape dismiss:\n%s", m.View())
 	}
 }
 

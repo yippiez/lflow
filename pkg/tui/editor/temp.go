@@ -1,10 +1,6 @@
 package editor
 
-import (
-	"strings"
-
-	"github.com/lflow/lflow/pkg/tui/database"
-)
+import "github.com/lflow/lflow/pkg/tui/database"
 
 // The Temporary Domain is an ephemeral scratch outline: a second tree with a nil
 // db, so it is never persisted or synced. It is ALWAYS visible — a dashed-icon
@@ -158,15 +154,4 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 		end = len(flat)
 	}
 	return append([]string(nil), flat[start:end]...)
-}
-
-// tempDivider is the dashed rule that separates the main outline from the
-// Temporary Domain panel beneath it.
-func (m *Model) tempDivider(maxLine int) string {
-	label := "╌╌ temp "
-	fill := maxLine - visibleWidth(label)
-	if fill < 0 {
-		fill = 0
-	}
-	return clip(cDim+label+strings.Repeat("╌", fill)+cReset, maxLine)
 }
