@@ -172,6 +172,9 @@ type Model struct {
 	// currentWorker is the draft (unrun) worker that alt+s appends context to;
 	// running a worker clears it so the next alt+s starts a fresh draft
 	currentWorker string
+	// workerDeliverable holds each finished worker's finish_worker markdown — the
+	// harvestable result Enter materializes into the notebook
+	workerDeliverable map[string]string
 	// worker live-activity stream: a queue of updates per node, the one currently
 	// shown, and how many ticks it has been held (drains faster as the queue grows)
 	workerQueue    map[string][]workerActivity
@@ -522,6 +525,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tick = workerTick()
 		}
 		return m, tea.Batch(tick, waitBashCmd(m.runCh[msg.uuid]))
+	case workerDeliverableMsg:
+		if m.workerDeliverable == nil {
+			m.workerDeliverable = map[string]string{}
+		}
+		m.workerDeliverable[msg.uuid] = msg.markdown
+		return m, waitBashCmd(m.runCh[msg.uuid])
 	case workerTickMsg:
 		m.advanceWorkerFeeds()
 		if m.anyWorkerFeedActive() {
@@ -669,6 +678,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		cur := m.cursorItem()
+		// harvest: Enter on a finished worker materializes its deliverable into the
+		// notebook (parsed into nodes), leaving the spent worker as a receipt.
+		if m.tempActive && cur != nil && cur.typ == database.TypeWorker {
+			if m.harvestWorker(cur) {
+				return m, nil
+			}
+		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
 		// node and its whole subtree intact and push it down, opening an empty node

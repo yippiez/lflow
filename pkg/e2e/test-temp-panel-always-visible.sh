@@ -39,14 +39,16 @@ send Down
 wait_for "◌"
 assert_contains "○ only node"
 
-# Step 3: type "scratch" — it lands in the temp panel.
+# Step 3: type "scratch" — it lands in the temp panel. Temp defaults to a worker
+# node, so it renders with the dashed ◌ glyph plus the ✦ worker sign.
 type "scratch"
 
-wait_for "◌ scratch"
+wait_for "scratch"
 
 # Core assertion: both the main node and the temp node are visible at the same time.
 assert_contains "○ only node"
-assert_contains "◌ scratch"
+assert_contains "scratch"
+assert_contains "◌"            # the dashed temp glyph is present
 
 # The temp node must use the dashed glyph, not the plain bullet.
 assert_not_contains "○ scratch"
@@ -54,7 +56,7 @@ assert_not_contains "○ scratch"
 # Verify layout order: main node appears ABOVE the temp node in the pane.
 pane="$(snapshot)"
 main_line="$(printf '%s\n' "$pane" | grep -n '○ only node' | head -1 | cut -d: -f1)"
-temp_line="$(printf '%s\n' "$pane" | grep -n '◌ scratch' | head -1 | cut -d: -f1)"
+temp_line="$(printf '%s\n' "$pane" | grep -n 'scratch' | head -1 | cut -d: -f1)"
 if ! (( main_line < temp_line )); then
     fail "expected '○ only node' above '◌ scratch', got main on line ${main_line}, temp on line ${temp_line}"
 fi

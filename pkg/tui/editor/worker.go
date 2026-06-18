@@ -95,6 +95,13 @@ type workerActivityMsg struct {
 	act  workerActivity
 }
 
+// workerDeliverableMsg carries the finish_worker markdown — the harvestable
+// result that Enter materializes into the notebook.
+type workerDeliverableMsg struct {
+	uuid     string
+	markdown string
+}
+
 // toggleWorkerOutput shows/hides a worker node's full transcript (alt+e). The
 // transcript is otherwise hidden — only the compact status chip shows inline.
 func (m *Model) toggleWorkerOutput(it *item) {
@@ -272,7 +279,9 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 					Markdown string `json:"markdown"`
 				}
 				if json.Unmarshal(ev.Args, &fw) == nil && fw.Markdown != "" {
-					ch <- bashLineMsg{uuid, strings.TrimSpace(fw.Markdown), false} // the deliverable
+					md := strings.TrimSpace(fw.Markdown)
+					ch <- bashLineMsg{uuid, md, false}        // transcript (expanded view)
+					ch <- workerDeliverableMsg{uuid, md}      // harvestable result (Enter)
 				}
 				break
 			}

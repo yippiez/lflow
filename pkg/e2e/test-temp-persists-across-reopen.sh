@@ -53,12 +53,13 @@ wait_for "○ keepme"
 send Down
 wait_for "◌"
 
-# --- step 3: name the temp node ---
+# --- step 3: name the temp node (temp defaults to a worker, dashed ◌ + ✦ sign) ---
 type "scratchy"
-wait_for "◌ scratchy"
+wait_for "scratchy"
 
 assert_contains "○ keepme"
-assert_contains "◌ scratchy"
+assert_contains "scratchy"
+assert_contains "◌"
 
 # --- step 4: persist and reopen ---
 send C-s
@@ -68,8 +69,9 @@ assert_no_crash
 reopen
 
 # --- assertions after reopen: temp content SURVIVES ---
-wait_for "◌ scratchy" 8
-assert_contains "◌ scratchy"        # temp node re-rendered from the DB
+wait_for "scratchy" 8
+assert_contains "scratchy"          # temp node re-rendered from the DB
+assert_contains "◌"                 # still in the dashed temp panel
 assert_contains "○ keepme"          # main outline survived too
 
 # DB level: the temp node is persisted under the "temp" root.
