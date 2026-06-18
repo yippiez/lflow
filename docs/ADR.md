@@ -420,3 +420,39 @@ Live-query results were ephemeral (the `derived` flag skipped them on save), so 
 When
 2026-06-18 — supersedes c5f9957 (ripgrep→notes) and the derived-mirror approach
 ---
+
+---
+title: lflow and pchain will merge — keep the agent model aligned
+
+Why
+pchain (a pi coding-agent extension, see work2/pchain) and lflow (this TUI, plus a planned mobile app and app server) are converging products and will be merged. Design the worker/agent surface so the two stay compatible: a lflow worker node is effectively the face of a pchain-style agent job (task, status, usage ↑in ↓out $cost, lastActions/activity stream, deliverable). lflow already mirrors pchain's compact job line and colored tool-call stream. Decisions touching agents should preserve this alignment.
+
+When
+2026-06-18 — strategic (no commit; future reference)
+---
+
+---
+title: Temporary Domain gains 7-day retention — persisted with a TTL, no longer session-ephemeral
+
+Why
+The temp space is the agent/worker surface and must keep work (and agent "receipts") across restarts, but must not clutter the permanent notebook. Decision: temp content persists locally with a 7-day retention window, then is cleaned up — a TTL store, not the session-only db=nil model. This supersedes "Temporary Domain is ephemeral — db=nil". Open: exact store (separate agent/temp store vs a flagged region of the notes db), whether temp ever syncs (lean: local-only, not synced).
+
+When
+2026-06-18 — design decision (supersedes the db=nil temp model; not yet implemented)
+---
+
+---
+title: Agent/worker workflow — temp is the lab, main is the notebook
+
+Why
+Brainstorm direction for integrating agents, kept aligned with pchain (lab=temp, notebook=main; only distilled results cross the border). Decisions so far:
+- Temp is the agent surface: a new node created in temp DEFAULTS to a worker; some node types are temp-only (lean: worker is temp-only).
+- A worker is a LEAF job, not a container. Task = the worker node's own text.
+- Context = references to other nodes (lflow mirror/link primitive), NOT children and NOT its note. Any node can be context, including other workers. Leaning: select-and-attach, shown as a dim "context · N" chip.
+- Output is NOT a child (input-as-child + output-as-child was rejected as a clash). The deliverable is held by the worker, viewable via expand (alt+e), and crosses into main only by pressing Enter on a finished worker, which MATERIALIZES a copy at the main cursor (a real subtree/note, since temp→main can't mirror an ephemeral source). Spent worker stays as a re-runnable receipt.
+- Workers are ordinary movable nodes but position is behavior-free (cosmetic); temp reads as a flat job list, matching pchain's job model.
+Open: context gesture details; whether result materializes as a parsed subtree vs flat note; whether query nodes are also temp-only.
+
+When
+2026-06-18 — brainstorm/design (not yet implemented)
+---
