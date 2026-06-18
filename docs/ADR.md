@@ -465,3 +465,13 @@ Resolves the open store question from the 7-day-retention decision. Instead of a
 When
 2026-06-18 — design decision (refines the temp 7-day-retention entry; not yet implemented)
 ---
+
+---
+title: Send-to-worker gesture — alt+s appends, alt+shift+s starts new
+
+Why
+Mirroring notes into a temp worker one by one is painful, and giving the agent pull/retrieval tools was rejected (context must be explicit/pushed). So context is composed by "sending" Root nodes to a worker: alt+s adds the focused node to the most-recent worker (mirrored in as a context child), creating one if none exists; alt+shift+s always starts a new worker from the focused node. "Most-recent worker" means the most-recent UNRUN/draft worker — once a worker is run, the next alt+s starts a fresh draft rather than appending to a finished job. The current/draft worker is shown highlighted in the temp panel so the user knows where alt+s lands. No timer (an earlier "same node within 30s" idea was dropped as unpredictable). Whole subtrees come for free by sending a parent (mirrors carry the live subtree); multi-select+send is the bulk last resort. Pull-via-tools (#3) and query-as-context (#5) were rejected. Context stays = worker message + note + children.
+
+When
+2026-06-18 — design decision (not yet implemented)
+---
