@@ -801,9 +801,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case "alt+t":
-		m.toggleTemp() // enter/leave the ephemeral Temporary Domain
-		return m, nil
 	case "alt+up", "ctrl+up":
 		// collapse the cursor node
 		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && !cur.collapsed {
@@ -839,6 +836,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			prev := m.selectedVisualRows()
 			m.caret = m.caretAtColumn(prev, len(prev)-1, goal)
 			m.clampCaret()
+		} else if m.tempActive {
+			// at the very top of the Temporary Domain: go back up into the main outline
+			m.exitTemp()
 		}
 		return m, nil
 	case "down":
@@ -855,6 +855,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 			m.caret = m.caretAtColumn(m.selectedVisualRows(), 0, goal)
 			m.clampCaret()
+		} else if !m.tempActive {
+			// past the last node of the main outline: drop into the Temporary Domain
+			m.enterTemp()
 		}
 		return m, nil
 	case "left":
@@ -2028,6 +2031,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 		if r.mirrored {
 			glyph, glyphColor = glyphMirror, cRed
 		}
+		if m.tempActive && !r.mirrored {
+			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
+		}
 		if selected {
 			glyphColor = cRed
 		}
@@ -2189,21 +2195,21 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	state := ""
 	if m.unsaved {
-		state = " - unsaved"
+		state = " · unsaved"
 	}
 	if m.sched.inFlight {
 		// state, not a countdown: only shown while a sync is actually running
-		state += " - syncing"
+		state += " · syncing"
 	}
 	if m.flash != "" {
-		state += " - " + m.flash
+		state += " · " + m.flash
 	}
 	// offer the date conversion while a non-canonical time phrase sits under the
 	// cursor; an already-canonical date needs no conversion and is chipped as-is
 	if m.mode == modeOutline {
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
-				state += fmt.Sprintf(" - ctrl+t %q -> %s", d.phrase, d.canonical())
+				state += fmt.Sprintf(" · ctrl+t %q → %s", d.phrase, d.canonical())
 			}
 		}
 	}
@@ -2216,21 +2222,18 @@ func (m *Model) bottomBar(maxLine int) string {
 		}
 		parts = append(parts, name)
 	}
-	if m.tempActive {
-		// inside the ephemeral Temporary Domain — a dashed boundary, no title
-		d := strings.Repeat("╌", 6)
-		bar := fmt.Sprintf(" %s  scratch %d/%d · alt+t leave  %s", d, pos, total, d)
-		return clip(cDim+bar+cReset, maxLine)
-	}
 	title := strings.Join(parts, " › ")
 	if title == "" {
 		title = "untitled"
 	}
-	bar := fmt.Sprintf(" %s - %d/%d%s", title, pos, total, state)
-	if m.mode == modeOutline {
-		// muted dashed access affordance for the Temporary Domain (alt+t)
-		bar += "  " + strings.Repeat("╌", 6) + " alt+t"
+	bar := fmt.Sprintf(" %s · %d/%d", title, pos, total)
+	if model, thinking := piModelInfo(); model != "" {
+		bar += " · " + model
+		if thinking != "" {
+			bar += " · " + thinking
+		}
 	}
+	bar += state
 	return clip(cDim+bar+cReset, maxLine)
 }
 

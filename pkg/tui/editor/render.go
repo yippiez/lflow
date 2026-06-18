@@ -43,6 +43,7 @@ const (
 	glyphTodo      = "□"
 	glyphTodoDone  = "■"
 	glyphQuoteBar  = "▎"
+	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
 )
 
 // visibleWidth returns the display width of s ignoring SGR sequences. Runs of
