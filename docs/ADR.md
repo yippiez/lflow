@@ -475,3 +475,13 @@ Mirroring notes into a temp worker one by one is painful, and giving the agent p
 When
 2026-06-18 — design decision (not yet implemented)
 ---
+
+---
+title: Harvest format = parse the deliverable markdown into nodes (pchain-style)
+
+Why
+Resolves the last open agent question. There is no subtree-vs-flat-note switch: the worker's finish_worker markdown is parsed into nodes on harvest, so the shape follows the model's output — plain prose becomes one node, bulleted/nested markdown becomes a subtree. Mirrors pchain exactly: finish_worker stores markdown verbatim ("one node by default, no title wrapper"), and OutlineRenderMarkdownPreview/nodeStoreFromMarkdown (TextPrepareOutlineMarkdown → parse) turns it into outline rows. Port that markdown→nodes parser for lflow's Enter-harvest into Root. Also confirmed in pchain: a worker carries an origin (outline:nodeId) and streams live updates back to that node — matches lflow's launch-in-place + inline activity stream.
+
+When
+2026-06-18 — design decision (closes the agent-workflow open items; not yet implemented)
+---
