@@ -45,6 +45,9 @@ type tree struct {
 	// resolved names for mirrors whose originals are outside the tree
 	externalNames map[string]string
 	byUUID        map[string]*item
+	// defaultType is the node type new items get (empty = bullets). The temp tree
+	// sets it to worker so the agent surface defaults to a worker node.
+	defaultType string
 }
 
 // loadTree loads the subtree rooted at rootUUID into memory.
@@ -347,7 +350,11 @@ func (t *tree) newItem() (*item, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "generating uuid")
 	}
-	it := &item{uuid: uuid, typ: database.TypeBullets, isNew: true}
+	typ := database.TypeBullets
+	if t.defaultType != "" {
+		typ = t.defaultType // the temp tree defaults new nodes to worker
+	}
+	it := &item{uuid: uuid, typ: typ, isNew: true}
 	t.byUUID[uuid] = it
 	return it, nil
 }

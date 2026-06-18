@@ -1516,15 +1516,16 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // filteredTypes returns the node-type keys matching the picker's search query
 // (case-insensitive substring over the label), in registry order.
 func (m *Model) filteredTypes() []string {
-	if m.typeQuery == "" {
-		return typeOrder
-	}
 	q := strings.ToLower(m.typeQuery)
 	var ret []string
 	for _, t := range typeOrder {
-		if strings.Contains(strings.ToLower(typeLabels[t]), q) {
-			ret = append(ret, t)
+		if typeOf(t).tempOnly && !m.tempActive {
+			continue // temp-only types (worker) are not offered in the notebook
 		}
+		if q != "" && !strings.Contains(strings.ToLower(typeLabels[t]), q) {
+			continue
+		}
+		ret = append(ret, t)
 	}
 	return ret
 }
@@ -2572,6 +2573,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	if err != nil {
 		return errors.Wrap(err, "loading temp tree")
 	}
+	tempTree.defaultType = database.TypeWorker // temp is the agent surface
 
 	m := &Model{
 		db:        ctx.DB,

@@ -24,6 +24,7 @@ type nodeType struct {
 	render         func(it *item, name string) string  // stateless inline-body override; nil → default
 	renderM        func(m *Model, it *item) string     // Model-aware inline-body override (voice waveform)
 	inlineEditable bool                                // false → typing/backspace/enter is a no-op
+	tempOnly       bool                                // only offered/allowed in the Temporary Domain
 	expand         func(m *Model, it *item)           // alt+e action; nil → none
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 }
@@ -57,7 +58,7 @@ var nodeTypes = []nodeType{
 		expand:  playVoice,
 	},
 	{
-		key: database.TypeWorker, label: "Worker", sign: "✦ ", inlineEditable: true,
+		key: database.TypeWorker, label: "Worker", sign: "✦ ", inlineEditable: true, tempOnly: true,
 		run:    runWorker,
 		expand: func(m *Model, it *item) { m.toggleWorkerOutput(it) }, // alt+e shows/hides full output
 	},
