@@ -485,3 +485,13 @@ Resolves the last open agent question. There is no subtree-vs-flat-note switch: 
 When
 2026-06-18 — design decision (closes the agent-workflow open items; not yet implemented)
 ---
+
+---
+title: Agent/worker workflow + temp persistence — implemented
+
+Why
+The agreed design shipped end to end. Temp is now a persisted, synced second root ("temp") with a 7-day startup TTL sweep (by newest unique descendant); new temp nodes default to Worker and Worker is temp-only. Context = the worker node's message + note + children; alt+s sends a notebook node to the current draft worker as a context mirror (adopting the empty placeholder) and alt+shift+s starts a new one; running clears the draft pointer. buildWorkerTask assembles message+note+children for the agent. The worker streams a queued one-line colored activity status (Starting… → tool calls → done) with a token/cost chip, full transcript on alt+e. Pressing Enter on a finished worker harvests its finish_worker markdown into the notebook, parsed into nodes (prose→one node, bullets→subtree), leaving the spent worker as a receipt. Notebook finders exclude the temp subtree.
+
+When
+2026-06-18 — fdd1489 (temp two-root persistence), + temp-default-worker, send-to-worker (alt+s/alt+shift+s), harvest-on-Enter chunks; 27/27 e2e pass
+---
