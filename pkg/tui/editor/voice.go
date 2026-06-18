@@ -84,7 +84,7 @@ func playVoice(m *Model, it *item) {
 // voiceRender is the inline display: recording state, or a ▸ waveform + duration.
 func (m *Model) voiceRender(it *item) string {
 	if _, recording := m.voiceRec[it.uuid]; recording {
-		return cRed + "●" + cReset + " " + cDim + "recording…  (alt+r to stop)" + cReset
+		return cRed + "●" + cReset + " " + cDim + "recording · ⌥r stop" + cReset
 	}
 	env := m.voiceEnv[it.uuid]
 	if len(env) == 0 { // lazily load from disk (e.g. after reopen)
@@ -97,11 +97,11 @@ func (m *Model) voiceRender(it *item) string {
 		}
 	}
 	if len(env) == 0 {
-		return cDim + "▸ (empty — alt+r to record)" + cReset
+		return cDim + "▸ empty · ⌥r record" + cReset
 	}
 	dur := m.voiceDur[it.uuid]
 	return cDim + "▸ " + cReset + cAccent + envBars(env) + cReset +
-		cDim + fmt.Sprintf("  %d:%02d  (alt+e to play)", int(dur)/60, int(dur)%60) + cReset
+		cDim + fmt.Sprintf("  %d:%02d · ⌥e play", int(dur)/60, int(dur)%60) + cReset
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
