@@ -390,3 +390,33 @@ Stripped dnote's watcher, makefile, docker host files, web assets, GitHub templa
 When
 2026-06-14 — 74fc77e, 0c2d11b, 2e32ed8, 8ad5cea, f84c9d4, c873b4b, df9cb83, df1d599, 876caeb, ab1dd92, c12ab25
 ---
+
+---
+title: Temporary Domain divider is the status bar itself
+
+Why
+The always-visible temp panel needed a separator from the main notes. Rather than draw a second `╌╌ temp ╌╌` rule, the status bar (root · N/M · model · thinking) is rendered mid-frame as the divider: notes above it, temp below. One line does both jobs; the frame is padded to a constant height so the inline renderer never strands stale lines with the bar mid-frame.
+
+When
+2026-06-18 — b706044 (supersedes the brief tempDivider rule in 15305e9)
+---
+
+---
+title: /type picker is searchable and bounded
+
+Why
+With 11 node types the picker ran off the bottom of short windows and the status bar with it, and there was no way to filter. It now filters as you type (filteredTypes + a "type: <query>" header), reserves body rows for itself, and scrolls its option list (max 8 visible) so it and the status bar always fit. Also dropped parenthetical type labels ("Worker (Pi agent)" → "Worker").
+
+When
+2026-06-18
+---
+
+---
+title: Query results are persisted real mirrors, and search includes unsaved nodes
+
+Why
+Live-query results were ephemeral (the `derived` flag skipped them on save), so they reset on every relaunch and only ever found saved nodes. Now the result mirrors are REAL persisted nodes, reconciled in place on each run (keep matches, add new, tombstone stale — idempotent), so they survive a relaunch; and the search merges the in-memory tree with the DB FTS so unsaved/just-typed nodes are found too. Query nodes also show "updated <relative>" from an in-memory last-run timestamp (resets per session). This reverses the earlier ephemeral-derived-mirror decision.
+
+When
+2026-06-18 — supersedes c5f9957 (ripgrep→notes) and the derived-mirror approach
+---
