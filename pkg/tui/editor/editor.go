@@ -168,6 +168,10 @@ type Model struct {
 	// worker (Pi agent) token/cost usage, keyed by node uuid
 	workerUsage map[string]workerUsage
 
+	// query nodes: unix-seconds of the last run, keyed by node uuid, for the
+	// "updated <relative>" suffix
+	queryRunAt map[string]int64
+
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
 	undoMark  string

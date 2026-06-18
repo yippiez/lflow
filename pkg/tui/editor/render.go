@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/mattn/go-runewidth"
@@ -928,6 +929,21 @@ func jsonPreview(s string, n int) string {
 // typeSuffix returns a dim suffix describing non-default state. The note is no
 // longer flagged here — it shows in full as a tinted band under the node (see
 // noteBandLines) — so the suffix only carries mirror and collapsed-child counts.
+// relTime renders a coarse "how long ago" for a unix-seconds timestamp.
+func relTime(ts int64) string {
+	d := time.Since(time.Unix(ts, 0))
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours())/24)
+	}
+}
+
 func (m *Model) typeSuffix(it *item) string {
 	var parts []string
 	if it.mirrorOf != "" {
@@ -935,6 +951,9 @@ func (m *Model) typeSuffix(it *item) string {
 	}
 	if it.typ == database.TypeQuery {
 		parts = append(parts, fmt.Sprintf("%d hits", queryHitCount(it)))
+		if ts := m.queryRunAt[it.uuid]; ts > 0 {
+			parts = append(parts, "updated "+relTime(ts))
+		}
 	}
 	if kids := m.tree.childItems(it); len(kids) > 0 && it.collapsed {
 		noun := "children"
