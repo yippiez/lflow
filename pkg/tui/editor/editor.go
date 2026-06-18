@@ -169,6 +169,12 @@ type Model struct {
 	workerUsage map[string]workerUsage
 	// worker nodes whose full transcript is expanded (alt+e); default collapsed
 	workerExpanded map[string]bool
+	// worker live-activity stream: a queue of updates per node, the one currently
+	// shown, and how many ticks it has been held (drains faster as the queue grows)
+	workerQueue    map[string][]workerActivity
+	workerCur      map[string]workerActivity
+	workerCurTicks map[string]int
+	workerTicking  bool
 
 	// query nodes: unix-seconds of the last run, keyed by node uuid, for the
 	// "updated <relative>" suffix
@@ -473,6 +479,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workerUsage = map[string]workerUsage{}
 		}
 		m.workerUsage[msg.uuid] = msg.usage
+		return m, waitBashCmd(m.runCh[msg.uuid])
+	case workerActivityMsg:
+		if m.workerQueue == nil {
+			m.workerQueue = map[string][]workerActivity{}
+			m.workerCur = map[string]workerActivity{}
+			m.workerCurTicks = map[string]int{}
+		}
+		m.workerQueue[msg.uuid] = append(m.workerQueue[msg.uuid], msg.act)
+		var tick tea.Cmd
+		if !m.workerTicking {
+			m.workerTicking = true
+			tick = workerTick()
+		}
+		return m, tea.Batch(tick, waitBashCmd(m.runCh[msg.uuid]))
+	case workerTickMsg:
+		m.advanceWorkerFeeds()
+		if m.anyWorkerFeedActive() {
+			return m, workerTick()
+		}
+		m.workerTicking = false
 		return m, nil
 	case voiceDoneMsg:
 		if m.voiceEnv == nil {
@@ -2125,7 +2151,11 @@ func (m *Model) viewOutline(maxLine int) []string {
 			noteCaret = m.caret
 		}
 		bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-		bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
+		if it.typ == database.TypeWorker {
+			bands[i] = append(bands[i], m.workerBandLines(r, below, maxLine)...)
+		} else {
+			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
+		}
 	}
 
 	// The Temporary Domain panel is always visible during normal editing — only

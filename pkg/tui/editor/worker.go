@@ -8,8 +8,11 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // A worker node: its name is a task for the Pi coding agent. alt+r runs a turn.
@@ -64,19 +67,31 @@ func (msg *piMessage) text() string {
 	return strings.TrimSpace(b.String())
 }
 
-// workerUsage is the running token/cost total + latest activity shown next to a
-// worker node. The full transcript is kept separately and only shown when the
-// node is expanded (alt+e).
+// workerUsage is the running token/cost total shown next to a worker node. The
+// full transcript is kept separately and only shown when expanded (alt+e); the
+// live activity streams on a one-line status below the node.
 type workerUsage struct {
 	model   string
 	in, out int
 	cost    float64
-	action  string // the latest activity (current tool call / streaming summary)
 }
 
 type workerUsageMsg struct {
 	uuid  string
 	usage workerUsage
+}
+
+// workerActivity is one streamed unit of "what the agent is doing" — a tool call
+// (with a short detail) or a plain status line. They are queued and shown one at
+// a time on the status line below the node.
+type workerActivity struct {
+	tool string // the tool name (colored), "" for a plain status
+	text string // detail (file/command) or status text
+}
+
+type workerActivityMsg struct {
+	uuid string
+	act  workerActivity
 }
 
 // toggleWorkerOutput shows/hides a worker node's full transcript (alt+e). The
@@ -146,8 +161,7 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 		switch ev.Type {
 		case "tool_execution_start":
 			if ev.ToolName == "finish_worker" {
-				use.action = "finishing"
-				ch <- workerUsageMsg{uuid, use}
+				ch <- workerActivityMsg{uuid, workerActivity{tool: "finish_worker", text: "writing result"}}
 				var fw struct {
 					Markdown string `json:"markdown"`
 				}
@@ -156,13 +170,14 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 				}
 				break
 			}
+			// queue the live activity (colored tool name + a short detail)…
+			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: toolDetail(ev.Args)}}
+			// …and keep the raw line in the transcript (expanded view only)
 			line := "→ " + ev.ToolName
 			if s := clipStr(string(ev.Args), 50); s != "" && s != "{}" {
 				line += " " + s
 			}
-			use.action = ev.ToolName // latest activity, shown streaming in the chip
-			ch <- workerUsageMsg{uuid, use}
-			ch <- bashLineMsg{uuid, line, false} // full transcript (expanded view only)
+			ch <- bashLineMsg{uuid, line, false}
 		case "message_end":
 			if ev.Message == nil {
 				break
@@ -184,6 +199,7 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 				ch <- workerUsageMsg{uuid, use}
 			}
 		case "agent_end":
+			ch <- workerActivityMsg{uuid, workerActivity{text: "done"}}
 			stdin.Close()
 			_ = c.Wait()
 			ch <- bashDoneMsg{uuid, 0}
@@ -210,23 +226,159 @@ func ktok(n int) string {
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
-// workerSuffix is the compact streaming status chip next to a worker node:
-// status · ↑in ↓out $cost · last action. The full transcript lives in the
-// expanded view (alt+e), never inline. Grounded in work2/pchain's job line.
+// workerSuffix is the compact token/cost chip next to a worker node. The live
+// activity is streamed on the status line below the node (workerBandLines), not
+// here. Grounded in work2/pchain's job line.
 func (m *Model) workerSuffix(it *item) string {
 	u, ok := m.workerUsage[it.uuid]
-	_, running := m.runCancel[it.uuid]
-	if !ok && !running {
+	if !ok {
 		return ""
 	}
-	status := "done"
-	if running {
-		status = "running"
+	return cDim + fmt.Sprintf(" ┊ ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset
+}
+
+// --- streaming activity queue -------------------------------------------------
+//
+// Each worker keeps a queue of activity updates. One is shown at a time on the
+// status line below the node for a few ticks; the more the queue backs up, the
+// shorter each is shown, so the stream catches up instead of falling behind.
+
+const workerTickEvery = 150 * time.Millisecond
+const workerBaseTicks = 10 // ~1.5s per item with an empty backlog
+
+type workerTickMsg time.Time
+
+func workerTick() tea.Cmd {
+	return tea.Tick(workerTickEvery, func(t time.Time) tea.Msg { return workerTickMsg(t) })
+}
+
+// workerHoldTicks is how long the current item is held before advancing, shrinking
+// as the backlog grows so a busy stream drains faster.
+func workerHoldTicks(backlog int) int {
+	n := workerBaseTicks / (backlog + 1)
+	if n < 2 {
+		n = 2
 	}
-	s := cDim + " ┊ " + status
-	s += fmt.Sprintf(" · ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost)
-	if u.action != "" {
-		s += " · " + clipStr(u.action, 40)
+	return n
+}
+
+// advanceWorkerFeeds advances each worker's displayed activity: it pops the next
+// queued item once the current one has been shown long enough for the backlog.
+func (m *Model) advanceWorkerFeeds() {
+	for uuid, q := range m.workerQueue {
+		if len(q) == 0 {
+			continue
+		}
+		_, hasCur := m.workerCur[uuid]
+		if !hasCur || m.workerCurTicks[uuid] >= workerHoldTicks(len(q)) {
+			m.workerCur[uuid] = q[0]
+			m.workerQueue[uuid] = q[1:]
+			m.workerCurTicks[uuid] = 0
+		} else {
+			m.workerCurTicks[uuid]++
+		}
 	}
-	return s + cReset
+}
+
+// anyWorkerFeedActive reports whether the activity tick should keep firing: any
+// queued items, or any worker still running.
+func (m *Model) anyWorkerFeedActive() bool {
+	for _, q := range m.workerQueue {
+		if len(q) > 0 {
+			return true
+		}
+	}
+	for uuid := range m.runCancel {
+		if it := m.tree.byUUID[uuid]; it != nil && it.typ == database.TypeWorker {
+			return true
+		}
+	}
+	return false
+}
+
+// workerBandLines is the worker's hanging band: the full transcript when expanded
+// (alt+e), otherwise a single streaming status line — "Starting…" then colored
+// tool calls — drawn under the node.
+func (m *Model) workerBandLines(r row, subtreeBelow bool, maxLine int) []string {
+	uuid := r.it.uuid
+	rail := continuationPrefix(r, subtreeBelow)
+	_, running := m.runCancel[uuid]
+
+	if m.workerExpanded[uuid] {
+		var lines []string
+		for _, l := range m.runOut[uuid] {
+			col := cFG
+			if l.err {
+				col = cRed
+			}
+			lines = append(lines, clip(rail+cReset+col+"  "+l.text+cReset, maxLine))
+		}
+		if running {
+			lines = append(lines, clip(rail+cReset+cDim+"  running…"+cReset, maxLine))
+		}
+		return lines
+	}
+
+	cur, hasCur := m.workerCur[uuid]
+	if !running && !hasCur {
+		return nil
+	}
+	var body string
+	switch {
+	case !hasCur:
+		body = cDim + "Starting…" + cReset
+	case cur.tool != "":
+		body = toolColor(cur.tool) + toolLabel(cur.tool) + cReset
+		if cur.text != "" {
+			body += cDim + " " + cur.text + cReset
+		}
+	default:
+		body = cDim + cur.text + cReset
+	}
+	return []string{clip(rail+cReset+"  "+body, maxLine)}
+}
+
+// toolLabel title-cases a pi tool name for the status line (Read, Bash, Edit…).
+func toolLabel(tool string) string {
+	switch strings.ToLower(tool) {
+	case "finish_worker":
+		return "Finish"
+	case "":
+		return ""
+	default:
+		t := strings.ToLower(tool)
+		return strings.ToUpper(t[:1]) + t[1:]
+	}
+}
+
+// toolColor maps a pi tool to a palette color, like pchain's colored tool names.
+func toolColor(tool string) string {
+	switch strings.ToLower(tool) {
+	case "read":
+		return cAccent
+	case "write", "edit":
+		return cGreen
+	case "bash":
+		return cMagenta
+	case "grep", "find", "ls", "glob", "search":
+		return cCyan
+	case "finish_worker":
+		return cYellow
+	default:
+		return cFG
+	}
+}
+
+// toolDetail pulls a short, human detail (file or command) out of a tool's args.
+func toolDetail(args json.RawMessage) string {
+	var m map[string]any
+	if json.Unmarshal(args, &m) != nil {
+		return ""
+	}
+	for _, k := range []string{"path", "file", "file_path", "filename", "command", "cmd", "pattern", "query", "url"} {
+		if v, ok := m[k].(string); ok && v != "" {
+			return clipStr(v, 48)
+		}
+	}
+	return ""
 }
