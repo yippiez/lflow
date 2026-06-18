@@ -44,9 +44,8 @@ type "$CMD"
 wait_for "○ $CMD"
 assert_not_contains "○ \$ $CMD"
 
-# Step 2: open the slash-command picker and navigate to /type.
+# Step 2: open the slash-command picker and filter to /type (bounded scrolling list).
 send /
-wait_for "/type" 5
 send t
 send y
 send p

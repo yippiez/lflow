@@ -167,6 +167,8 @@ type Model struct {
 
 	// worker (Pi agent) token/cost usage, keyed by node uuid
 	workerUsage map[string]workerUsage
+	// worker nodes whose full transcript is expanded (alt+e); default collapsed
+	workerExpanded map[string]bool
 
 	// query nodes: unix-seconds of the last run, keyed by node uuid, for the
 	// "updated <relative>" suffix
@@ -364,6 +366,22 @@ func (m *Model) clampCursor() {
 // the height is known we honour it down to a single line so the selected row
 // always stays on screen at tiny sizes; the default only covers the window
 // before the first WindowSizeMsg sets a real height.
+// scrollStart returns the first index of a fixed-height scrolling window of size
+// `window` over `total` items that keeps the selected index `sel` in view.
+func scrollStart(sel, total, window int) int {
+	if window < 1 || total <= window || sel < window {
+		return 0
+	}
+	start := sel - window + 1
+	if start > total-window {
+		start = total - window
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
+}
+
 func (m *Model) rowBudget() int {
 	if m.height <= 0 {
 		return 18
@@ -2132,26 +2150,38 @@ func (m *Model) viewOutline(maxLine int) []string {
 		focusedBudget = tempBudget
 	}
 
-	const typePickerMaxRows = 8 // most option rows the /type picker shows at once
+	const pickerMaxRows = 8 // most option rows any picker shows at once before scrolling
 
 	maxRows := focusedBudget
-	// The /type picker is a modal overlay drawn above the status bar. Reserve rows
-	// for it (a search header + its visible options) by shrinking the body budget,
-	// so the picker and the status bar never run off the bottom of the screen.
-	typePickerRows := 0
-	if m.mode == modeType {
-		want := len(m.filteredTypes()) + 1 // +1 search header
-		if want > typePickerMaxRows+1 {
-			want = typePickerMaxRows + 1
+	// Pickers (slash menu, /type, /style) are modal overlays drawn above the status
+	// bar. Each reserves a small, FIXED-height scrolling window by shrinking the body
+	// budget, so the picker never takes over the screen — the outline stays visible
+	// and the list scrolls to keep the selection in view. typePickerRows includes the
+	// /type search header.
+	pickerItems, typePickerRows := 0, 0
+	switch m.mode {
+	case modeSlash:
+		pickerItems = len(m.filteredSlash())
+	case modeStyle:
+		pickerItems = len(stylePickerItems)
+	case modeType:
+		pickerItems = len(m.filteredTypes())
+		typePickerRows = 1 // the "type:" search header
+	}
+	pickerRows := 0
+	if pickerItems > 0 || typePickerRows > 0 {
+		win := pickerItems
+		if win > pickerMaxRows {
+			win = pickerMaxRows
 		}
-		if want > rowBudget-1 { // always leave at least one body row
-			want = rowBudget - 1
+		pickerRows = win + typePickerRows
+		if pickerRows > rowBudget-1 { // always leave at least one body row
+			pickerRows = rowBudget - 1
 		}
-		if want < 1 {
-			want = 1
+		if pickerRows < 1 {
+			pickerRows = 1
 		}
-		typePickerRows = want
-		maxRows = rowBudget - typePickerRows
+		maxRows = rowBudget - pickerRows
 		if maxRows < 1 {
 			maxRows = 1
 		}
@@ -2222,15 +2252,15 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// which forces the repaint. The menu is trimmed to the rows left under the
 	// body so body + menu + bar still fits the window height.
 	if m.mode == modeSlash {
-		menuRoom := len(flat[start:end]) // rows the body actually drew
-		if m.height > 0 {
-			menuRoom = m.height - 1 - len(flat[start:end]) // reserve the bar
-		}
 		cmds := m.filteredSlash()
-		for i, c := range cmds {
-			if m.height > 0 && i >= menuRoom {
-				break
-			}
+		win := pickerMaxRows
+		s2 := scrollStart(m.slashSel, len(cmds), win)
+		e2 := s2 + win
+		if e2 > len(cmds) {
+			e2 = len(cmds)
+		}
+		for i := s2; i < e2; i++ {
+			c := cmds[i]
 			mark := "  "
 			if i == m.slashSel {
 				mark = cAccent + "▸ " + cReset
@@ -2257,20 +2287,13 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 		lines = append(lines, clip(" "+cDim+"type: "+cReset+query, maxLine))
 
-		visible := typePickerRows - 1 // the header took one row
-		if visible < 1 {
-			visible = 1
+		win := pickerMaxRows
+		s2 := scrollStart(m.typeSel, len(filt), win)
+		e2 := s2 + win
+		if e2 > len(filt) {
+			e2 = len(filt)
 		}
-		// scroll the list so the selection stays in view
-		start := 0
-		if m.typeSel >= visible {
-			start = m.typeSel - visible + 1
-		}
-		end := start + visible
-		if end > len(filt) {
-			end = len(filt)
-		}
-		for i := start; i < end; i++ {
+		for i := s2; i < e2; i++ {
 			mark := "  "
 			if i == m.typeSel {
 				mark = cAccent + "▸ " + cReset
@@ -2282,7 +2305,14 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// the /style picker lists text style toggles and color swatches above the status line
 	if m.mode == modeStyle {
 		cur := m.cursorItem()
-		for i, it := range stylePickerItems {
+		win := pickerMaxRows
+		s2 := scrollStart(m.styleSel, len(stylePickerItems), win)
+		e2 := s2 + win
+		if e2 > len(stylePickerItems) {
+			e2 = len(stylePickerItems)
+		}
+		for i := s2; i < e2; i++ {
+			it := stylePickerItems[i]
 			mark := "  "
 			if i == m.styleSel {
 				mark = cAccent + "▸ " + cReset

@@ -73,27 +73,14 @@ func (m *Model) tempRowCount() int {
 }
 
 // tempPanelBudget is how many screen lines the persistent temp panel may occupy.
-// Focused it may grow to two-thirds of the body; idle it stays a small glance
-// strip. It always leaves at least one line for the main outline.
+// It grows to fit all of its nodes — no artificial cap — bounded only by the
+// physical screen (always leaving at least one row for the main outline).
 func (m *Model) tempPanelBudget(rowBudget int) int {
 	want := m.tempRowCount()
 	if want < 1 {
 		want = 1
 	}
-	cap := rowBudget / 3
-	if cap > 6 {
-		cap = 6
-	}
-	if m.tempActive {
-		cap = rowBudget * 2 / 3
-	}
-	if cap < 1 {
-		cap = 1
-	}
-	if want > cap {
-		want = cap
-	}
-	if want > rowBudget-1 {
+	if want > rowBudget-1 { // leave at least one row for the main outline
 		want = rowBudget - 1
 	}
 	if want < 1 {

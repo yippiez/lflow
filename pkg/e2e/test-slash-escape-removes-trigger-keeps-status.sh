@@ -40,9 +40,9 @@ assert_not_contains "○ hello/"
 # Step 2: type "/" to open the slash command menu.
 type "/"
 
-# The slash menu should now be open. Wait for one of its items to appear so we
-# know the menu rendered (it always lists at least a "type" command).
-wait_for "type"
+# The slash menu should now be open. Wait for its first entry "/complete" to
+# appear (the bounded list always shows it; "/type" scrolls in only on filter).
+wait_for "/complete"
 
 # Step 3: press Escape to dismiss the menu without choosing a command.
 send Escape

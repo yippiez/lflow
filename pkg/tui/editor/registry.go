@@ -57,8 +57,9 @@ var nodeTypes = []nodeType{
 		expand:  playVoice,
 	},
 	{
-		key: database.TypeWorker, label: "Worker", inlineEditable: true,
-		run: runWorker,
+		key: database.TypeWorker, label: "Worker", sign: "✦ ", inlineEditable: true,
+		run:    runWorker,
+		expand: func(m *Model, it *item) { m.toggleWorkerOutput(it) }, // alt+e shows/hides full output
 	},
 }
 

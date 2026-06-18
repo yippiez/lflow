@@ -64,16 +64,28 @@ func (msg *piMessage) text() string {
 	return strings.TrimSpace(b.String())
 }
 
-// workerUsage is the running token/cost total shown next to a worker node.
+// workerUsage is the running token/cost total + latest activity shown next to a
+// worker node. The full transcript is kept separately and only shown when the
+// node is expanded (alt+e).
 type workerUsage struct {
 	model   string
 	in, out int
 	cost    float64
+	action  string // the latest activity (current tool call / streaming summary)
 }
 
 type workerUsageMsg struct {
 	uuid  string
 	usage workerUsage
+}
+
+// toggleWorkerOutput shows/hides a worker node's full transcript (alt+e). The
+// transcript is otherwise hidden — only the compact status chip shows inline.
+func (m *Model) toggleWorkerOutput(it *item) {
+	if m.workerExpanded == nil {
+		m.workerExpanded = map[string]bool{}
+	}
+	m.workerExpanded[it.uuid] = !m.workerExpanded[it.uuid]
 }
 
 func runWorker(m *Model, it *item) tea.Cmd {
@@ -134,6 +146,8 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 		switch ev.Type {
 		case "tool_execution_start":
 			if ev.ToolName == "finish_worker" {
+				use.action = "finishing"
+				ch <- workerUsageMsg{uuid, use}
 				var fw struct {
 					Markdown string `json:"markdown"`
 				}
@@ -146,7 +160,9 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 			if s := clipStr(string(ev.Args), 50); s != "" && s != "{}" {
 				line += " " + s
 			}
-			ch <- bashLineMsg{uuid, line, false}
+			use.action = ev.ToolName // latest activity, shown streaming in the chip
+			ch <- workerUsageMsg{uuid, use}
+			ch <- bashLineMsg{uuid, line, false} // full transcript (expanded view only)
 		case "message_end":
 			if ev.Message == nil {
 				break
@@ -194,16 +210,23 @@ func ktok(n int) string {
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
-// workerSuffix is the cost/token chip shown next to a worker node.
+// workerSuffix is the compact streaming status chip next to a worker node:
+// status · ↑in ↓out $cost · last action. The full transcript lives in the
+// expanded view (alt+e), never inline. Grounded in work2/pchain's job line.
 func (m *Model) workerSuffix(it *item) string {
 	u, ok := m.workerUsage[it.uuid]
-	if !ok {
+	_, running := m.runCancel[it.uuid]
+	if !ok && !running {
 		return ""
 	}
-	s := cDim + " ┊ "
-	if u.model != "" {
-		s += u.model + " · "
+	status := "done"
+	if running {
+		status = "running"
 	}
-	s += fmt.Sprintf("↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset
-	return s
+	s := cDim + " ┊ " + status
+	s += fmt.Sprintf(" · ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost)
+	if u.action != "" {
+		s += " · " + clipStr(u.action, 40)
+	}
+	return s + cReset
 }

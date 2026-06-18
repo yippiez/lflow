@@ -32,7 +32,7 @@ wait_for "○ meeting"
 # Open the slash menu by sending "/" as a key press.
 # The slash opens the picker inline; "type" filters it to just "/type".
 send /
-wait_for "/type" 5
+# The slash menu is a bounded scrolling list; type the query to filter to /type.
 # Filter to "/type" by typing the query letters one at a time so each
 # 40ms key gap lets the pane re-render before the next character.
 send t

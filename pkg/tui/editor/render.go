@@ -452,6 +452,11 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 // indicator. Output is in-memory only and never persisted.
 func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	uuid := r.it.uuid
+	// A worker's transcript is hidden inline — its status shows in the chip; the
+	// full output appears only when the node is expanded (alt+e).
+	if r.it.typ == database.TypeWorker && !m.workerExpanded[uuid] {
+		return nil
+	}
 	out := m.runOut[uuid]
 	_, running := m.runCancel[uuid]
 	if len(out) == 0 && !running {
@@ -460,7 +465,10 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	rail := continuationPrefix(r, subtreeBelow)
 	var lines []string
 	shown := out
-	const capN = 8
+	capN := 8
+	if r.it.typ == database.TypeWorker {
+		capN = 200 // expanded worker: show the whole transcript
+	}
 	if len(shown) > capN {
 		lines = append(lines, clip(rail+cReset+cDim+fmt.Sprintf("  ⋯ %d more", len(shown)-capN)+cReset, maxLine))
 		shown = shown[len(shown)-capN:]
