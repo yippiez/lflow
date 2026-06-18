@@ -89,11 +89,14 @@ func (m *Model) voiceRender(it *item) string {
 	env := m.voiceEnv[it.uuid]
 	if len(env) == 0 { // lazily load from disk (e.g. after reopen)
 		if p := m.voicePath(it.uuid); fileExists(p) {
-			env, m.voiceDur[it.uuid] = parseWavEnvelope(p, voiceBuckets)
 			if m.voiceEnv == nil {
 				m.voiceEnv = map[string][]int{}
+				m.voiceDur = map[string]float64{}
 			}
+			var dur float64
+			env, dur = parseWavEnvelope(p, voiceBuckets)
 			m.voiceEnv[it.uuid] = env
+			m.voiceDur[it.uuid] = dur
 		}
 	}
 	if len(env) == 0 {
