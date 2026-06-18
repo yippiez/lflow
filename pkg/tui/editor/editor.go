@@ -137,8 +137,9 @@ type Model struct {
 	promptValue string
 	pullStage   int
 
-	// /type picker selection (index into typeOrder)
-	typeSel int
+	// /type picker selection (index into the filtered list) and search query
+	typeSel   int
+	typeQuery string
 
 	// /style picker selection (index into stylePickerItems)
 	styleSel int
@@ -1438,6 +1439,22 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// filteredTypes returns the node-type keys matching the picker's search query
+// (case-insensitive substring over the label), in registry order.
+func (m *Model) filteredTypes() []string {
+	if m.typeQuery == "" {
+		return typeOrder
+	}
+	q := strings.ToLower(m.typeQuery)
+	var ret []string
+	for _, t := range typeOrder {
+		if strings.Contains(strings.ToLower(typeLabels[t]), q) {
+			ret = append(ret, t)
+		}
+	}
+	return ret
+}
+
 func (m *Model) handleTypeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
@@ -1449,19 +1466,36 @@ func (m *Model) handleTypeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down":
-		if m.typeSel < len(typeOrder)-1 {
+		if m.typeSel < len(m.filteredTypes())-1 {
 			m.typeSel++
 		}
 		return m, nil
+	case "backspace":
+		if qr := []rune(m.typeQuery); len(qr) > 0 {
+			m.typeQuery = string(qr[:len(qr)-1])
+			m.typeSel = 0
+		} else {
+			m.mode = modeOutline
+		}
+		return m, nil
 	case "enter":
+		filt := m.filteredTypes()
 		cur := m.cursorItem()
-		if cur != nil {
+		if cur != nil && m.typeSel < len(filt) {
 			m.pushUndo("")
-			cur.typ = typeOrder[m.typeSel]
+			cur.typ = filt[m.typeSel]
 			m.unsaved = true
 		}
 		m.mode = modeOutline
 		return m, nil
+	}
+	// any other rune extends the search query
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && !k.Alt {
+		m.typeQuery += string(k.Runes)
+		m.typeSel = 0
 	}
 	return m, nil
 }
@@ -1511,6 +1545,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// open the picker; pre-select the type already in effect, if any
 		m.mode = modeType
 		m.typeSel = 0
+		m.typeQuery = ""
 		for i, t := range typeOrder {
 			if t == cur.typ {
 				m.typeSel = i
@@ -2093,7 +2128,30 @@ func (m *Model) viewOutline(maxLine int) []string {
 		focusedBudget = tempBudget
 	}
 
+	const typePickerMaxRows = 8 // most option rows the /type picker shows at once
+
 	maxRows := focusedBudget
+	// The /type picker is a modal overlay drawn above the status bar. Reserve rows
+	// for it (a search header + its visible options) by shrinking the body budget,
+	// so the picker and the status bar never run off the bottom of the screen.
+	typePickerRows := 0
+	if m.mode == modeType {
+		want := len(m.filteredTypes()) + 1 // +1 search header
+		if want > typePickerMaxRows+1 {
+			want = typePickerMaxRows + 1
+		}
+		if want > rowBudget-1 { // always leave at least one body row
+			want = rowBudget - 1
+		}
+		if want < 1 {
+			want = 1
+		}
+		typePickerRows = want
+		maxRows = rowBudget - typePickerRows
+		if maxRows < 1 {
+			maxRows = 1
+		}
+	}
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
@@ -2178,15 +2236,42 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// the /type picker lists its node type options above the status line
+	// the /type picker: a search header plus a scrolling, bounded option list
 	if m.mode == modeType {
-		for i, t := range typeOrder {
+		filt := m.filteredTypes()
+		if m.typeSel >= len(filt) {
+			m.typeSel = len(filt) - 1
+		}
+		if m.typeSel < 0 {
+			m.typeSel = 0
+		}
+		query := m.typeQuery
+		if query == "" {
+			query = cDim + "type to search" + cReset
+		} else {
+			query = cFG + query + cReset
+		}
+		lines = append(lines, clip(" "+cDim+"type: "+cReset+query, maxLine))
+
+		visible := typePickerRows - 1 // the header took one row
+		if visible < 1 {
+			visible = 1
+		}
+		// scroll the list so the selection stays in view
+		start := 0
+		if m.typeSel >= visible {
+			start = m.typeSel - visible + 1
+		}
+		end := start + visible
+		if end > len(filt) {
+			end = len(filt)
+		}
+		for i := start; i < end; i++ {
 			mark := "  "
 			if i == m.typeSel {
 				mark = cAccent + "▸ " + cReset
 			}
-			line := " " + mark + cFG + typeLabels[t] + cReset
-			lines = append(lines, clip(line, maxLine))
+			lines = append(lines, clip(" "+mark+cFG+typeLabels[filt[i]]+cReset, maxLine))
 		}
 	}
 
@@ -2225,7 +2310,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 		var mainLines, tempLines []string
 		if m.tempActive {
-			mainRoot := m.mainStash.viewStack[len(m.mainStash.viewStack)-1]
+			// guard a malformed stash: a nil tree or empty view-stack must degrade to a
+			// blank region, never panic on the slice index.
+			var mainRoot *item
+			if n := len(m.mainStash.viewStack); n > 0 {
+				mainRoot = m.mainStash.viewStack[n-1]
+			}
 			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false)
 			tempLines = focused // live, focused temp
 		} else {

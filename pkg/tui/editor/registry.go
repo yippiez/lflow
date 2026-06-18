@@ -47,17 +47,17 @@ var nodeTypes = []nodeType{
 		run: runBash,
 	},
 	{
-		key: database.TypeQuery, label: "Query (codebase)", sign: "⌕ ", inlineEditable: true,
+		key: database.TypeQuery, label: "Query", sign: "⌕ ", inlineEditable: true,
 		run: runQuery,
 	},
 	{
-		key: database.TypeVoice, label: "Voice note", inlineEditable: false,
+		key: database.TypeVoice, label: "Voice", inlineEditable: false,
 		renderM: func(m *Model, it *item) string { return m.voiceRender(it) },
 		run:     runVoice,
 		expand:  playVoice,
 	},
 	{
-		key: database.TypeWorker, label: "Worker (Pi agent)", inlineEditable: true,
+		key: database.TypeWorker, label: "Worker", inlineEditable: true,
 		run: runWorker,
 	},
 }
