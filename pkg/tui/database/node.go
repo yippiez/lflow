@@ -238,8 +238,15 @@ type MatchScore struct {
 // fixed root. The editor finder lists it while the query is still empty so
 // the picker starts full instead of blank.
 func RecentNodes(db *DB, limit int) ([]Node, error) {
-	rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE deleted = 0 AND uuid != ? ORDER BY edited_on DESC LIMIT ?",
-		RootUUID, limit)
+	rows, err := db.Query(`WITH RECURSIVE tt(uuid) AS (
+		SELECT ?
+		UNION ALL
+		SELECT n.uuid FROM nodes n JOIN tt ON n.parent_uuid = tt.uuid
+	)
+	SELECT `+nodeColumns+` FROM nodes
+	WHERE deleted = 0 AND uuid != ? AND uuid NOT IN (SELECT uuid FROM tt)
+	ORDER BY edited_on DESC LIMIT ?`,
+		TempUUID, RootUUID, limit)
 	if err != nil {
 		return nil, errors.Wrap(err, "querying recent nodes")
 	}
@@ -265,11 +272,16 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 		return nil, nil
 	}
 
+	tempUUIDs, err := TempSubtreeUUIDs(db)
+	if err != nil {
+		return nil, err
+	}
+
 	seen := map[string]bool{}
 	var ret []Node
 
 	appendNode := func(n Node) {
-		if seen[n.UUID] {
+		if seen[n.UUID] || tempUUIDs[n.UUID] { // never surface the lab in notebook search
 			return
 		}
 		seen[n.UUID] = true

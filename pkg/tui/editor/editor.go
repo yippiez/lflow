@@ -230,10 +230,36 @@ func (m *Model) refreshAncestors() {
 	}
 }
 
+// saveAll persists both the Root tree and the Temp tree, regardless of which is
+// focused, and returns the total nodes written. Temp is a real persisted subtree
+// now, so it must be written alongside the main outline.
+func (m *Model) saveAll() (int, error) {
+	main, temp := m.tree, m.tempTree
+	if m.tempActive {
+		main, temp = m.mainStash.tree, m.tree
+	}
+	w := 0
+	if main != nil {
+		n, err := main.save()
+		if err != nil {
+			return w, err
+		}
+		w += n
+	}
+	if temp != nil {
+		n, err := temp.save()
+		if err != nil {
+			return w, err
+		}
+		w += n
+	}
+	return w, nil
+}
+
 // reopenAt saves, reloads the tree rooted at rootUUID, and focuses focusUUID. It
 // is how alt+left walks up past the loaded root into the rest of the forest.
 func (m *Model) reopenAt(rootUUID, focusUUID string) {
-	if _, err := m.tree.save(); err != nil {
+	if _, err := m.saveAll(); err != nil {
 		m.flash = "save: " + err.Error()
 		return
 	}
@@ -630,7 +656,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+q", "ctrl+c":
 		return m.quit()
 	case "ctrl+s":
-		written, err := m.tree.save()
+		written, err := m.saveAll()
 		if err != nil {
 			m.err = err
 			return m.quit()
@@ -1750,7 +1776,7 @@ func (m *Model) doWfPull(link string) {
 		m.flash = "no node to pull into"
 		return
 	}
-	if _, err := m.tree.save(); err != nil {
+	if _, err := m.saveAll(); err != nil {
 		m.flash = "save: " + err.Error()
 		return
 	}
@@ -1964,7 +1990,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		}
 	case actGoto:
 		// save, then reopen on the target
-		if _, err := m.tree.save(); err != nil {
+		if _, err := m.saveAll(); err != nil {
 			m.err = err
 			return m.quit()
 		}
@@ -1987,7 +2013,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) moveToDB(cur *item, target database.Node) error {
-	if _, err := m.tree.save(); err != nil {
+	if _, err := m.saveAll(); err != nil {
 		return err
 	}
 	m.unsaved = false
@@ -2014,7 +2040,7 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 		m.exitTemp() // back to the main tree so save persists it, not the scratch
 	}
 	if m.err == nil {
-		written, err := m.tree.save()
+		written, err := m.saveAll()
 		if err != nil {
 			m.err = err
 		} else {
@@ -2542,16 +2568,22 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		return errors.Wrap(err, "loading node tree")
 	}
 
+	tempTree, err := loadTree(ctx.DB, database.TempUUID)
+	if err != nil {
+		return errors.Wrap(err, "loading temp tree")
+	}
+
 	m := &Model{
 		db:        ctx.DB,
 		ctx:       ctx,
 		tree:      t,
+		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
 	}
 	m.initScheduler(ctx)
 	m.refreshAncestors()
 	m.refreshRows()
-	m.ensureTempTree() // the scratch panel is always visible, so it must always exist
+	m.ensureTempTree() // the panel is always visible, so it must always have >=1 node
 
 	p := tea.NewProgram(m) // inline: no alt screen
 	final, err := p.Run()

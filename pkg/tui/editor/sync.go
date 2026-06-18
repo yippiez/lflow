@@ -123,7 +123,7 @@ func (m *Model) onSyncTick(now time.Time) tea.Cmd {
 	// persist in-memory edits first: the sync goroutine reads the DB, so
 	// without this autosave local typing would never reach workflowy
 	if m.unsaved {
-		if written, err := m.tree.save(); err == nil {
+		if written, err := m.saveAll(); err == nil {
 			m.saved.written += written
 			m.unsaved = false
 		} else {
@@ -217,7 +217,7 @@ func (m *Model) reloadAfterSync() {
 		}
 	}
 
-	if _, err := m.tree.save(); err != nil {
+	if _, err := m.saveAll(); err != nil {
 		m.sched.err = err
 		return
 	}

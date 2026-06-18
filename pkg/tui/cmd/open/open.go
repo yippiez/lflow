@@ -23,6 +23,13 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 			if err := database.EnsureRoot(db); err != nil {
 				return err
 			}
+			if err := database.EnsureTemp(db); err != nil {
+				return err
+			}
+			// retention sweep: drop temp entries unchanged for 7 days
+			if _, err := database.SweepTempExpired(db, database.TempRetention); err != nil {
+				return err
+			}
 
 			// no argument: open the root
 			if len(args) == 0 {
