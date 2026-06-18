@@ -21,6 +21,7 @@ type item struct {
 	parent      *item
 	collapsed   bool
 	isNew       bool
+	derived     bool // a live-query result mirror — ephemeral, never persisted
 }
 
 // snapshot captures a node's persisted state for change detection on save.
@@ -542,6 +543,9 @@ func (t *tree) save() (int, error) {
 
 	var walk func(it *item, parentUUID string, rank int) error
 	walk = func(it *item, parentUUID string, rank int) error {
+		if it.derived {
+			return nil // live-query result mirrors are ephemeral, never persisted
+		}
 		s, existed := t.snapshots[it.uuid]
 		structChanged := !existed || s.parentUUID != parentUUID || s.rank != rank
 
