@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/outline"
 )
 
 // A worker node: its name is a task for the Pi coding agent. alt+r runs a turn.
@@ -103,6 +104,68 @@ func (m *Model) toggleWorkerOutput(it *item) {
 	m.workerExpanded[it.uuid] = !m.workerExpanded[it.uuid]
 }
 
+// sendToWorker adds a notebook node to a temp worker as context (a mirror child).
+// With newWorker, or when there is no current draft worker, it creates a fresh
+// worker under the temp root and makes it current; otherwise it appends to the
+// current draft. The worker's task is its own text + note + these context
+// children. Focus stays in the notebook.
+func (m *Model) sendToWorker(it *item, newWorker bool) {
+	m.ensureTempTree()
+	src := m.tree.sourceUUID(it) // resolve mirror chains to the real node
+	srcName := m.tree.displayName(it)
+
+	var w *item
+	if !newWorker {
+		if m.currentWorker != "" {
+			w = m.tempTree.byUUID[m.currentWorker]
+		}
+		if w == nil {
+			w = m.emptyDraftWorker() // adopt the empty placeholder if present
+		}
+	}
+	if w == nil {
+		nw, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
+		if err != nil {
+			m.err = err
+			return
+		}
+		nw.parent = m.tempTree.root
+		m.tempTree.root.children = append(m.tempTree.root.children, nw)
+		w = nw
+	}
+	m.currentWorker = w.uuid
+
+	child, err := m.tempTree.newItem()
+	if err != nil {
+		m.err = err
+		return
+	}
+	child.typ = database.TypeBullets // a context mirror, not itself a worker
+	child.mirrorOf = src
+	child.collapsed = true
+	child.parent = w
+	w.children = append(w.children, child)
+	m.tempTree.externalNames[src] = srcName // resolve the mirror's display name
+
+	m.unsaved = true
+	m.flash = "sent to worker"
+}
+
+// emptyDraftWorker returns an existing empty, unrun worker under the temp root
+// (e.g. the always-present placeholder) so alt+s adopts it instead of leaving it
+// orphaned beside a fresh one. nil if there is none.
+func (m *Model) emptyDraftWorker() *item {
+	for _, c := range m.tempTree.root.children {
+		if c.typ != database.TypeWorker || strings.TrimSpace(c.name) != "" || len(c.children) > 0 {
+			continue
+		}
+		if _, ran := m.runOut[c.uuid]; !ran {
+			return c
+		}
+	}
+	return nil
+}
+
 func runWorker(m *Model, it *item) tea.Cmd {
 	if m.runCancel == nil {
 		m.runCancel = map[string]func(){}
@@ -114,14 +177,57 @@ func runWorker(m *Model, it *item) tea.Cmd {
 		delete(m.runCancel, it.uuid)
 		return nil
 	}
+	// running clears the draft pointer so the next alt+s starts a fresh worker
+	if it.uuid == m.currentWorker {
+		m.currentWorker = ""
+	}
+	// persist first so the context (mirror sources + this worker's subtree) is in
+	// the DB for buildWorkerTask to read
+	if _, err := m.saveAll(); err == nil {
+		m.unsaved = false
+	}
+	task := m.buildWorkerTask(it)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	m.runCancel[it.uuid] = cancel
 	m.runOut[it.uuid] = nil
 	ch := make(chan tea.Msg, 1024)
 	m.runCh[it.uuid] = ch
 	model, thinking := piModelInfo()
-	go startWorker(it.uuid, it.name, model, thinking, ctx, ch)
+	go startWorker(it.uuid, task, model, thinking, ctx, ch)
 	return waitBashCmd(ch)
+}
+
+// buildWorkerTask assembles the agent's prompt from the worker node's own text
+// (the message), its note, and its children — mirror children resolve to their
+// source node's content. Context = message + note + children.
+func (m *Model) buildWorkerTask(it *item) string {
+	var b strings.Builder
+	b.WriteString(it.name)
+	if note := strings.TrimSpace(it.note); note != "" {
+		b.WriteString("\n\n" + note)
+	}
+
+	var parts []string
+	for _, c := range it.children {
+		uuid := c.uuid
+		if c.mirrorOf != "" {
+			uuid = m.tempTree.sourceUUID(c)
+		}
+		n, err := database.GetNode(m.db, uuid)
+		if err != nil || n.Name == "" {
+			continue
+		}
+		part := n.Name
+		if md, err := outline.RenderMarkdown(m.db, n, 0, true); err == nil && strings.TrimSpace(md) != "" {
+			part += "\n" + md
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) > 0 {
+		b.WriteString("\n\n## Context\n\n" + strings.Join(parts, "\n\n"))
+	}
+	return b.String()
 }
 
 // startWorker spawns pi in RPC mode (no extensions + lflow's finish tool), sends

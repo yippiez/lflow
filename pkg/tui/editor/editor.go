@@ -169,6 +169,9 @@ type Model struct {
 	workerUsage map[string]workerUsage
 	// worker nodes whose full transcript is expanded (alt+e); default collapsed
 	workerExpanded map[string]bool
+	// currentWorker is the draft (unrun) worker that alt+s appends context to;
+	// running a worker clears it so the next alt+s starts a fresh draft
+	currentWorker string
 	// worker live-activity stream: a queue of updates per node, the one currently
 	// shown, and how many ticks it has been held (drains faster as the queue grows)
 	workerQueue    map[string][]workerActivity
@@ -883,6 +886,18 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if run := typeOf(cur.typ).run; run != nil {
 				return m, run(m, cur)
 			}
+		}
+		return m, nil
+	case "alt+s":
+		// send the focused notebook node to the current (unrun) worker, or make one
+		if cur := m.cursorItem(); cur != nil && !m.tempActive {
+			m.sendToWorker(cur, false)
+		}
+		return m, nil
+	case "alt+shift+s", "alt+S":
+		// always start a new worker from the focused notebook node
+		if cur := m.cursorItem(); cur != nil && !m.tempActive {
+			m.sendToWorker(cur, true)
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
