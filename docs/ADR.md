@@ -447,11 +447,10 @@ title: Agent/worker workflow — temp is the lab, main is the notebook
 Why
 Brainstorm direction for integrating agents, kept aligned with pchain (lab=temp, notebook=main; only distilled results cross the border). Decisions so far:
 - Temp is the agent surface: a new node created in temp DEFAULTS to a worker; some node types are temp-only (lean: worker is temp-only).
-- A worker is a LEAF job, not a container. Task = the worker node's own text.
-- Context = references to other nodes (lflow mirror/link primitive), NOT children and NOT its note. Any node can be context, including other workers. Leaning: select-and-attach, shown as a dim "context · N" chip.
-- Output is NOT a child (input-as-child + output-as-child was rejected as a clash). The deliverable is held by the worker, viewable via expand (alt+e), and crosses into main only by pressing Enter on a finished worker, which MATERIALIZES a copy at the main cursor (a real subtree/note, since temp→main can't mirror an ephemeral source). Spent worker stays as a re-runnable receipt.
+- Context = the worker node's MESSAGE (its text) + its NOTE + its CHILDREN subtree. There is no separate "attach context" gesture — you add context by adding children, including mirroring any node (or another worker) in as a child, so "any node can be context" holds. (This corrects an earlier over-complication that made context separate references.)
+- Output is NOT a child (input-as-children + output-as-children was the clash; resolved by keeping children = INPUT only). The deliverable is held by the worker, viewable via expand (alt+e), and crosses into main only by pressing Enter on a finished worker, which MATERIALIZES a copy under Root. Spent worker stays as a re-runnable receipt.
 - Workers are ordinary movable nodes but position is behavior-free (cosmetic); temp reads as a flat job list, matching pchain's job model.
-Open: context gesture details; whether result materializes as a parsed subtree vs flat note; whether query nodes are also temp-only.
+Open: whether the harvested result materializes as a parsed subtree vs a flat note; whether query nodes are also temp-only.
 
 When
 2026-06-18 — brainstorm/design (not yet implemented)
