@@ -456,3 +456,13 @@ Open: context gesture details; whether result materializes as a parsed subtree v
 When
 2026-06-18 — brainstorm/design (not yet implemented)
 ---
+
+---
+title: Temp persistence = a second "Temp" root in the notes db with a 7-day TTL sweep
+
+Why
+Resolves the open store question from the 7-day-retention decision. Instead of a separate store or the db=nil in-memory tree, the notes db gets TWO top-level roots: "Root" (the notebook) and "Temp" (the lab). Temp content is the subtree under a reserved, well-known "Temp" root node. Reuse existing columns: added_on = created_at, edited_on = changed_at — no schema change. On startup, sweep the Temp subtree and delete entries unchanged for 7 days (edited_on > 7d old). Granularity: expire each top-level Temp entry as a UNIT keyed on its most-recent descendant edited_on, so a fresh child keeps its whole entry alive (no orphaning). Invariants: sync NEVER walks the Temp subtree (local-only; only the harvested copy under Root syncs); the Temp root is never deletable. This collapses the db=nil / separate tempTree / mainStash-swap machinery into "focus Root vs focus Temp" on one persisted tree.
+
+When
+2026-06-18 — design decision (refines the temp 7-day-retention entry; not yet implemented)
+---
