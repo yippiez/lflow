@@ -159,10 +159,13 @@ type Model struct {
 	voiceEnv map[string][]int
 	voiceDur map[string]float64
 
-	// Temporary Domain — an ephemeral scratch tree (alt+t), never persisted
+	// Temporary Domain — an ephemeral scratch tree, never persisted
 	tempActive bool
 	tempTree   *tree
 	mainStash  tempStash
+
+	// worker (Pi agent) token/cost usage, keyed by node uuid
+	workerUsage map[string]workerUsage
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -441,6 +444,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashDoneMsg:
 		delete(m.runCancel, msg.uuid)
 		delete(m.runCh, msg.uuid)
+		return m, nil
+	case workerUsageMsg:
+		if m.workerUsage == nil {
+			m.workerUsage = map[string]workerUsage{}
+		}
+		m.workerUsage[msg.uuid] = msg.usage
 		return m, nil
 	case voiceDoneMsg:
 		if m.voiceEnv == nil {

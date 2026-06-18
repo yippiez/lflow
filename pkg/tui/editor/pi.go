@@ -1,10 +1,34 @@
 package editor
 
 import (
+	_ "embed"
 	"encoding/json"
 	"os"
 	"path/filepath"
 )
+
+//go:embed pi/worker_finish.ts
+var workerFinishTS string
+
+// workerExtensionPath writes lflow's finish_worker pi extension to ~/.lflow/pi/
+// (creating it if needed) and returns its path, for `pi --extension`.
+func workerExtensionPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".lflow", "pi")
+	if os.MkdirAll(dir, 0o755) != nil {
+		return ""
+	}
+	path := filepath.Join(dir, "worker_finish.ts")
+	if cur, _ := os.ReadFile(path); string(cur) != workerFinishTS {
+		if os.WriteFile(path, []byte(workerFinishTS), 0o644) != nil {
+			return ""
+		}
+	}
+	return path
+}
 
 // piSettings mirrors the fields we read from ~/.pi/agent/settings.json.
 type piSettings struct {

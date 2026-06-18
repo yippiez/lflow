@@ -943,8 +943,12 @@ func (m *Model) typeSuffix(it *item) string {
 		}
 		parts = append(parts, fmt.Sprintf("%d %s", len(kids), noun))
 	}
-	if len(parts) == 0 {
-		return ""
+	suffix := ""
+	if len(parts) > 0 {
+		suffix = cDim + " · " + strings.Join(parts, " · ") + cReset
 	}
-	return cDim + " · " + strings.Join(parts, " · ") + cReset
+	if it.typ == database.TypeWorker {
+		suffix += m.workerSuffix(it) // ┊ model · ↑in ↓out $cost
+	}
+	return suffix
 }
