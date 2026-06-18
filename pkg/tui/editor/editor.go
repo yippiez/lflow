@@ -2065,7 +2065,26 @@ func (m *Model) viewOutline(maxLine int) []string {
 		bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
 	}
 
-	maxRows := m.rowBudget()
+	// The Temporary Domain panel is always visible (anchored at the bottom) during
+	// normal editing — only modal overlays (slash menu, pickers, prompts) take the
+	// full body. Split the body budget between the focused region and the panel.
+	rowBudget := m.rowBudget()
+	showTemp := m.mode == modeOutline || m.mode == modeNote
+	tempBudget, mainBudget := 0, rowBudget
+	if showTemp {
+		m.ensureTempTree() // always-visible panel must exist before we render it
+		tempBudget = m.tempPanelBudget(rowBudget)
+		mainBudget = rowBudget - tempBudget
+		if mainBudget < 1 {
+			mainBudget = 1
+		}
+	}
+	focusedBudget := mainBudget
+	if m.tempActive {
+		focusedBudget = tempBudget
+	}
+
+	maxRows := focusedBudget
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
@@ -2182,6 +2201,25 @@ func (m *Model) viewOutline(maxLine int) []string {
 				line := " " + mark + swatch + " " + styleColorCode[it.value] + stylePickerLabels[it.value] + cReset
 				lines = append(lines, clip(line, maxLine))
 			}
+		}
+	}
+
+	// Assemble the two-region body: the main outline on top, the dashed Temporary
+	// Domain panel anchored beneath it. `lines` here is the focused region's body
+	// (no modal menus are open in showTemp modes, so nothing else is in it yet).
+	if showTemp {
+		focused := lines
+		for len(focused) < focusedBudget {
+			focused = append(focused, "")
+		}
+		focused = focused[:focusedBudget]
+		if m.tempActive {
+			mainRoot := m.mainStash.viewStack[len(m.mainStash.viewStack)-1]
+			top := m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false)
+			lines = append(top, focused...) // read-only main on top, focused temp below
+		} else {
+			bottom := m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
+			lines = append(focused, bottom...) // focused main on top, read-only temp below
 		}
 	}
 
@@ -2337,6 +2375,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	m.initScheduler(ctx)
 	m.refreshAncestors()
 	m.refreshRows()
+	m.ensureTempTree() // the scratch panel is always visible, so it must always exist
 
 	p := tea.NewProgram(m) // inline: no alt screen
 	final, err := p.Run()

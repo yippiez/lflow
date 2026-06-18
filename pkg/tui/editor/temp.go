@@ -3,10 +3,11 @@ package editor
 import "github.com/lflow/lflow/pkg/tui/database"
 
 // The Temporary Domain is an ephemeral scratch outline: a second tree with a nil
-// db, so it is never persisted or synced. alt+t swaps the editor into it (and
-// back). In the main view a muted-gray dashed outline below the footer is the
-// access affordance; everything edits exactly like the main outline, but is gone
-// when you quit.
+// db, so it is never persisted or synced. It is ALWAYS visible — a dashed-icon
+// panel anchored at the bottom of every page, just above the status bar. Pressing
+// Down past the last node of the main outline moves focus into it; Up at its top
+// returns focus to the main outline. Everything edits exactly like the main
+// outline, but is gone when you quit.
 
 type tempStash struct {
 	tree      *tree
@@ -16,10 +17,9 @@ type tempStash struct {
 	ancestors []string
 }
 
-// enterTemp swaps the editor into the ephemeral Temporary Domain. It is reached by
-// pressing Down at the bottom of the main outline — no shortcut, no divider. The
-// scratch always has at least one (empty) node.
-func (m *Model) enterTemp() {
+// ensureTempTree creates the scratch tree if absent and guarantees it always has
+// at least one (empty) node, so the persistent panel is never blank.
+func (m *Model) ensureTempTree() {
 	if m.tempTree == nil {
 		root := &item{uuid: "temp-root", typ: database.TypeBullets}
 		m.tempTree = &tree{
@@ -29,14 +29,20 @@ func (m *Model) enterTemp() {
 			byUUID:        map[string]*item{root.uuid: root},
 		} // db is nil → save() is a no-op, so it never persists or syncs
 	}
+	if len(m.tempTree.root.children) == 0 {
+		_, _ = m.tempTree.insertFirstChild(m.tempTree.root) // always keep one node
+	}
+}
+
+// enterTemp moves focus into the Temporary Domain panel. It is reached by pressing
+// Down at the bottom of the main outline — no shortcut, no divider.
+func (m *Model) enterTemp() {
+	m.ensureTempTree()
 	m.mainStash = tempStash{tree: m.tree, cursor: m.cursor, caret: m.caret, viewStack: m.viewStack, ancestors: m.ancestors}
 	m.tree = m.tempTree
 	m.viewStack = []*item{m.tempTree.root}
 	m.ancestors = nil
 	m.tempActive = true
-	if len(m.tempTree.root.children) == 0 {
-		_, _ = m.tree.insertFirstChild(m.tempTree.root) // always keep one node
-	}
 	m.refreshRows()
 	m.cursor = 0
 	m.caret = 0
@@ -53,4 +59,103 @@ func (m *Model) exitTemp() {
 	m.tempActive = false
 	m.refreshRows()
 	m.clampCursor()
+}
+
+// tempRowCount is how many visible rows the scratch outline currently has.
+func (m *Model) tempRowCount() int {
+	if m.tempActive {
+		return len(m.rows) // focused: the live rows already are the temp rows
+	}
+	if m.tempTree == nil {
+		return 0
+	}
+	return len(m.tempTree.visibleRows(m.tempTree.root))
+}
+
+// tempPanelBudget is how many screen lines the persistent temp panel may occupy.
+// Focused it may grow to two-thirds of the body; idle it stays a small glance
+// strip. It always leaves at least one line for the main outline.
+func (m *Model) tempPanelBudget(rowBudget int) int {
+	want := m.tempRowCount()
+	if want < 1 {
+		want = 1
+	}
+	cap := rowBudget / 3
+	if cap > 6 {
+		cap = 6
+	}
+	if m.tempActive {
+		cap = rowBudget * 2 / 3
+	}
+	if cap < 1 {
+		cap = 1
+	}
+	if want > cap {
+		want = cap
+	}
+	if want > rowBudget-1 {
+		want = rowBudget - 1
+	}
+	if want < 1 {
+		want = 1
+	}
+	return want
+}
+
+// readonlyRegionLines renders a tree's visible rows as a static (no caret, no
+// editing) region exactly `budget` lines tall — padded with blanks so the layout
+// stays fixed and the temp panel anchors to the bottom. `dashed` swaps in the ◌
+// glyph for every non-mirror node (the Temporary Domain look).
+func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, maxLine int, dashed bool) []string {
+	if budget < 1 {
+		budget = 1
+	}
+	var flat []string
+	cursorAt := 0
+	if tr != nil && viewRoot != nil {
+		rows := tr.visibleRows(viewRoot)
+		for i, r := range rows {
+			it := r.it
+			glyph, glyphColor := glyphFor(it)
+			if r.mirrored {
+				glyph, glyphColor = glyphMirror, cRed
+			}
+			if dashed && !r.mirrored {
+				glyph = glyphDotted
+			}
+			name := tr.displayName(it)
+			body := renderBody(it, name, -1, false)
+			if rm := typeOf(it.typ).renderM; rm != nil {
+				body = rm(m, it)
+			}
+			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
+			below := i+1 < len(rows) && rows[i+1].depth > r.depth
+			if i == cursor {
+				cursorAt = len(flat)
+			}
+			flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
+			flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
+		}
+	}
+
+	// viewport: keep the (stashed) cursor row in view
+	start := 0
+	if cursorAt >= budget {
+		start = cursorAt - budget + 1
+	}
+	if start > len(flat)-budget {
+		start = len(flat) - budget
+	}
+	if start < 0 {
+		start = 0
+	}
+	end := start + budget
+	if end > len(flat) {
+		end = len(flat)
+	}
+	out := append([]string(nil), flat[start:end]...)
+	for len(out) < budget {
+		out = append(out, "")
+	}
+	return out
 }
