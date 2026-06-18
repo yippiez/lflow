@@ -2068,15 +2068,19 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// The Temporary Domain panel is always visible (anchored at the bottom) during
 	// normal editing — only modal overlays (slash menu, pickers, prompts) take the
 	// full body. Split the body budget between the focused region and the panel.
+	// Layout during normal editing: main notes on top, a dashed divider, then the
+	// always-visible Temporary Domain panel, then the status bar. Below ~3 body
+	// rows there is no room for that stack, so fall back to the plain outline.
 	rowBudget := m.rowBudget()
-	showTemp := m.mode == modeOutline || m.mode == modeNote
+	showTemp := (m.mode == modeOutline || m.mode == modeNote) && rowBudget >= 3
 	tempBudget, mainBudget := 0, rowBudget
 	if showTemp {
-		m.ensureTempTree() // always-visible panel must exist before we render it
-		tempBudget = m.tempPanelBudget(rowBudget)
-		mainBudget = rowBudget - tempBudget
+		m.ensureTempTree()                          // always-visible panel must exist before we render it
+		tempBudget = m.tempPanelBudget(rowBudget - 1) // reserve one row for the divider
+		mainBudget = rowBudget - tempBudget - 1     // -1 for the divider line
 		if mainBudget < 1 {
 			mainBudget = 1
+			tempBudget = rowBudget - 2
 		}
 	}
 	focusedBudget := mainBudget
@@ -2204,23 +2208,34 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// Assemble the two-region body: the main outline on top, the dashed Temporary
-	// Domain panel anchored beneath it. `lines` here is the focused region's body
-	// (no modal menus are open in showTemp modes, so nothing else is in it yet).
+	// Assemble the body: main notes, then the dashed divider, then the Temporary
+	// Domain panel — clustered at the top with the status bar pinned to the bottom.
+	// `lines` here is the focused region's body (no modal menus are open in showTemp
+	// modes, so nothing else is in it yet).
 	if showTemp {
 		focused := lines
-		for len(focused) < focusedBudget {
-			focused = append(focused, "")
+		if len(focused) > focusedBudget {
+			focused = focused[:focusedBudget]
 		}
-		focused = focused[:focusedBudget]
+		var mainLines, tempLines []string
 		if m.tempActive {
 			mainRoot := m.mainStash.viewStack[len(m.mainStash.viewStack)-1]
-			top := m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false)
-			lines = append(top, focused...) // read-only main on top, focused temp below
+			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false)
+			tempLines = focused // live, focused temp
 		} else {
-			bottom := m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
-			lines = append(focused, bottom...) // focused main on top, read-only temp below
+			mainLines = focused // live, focused main
+			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
 		}
+		body := mainLines
+		body = append(body, m.tempDivider(maxLine))
+		body = append(body, tempLines...)
+		for len(body) < rowBudget { // pad so the status bar stays at the bottom row
+			body = append(body, "")
+		}
+		if len(body) > rowBudget {
+			body = body[:rowBudget]
+		}
+		lines = body
 	}
 
 	lines = append(lines, m.bottomBar(maxLine))
