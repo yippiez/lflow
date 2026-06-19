@@ -546,3 +546,12 @@ The agent series weakened the core (see docs/CORE-AUDIT.md): rich types escaped 
 
 When
 2026-06-19 — commits 99400d4 (P1), 32c163a (P2), 9da6ff5 (P3+P4); 31/31 e2e; verified live (JSON edits inline; agent observe+steer inline beneath the node).
+
+---
+title: Agent Domain workflow — compose line + launch-on-send (P6)
+
+Why
+The post-refactor agent workflow the user wanted (pchain-style). The bottom space is renamed "Agent Domain" (agents only). Its first node is always an empty ◌ ✦ compose line (ensureComposeLine): type a query and Enter LAUNCHES (creates+runs) an agent; a fresh compose returns at top, the agent appears below. alt+s on a note (in notes) launches an agent on it immediately — the note's text is the query, its children are context (mirrors) — replacing the old stage-then-alt+r model and alt+shift+s (both removed; stageToAgent→launchAgentFromNote). Launch = run; alt+r re-runs a focused agent, 's' steers, alt+e expands inline, Enter on a finished agent harvests, /move carries an agent out to notes unchanged (it's a normal node). Decision (reversing an earlier lean): an agent's children stay CONTEXT-only; the output stays in the inline Final pane (ephemeral, harvested by Enter) — /move carries the agent (+ in-session Final), not output-as-children. The Agent Domain is reachable while zoomed into a note. Breadcrumb relabels the temp root as "Agent Domain"; internal names (tempTree/tempActive/TempUUID) unchanged.
+
+When
+2026-06-19 — commit 2c46618; 30/30 e2e (removed obsolete staging tests; added test-agent-domain-compose; updated real-model test to alt+s-launch). Verified live (compose launch, alt+s note→agent with context, zoom access). Visual polish ("cool/something missing") still open.
