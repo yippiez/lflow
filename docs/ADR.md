@@ -495,3 +495,13 @@ The agreed design shipped end to end. Temp is now a persisted, synced second roo
 When
 2026-06-18 — fdd1489 (temp two-root persistence), + temp-default-worker, send-to-worker (alt+s/alt+shift+s), harvest-on-Enter chunks; 27/27 e2e pass
 ---
+
+---
+title: Agent workflow v2 — run-on-send, single-line agents, steerable agent UI
+
+Why
+Iteration on the shipped agent workflow, reconciled with pchain's actual implementation. Five changes: (1) Gestures: alt+r delegates the focused notebook node to the LAST-interacted agent (created if none) and runs it now; alt+shift+s always delegates to a fresh agent. Repeated alt+r to a live agent injects the node as a steering message rather than re-running. A runnable node (bash/query/worker) still runs its own action under alt+r — delegation only applies to ordinary nodes. The old alt+s send-without-run is removed; currentWorker (draft pointer) becomes lastAgent (most-recent interaction). Chosen over "stage then launch in UI" so delegation gives immediate results. (2) Agents render on ONE minimal line: status (running/idle/done/error, colored) + ↑in ↓out $cost + live activity. The hanging worker band, the activity queue/tick machinery, and the inline transcript toggle are gone. (3) The pi process stays alive across turns (agent_end → idle, not exit) so follow-ups steer the SAME --no-session conversation; quit() stops all live agents. (4) Activity streaming uses pi's tool_execution_update events — append the tail of a tool's live output after " · " (pchain's currentAction). NOTE: pchain does NOT modify pi tools to narrate (its worker prompt says "never narrate your process"); the one-liner is built in the parent from RPC events. So directive "modify worker tools to output why" is realized as consuming tool_execution_update, no pi-tool changes. (5) alt+e opens a full-panel INLINE agent UI (modeAgent, never the alt-screen) to observe + steer: header status/usage, scrollable multi-turn transcript, current activity, and a steering input box (enter steer / x stop / esc close).
+
+When
+2026-06-19 — commit 47d6197; verified live (delegate → run → single-line → alt+e → steer 2nd turn same conversation → Enter harvests latest deliverable); Go tests + 27/27 e2e pass
+---
