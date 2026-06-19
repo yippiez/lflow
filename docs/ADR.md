@@ -515,3 +515,15 @@ Corrections to v2 after review. (1) STAGING NEVER RUNS (reverses v2's run-on-sen
 When
 2026-06-19 — commit ddc336e; verified live (stage no-run → alt+r run → alt+e sectioned view → 's' steers same conversation → title locked). Go+editor tests pass; e2e 27/27 (two persist tests flake only under full-suite tmux load).
 ---
+
+---
+title: Agent workflow v4 — outline deliverable (no markdown), stuck-idle fix, stage≠run
+
+Why
+Review feedback. (1) NO MARKDOWN anywhere (upholds the "no markup leaks into stored text" invariant): finish_worker now takes a structured OUTLINE — nodes:[{text,note?,children?}] — instead of a markdown string. lflow reads the structure directly: the agent UI "Final" renders it as an outline (outlinePreview), and Enter harvests it as real nested nodes (parseDeliverable). Steering is likewise an outline composer ('s'): each line is a node, enter=new node, tab=indent; sent to the live agent verbatim or staged as child nodes via parseOutlineText. All markdown parsing removed (parseMarkdownItems/regex deleted). The pi extension's children field is loosely typed (Type.Any) because this typebox build lacks Type.Recursive; the Go side recurses. (2) SINGLE NODE BY DEFAULT: system prompt + finish_worker schema instruct one node unless the user asks for a list/steps/outline. (3) STUCK-IDLE FIX: pi stderr is now captured (dropped errors had left workers stuck "idle"), error-shaped RPC events + non-zero exit set status=error, and steering sets status=running immediately; the steer goroutine selects on ctx.Done so it never leaks on an idle worker. (4) alt+s STAGES ONLY — adds a context child, never sets the worker title (the title is the user's task line). (5) SECTIONS NEVER EMPTY: deleting the last node re-creates an empty one (ensureViewNonEmpty) so the temp lab always has a worker. (6) LFLOW_PI_MODEL/LFLOW_PI_THINKING env overrides.
+
+EVALS: no mock pi. lflow's pi has no echo/echo model, so agent e2e use the REAL model, gated by require_pi (symlinks ~/.pi into the isolated HOME, SKIP if absent) and assert structure not wording. New pkg/e2e tests: test-agent-real-run-harvest (full loop + stuck-idle regression guard), test-agent-stage-no-run, test-section-keeps-one-node. Suite 30/30. Nested agents (a worker with worker children) work via the existing children-as-context path — manual fan-out, no special code.
+
+When
+2026-06-19 — commits cbc7159 (code) + 9d0bb26 (e2e); verified live (outline Final single/nested, outline steer continues conversation, harvest = real nested nodes, extension-load error surfaced as error not stuck idle).
+---
