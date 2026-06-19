@@ -8,7 +8,6 @@ import (
 	"io"
 	"os/exec"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -16,24 +15,27 @@ import (
 	"github.com/lflow/lflow/pkg/tui/outline"
 )
 
-// A worker node: its name is a task for the Pi coding agent. alt+r runs a turn.
-// The worker WORKS (uses tools) — it does not just chat — and its token/cost usage
-// is shown next to the node. pi is launched with NO extensions, then lflow's own
-// finish-tool extension is loaded.
+// A worker node: an agent doing a task for the outline. It is shown on a single
+// minimal line (status · usage · live activity); the full transcript and a
+// steering box live in the agent UI (alt+e). A worker's pi process stays alive
+// across turns so follow-up messages (alt+r on a notebook node, or the agent
+// UI's input box) steer the same conversation instead of starting over.
 //
 // Grounded in work2/pchain/pi/src/agents/manager.ts.
 
 const workerSystemPrompt = "You are a worker doing a task for an outline. Do the work " +
 	"with your tools, then call finish_worker exactly once with the deliverable in " +
-	"markdown (the answer itself, not a recap of steps). After finish_worker, your " +
+	"markdown (the answer itself, not a recap of steps). The parent already sees your " +
+	"tool calls — never narrate your process in the answer. After finish_worker, your " +
 	"assistant text must be exactly: WORKER_DONE."
 
 // piEvent is one RPC event line from pi's stdout.
 type piEvent struct {
-	Type     string          `json:"type"`
-	Message  *piMessage      `json:"message"`
-	ToolName string          `json:"toolName"`
-	Args     json.RawMessage `json:"args"`
+	Type          string          `json:"type"`
+	Message       *piMessage      `json:"message"`
+	ToolName      string          `json:"toolName"`
+	Args          json.RawMessage `json:"args"`
+	PartialResult json.RawMessage `json:"partialResult"`
 }
 
 type piMessage struct {
@@ -68,9 +70,7 @@ func (msg *piMessage) text() string {
 	return strings.TrimSpace(b.String())
 }
 
-// workerUsage is the running token/cost total shown next to a worker node. The
-// full transcript is kept separately and only shown when expanded (alt+e); the
-// live activity streams on a one-line status below the node.
+// workerUsage is the running token/cost total shown next to a worker node.
 type workerUsage struct {
 	model   string
 	in, out int
@@ -82,85 +82,115 @@ type workerUsageMsg struct {
 	usage workerUsage
 }
 
-// workerActivity is one streamed unit of "what the agent is doing" — a tool call
-// (with a short detail) or a plain status line. They are queued and shown one at
-// a time on the status line below the node.
+// workerActivity is the single live "what the agent is doing" line — a tool call
+// (colored name + short detail) or a plain status. Replaced on each pi event.
 type workerActivity struct {
 	tool string // the tool name (colored), "" for a plain status
-	text string // detail (file/command) or status text
+	text string // detail (file/command/tail) or status text
 }
 
 type workerActivityMsg struct {
-	uuid string
-	act  workerActivity
+	uuid   string
+	act    workerActivity
+	status string // "" leaves the status unchanged
 }
 
 // workerDeliverableMsg carries the finish_worker markdown — the harvestable
-// result that Enter materializes into the notebook.
+// result Enter materializes into the notebook.
 type workerDeliverableMsg struct {
 	uuid     string
 	markdown string
 }
 
-// toggleWorkerOutput shows/hides a worker node's full transcript (alt+e). The
-// transcript is otherwise hidden — only the compact status chip shows inline.
-func (m *Model) toggleWorkerOutput(it *item) {
-	if m.workerExpanded == nil {
-		m.workerExpanded = map[string]bool{}
-	}
-	m.workerExpanded[it.uuid] = !m.workerExpanded[it.uuid]
-}
+// --- delegation (notebook → agent) -------------------------------------------
 
-// sendToWorker adds a notebook node to a temp worker as context (a mirror child).
-// With newWorker, or when there is no current draft worker, it creates a fresh
-// worker under the temp root and makes it current; otherwise it appends to the
-// current draft. The worker's task is its own text + note + these context
-// children. Focus stays in the notebook.
-func (m *Model) sendToWorker(it *item, newWorker bool) {
+// delegateToAgent sends a notebook node to a worker and runs it. With newAgent
+// (or when the last agent no longer exists) it creates a fresh worker under the
+// temp root; otherwise it reuses the last-interacted worker. The node rides along
+// as a context mirror child. If the target is already live, the node's content is
+// injected as a steering message; otherwise a fresh turn is started. Returns the
+// target worker and the command to run (nil when steering a live worker).
+func (m *Model) delegateToAgent(it *item, newAgent bool) (*item, tea.Cmd) {
 	m.ensureTempTree()
-	src := m.tree.sourceUUID(it) // resolve mirror chains to the real node
+	src := m.tree.sourceUUID(it)
 	srcName := m.tree.displayName(it)
 
 	var w *item
-	if !newWorker {
-		if m.currentWorker != "" {
-			w = m.tempTree.byUUID[m.currentWorker]
+	if !newAgent {
+		if m.lastAgent != "" {
+			w = m.tempTree.byUUID[m.lastAgent]
 		}
 		if w == nil {
-			w = m.emptyDraftWorker() // adopt the empty placeholder if present
+			w = m.emptyDraftWorker()
 		}
 	}
 	if w == nil {
 		nw, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
 		if err != nil {
 			m.err = err
-			return
+			return nil, nil
 		}
 		nw.parent = m.tempTree.root
 		m.tempTree.root.children = append(m.tempTree.root.children, nw)
 		w = nw
 	}
-	m.currentWorker = w.uuid
+	m.lastAgent = w.uuid
+	// a fresh/empty worker takes the delegated node's headline as its task name, so
+	// its temp line reads "◌ ✦ <task>" instead of a blank worker
+	if strings.TrimSpace(w.name) == "" {
+		w.name = srcName
+	}
 
+	// add the node as a context mirror child of the worker
 	child, err := m.tempTree.newItem()
 	if err != nil {
 		m.err = err
-		return
+		return nil, nil
 	}
-	child.typ = database.TypeBullets // a context mirror, not itself a worker
+	child.typ = database.TypeBullets
 	child.mirrorOf = src
 	child.collapsed = true
 	child.parent = w
 	w.children = append(w.children, child)
-	m.tempTree.externalNames[src] = srcName // resolve the mirror's display name
-
+	m.tempTree.externalNames[src] = srcName
 	m.unsaved = true
-	m.flash = "sent to worker"
+
+	// live worker → steer it with the node's content; otherwise start a turn
+	if m.workerSteer != nil {
+		if ch, alive := m.workerSteer[w.uuid]; alive {
+			if _, err := m.saveAll(); err == nil {
+				m.unsaved = false
+			}
+			ch <- m.nodeAsMessage(child)
+			m.flash = "steered " + clipStr(srcName, 24)
+			return w, nil
+		}
+	}
+	m.flash = "sent to agent"
+	return w, runWorker(m, w)
 }
 
-// emptyDraftWorker returns an existing empty, unrun worker under the temp root
-// (e.g. the always-present placeholder) so alt+s adopts it instead of leaving it
-// orphaned beside a fresh one. nil if there is none.
+// nodeAsMessage renders a context child (a mirror of a notebook node) into a
+// markdown message for a steering turn.
+func (m *Model) nodeAsMessage(child *item) string {
+	uuid := child.uuid
+	if child.mirrorOf != "" {
+		uuid = m.tempTree.sourceUUID(child)
+	}
+	n, err := database.GetNode(m.db, uuid)
+	if err != nil || n.Name == "" {
+		return ""
+	}
+	msg := n.Name
+	if md, err := outline.RenderMarkdown(m.db, n, 0, true); err == nil && strings.TrimSpace(md) != "" {
+		msg += "\n" + md
+	}
+	return msg
+}
+
+// emptyDraftWorker returns an existing empty, never-run worker under the temp
+// root (the always-present placeholder) so the first delegation adopts it instead
+// of leaving it orphaned beside a fresh one. nil if there is none.
 func (m *Model) emptyDraftWorker() *item {
 	for _, c := range m.tempTree.root.children {
 		if c.typ != database.TypeWorker || strings.TrimSpace(c.name) != "" || len(c.children) > 0 {
@@ -173,21 +203,24 @@ func (m *Model) emptyDraftWorker() *item {
 	return nil
 }
 
+// --- running ------------------------------------------------------------------
+
 func runWorker(m *Model, it *item) tea.Cmd {
 	if m.runCancel == nil {
 		m.runCancel = map[string]func(){}
 		m.runOut = map[string][]outLine{}
 		m.runCh = map[string]chan tea.Msg{}
 	}
+	if m.workerSteer == nil {
+		m.workerSteer = map[string]chan string{}
+	}
+	// already live → stop it (cancel kills the pi process)
 	if cancel, running := m.runCancel[it.uuid]; running {
 		cancel()
 		delete(m.runCancel, it.uuid)
 		return nil
 	}
-	// running clears the draft pointer so the next alt+s starts a fresh worker
-	if it.uuid == m.currentWorker {
-		m.currentWorker = ""
-	}
+	m.lastAgent = it.uuid
 	// persist first so the context (mirror sources + this worker's subtree) is in
 	// the DB for buildWorkerTask to read
 	if _, err := m.saveAll(); err == nil {
@@ -200,14 +233,20 @@ func runWorker(m *Model, it *item) tea.Cmd {
 	m.runOut[it.uuid] = nil
 	ch := make(chan tea.Msg, 1024)
 	m.runCh[it.uuid] = ch
+	steer := make(chan string, 16)
+	m.workerSteer[it.uuid] = steer
+	if m.workerStatus == nil {
+		m.workerStatus = map[string]string{}
+	}
+	m.workerStatus[it.uuid] = "running"
 	model, thinking := piModelInfo()
-	go startWorker(it.uuid, task, model, thinking, ctx, ch)
+	go startWorker(it.uuid, task, model, thinking, ctx, ch, steer)
 	return waitBashCmd(ch)
 }
 
-// buildWorkerTask assembles the agent's prompt from the worker node's own text
-// (the message), its note, and its children — mirror children resolve to their
-// source node's content. Context = message + note + children.
+// buildWorkerTask assembles the agent's first prompt from the worker node's own
+// text (the message), its note, and its children — mirror children resolve to
+// their source node's content. Context = message + note + children.
 func (m *Model) buildWorkerTask(it *item) string {
 	var b strings.Builder
 	b.WriteString(it.name)
@@ -237,9 +276,20 @@ func (m *Model) buildWorkerTask(it *item) string {
 	return b.String()
 }
 
+// sendPrompt writes one RPC prompt line to pi's stdin.
+func sendPrompt(stdin io.Writer, msg string) {
+	if strings.TrimSpace(msg) == "" {
+		return
+	}
+	j, _ := json.Marshal(msg)
+	io.WriteString(stdin, fmt.Sprintf(`{"id":"1","type":"prompt","message":%s}`+"\n", j))
+}
+
 // startWorker spawns pi in RPC mode (no extensions + lflow's finish tool), sends
-// the task, and translates pi's event stream into output-band lines + usage.
-func startWorker(uuid, task, model, thinking string, ctx context.Context, ch chan tea.Msg) {
+// the task, then keeps the process alive: a steering goroutine forwards follow-up
+// messages, and the scanner translates pi's event stream into transcript lines,
+// usage, and a live activity line until the process exits.
+func startWorker(uuid, task, model, thinking string, ctx context.Context, ch chan tea.Msg, steer chan string) {
 	args := []string{"--mode", "rpc", "--no-session", "--approve", "--no-extensions",
 		"--append-system-prompt", workerSystemPrompt,
 		"--tools", "read,bash,grep,find,ls,edit,write,finish_worker"}
@@ -257,11 +307,19 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 	stdout, _ := c.StdoutPipe()
 	if err := c.Start(); err != nil {
 		ch <- bashLineMsg{uuid, "pi: " + err.Error(), true}
+		ch <- workerActivityMsg{uuid, workerActivity{text: "failed: " + err.Error()}, "error"}
 		ch <- bashDoneMsg{uuid, 1}
 		return
 	}
-	msgJSON, _ := json.Marshal(task)
-	io.WriteString(stdin, fmt.Sprintf(`{"id":"1","type":"prompt","message":%s}`+"\n", msgJSON))
+	sendPrompt(stdin, task)
+
+	// forward steering messages (the agent UI's input, alt+r on a live agent)
+	go func() {
+		for msg := range steer {
+			sendPrompt(stdin, msg)
+		}
+		stdin.Close() // steer closed → end the conversation
+	}()
 
 	var use workerUsage
 	sc := bufio.NewScanner(stdout)
@@ -274,25 +332,34 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 		switch ev.Type {
 		case "tool_execution_start":
 			if ev.ToolName == "finish_worker" {
-				ch <- workerActivityMsg{uuid, workerActivity{tool: "finish_worker", text: "writing result"}}
+				ch <- workerActivityMsg{uuid, workerActivity{tool: "finish_worker", text: "writing result"}, "running"}
 				var fw struct {
 					Markdown string `json:"markdown"`
 				}
 				if json.Unmarshal(ev.Args, &fw) == nil && fw.Markdown != "" {
 					md := strings.TrimSpace(fw.Markdown)
-					ch <- bashLineMsg{uuid, md, false}        // transcript (expanded view)
-					ch <- workerDeliverableMsg{uuid, md}      // harvestable result (Enter)
+					ch <- bashLineMsg{uuid, md, false}
+					ch <- workerDeliverableMsg{uuid, md}
 				}
 				break
 			}
-			// queue the live activity (colored tool name + a short detail)…
-			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: toolDetail(ev.Args)}}
-			// …and keep the raw line in the transcript (expanded view only)
+			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: toolDetail(ev.Args)}, "running"}
 			line := "→ " + ev.ToolName
 			if s := clipStr(string(ev.Args), 50); s != "" && s != "{}" {
 				line += " " + s
 			}
 			ch <- bashLineMsg{uuid, line, false}
+		case "tool_execution_update":
+			// stream the tail of the tool's live output onto the activity line
+			detail := toolDetail(ev.Args)
+			if tail := resultTail(ev.PartialResult); tail != "" {
+				if detail != "" {
+					detail += " · " + tail
+				} else {
+					detail = tail
+				}
+			}
+			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: detail}, "running"}
 		case "message_end":
 			if ev.Message == nil {
 				break
@@ -314,16 +381,41 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 				ch <- workerUsageMsg{uuid, use}
 			}
 		case "agent_end":
-			ch <- workerActivityMsg{uuid, workerActivity{text: "done"}}
-			stdin.Close()
-			_ = c.Wait()
-			ch <- bashDoneMsg{uuid, 0}
-			return
+			// a turn finished; keep the process alive for follow-up steering
+			ch <- workerActivityMsg{uuid, workerActivity{text: "idle — alt+e to steer"}, "idle"}
 		}
 	}
 	stdin.Close()
 	_ = c.Wait()
 	ch <- bashDoneMsg{uuid, 0}
+}
+
+// resultTail extracts the last non-empty line of a tool's partial result (the
+// live output pchain appends after " · ").
+func resultTail(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		var obj map[string]any
+		if json.Unmarshal(raw, &obj) != nil {
+			return ""
+		}
+		for _, k := range []string{"value", "text", "output", "content", "stdout"} {
+			if v, ok := obj[k].(string); ok {
+				s = v
+				break
+			}
+		}
+	}
+	var last string
+	for _, ln := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(ln); t != "" {
+			last = t
+		}
+	}
+	return clipStr(last, 48)
 }
 
 func clipStr(s string, n int) string {
@@ -341,116 +433,62 @@ func ktok(n int) string {
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
-// workerSuffix is the compact token/cost chip next to a worker node. The live
-// activity is streamed on the status line below the node (workerBandLines), not
-// here. Grounded in work2/pchain's job line.
+// --- single-line render -------------------------------------------------------
+
+// workerSuffix is the worker's whole status, rendered on its own node line:
+// status · ↑in ↓out $cost · live activity. Minimal — the transcript and steering
+// live in the agent UI (alt+e). Grounded in work2/pchain's job line.
 func (m *Model) workerSuffix(it *item) string {
-	u, ok := m.workerUsage[it.uuid]
-	if !ok {
-		return ""
+	status := m.workerStatus[it.uuid]
+	_, running := m.runCancel[it.uuid]
+	u, hasUsage := m.workerUsage[it.uuid]
+	act, hasAct := m.workerAction[it.uuid]
+
+	if status == "" && !hasUsage && !hasAct && !running {
+		return "" // never run — a plain draft worker
 	}
-	return cDim + fmt.Sprintf(" ┊ ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset
-}
 
-// --- streaming activity queue -------------------------------------------------
-//
-// Each worker keeps a queue of activity updates. One is shown at a time on the
-// status line below the node for a few ticks; the more the queue backs up, the
-// shorter each is shown, so the stream catches up instead of falling behind.
-
-const workerTickEvery = 150 * time.Millisecond
-const workerBaseTicks = 10 // ~1.5s per item with an empty backlog
-
-type workerTickMsg time.Time
-
-func workerTick() tea.Cmd {
-	return tea.Tick(workerTickEvery, func(t time.Time) tea.Msg { return workerTickMsg(t) })
-}
-
-// workerHoldTicks is how long the current item is held before advancing, shrinking
-// as the backlog grows so a busy stream drains faster.
-func workerHoldTicks(backlog int) int {
-	n := workerBaseTicks / (backlog + 1)
-	if n < 2 {
-		n = 2
+	var b strings.Builder
+	b.WriteString(cDim + " · " + cReset)
+	b.WriteString(statusColor(status) + statusWord(status, running) + cReset)
+	if hasUsage {
+		b.WriteString(cDim + fmt.Sprintf(" ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset)
 	}
-	return n
-}
-
-// advanceWorkerFeeds advances each worker's displayed activity: it pops the next
-// queued item once the current one has been shown long enough for the backlog.
-func (m *Model) advanceWorkerFeeds() {
-	for uuid, q := range m.workerQueue {
-		if len(q) == 0 {
-			continue
-		}
-		_, hasCur := m.workerCur[uuid]
-		if !hasCur || m.workerCurTicks[uuid] >= workerHoldTicks(len(q)) {
-			m.workerCur[uuid] = q[0]
-			m.workerQueue[uuid] = q[1:]
-			m.workerCurTicks[uuid] = 0
-		} else {
-			m.workerCurTicks[uuid]++
-		}
-	}
-}
-
-// anyWorkerFeedActive reports whether the activity tick should keep firing: any
-// queued items, or any worker still running.
-func (m *Model) anyWorkerFeedActive() bool {
-	for _, q := range m.workerQueue {
-		if len(q) > 0 {
-			return true
-		}
-	}
-	for uuid := range m.runCancel {
-		if it := m.tree.byUUID[uuid]; it != nil && it.typ == database.TypeWorker {
-			return true
-		}
-	}
-	return false
-}
-
-// workerBandLines is the worker's hanging band: the full transcript when expanded
-// (alt+e), otherwise a single streaming status line — "Starting…" then colored
-// tool calls — drawn under the node.
-func (m *Model) workerBandLines(r row, subtreeBelow bool, maxLine int) []string {
-	uuid := r.it.uuid
-	rail := continuationPrefix(r, subtreeBelow)
-	_, running := m.runCancel[uuid]
-
-	if m.workerExpanded[uuid] {
-		var lines []string
-		for _, l := range m.runOut[uuid] {
-			col := cFG
-			if l.err {
-				col = cRed
+	if hasAct {
+		b.WriteString(cDim + " · " + cReset)
+		if act.tool != "" {
+			b.WriteString(toolColor(act.tool) + toolLabel(act.tool) + cReset)
+			if act.text != "" {
+				b.WriteString(cDim + " " + act.text + cReset)
 			}
-			lines = append(lines, clip(rail+cReset+col+"  "+l.text+cReset, maxLine))
+		} else if act.text != "" {
+			b.WriteString(cDim + act.text + cReset)
 		}
-		if running {
-			lines = append(lines, clip(rail+cReset+cDim+"  running…"+cReset, maxLine))
-		}
-		return lines
 	}
+	return b.String()
+}
 
-	cur, hasCur := m.workerCur[uuid]
-	if !running && !hasCur {
-		return nil
+func statusWord(status string, running bool) string {
+	if status != "" {
+		return status
 	}
-	var body string
-	switch {
-	case !hasCur:
-		body = cDim + "Starting…" + cReset
-	case cur.tool != "":
-		body = toolColor(cur.tool) + toolLabel(cur.tool) + cReset
-		if cur.text != "" {
-			body += cDim + " " + cur.text + cReset
-		}
+	if running {
+		return "running"
+	}
+	return "idle"
+}
+
+func statusColor(status string) string {
+	switch status {
+	case "running":
+		return cYellow
+	case "done":
+		return cGreen
+	case "error":
+		return cRed
 	default:
-		body = cDim + cur.text + cReset
+		return cDim
 	}
-	return []string{clip(rail+cReset+"  "+body, maxLine)}
 }
 
 // toolLabel title-cases a pi tool name for the status line (Read, Bash, Edit…).

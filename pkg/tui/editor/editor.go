@@ -35,6 +35,7 @@ const (
 	modeType    // the /type picker: choose one of seven node types
 	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
 	modeJSON    // the alt+e full-panel json editor
+	modeAgent   // the alt+e full-panel agent UI: observe + steer a worker
 )
 
 // pull stages for the /mirror:wf prompt flow.
@@ -167,20 +168,25 @@ type Model struct {
 
 	// worker (Pi agent) token/cost usage, keyed by node uuid
 	workerUsage map[string]workerUsage
-	// worker nodes whose full transcript is expanded (alt+e); default collapsed
-	workerExpanded map[string]bool
-	// currentWorker is the draft (unrun) worker that alt+s appends context to;
-	// running a worker clears it so the next alt+s starts a fresh draft
-	currentWorker string
+	// lastAgent is the most-recently interacted worker (sent-to or opened); alt+r
+	// on a notebook node delegates to it, creating one if it no longer exists
+	lastAgent string
 	// workerDeliverable holds each finished worker's finish_worker markdown — the
 	// harvestable result Enter materializes into the notebook
 	workerDeliverable map[string]string
-	// worker live-activity stream: a queue of updates per node, the one currently
-	// shown, and how many ticks it has been held (drains faster as the queue grows)
-	workerQueue    map[string][]workerActivity
-	workerCur      map[string]workerActivity
-	workerCurTicks map[string]int
-	workerTicking  bool
+	// worker live activity: the single line currently shown next to a worker
+	// ("Read foo.go", "Bash …"), replaced on each pi event — pchain's currentAction
+	workerAction map[string]workerActivity
+	// workerStatus is the worker's lifecycle word: running / idle / done / error
+	workerStatus map[string]string
+	// workerSteer carries follow-up prompts to a live worker's pi process (the
+	// agent UI's input box and alt+r-to-a-running-agent both write here)
+	workerSteer map[string]chan string
+
+	// agent UI (modeAgent) state — observe + steer one worker full-panel
+	agentNode   *item  // the worker being observed
+	agentInput  string // the steering message being typed
+	agentScroll int    // first visible transcript line
 
 	// query nodes: unix-seconds of the last run, keyed by node uuid, for the
 	// "updated <relative>" suffix
@@ -505,6 +511,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashDoneMsg:
 		delete(m.runCancel, msg.uuid)
 		delete(m.runCh, msg.uuid)
+		if m.workerSteer != nil {
+			delete(m.workerSteer, msg.uuid)
+		}
+		// a worker's pi process has exited: mark it done unless it errored
+		if m.workerStatus != nil {
+			if s := m.workerStatus[msg.uuid]; s != "error" {
+				m.workerStatus[msg.uuid] = "done"
+			}
+		}
 		return m, nil
 	case workerUsageMsg:
 		if m.workerUsage == nil {
@@ -513,31 +528,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.workerUsage[msg.uuid] = msg.usage
 		return m, waitBashCmd(m.runCh[msg.uuid])
 	case workerActivityMsg:
-		if m.workerQueue == nil {
-			m.workerQueue = map[string][]workerActivity{}
-			m.workerCur = map[string]workerActivity{}
-			m.workerCurTicks = map[string]int{}
+		if m.workerAction == nil {
+			m.workerAction = map[string]workerActivity{}
+			m.workerStatus = map[string]string{}
 		}
-		m.workerQueue[msg.uuid] = append(m.workerQueue[msg.uuid], msg.act)
-		var tick tea.Cmd
-		if !m.workerTicking {
-			m.workerTicking = true
-			tick = workerTick()
+		m.workerAction[msg.uuid] = msg.act
+		if msg.status != "" {
+			m.workerStatus[msg.uuid] = msg.status
 		}
-		return m, tea.Batch(tick, waitBashCmd(m.runCh[msg.uuid]))
+		return m, waitBashCmd(m.runCh[msg.uuid])
 	case workerDeliverableMsg:
 		if m.workerDeliverable == nil {
 			m.workerDeliverable = map[string]string{}
 		}
 		m.workerDeliverable[msg.uuid] = msg.markdown
 		return m, waitBashCmd(m.runCh[msg.uuid])
-	case workerTickMsg:
-		m.advanceWorkerFeeds()
-		if m.anyWorkerFeedActive() {
-			return m, workerTick()
-		}
-		m.workerTicking = false
-		return m, nil
 	case voiceDoneMsg:
 		if m.voiceEnv == nil {
 			m.voiceEnv = map[string][]int{}
@@ -659,6 +664,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleStyleKey(k)
 	case modeJSON:
 		return m.handleJSONKey(k)
+	case modeAgent:
+		return m.handleAgentKey(k)
 	}
 
 	// snapshot the tree before a mutating outline key so /undo can reverse it
@@ -897,23 +904,28 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+r":
-		// run a type's action, if it has one (bash command today)
-		if cur := m.cursorItem(); cur != nil {
-			if run := typeOf(cur.typ).run; run != nil {
-				return m, run(m, cur)
+		// A runnable node (bash/query/worker) runs its own action. Any other
+		// notebook node is delegated to the last-interacted agent (created if none)
+		// and run now — repeated alt+r to a live agent injects it as a steer message.
+		cur := m.cursorItem()
+		if cur == nil {
+			return m, nil
+		}
+		if run := typeOf(cur.typ).run; run != nil {
+			return m, run(m, cur)
+		}
+		if !m.tempActive {
+			if _, cmd := m.delegateToAgent(cur, false); cmd != nil {
+				return m, cmd
 			}
 		}
 		return m, nil
-	case "alt+s":
-		// send the focused notebook node to the current (unrun) worker, or make one
-		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			m.sendToWorker(cur, false)
-		}
-		return m, nil
 	case "alt+shift+s", "alt+S":
-		// always start a new worker from the focused notebook node
+		// delegate the focused notebook node to a brand-new agent and run it
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			m.sendToWorker(cur, true)
+			if _, cmd := m.delegateToAgent(cur, true); cmd != nil {
+				return m, cmd
+			}
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
@@ -2068,6 +2080,10 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
+	// stop any live agent processes (kept alive across turns for steering)
+	for _, cancel := range m.runCancel {
+		cancel()
+	}
 	if m.tempActive {
 		m.exitTemp() // back to the main tree so save persists it, not the scratch
 	}
@@ -2108,6 +2124,8 @@ func (m *Model) View() string {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeJSON {
 		lines = m.viewJSON(maxLine)
+	} else if m.mode == modeAgent {
+		lines = m.viewAgent(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
@@ -2209,9 +2227,10 @@ func (m *Model) viewOutline(maxLine int) []string {
 			noteCaret = m.caret
 		}
 		bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-		if it.typ == database.TypeWorker {
-			bands[i] = append(bands[i], m.workerBandLines(r, below, maxLine)...)
-		} else {
+		// workers render on a single line (status/usage/activity in the suffix); the
+		// transcript lives in the agent UI (alt+e). Other runnable nodes (bash/query)
+		// hang their ephemeral output beneath them.
+		if it.typ != database.TypeWorker {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
 		}
 	}

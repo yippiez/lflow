@@ -60,7 +60,7 @@ var nodeTypes = []nodeType{
 	{
 		key: database.TypeWorker, label: "Worker", sign: "✦ ", inlineEditable: true, tempOnly: true,
 		run:    runWorker,
-		expand: func(m *Model, it *item) { m.toggleWorkerOutput(it) }, // alt+e shows/hides full output
+		expand: func(m *Model, it *item) { m.openAgent(it) }, // alt+e: observe + steer in the agent UI
 	},
 }
 
