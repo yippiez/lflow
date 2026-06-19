@@ -555,3 +555,12 @@ The post-refactor agent workflow the user wanted (pchain-style). The bottom spac
 
 When
 2026-06-19 — commit 2c46618; 30/30 e2e (removed obsolete staging tests; added test-agent-domain-compose; updated real-model test to alt+s-launch). Verified live (compose launch, alt+s note→agent with context, zoom access). Visual polish ("cool/something missing") still open.
+
+---
+title: Agent UX batch — move/copy launch, alt+e toggle, custom node types, node-style view, model/thinking switch
+
+Why
+A batch of agent refinements on the Agent Domain workflow. (1) alt+s MOVES a note to an agent (deep-copies context, removes the note); alt+shift+s COPIES (keeps it, mirror context) — launchAgentFromNote(destroy). (2) alt+e toggles the inline view (focus to expand, alt+e again collapses). (3) bash/query output renders muted gray. (4) Agents can return CUSTOM NODE TYPES: finish_worker nodes take an optional `type` (bash/code/todo/heading/quote/json); harvest materializes them as real typed nodes (a bash command becomes a runnable ○ $ node); deliverType validates. (5) Expanded view redesigned as a COMPACT OUTLINE of nodes (○ Agent→query, ○ Status, ○ Tool calls (N), ○ Final→typed result nodes) bracketed by red horizontal dividers + a fixed footer (replaces title/description sections). (6) Elapsed work time (launch→last activity) shown on the agent line and in Status; model name shown in Status. (7) ctrl+p opens a searchable model picker (pi --list-models); ctrl+t cycles thinking (off/low/medium/high) when no date is under the cursor (date-convert still wins otherwise). Model/thinking are session overrides (curModel) that apply to NEW agents only — each agent captures its model at launch (workerModel), so switching never changes a running/finished agent.
+
+When
+2026-06-19 — commits df0c12d, 20f5e99, 9eae1e2; 30/31 e2e (removed obsolete staging tests, added test-agent-domain-compose). Verified live (bash-typed deliverable harvested as ○ $ ls -la; expanded node-view with red dividers + elapsed + model; ctrl+p/ctrl+t).
