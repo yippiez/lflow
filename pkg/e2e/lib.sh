@@ -82,6 +82,23 @@ launch() {
 }
 
 # ---------------------------------------------------------------------------
+# require_pi: gate an agent test (real model, end-to-end) on a working pi + the
+# user's ~/.pi credentials, symlinking ~/.pi into the isolated HOME so the worker
+# subprocess can authenticate. SKIP (exit 0) when pi or ~/.pi is absent so the
+# suite stays green on machines without an agent setup. Call AFTER setup, BEFORE
+# launch. These tests hit a real model — they are slower and non-deterministic,
+# so assert structure (status/usage/outline shape), not exact wording.
+# ---------------------------------------------------------------------------
+require_pi() {
+    command -v pi >/dev/null 2>&1 || { printf 'SKIP %s: pi not installed\n' "${TEST_NAME}"; exit 0; }
+    if [[ ! -d "${HOME}/.pi" ]]; then
+        printf 'SKIP %s: ~/.pi not present\n' "${TEST_NAME}"
+        exit 0
+    fi
+    ln -s "${HOME}/.pi" "${TEST_HOME}/.pi"
+}
+
+# ---------------------------------------------------------------------------
 # reopen: kill + relaunch the same session/HOME (requires use_persist_db).
 # ---------------------------------------------------------------------------
 reopen() {
