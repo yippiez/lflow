@@ -527,3 +527,13 @@ EVALS: no mock pi. lflow's pi has no echo/echo model, so agent e2e use the REAL 
 When
 2026-06-19 — commits cbc7159 (code) + 9d0bb26 (e2e); verified live (outline Final single/nested, outline steer continues conversation, harvest = real nested nodes, extension-load error surfaced as error not stuck idle).
 ---
+
+---
+title: Agent query lives in the name; children are context only
+
+Why
+Correcting the delegation shape. An agent's QUERY is its node name; its CHILDREN are context only — never an untitled agent with the query buried in a child. alt+shift+s ("ask a new agent this") sets the new agent's NAME to the focused node's text (the query) and adds no child. alt+s adds the focused node as a context mirror CHILD to the last agent and never touches the title. buildWorkerTask was already name(query)+note+children(context), so this only changes stageToAgent's newAgent branch. The always-present empty worker placeholder (the "sections never empty" invariant) still trails after named agents.
+
+When
+2026-06-19 — commit 39184a9; verified live (alt+shift+s → "✦ summarize these notes" with child "◆ fact A about cats", ran using name as query + child as context). test-agent-query-in-name added; suite 31/31.
+---
