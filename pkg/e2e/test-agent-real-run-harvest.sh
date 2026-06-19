@@ -23,20 +23,21 @@ sleep 0.4
 send M-r            # run it
 
 # it must reach a terminal state, not hang — the stuck-idle bug regression guard.
-# A cost chip ("$") only appears once usage has streamed back.
-wait_for "\$" 45
+# A cost chip ("$") only appears once usage has streamed back. Generous timeouts:
+# this is a live model call and the suite runs it under load.
+wait_for "\$" 90
 # the worker settles to idle (process stays alive for steering) or done.
-if ! { wait_for "idle" 45 || true; [[ "${LAST_PANE}" == *"idle"* || "${LAST_PANE}" == *"done"* ]]; }; then
+if ! { wait_for "idle" 90 || true; [[ "${LAST_PANE}" == *"idle"* || "${LAST_PANE}" == *"done"* ]]; }; then
     fail "agent did not reach a terminal state (stuck?)"
 fi
 assert_not_contains "error"     # no unhandled pi error
 assert_no_crash
 
-# open the agent UI and confirm the Final deliverable section renders
+# open the agent UI (inline) and confirm the Final deliverable section renders
 send Down
 sleep 0.2
 send M-e
-wait_for "Final" 5
+wait_for "Final" 8
 assert_contains "Agent"
 assert_contains "Tool calls"
 assert_no_crash

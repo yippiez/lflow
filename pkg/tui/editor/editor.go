@@ -34,8 +34,6 @@ const (
 	modePrompt  // single-line text prompt, e.g. the /mirror:wf api key and link
 	modeType    // the /type picker: choose one of seven node types
 	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeAgent   // the alt+e full-panel agent UI: observe a worker
-	modeSteer   // a one-line steer box ('s' on a run worker): send a follow-up
 )
 
 // pull stages for the /mirror:wf prompt flow.
@@ -179,16 +177,6 @@ type Model struct {
 	// workerSteer carries follow-up prompts to a live worker's pi process (the
 	// 's' steer box writes here)
 	workerSteer map[string]chan string
-
-	// agent UI (modeAgent) state — observe one worker full-panel
-	agentNode   *item // the worker being observed
-	agentScroll int   // first visible body line
-
-	// steer (modeSteer) state — an outline composer for a follow-up to a worker
-	steerNode  *item
-	steerInput string // multi-line buffer: each line is a node
-	steerCaret int    // rune index into steerInput
-	steerPrev  mode   // the mode to return to on cancel/send (outline or agent)
 
 	// inline expanded view: when focused, the cursor node's nodeView captures keys
 	// and renders bands beneath it (replaces the per-feature full-screen modes).
@@ -678,10 +666,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTypeKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
-	case modeAgent:
-		return m.handleAgentKey(k)
-	case modeSteer:
-		return m.handleSteerKey(k)
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
@@ -1180,10 +1164,18 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// A launched worker's title is locked (its task is fixed once it runs) — like
-		// pchain, 's' steers it with a follow-up instead of typing; other keys no-op.
+		// pchain, 's' focuses its inline view straight into the steer composer; other
+		// keys no-op.
 		if m.workerRan(cur) {
 			if string(k.Runes) == "s" && !k.Paste {
-				m.openSteer(cur, modeOutline)
+				if v := nodeViewOf(cur); v != nil && v.Enter(m, cur) {
+					m.focused = true
+					m.focusScroll = 0
+					d := m.nodeStore(cur.uuid)
+					d["agentSub"] = subSteer
+					d["steerBuf"] = ""
+					d["steerCaret"] = 0
+				}
 			}
 			return m, nil
 		}
@@ -2212,10 +2204,6 @@ func (m *Model) View() string {
 
 	if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
-	} else if m.mode == modeAgent {
-		lines = m.viewAgent(maxLine)
-	} else if m.mode == modeSteer {
-		lines = m.viewSteer(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
@@ -2331,7 +2319,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// always-visible Temporary Domain panel below it. Below ~3 body rows there is
 	// no room for that stack, so fall back to the plain outline.
 	rowBudget := m.rowBudget()
-	showTemp := (m.mode == modeOutline || m.mode == modeNote) && rowBudget >= 3
+	// A focused inline view takes the whole body (like a picker) — the temp split
+	// is suppressed so a tall view (agent transcript) isn't crammed into the panel.
+	showTemp := (m.mode == modeOutline || m.mode == modeNote) && rowBudget >= 3 && !m.focused
 	tempBudget, mainBudget := 0, rowBudget
 	if showTemp {
 		m.ensureTempTree() // always-visible panel must exist before we render it
@@ -2343,7 +2333,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 	focusedBudget := mainBudget
-	if m.tempActive {
+	if showTemp && m.tempActive {
 		focusedBudget = tempBudget
 	}
 

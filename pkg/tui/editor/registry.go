@@ -91,8 +91,8 @@ var nodeTypes = []nodeType{
 	},
 	{
 		key: database.TypeWorker, label: "Worker", sign: "✦ ", inlineEditable: true, tempOnly: true,
-		run:    runWorker,
-		expand: func(m *Model, it *item) { m.openAgent(it) }, // alt+e: observe + steer in the agent UI
+		run:  runWorker,
+		view: agentView{}, // alt+e: inline observe + steer (steer is a sub-state)
 	},
 }
 

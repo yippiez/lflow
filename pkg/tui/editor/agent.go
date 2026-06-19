@@ -8,51 +8,75 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// The agent UI (modeAgent) is a full-panel, inline view for observing one worker:
-// a sectioned layout — status/tokens, the Tool calls list, and the Final result —
-// modeled on pchain's agent details view (but inline; lflow never uses the alt
-// screen). Steering is a separate one-line box ('s'), so this view is read-only.
+// agentView is the worker's inline expanded view (alt+e): a sectioned, scrollable
+// observe pane (Agent / Status / Tool calls / Final) that renders as bands beneath
+// the node — never a separate screen. Steering is a SUB-STATE of this view (press
+// 's'), an outline composer, not its own mode. State is ephemeral (per-node store);
+// the worker's run state stays in the existing run/worker maps.
+type agentView struct{}
 
-// hrule is a full-width horizontal rule, like pchain's alternate-screen border.
-func hrule(maxLine int) string {
-	n := maxLine
-	if n < 1 {
-		n = 1
-	}
-	return cDim + strings.Repeat("─", n) + cReset
+const (
+	subObserve = 0
+	subSteer   = 1
+)
+
+func (agentView) sub(m *Model, it *item) int {
+	s, _ := m.nodeStore(it.uuid)["agentSub"].(int)
+	return s
+}
+func (agentView) setSub(m *Model, it *item, s int) { m.nodeStore(it.uuid)["agentSub"] = s }
+
+func (agentView) steerBuf(m *Model, it *item) (string, int) {
+	d := m.nodeStore(it.uuid)
+	b, _ := d["steerBuf"].(string)
+	c, _ := d["steerCaret"].(int)
+	return b, c
+}
+func (agentView) setSteerBuf(m *Model, it *item, b string, c int) {
+	d := m.nodeStore(it.uuid)
+	d["steerBuf"] = b
+	d["steerCaret"] = c
 }
 
-// section is a colored section header ("Tool calls 3", "Final").
-func section(label string) string {
-	return " " + cBold + cRed + label + cReset
-}
+// section is a red section header ("Tool calls 3", "Final"). Content sits on the
+// lines below it, indented, never red.
+func section(label string) string { return " " + cBold + cRed + label + cReset }
 
-// openAgent enters the observe-only agent UI for a worker.
-func (m *Model) openAgent(it *item) {
-	m.mode = modeAgent
-	m.agentNode = it
-	m.agentScroll = 0
+func (v agentView) Enter(m *Model, it *item) bool {
 	m.lastAgent = it.uuid
+	v.setSub(m, it, subObserve)
+	return true
 }
 
-// handleAgentKey drives the observe-only agent UI: scroll, s to steer, x to stop,
-// esc/q to close.
-func (m *Model) handleAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	it := m.agentNode
+func (v agentView) Leave(m *Model, it *item) {
+	d := m.nodeStore(it.uuid)
+	delete(d, "agentSub")
+	delete(d, "steerBuf")
+	delete(d, "steerCaret")
+}
+
+func (v agentView) Lines(m *Model, it *item, width int) int {
+	if v.sub(m, it) == subSteer {
+		c, _ := v.steerContent(m, it, "", width, false)
+		return len(c)
+	}
+	return len(v.observeContent(m, it, "", width))
+}
+
+// Key routes to the steer composer when in the steer sub-state, else handles the
+// observe pane (scroll, s→steer, x→stop). Unhandled keys (esc/ctrl+c) fall through.
+func (v agentView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+	if v.sub(m, it) == subSteer {
+		return v.steerKey(m, it, k)
+	}
 	switch k.String() {
-	case "esc", "q":
-		m.mode = modeOutline
-		m.agentNode = nil
-		return m, nil
-	case "ctrl+c":
-		return m.quit()
 	case "s":
-		if it != nil {
-			m.openSteer(it, modeAgent)
-		}
-		return m, nil
+		v.setSub(m, it, subSteer)
+		v.setSteerBuf(m, it, "", 0)
+		m.focusScroll = 0
+		return nil, true
 	case "x":
-		if it != nil && m.runCancel != nil {
+		if m.runCancel != nil {
 			if cancel, running := m.runCancel[it.uuid]; running {
 				cancel()
 				delete(m.runCancel, it.uuid)
@@ -61,35 +85,142 @@ func (m *Model) handleAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		return m, nil
+		return nil, true
 	case "down", "j", "pgdown":
 		step := 1
 		if k.String() == "pgdown" {
 			step = 8
 		}
-		m.agentScroll += step
-		return m, nil
+		m.focusScroll += step
+		return nil, true
 	case "up", "k", "pgup":
 		step := 1
 		if k.String() == "pgup" {
 			step = 8
 		}
-		m.agentScroll -= step
-		if m.agentScroll < 0 {
-			m.agentScroll = 0
+		m.focusScroll -= step
+		if m.focusScroll < 0 {
+			m.focusScroll = 0
 		}
-		return m, nil
+		return nil, true
 	}
-	return m, nil
+	return nil, false // esc/ctrl+c → central
 }
 
-// viewAgent renders the sectioned, scrollable agent detail view.
-func (m *Model) viewAgent(maxLine int) []string {
-	it := m.agentNode
-	if it == nil {
-		m.mode = modeOutline
-		return m.viewOutline(maxLine)
+// steerKey drives the inline outline composer: enter=new node, tab=indent, alt+s
+// sends to the agent (same conversation if live, else stage+rerun), esc=back.
+func (v agentView) steerKey(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+	buf, caret := v.steerBuf(m, it)
+	ins := func(s string) {
+		r := []rune(buf)
+		if caret > len(r) {
+			caret = len(r)
+		}
+		buf = string(r[:caret]) + s + string(r[caret:])
+		caret += len([]rune(s))
 	}
+	switch k.String() {
+	case "esc":
+		v.setSub(m, it, subObserve)
+		m.focusScroll = 0
+		return nil, true // handled → central esc won't defocus the whole view
+	case "alt+s", "alt+S", "ctrl+s":
+		msg := strings.TrimSpace(buf)
+		v.setSteerBuf(m, it, "", 0)
+		v.setSub(m, it, subObserve)
+		m.focusScroll = 0
+		if msg == "" {
+			return nil, true
+		}
+		m.flash = "steered"
+		if ch := m.liveSteer(it.uuid); ch != nil {
+			ch <- msg // same conversation, as composed
+			// reflect the new turn immediately so it never reads "idle" while working
+			if m.workerStatus != nil {
+				m.workerStatus[it.uuid] = "running"
+			}
+			if m.workerAction != nil {
+				m.workerAction[it.uuid] = workerActivity{text: "thinking…"}
+			}
+			return nil, true
+		}
+		for _, child := range parseOutlineText(m.tempTree, msg) {
+			child.parent = it
+			it.children = append(it.children, child)
+		}
+		return runWorker(m, it), true
+	case "enter":
+		ins("\n")
+	case "tab":
+		ins("  ")
+	case "left":
+		if caret > 0 {
+			caret--
+		}
+	case "right":
+		if caret < len([]rune(buf)) {
+			caret++
+		}
+	case "up":
+		caret = jsonCaretLineMove(buf, caret, -1)
+	case "down":
+		caret = jsonCaretLineMove(buf, caret, +1)
+	case "backspace":
+		r := []rune(buf)
+		if caret > 0 {
+			buf = string(r[:caret-1]) + string(r[caret:])
+			caret--
+		}
+	default:
+		switch {
+		case k.Type == tea.KeySpace && !k.Alt:
+			ins(" ")
+		case k.Type == tea.KeyRunes && !k.Alt:
+			ins(string(k.Runes))
+		default:
+			return nil, false
+		}
+	}
+	v.setSteerBuf(m, it, buf, caret)
+	return nil, true
+}
+
+// Bands renders the current sub-view as bands beneath the node, self-windowed to
+// [scroll, scroll+winH); in steer it keeps the caret line visible.
+func (v agentView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+	var content []string
+	caretContentLine := -1
+	if v.sub(m, it) == subSteer {
+		content, caretContentLine = v.steerContent(m, it, rail, width, focused)
+	} else {
+		content = v.observeContent(m, it, rail, width)
+	}
+	if focused && caretContentLine >= 0 {
+		if caretContentLine < scroll {
+			scroll = caretContentLine
+		}
+		if caretContentLine >= scroll+winH {
+			scroll = caretContentLine - winH + 1
+		}
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	if scroll > len(content) {
+		scroll = len(content)
+	}
+	if focused {
+		m.focusScroll = scroll
+	}
+	end := scroll + winH
+	if end > len(content) {
+		end = len(content)
+	}
+	return content[scroll:end]
+}
+
+// observeContent builds the sectioned observe pane lines (rail-prefixed).
+func (v agentView) observeContent(m *Model, it *item, rail string, width int) []string {
 	name := m.tree.displayName(it)
 	if strings.TrimSpace(name) == "" {
 		name = "untitled"
@@ -97,181 +228,80 @@ func (m *Model) viewAgent(maxLine int) []string {
 	_, running := m.runCancel[it.uuid]
 	status := statusWord(m.workerStatus[it.uuid], running)
 
-	// build the scrollable body — each section is a red title with its content on
-	// the lines below, indented. Content is never red.
-	var body []string
+	var c []string
+	add := func(s string) { c = append(c, clip(rail+cReset+s, width)) }
 
-	// Agent — the query, wrapped onto its own lines below the title
-	body = append(body, section("Agent"))
-	for _, w := range wrapPlain(name, maxLine-4) {
-		body = append(body, clip("   "+cFG+w+cReset, maxLine))
+	add(section("Agent"))
+	for _, w := range wrapPlain(name, width-6) {
+		add("   " + cFG + w + cReset)
 	}
-
-	// Status — status word + usage
-	body = append(body, "", section("Status"))
-	body = append(body, "   "+statusColor(m.workerStatus[it.uuid])+status+cReset)
+	add("")
+	add(section("Status"))
+	add("   " + statusColor(m.workerStatus[it.uuid]) + status + cReset)
 	if u, ok := m.workerUsage[it.uuid]; ok {
-		body = append(body, "   "+cDim+fmt.Sprintf("↑%s ↓%s · $%.4f", ktok(u.in), ktok(u.out), u.cost)+cReset)
+		add("   " + cDim + fmt.Sprintf("↑%s ↓%s · $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset)
 	}
-
-	// Tool calls — the call history, indented
 	calls := m.workerActions[it.uuid]
-	body = append(body, "", section(fmt.Sprintf("Tool calls %d", len(calls))))
+	add("")
+	add(section(fmt.Sprintf("Tool calls %d", len(calls))))
 	if len(calls) == 0 {
-		body = append(body, "   "+cDim+"(no tool calls yet)"+cReset)
+		add("   " + cDim + "(no tool calls yet)" + cReset)
 	} else {
 		for _, a := range calls {
 			line := "   " + toolColor(a.tool) + toolLabel(a.tool) + cReset
 			if a.text != "" {
 				line += cDim + " " + a.text + cReset
 			}
-			body = append(body, clip(line, maxLine))
+			add(line)
 		}
 	}
 	if running {
 		if a, ok := m.workerAction[it.uuid]; ok && a.tool != "" {
-			body = append(body, "   "+toolColor(a.tool)+toolLabel(a.tool)+cReset+cDim+" "+a.text+"…"+cReset)
+			add("   " + toolColor(a.tool) + toolLabel(a.tool) + cReset + cDim + " " + a.text + "…" + cReset)
 		}
 	}
-
-	// Final — the deliverable outline, indented (the shape Enter harvests)
-	body = append(body, "", section("Final"))
+	add("")
+	add(section("Final"))
 	if md := m.workerDeliverable[it.uuid]; strings.TrimSpace(md) != "" {
-		for _, l := range outlinePreview(md, maxLine-2) {
-			body = append(body, "  "+l)
+		for _, l := range outlinePreview(md, width-2) {
+			c = append(c, clip(rail+cReset+"  "+l, width))
 		}
 	} else if running {
-		body = append(body, "   "+cDim+"(running…)"+cReset)
+		add("   " + cDim + "(running…)" + cReset)
 	} else {
-		body = append(body, "   "+cDim+"(no result yet)"+cReset)
+		add("   " + cDim + "(no result yet)" + cReset)
 	}
-
-	// window the body between the top rule and the footer/bottom rule
-	winH := m.height - 3
-	if winH < 3 {
-		winH = 3
-	}
-	if m.agentScroll > len(body)-winH {
-		m.agentScroll = len(body) - winH
-	}
-	if m.agentScroll < 0 {
-		m.agentScroll = 0
-	}
-	end := min(m.agentScroll+winH, len(body))
-
-	lines := []string{hrule(maxLine)}
-	for i := m.agentScroll; i < end; i++ {
-		lines = append(lines, clip(body[i], maxLine))
-	}
-	for len(lines) < m.height-2 {
-		lines = append(lines, "")
-	}
-	lines = append(lines, clip(" "+cDim+"j/k scroll · s steer · x stop · esc close"+cReset, maxLine))
-	lines = append(lines, hrule(maxLine))
-	return lines
+	add("")
+	add(" " + cDim + "j/k scroll · s steer · x stop · esc close" + cReset)
+	return c
 }
 
-// --- steer (modeSteer) -------------------------------------------------------
+// steerContent builds the outline composer lines (rail-prefixed) and returns the
+// content-line index of the caret (for scroll-follow).
+func (v agentView) steerContent(m *Model, it *item, rail string, width int, focused bool) ([]string, int) {
+	buf, caret := v.steerBuf(m, it)
+	var c []string
+	add := func(s string) { c = append(c, clip(rail+cReset+s, width)) }
 
-// openSteer opens the outline steer composer for a worker (each line is a node),
-// returning to prev on exit.
-func (m *Model) openSteer(it *item, prev mode) {
-	m.mode = modeSteer
-	m.steerNode = it
-	m.steerInput = ""
-	m.steerCaret = 0
-	m.steerPrev = prev
-	m.lastAgent = it.uuid
-}
-
-func (m *Model) steerInsert(s string) {
-	r := []rune(m.steerInput)
-	c := m.steerCaret
-	if c > len(r) {
-		c = len(r)
-	}
-	m.steerInput = string(r[:c]) + s + string(r[c:])
-	m.steerCaret = c + len([]rune(s))
-}
-
-// handleSteerKey drives the outline steer composer: enter starts a new node, tab
-// indents, alt+s (or ctrl+s) sends the composed outline to the agent, esc cancels.
-func (m *Model) handleSteerKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	it := m.steerNode
-	switch k.String() {
-	case "esc":
-		m.mode = m.steerPrev
-		m.steerNode = nil
-		return m, nil
-	case "ctrl+c":
-		return m.quit()
-	case "alt+s", "alt+S", "ctrl+s":
-		msg := strings.TrimSpace(m.steerInput)
-		m.steerInput = ""
-		m.steerCaret = 0
-		m.mode = m.steerPrev
-		if it == nil || msg == "" {
-			m.steerNode = nil
-			return m, nil
-		}
-		m.flash = "steered"
-		if ch := m.liveSteer(it.uuid); ch != nil {
-			ch <- msg // same conversation, as composed
-			// reflect the new turn immediately so the worker never reads "idle" while
-			// it is actually working (and isn't stuck idle if pi stalls)
-			if m.workerStatus != nil {
-				m.workerStatus[it.uuid] = "running"
+	add(" " + cBold + cRed + "Steer" + cReset + cDim + " · " + cReset + cFG + "compose a follow-up" + cReset)
+	caretLine, caretCol := jsonCaretLC(buf, caret)
+	for i, raw := range strings.Split(buf, "\n") {
+		trimmed := strings.TrimLeft(raw, " ")
+		depth := (len([]rune(raw)) - len([]rune(trimmed))) / 2
+		indent := strings.Repeat("  ", depth)
+		glyph := cDim + "○ " + cReset
+		if focused && i == caretLine {
+			col := caretCol - (len([]rune(raw)) - len([]rune(trimmed)))
+			if col < 0 {
+				col = 0
 			}
-			if m.workerAction != nil {
-				m.workerAction[it.uuid] = workerActivity{text: "thinking…"}
-			}
-			return m, nil
-		}
-		// exited → stage the composed outline as context children and (re)run
-		for _, child := range parseOutlineText(m.tempTree, msg) {
-			child.parent = it
-			it.children = append(it.children, child)
-		}
-		return m, runWorker(m, it)
-	case "enter":
-		m.steerInsert("\n")
-		return m, nil
-	case "tab":
-		m.steerInsert("  ")
-		return m, nil
-	case "left":
-		if m.steerCaret > 0 {
-			m.steerCaret--
-		}
-		return m, nil
-	case "right":
-		if m.steerCaret < len([]rune(m.steerInput)) {
-			m.steerCaret++
-		}
-		return m, nil
-	case "up":
-		m.steerCaret = jsonCaretLineMove(m.steerInput, m.steerCaret, -1)
-		return m, nil
-	case "down":
-		m.steerCaret = jsonCaretLineMove(m.steerInput, m.steerCaret, +1)
-		return m, nil
-	case "backspace":
-		r := []rune(m.steerInput)
-		if m.steerCaret > 0 {
-			m.steerInput = string(r[:m.steerCaret-1]) + string(r[m.steerCaret:])
-			m.steerCaret--
-		}
-		return m, nil
-	default:
-		if k.Type == tea.KeySpace && !k.Alt {
-			m.steerInsert(" ")
-			return m, nil
-		}
-		if k.Type == tea.KeyRunes && !k.Alt {
-			m.steerInsert(string(k.Runes))
+			add(" " + indent + glyph + cFG + withCaret(trimmed, col) + cReset)
+		} else {
+			add(" " + indent + glyph + cFG + trimmed + cReset)
 		}
 	}
-	return m, nil
+	add(" " + cDim + "alt+s send · enter new node · tab indent · esc back" + cReset)
+	return c, caretLine + 1 // +1 for the title line
 }
 
 // liveSteer returns the steering channel for a worker whose pi process is still
@@ -284,43 +314,6 @@ func (m *Model) liveSteer(uuid string) chan string {
 		return nil
 	}
 	return m.workerSteer[uuid]
-}
-
-// viewSteer renders the outline steer composer: each buffer line is shown as a
-// node (○), with a block caret on the active line.
-func (m *Model) viewSteer(maxLine int) []string {
-	name := "agent"
-	if m.steerNode != nil {
-		name = m.tree.displayName(m.steerNode)
-	}
-	lines := []string{
-		hrule(maxLine),
-		" " + cBold + cAccent + "Steer" + cReset + cDim + " · " + cReset + cFG + clipStr(name, maxLine-12) + cReset,
-		"",
-	}
-	caretLine, caretCol := jsonCaretLC(m.steerInput, m.steerCaret)
-	for i, raw := range strings.Split(m.steerInput, "\n") {
-		// leading spaces nest the node, matching how the outline will be parsed
-		trimmed := strings.TrimLeft(raw, " ")
-		depth := (len([]rune(raw)) - len([]rune(trimmed))) / 2
-		indent := strings.Repeat("  ", depth)
-		glyph := cDim + "○ " + cReset
-		if i == caretLine {
-			col := caretCol - (len([]rune(raw)) - len([]rune(trimmed)))
-			if col < 0 {
-				col = 0
-			}
-			lines = append(lines, clip(" "+indent+glyph+cFG+withCaret(trimmed, col)+cReset, maxLine))
-		} else {
-			lines = append(lines, clip(" "+indent+glyph+cFG+trimmed+cReset, maxLine))
-		}
-	}
-	for len(lines) < m.height-1 {
-		lines = append(lines, "")
-	}
-	lines = append(lines, clip(" "+cDim+"alt+s send · enter new node · tab indent · esc cancel"+cReset, maxLine))
-	lines = append(lines, hrule(maxLine))
-	return lines
 }
 
 // outlinePreview renders the deliverable outline (nodes JSON) as outline rows
