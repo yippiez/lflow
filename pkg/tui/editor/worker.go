@@ -108,27 +108,45 @@ type workerDeliverableMsg struct {
 
 // --- staging (notebook → agent) ----------------------------------------------
 
-// stageToAgent adds a notebook node to a worker as context — it does NOT run the
-// worker (running is alt+r). With newAgent (or when the last agent no longer
-// exists) it creates a fresh worker under the temp root; otherwise it reuses the
-// last-interacted worker. The node rides along as a context mirror child, and a
-// fresh worker takes the node's headline as its task name. Returns the worker.
+// stageToAgent wires a notebook node into an agent without running it (running is
+// alt+r). The agent's QUERY is its name; its CHILDREN are context.
+//
+//   - newAgent (alt+shift+s): create a fresh agent whose NAME is the node's text —
+//     i.e. "ask a new agent this". No child is added; the query lives in the name.
+//   - !newAgent (alt+s): add the node as a context mirror CHILD of the last agent
+//     (creating an empty one if none). The agent's title is never touched.
+//
+// Returns the agent.
 func (m *Model) stageToAgent(it *item, newAgent bool) *item {
 	m.ensureTempTree()
 	src := m.tree.sourceUUID(it)
 	srcName := m.tree.displayName(it)
 
+	if newAgent {
+		w, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
+		if err != nil {
+			m.err = err
+			return nil
+		}
+		w.name = srcName // the query is the agent's name, not a child
+		w.parent = m.tempTree.root
+		m.tempTree.root.children = append(m.tempTree.root.children, w)
+		m.lastAgent = w.uuid
+		m.unsaved = true
+		m.flash = "asked new agent"
+		return w
+	}
+
+	// alt+s: add the node as a context child of the last agent (or a fresh one)
 	var w *item
-	if !newAgent {
-		if m.lastAgent != "" {
-			w = m.tempTree.byUUID[m.lastAgent]
-		}
-		if w == nil {
-			w = m.emptyDraftWorker()
-		}
+	if m.lastAgent != "" {
+		w = m.tempTree.byUUID[m.lastAgent]
 	}
 	if w == nil {
-		nw, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
+		w = m.emptyDraftWorker()
+	}
+	if w == nil {
+		nw, err := m.tempTree.newItem()
 		if err != nil {
 			m.err = err
 			return nil
@@ -139,8 +157,7 @@ func (m *Model) stageToAgent(it *item, newAgent bool) *item {
 	}
 	m.lastAgent = w.uuid
 
-	// add the node as a context mirror child of the worker — never touch the
-	// worker's title (the user writes the task there; alt+s only adds context)
+	// a context mirror child — never touch the worker's title (its name is the query)
 	child, err := m.tempTree.newItem()
 	if err != nil {
 		m.err = err
@@ -153,11 +170,7 @@ func (m *Model) stageToAgent(it *item, newAgent bool) *item {
 	w.children = append(w.children, child)
 	m.tempTree.externalNames[src] = srcName
 	m.unsaved = true
-	if newAgent {
-		m.flash = "new agent"
-	} else {
-		m.flash = "sent to agent"
-	}
+	m.flash = "added context"
 	return w
 }
 

@@ -938,14 +938,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+s":
-		// stage the focused notebook node onto the last agent (created if none) —
-		// adds context, does NOT run (alt+r runs)
+		// add the focused notebook node as CONTEXT (a child) to the last agent
+		// (created if none). Never sets the title; does NOT run (alt+r runs).
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
 			m.stageToAgent(cur, false)
 		}
 		return m, nil
 	case "alt+shift+s", "alt+S":
-		// stage the focused notebook node onto a brand-new agent — no run
+		// ask a NEW agent this: the focused node's text becomes the agent's name
+		// (the query). Context is added separately with alt+s. No run.
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
 			m.stageToAgent(cur, true)
 		}
