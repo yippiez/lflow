@@ -35,7 +35,8 @@ const (
 	modeType    // the /type picker: choose one of seven node types
 	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
 	modeJSON    // the alt+e full-panel json editor
-	modeAgent   // the alt+e full-panel agent UI: observe + steer a worker
+	modeAgent   // the alt+e full-panel agent UI: observe a worker
+	modeSteer   // a one-line steer box ('s' on a run worker): send a follow-up
 )
 
 // pull stages for the /mirror:wf prompt flow.
@@ -177,16 +178,23 @@ type Model struct {
 	// worker live activity: the single line currently shown next to a worker
 	// ("Read foo.go", "Bash …"), replaced on each pi event — pchain's currentAction
 	workerAction map[string]workerActivity
+	// workerActions is the worker's tool-call history (one per tool_execution_start),
+	// shown as the "Tool calls" list in the agent UI
+	workerActions map[string][]workerActivity
 	// workerStatus is the worker's lifecycle word: running / idle / done / error
 	workerStatus map[string]string
 	// workerSteer carries follow-up prompts to a live worker's pi process (the
-	// agent UI's input box and alt+r-to-a-running-agent both write here)
+	// 's' steer box writes here)
 	workerSteer map[string]chan string
 
-	// agent UI (modeAgent) state — observe + steer one worker full-panel
-	agentNode   *item  // the worker being observed
-	agentInput  string // the steering message being typed
-	agentScroll int    // first visible transcript line
+	// agent UI (modeAgent) state — observe one worker full-panel
+	agentNode   *item // the worker being observed
+	agentScroll int   // first visible body line
+
+	// steer (modeSteer) state — a one-line follow-up to a running/run worker
+	steerNode  *item
+	steerInput string
+	steerPrev  mode // the mode to return to on cancel/send (outline or agent)
 
 	// query nodes: unix-seconds of the last run, keyed by node uuid, for the
 	// "updated <relative>" suffix
@@ -531,10 +539,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.workerAction == nil {
 			m.workerAction = map[string]workerActivity{}
 			m.workerStatus = map[string]string{}
+			m.workerActions = map[string][]workerActivity{}
 		}
 		m.workerAction[msg.uuid] = msg.act
 		if msg.status != "" {
 			m.workerStatus[msg.uuid] = msg.status
+		}
+		if msg.start && msg.act.tool != "" {
+			m.workerActions[msg.uuid] = append(m.workerActions[msg.uuid], msg.act)
 		}
 		return m, waitBashCmd(m.runCh[msg.uuid])
 	case workerDeliverableMsg:
@@ -666,6 +678,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleJSONKey(k)
 	case modeAgent:
 		return m.handleAgentKey(k)
+	case modeSteer:
+		return m.handleSteerKey(k)
 	}
 
 	// snapshot the tree before a mutating outline key so /undo can reverse it
@@ -904,9 +918,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+r":
-		// A runnable node (bash/query/worker) runs its own action. Any other
-		// notebook node is delegated to the last-interacted agent (created if none)
-		// and run now — repeated alt+r to a live agent injects it as a steer message.
+		// Run only — never on staging. A runnable node (bash/query/worker) runs its
+		// own action; any other notebook node fires the last-staged agent (the one
+		// alt+s has been adding context to), so the loop is alt+s… then alt+r.
 		cur := m.cursorItem()
 		if cur == nil {
 			return m, nil
@@ -914,18 +928,25 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if run := typeOf(cur.typ).run; run != nil {
 			return m, run(m, cur)
 		}
-		if !m.tempActive {
-			if _, cmd := m.delegateToAgent(cur, false); cmd != nil {
-				return m, cmd
+		if !m.tempActive && m.lastAgent != "" {
+			m.ensureTempTree()
+			if w := m.tempTree.byUUID[m.lastAgent]; w != nil {
+				m.flash = "running agent"
+				return m, runWorker(m, w)
 			}
 		}
 		return m, nil
-	case "alt+shift+s", "alt+S":
-		// delegate the focused notebook node to a brand-new agent and run it
+	case "alt+s":
+		// stage the focused notebook node onto the last agent (created if none) —
+		// adds context, does NOT run (alt+r runs)
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			if _, cmd := m.delegateToAgent(cur, true); cmd != nil {
-				return m, cmd
-			}
+			m.stageToAgent(cur, false)
+		}
+		return m, nil
+	case "alt+shift+s", "alt+S":
+		// stage the focused notebook node onto a brand-new agent — no run
+		if cur := m.cursorItem(); cur != nil && !m.tempActive {
+			m.stageToAgent(cur, true)
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
@@ -1119,6 +1140,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.slashStart = m.caret
 				m.caret++
 				m.unsaved = true
+			}
+			return m, nil
+		}
+
+		// A launched worker's title is locked (its task is fixed once it runs) — like
+		// pchain, 's' steers it with a follow-up instead of typing; other keys no-op.
+		if m.workerRan(cur) {
+			if string(k.Runes) == "s" && !k.Paste {
+				m.openSteer(cur, modeOutline)
 			}
 			return m, nil
 		}
@@ -2126,6 +2156,8 @@ func (m *Model) View() string {
 		lines = m.viewJSON(maxLine)
 	} else if m.mode == modeAgent {
 		lines = m.viewAgent(maxLine)
+	} else if m.mode == modeSteer {
+		lines = m.viewSteer(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}

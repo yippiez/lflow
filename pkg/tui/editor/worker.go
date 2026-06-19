@@ -93,6 +93,7 @@ type workerActivityMsg struct {
 	uuid   string
 	act    workerActivity
 	status string // "" leaves the status unchanged
+	start  bool   // a tool_execution_start — append to the tool-call history
 }
 
 // workerDeliverableMsg carries the finish_worker markdown — the harvestable
@@ -102,15 +103,14 @@ type workerDeliverableMsg struct {
 	markdown string
 }
 
-// --- delegation (notebook → agent) -------------------------------------------
+// --- staging (notebook → agent) ----------------------------------------------
 
-// delegateToAgent sends a notebook node to a worker and runs it. With newAgent
-// (or when the last agent no longer exists) it creates a fresh worker under the
-// temp root; otherwise it reuses the last-interacted worker. The node rides along
-// as a context mirror child. If the target is already live, the node's content is
-// injected as a steering message; otherwise a fresh turn is started. Returns the
-// target worker and the command to run (nil when steering a live worker).
-func (m *Model) delegateToAgent(it *item, newAgent bool) (*item, tea.Cmd) {
+// stageToAgent adds a notebook node to a worker as context — it does NOT run the
+// worker (running is alt+r). With newAgent (or when the last agent no longer
+// exists) it creates a fresh worker under the temp root; otherwise it reuses the
+// last-interacted worker. The node rides along as a context mirror child, and a
+// fresh worker takes the node's headline as its task name. Returns the worker.
+func (m *Model) stageToAgent(it *item, newAgent bool) *item {
 	m.ensureTempTree()
 	src := m.tree.sourceUUID(it)
 	srcName := m.tree.displayName(it)
@@ -128,14 +128,14 @@ func (m *Model) delegateToAgent(it *item, newAgent bool) (*item, tea.Cmd) {
 		nw, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
 		if err != nil {
 			m.err = err
-			return nil, nil
+			return nil
 		}
 		nw.parent = m.tempTree.root
 		m.tempTree.root.children = append(m.tempTree.root.children, nw)
 		w = nw
 	}
 	m.lastAgent = w.uuid
-	// a fresh/empty worker takes the delegated node's headline as its task name, so
+	// a fresh/empty worker takes the staged node's headline as its task name, so
 	// its temp line reads "◌ ✦ <task>" instead of a blank worker
 	if strings.TrimSpace(w.name) == "" {
 		w.name = srcName
@@ -145,7 +145,7 @@ func (m *Model) delegateToAgent(it *item, newAgent bool) (*item, tea.Cmd) {
 	child, err := m.tempTree.newItem()
 	if err != nil {
 		m.err = err
-		return nil, nil
+		return nil
 	}
 	child.typ = database.TypeBullets
 	child.mirrorOf = src
@@ -154,38 +154,24 @@ func (m *Model) delegateToAgent(it *item, newAgent bool) (*item, tea.Cmd) {
 	w.children = append(w.children, child)
 	m.tempTree.externalNames[src] = srcName
 	m.unsaved = true
-
-	// live worker → steer it with the node's content; otherwise start a turn
-	if m.workerSteer != nil {
-		if ch, alive := m.workerSteer[w.uuid]; alive {
-			if _, err := m.saveAll(); err == nil {
-				m.unsaved = false
-			}
-			ch <- m.nodeAsMessage(child)
-			m.flash = "steered " + clipStr(srcName, 24)
-			return w, nil
-		}
+	if newAgent {
+		m.flash = "new agent"
+	} else {
+		m.flash = "sent to agent"
 	}
-	m.flash = "sent to agent"
-	return w, runWorker(m, w)
+	return w
 }
 
-// nodeAsMessage renders a context child (a mirror of a notebook node) into a
-// markdown message for a steering turn.
-func (m *Model) nodeAsMessage(child *item) string {
-	uuid := child.uuid
-	if child.mirrorOf != "" {
-		uuid = m.tempTree.sourceUUID(child)
+// workerRan reports whether a worker has been launched (is running, or has a
+// recorded status). Such a worker's title is locked — 's' steers it instead.
+func (m *Model) workerRan(it *item) bool {
+	if it == nil || it.typ != database.TypeWorker {
+		return false
 	}
-	n, err := database.GetNode(m.db, uuid)
-	if err != nil || n.Name == "" {
-		return ""
+	if _, running := m.runCancel[it.uuid]; running {
+		return true
 	}
-	msg := n.Name
-	if md, err := outline.RenderMarkdown(m.db, n, 0, true); err == nil && strings.TrimSpace(md) != "" {
-		msg += "\n" + md
-	}
-	return msg
+	return m.workerStatus[it.uuid] != ""
 }
 
 // emptyDraftWorker returns an existing empty, never-run worker under the temp
@@ -307,7 +293,7 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 	stdout, _ := c.StdoutPipe()
 	if err := c.Start(); err != nil {
 		ch <- bashLineMsg{uuid, "pi: " + err.Error(), true}
-		ch <- workerActivityMsg{uuid, workerActivity{text: "failed: " + err.Error()}, "error"}
+		ch <- workerActivityMsg{uuid, workerActivity{text: "failed: " + err.Error()}, "error", false}
 		ch <- bashDoneMsg{uuid, 1}
 		return
 	}
@@ -332,23 +318,17 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 		switch ev.Type {
 		case "tool_execution_start":
 			if ev.ToolName == "finish_worker" {
-				ch <- workerActivityMsg{uuid, workerActivity{tool: "finish_worker", text: "writing result"}, "running"}
+				ch <- workerActivityMsg{uuid, workerActivity{tool: "finish_worker", text: "writing result"}, "running", true}
 				var fw struct {
 					Markdown string `json:"markdown"`
 				}
 				if json.Unmarshal(ev.Args, &fw) == nil && fw.Markdown != "" {
 					md := strings.TrimSpace(fw.Markdown)
-					ch <- bashLineMsg{uuid, md, false}
 					ch <- workerDeliverableMsg{uuid, md}
 				}
 				break
 			}
-			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: toolDetail(ev.Args)}, "running"}
-			line := "→ " + ev.ToolName
-			if s := clipStr(string(ev.Args), 50); s != "" && s != "{}" {
-				line += " " + s
-			}
-			ch <- bashLineMsg{uuid, line, false}
+			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: toolDetail(ev.Args)}, "running", true}
 		case "tool_execution_update":
 			// stream the tail of the tool's live output onto the activity line
 			detail := toolDetail(ev.Args)
@@ -359,15 +339,10 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 					detail = tail
 				}
 			}
-			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: detail}, "running"}
+			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: detail}, "running", false}
 		case "message_end":
 			if ev.Message == nil {
 				break
-			}
-			if ev.Message.Role == "assistant" {
-				if txt := ev.Message.text(); txt != "" {
-					ch <- bashLineMsg{uuid, txt, false}
-				}
 			}
 			if u := ev.Message.Usage; u != nil {
 				use.in += u.Input
@@ -382,7 +357,7 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 			}
 		case "agent_end":
 			// a turn finished; keep the process alive for follow-up steering
-			ch <- workerActivityMsg{uuid, workerActivity{text: "idle — alt+e to steer"}, "idle"}
+			ch <- workerActivityMsg{uuid, workerActivity{text: "idle"}, "idle", false}
 		}
 	}
 	stdin.Close()
