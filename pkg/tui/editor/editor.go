@@ -34,7 +34,6 @@ const (
 	modePrompt  // single-line text prompt, e.g. the /mirror:wf api key and link
 	modeType    // the /type picker: choose one of seven node types
 	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeJSON    // the alt+e full-panel json editor
 	modeAgent   // the alt+e full-panel agent UI: observe a worker
 	modeSteer   // a one-line steer box ('s' on a run worker): send a follow-up
 )
@@ -145,12 +144,6 @@ type Model struct {
 
 	// /style picker selection (index into stylePickerItems)
 	styleSel int
-
-	// alt+e json editor (modeJSON) state
-	jsonNode   *item  // the json node being edited
-	jsonBuf    string // the editable, pretty-printed JSON buffer
-	jsonCaret  int    // rune index into jsonBuf
-	jsonScroll int    // first visible buffer line
 
 	// alt+r run output (bash) — ephemeral, in-memory only, keyed by node uuid
 	runOut    map[string][]outLine
@@ -657,8 +650,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
 	m.flash = "" // one-shot: whatever this key does sets the next status
 
-	// esc-esc quits from outline mode
-	if m.mode == modeOutline && key == "esc" {
+	// esc-esc quits from outline mode — but not while a focused inline view is up
+	// (there esc defocuses; handled in the focused block below)
+	if m.mode == modeOutline && key == "esc" && !m.focused {
 		if m.escPending {
 			return m.quit()
 		}
@@ -684,8 +678,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTypeKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
-	case modeJSON:
-		return m.handleJSONKey(k)
 	case modeAgent:
 		return m.handleAgentKey(k)
 	case modeSteer:
@@ -2220,8 +2212,6 @@ func (m *Model) View() string {
 
 	if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
-	} else if m.mode == modeJSON {
-		lines = m.viewJSON(maxLine)
 	} else if m.mode == modeAgent {
 		lines = m.viewAgent(maxLine)
 	} else if m.mode == modeSteer {

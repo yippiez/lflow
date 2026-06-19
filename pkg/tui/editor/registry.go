@@ -73,7 +73,7 @@ var nodeTypes = []nodeType{
 	{
 		key: database.TypeJSON, label: "JSON", inlineEditable: false,
 		render: func(it *item, name string) string { return renderJSONPreview(name) },
-		expand: func(m *Model, it *item) { m.openJSON(it) },
+		view:   jsonView{},
 	},
 	{
 		key: database.TypeBash, label: "Bash", sign: "$ ", inlineEditable: true,
