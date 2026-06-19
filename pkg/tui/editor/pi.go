@@ -4,7 +4,9 @@ import (
 	_ "embed"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed pi/worker_finish.ts
@@ -65,6 +67,46 @@ func piModelInfo() (model, thinking string) {
 	}
 	if v := os.Getenv("LFLOW_PI_THINKING"); v != "" {
 		thinking = v
+	}
+	return model, thinking
+}
+
+// thinkingLevels is the cycle ctrl+t steps through. "off" is a real override
+// (distinct from "" = no override / use config); it maps to no --thinking at run.
+var thinkingLevels = []string{"off", "low", "medium", "high"}
+
+var piModelsCache []string
+
+// piModels lists "provider/model" ids from `pi --list-models` (cached). Empty on
+// error, so the picker just shows nothing rather than blocking.
+func piModels() []string {
+	if piModelsCache != nil {
+		return piModelsCache
+	}
+	piModelsCache = []string{}
+	out, err := exec.Command("pi", "--list-models").Output()
+	if err != nil {
+		return piModelsCache
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || f[0] == "provider" {
+			continue
+		}
+		piModelsCache = append(piModelsCache, f[0]+"/"+f[1])
+	}
+	return piModelsCache
+}
+
+// curModel resolves the model + thinking to use right now: the config default
+// (piModelInfo) overlaid with the session's ctrl+p / ctrl+t overrides.
+func (m *Model) curModel() (model, thinking string) {
+	model, thinking = piModelInfo()
+	if m.piModel != "" {
+		model = m.piModel
+	}
+	if m.piThinking != "" {
+		thinking = m.piThinking
 	}
 	return model, thinking
 }

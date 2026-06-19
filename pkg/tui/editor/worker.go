@@ -237,7 +237,10 @@ func runWorker(m *Model, it *item) tea.Cmd {
 	m.workerLastActive[it.uuid] = now
 	// capture the model at launch so switching the global model later only affects
 	// NEW agents; a re-run of this agent keeps its original model
-	model, thinking := piModelInfo()
+	model, thinking := m.curModel()
+	if thinking == "off" {
+		thinking = "" // "off" override → no --thinking flag
+	}
 	if mm := m.workerModel[it.uuid]; mm != "" {
 		model = mm
 	} else {

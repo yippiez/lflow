@@ -34,6 +34,7 @@ const (
 	modePrompt  // single-line text prompt, e.g. the /mirror:wf api key and link
 	modeType    // the /type picker: choose one of seven node types
 	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeModel   // the ctrl+p model picker: choose the agent model
 )
 
 // pull stages for the /mirror:wf prompt flow.
@@ -142,6 +143,13 @@ type Model struct {
 
 	// /style picker selection (index into stylePickerItems)
 	styleSel int
+
+	// ctrl+p model picker + session model/thinking overrides (ctrl+p / ctrl+t).
+	// Overrides apply to NEW agents only (each captures its model at launch).
+	modelSel   int
+	modelQuery string
+	piModel    string
+	piThinking string
 
 	// alt+r run output (bash) — ephemeral, in-memory only, keyed by node uuid
 	runOut    map[string][]outLine
@@ -674,6 +682,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTypeKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
+	case modeModel:
+		return m.handleModelKey(k)
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
@@ -836,9 +846,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+t":
-		// convert the detected time phrase into its canonical date text, which the
-		// renderer then chips by format — only on an editable node, never a mirror
-		// reference (see mirrorContext)
+		// If a time phrase sits under the cursor, convert it to canonical date text
+		// (the renderer then chips it). Otherwise cycle the agent thinking level.
 		if cur := m.cursorItem(); cur != nil && m.mirrorContext().editable {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
 				runes := []rune(cur.name)
@@ -846,8 +855,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				cur.name = string(runes[:d.start]) + date + string(runes[d.end:])
 				m.caret = d.start + len([]rune(date))
 				m.unsaved = true
+				return m, nil
 			}
 		}
+		m.cycleThinking()
+		return m, nil
+	case "ctrl+p":
+		// open the agent model picker
+		m.mode = modeModel
+		m.modelSel = 0
+		m.modelQuery = ""
 		return m, nil
 	// every alt+arrow chord has a ctrl twin: terminals like windows
 	// terminal grab alt+arrows for pane focus and never deliver them
@@ -1649,6 +1666,76 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleModelKey drives the ctrl+p model picker: search, scroll, enter to set the
+// session model (applies to new agents only), esc to cancel.
+func (m *Model) handleModelKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "up":
+		if m.modelSel > 0 {
+			m.modelSel--
+		}
+		return m, nil
+	case "down":
+		if m.modelSel < len(m.filteredModels())-1 {
+			m.modelSel++
+		}
+		return m, nil
+	case "backspace":
+		if qr := []rune(m.modelQuery); len(qr) > 0 {
+			m.modelQuery = string(qr[:len(qr)-1])
+			m.modelSel = 0
+		} else {
+			m.mode = modeOutline
+		}
+		return m, nil
+	case "enter":
+		filt := m.filteredModels()
+		if m.modelSel < len(filt) {
+			m.piModel = filt[m.modelSel]
+			m.flash = "model: " + filt[m.modelSel]
+		}
+		m.mode = modeOutline
+		return m, nil
+	}
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && !k.Alt {
+		m.modelQuery += string(k.Runes)
+		m.modelSel = 0
+	}
+	return m, nil
+}
+
+// filteredModels returns the model ids matching the picker's search query.
+func (m *Model) filteredModels() []string {
+	q := strings.ToLower(m.modelQuery)
+	var out []string
+	for _, md := range piModels() {
+		if q == "" || strings.Contains(strings.ToLower(md), q) {
+			out = append(out, md)
+		}
+	}
+	return out
+}
+
+// cycleThinking steps the session thinking level (ctrl+t when no date is under
+// the cursor): off → low → medium → high → off, applied to new agents.
+func (m *Model) cycleThinking() {
+	_, cur := m.curModel()
+	idx := -1
+	for i, l := range thinkingLevels {
+		if l == cur {
+			idx = i
+		}
+	}
+	m.piThinking = thinkingLevels[(idx+1)%len(thinkingLevels)]
+	m.flash = "thinking: " + m.piThinking
+}
+
 // filteredTypes returns the node-type keys matching the picker's search query
 // (case-insensitive substring over the label), in registry order.
 func (m *Model) filteredTypes() []string {
@@ -2388,6 +2475,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 	case modeType:
 		pickerItems = len(m.filteredTypes())
 		typePickerRows = 1 // the "type:" search header
+	case modeModel:
+		pickerItems = len(m.filteredModels())
+		typePickerRows = 1 // the "model:" search header
 	}
 	pickerRows := 0
 	if pickerItems > 0 || typePickerRows > 0 {
@@ -2525,6 +2615,38 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
+	// the ctrl+p model picker: a search header plus a scrolling, bounded list
+	if m.mode == modeModel {
+		filt := m.filteredModels()
+		if m.modelSel >= len(filt) {
+			m.modelSel = len(filt) - 1
+		}
+		if m.modelSel < 0 {
+			m.modelSel = 0
+		}
+		query := m.modelQuery
+		if query == "" {
+			query = cDim + "type to search" + cReset
+		} else {
+			query = cFG + query + cReset
+		}
+		lines = append(lines, clip(" "+cDim+"model: "+cReset+query, maxLine))
+
+		win := pickerMaxRows
+		s2 := scrollStart(m.modelSel, len(filt), win)
+		e2 := s2 + win
+		if e2 > len(filt) {
+			e2 = len(filt)
+		}
+		for i := s2; i < e2; i++ {
+			mark := "  "
+			if i == m.modelSel {
+				mark = cAccent + "▸ " + cReset
+			}
+			lines = append(lines, clip(" "+mark+cFG+filt[i]+cReset, maxLine))
+		}
+	}
+
 	// the /style picker lists text style toggles and color swatches above the status line
 	if m.mode == modeStyle {
 		cur := m.cursorItem()
@@ -2641,7 +2763,7 @@ func (m *Model) bottomBar(maxLine int) string {
 		title = "untitled"
 	}
 	bar := fmt.Sprintf(" %s · %d/%d", title, pos, total)
-	if model, thinking := piModelInfo(); model != "" {
+	if model, thinking := m.curModel(); model != "" {
 		bar += " · " + model
 		if thinking != "" {
 			bar += " · " + thinking
