@@ -197,6 +197,15 @@ type Model struct {
 	steerCaret int    // rune index into steerInput
 	steerPrev  mode   // the mode to return to on cancel/send (outline or agent)
 
+	// inline expanded view: when focused, the cursor node's nodeView captures keys
+	// and renders bands beneath it (replaces the per-feature full-screen modes).
+	focused     bool // is the cursor node's inline view capturing input
+	focusScroll int  // first visible line of the focused view's self-window
+	// nodeData is a generic ephemeral per-node store (uuid → key → value), never
+	// persisted or synced — node views keep live/edit state here instead of
+	// growing the Model with one named map per type.
+	nodeData map[string]map[string]any
+
 	// query nodes: unix-seconds of the last run, keyed by node uuid, for the
 	// "updated <relative>" suffix
 	queryRunAt map[string]int64
@@ -683,6 +692,31 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSteerKey(k)
 	}
 
+	// A focused inline node view captures input first (it stays inside the outline,
+	// so we're still modeOutline). The view handles its own keys; esc defocuses
+	// (flushing edits); ctrl+c/ctrl+q fall through to quit; everything else is
+	// swallowed so it can't leak into outline navigation.
+	if m.focused && m.mode == modeOutline {
+		cur := m.cursorItem()
+		if v := nodeViewOf(cur); v != nil {
+			if cmd, handled := v.Key(m, cur, k); handled {
+				return m, cmd
+			}
+			switch key {
+			case "esc":
+				v.Leave(m, cur)
+				m.focused = false
+				return m, nil
+			case "ctrl+c", "ctrl+q":
+				// fall through to the quit handler below
+			default:
+				return m, nil
+			}
+		} else {
+			m.focused = false
+		}
+	}
+
 	// snapshot the tree before a mutating outline key so /undo can reverse it
 	m.snapshotForKey(key, k)
 
@@ -911,9 +945,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+e":
-		// open a type's expanded view, if it has one (json editor today)
+		// focus a type's inline expanded view (json/agent), else fall back to an
+		// action-only expand (voice play)
 		if cur := m.cursorItem(); cur != nil {
-			if e := typeOf(cur.typ).expand; e != nil {
+			if v := nodeViewOf(cur); v != nil {
+				if v.Enter(m, cur) {
+					m.focused = true
+					m.focusScroll = 0
+				}
+			} else if e := typeOf(cur.typ).expand; e != nil {
 				e(m, cur)
 			}
 		}
@@ -1328,6 +1368,20 @@ func (m *Model) deleteNode(it *item) {
 	m.ensureViewNonEmpty()
 	m.refreshRows()
 	m.caret = 0
+}
+
+// nodeStore returns the ephemeral per-node data bag for a uuid, creating it on
+// first use. Node views stash live/edit state here (never persisted or synced).
+func (m *Model) nodeStore(uuid string) map[string]any {
+	if m.nodeData == nil {
+		m.nodeData = map[string]map[string]any{}
+	}
+	d := m.nodeData[uuid]
+	if d == nil {
+		d = map[string]any{}
+		m.nodeData[uuid] = d
+	}
+	return d
 }
 
 // ensureViewNonEmpty keeps the current section from going empty: if the view root
@@ -2303,6 +2357,29 @@ func (m *Model) viewOutline(maxLine int) []string {
 		focusedBudget = tempBudget
 	}
 
+	// The focused node's inline expanded view renders as a band beneath it,
+	// self-windowed to the focused budget so the node header stays pinned above
+	// while a tall view (e.g. a long agent transcript) scrolls within its window.
+	if m.focused && m.cursor >= 0 && m.cursor < len(rows) {
+		cur := rows[m.cursor].it
+		if v := nodeViewOf(cur); v != nil {
+			r := rows[m.cursor]
+			below := m.cursor+1 < len(rows) && rows[m.cursor+1].depth > r.depth
+			winH := focusedBudget - len(groups[m.cursor]) - 1
+			if winH < 1 {
+				winH = 1
+			}
+			if total := v.Lines(m, cur, maxLine); m.focusScroll > total-winH {
+				m.focusScroll = total - winH
+			}
+			if m.focusScroll < 0 {
+				m.focusScroll = 0
+			}
+			bands[m.cursor] = append(bands[m.cursor],
+				v.Bands(m, cur, continuationPrefix(r, below), maxLine, m.focusScroll, winH, true)...)
+		}
+	}
+
 	const pickerMaxRows = 8 // most option rows any picker shows at once before scrolling
 
 	maxRows := focusedBudget
@@ -2350,7 +2427,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 			// scroll to keep the node itself in view, not the tail of its band —
 			// except while editing the note, where the band is what needs to show
 			cursorEnd = len(flat) + len(groups[i]) - 1
-			if m.mode == modeNote {
+			// while editing the note, or while a focused inline view hangs beneath
+			// the node, the band is what must stay on screen
+			if m.mode == modeNote || m.focused {
 				cursorEnd += len(bands[i])
 			}
 		}

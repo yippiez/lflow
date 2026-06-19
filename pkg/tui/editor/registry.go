@@ -25,8 +25,40 @@ type nodeType struct {
 	renderM        func(m *Model, it *item) string     // Model-aware inline-body override (voice waveform)
 	inlineEditable bool                                // false → typing/backspace/enter is a no-op
 	tempOnly       bool                                // only offered/allowed in the Temporary Domain
-	expand         func(m *Model, it *item)           // alt+e action; nil → none
+	expand         func(m *Model, it *item)           // alt+e action (action-only types, e.g. voice play)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
+	view           nodeView                           // alt+e inline expanded view; nil → none
+}
+
+// nodeView is a node type's INLINE expanded view: alt+e focuses it, its lines
+// render as bands beneath the node (in the outline flow — never a separate
+// screen), and while focused it captures keys. It is stateless — it receives
+// (m, it) every call and keeps per-node state in m's data stores keyed by
+// it.uuid — so one value serves every node of the type. This is what lets a new
+// rich type plug in via one registry entry instead of a central mode.
+type nodeView interface {
+	// Enter focuses the view (alt+e); seed any edit buffer here. false declines
+	// (nothing to show), leaving focus off.
+	Enter(m *Model, it *item) bool
+	// Lines reports the total band-line count at this width, so the caller can
+	// clamp the scroll offset. Pure.
+	Lines(m *Model, it *item, width int) int
+	// Bands renders the view as band lines beneath the node, self-windowed to
+	// [scroll, scroll+winH). rail is the tree-rail prefix; focused draws carets.
+	Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string
+	// Key handles a key while focused; handled=false falls through (esc/ctrl+c
+	// are handled centrally).
+	Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool)
+	// Leave is called on esc/defocus — flush the edit buffer to persisted state.
+	Leave(m *Model, it *item)
+}
+
+// nodeViewOf returns the inline view for an item's type, or nil.
+func nodeViewOf(it *item) nodeView {
+	if it == nil {
+		return nil
+	}
+	return typeOf(it.typ).view
 }
 
 // nodeTypes is the ordered registry; the /type picker shows it in this order.
