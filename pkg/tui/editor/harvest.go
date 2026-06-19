@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // Harvesting a finished worker: pressing Enter on it materializes its deliverable
@@ -11,30 +13,58 @@ import (
 // markdown — we read the structure directly and build nodes from it. No markdown is
 // ever parsed (it would leak markup into stored text).
 
-// deliverNode mirrors the finish_worker outline node shape.
+// deliverNode mirrors the finish_worker outline node shape. Type lets the agent
+// return custom node formats (bash, code, …); unknown/empty → a plain bullet.
 type deliverNode struct {
 	Text     string        `json:"text"`
 	Note     string        `json:"note"`
+	Type     string        `json:"type"`
 	Children []deliverNode `json:"children"`
 }
 
-// parseDeliverable turns the finish_worker nodes JSON into a forest of new items
-// registered in t. Roots are returned with parent unset; the caller attaches them.
-func parseDeliverable(t *tree, nodesJSON string) []*item {
+// deliverTypeMap maps agent-provided type names (and a few aliases) to node types
+// agents are allowed to emit. worker/voice/query are excluded (local/runtime types).
+var deliverTypeMap = map[string]string{
+	"bullet": database.TypeBullets, "bullets": database.TypeBullets,
+	"todo":    database.TypeTodo,
+	"h1":      database.TypeH1, "h2": database.TypeH2, "h3": database.TypeH3,
+	"heading": database.TypeH1,
+	"code":    database.TypeCode,
+	"quote":   database.TypeQuote,
+	"bash":    database.TypeBash,
+	"json":    database.TypeJSON,
+}
+
+// deliverType resolves an agent-provided type to an allowed node type (bullets default).
+func deliverType(s string) string {
+	if t, ok := deliverTypeMap[strings.ToLower(strings.TrimSpace(s))]; ok {
+		return t
+	}
+	return database.TypeBullets
+}
+
+// parseDeliverNodes decodes finish_worker nodes JSON into deliverNode structs
+// (tolerating a single bare object). Used by both harvest and the Final preview.
+func parseDeliverNodes(nodesJSON string) []deliverNode {
 	nodesJSON = strings.TrimSpace(nodesJSON)
 	if nodesJSON == "" {
 		return nil
 	}
 	var nodes []deliverNode
 	if json.Unmarshal([]byte(nodesJSON), &nodes) != nil {
-		// tolerate a single bare object
 		var one deliverNode
 		if json.Unmarshal([]byte(nodesJSON), &one) != nil {
 			return nil
 		}
 		nodes = []deliverNode{one}
 	}
-	return buildDeliverItems(t, nodes)
+	return nodes
+}
+
+// parseDeliverable turns the finish_worker nodes JSON into a forest of new items
+// registered in t. Roots are returned with parent unset; the caller attaches them.
+func parseDeliverable(t *tree, nodesJSON string) []*item {
+	return buildDeliverItems(t, parseDeliverNodes(nodesJSON))
 }
 
 func buildDeliverItems(t *tree, nodes []deliverNode) []*item {
@@ -49,6 +79,7 @@ func buildDeliverItems(t *tree, nodes []deliverNode) []*item {
 		}
 		it.name = strings.TrimSpace(n.Text)
 		it.note = strings.TrimSpace(n.Note)
+		it.typ = deliverType(n.Type) // custom node format (bash, code, …)
 		for _, c := range buildDeliverItems(t, n.Children) {
 			c.parent = it
 			it.children = append(it.children, c)

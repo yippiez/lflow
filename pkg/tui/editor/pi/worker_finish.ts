@@ -9,9 +9,16 @@ import { Type } from "typebox";
 const OutlineNode = Type.Object({
 	text: Type.String({ description: "Plain text for this node. No markdown, no bullets, no '#'." }),
 	note: Type.Optional(Type.String({ description: "Optional secondary text shown under the node." })),
+	type: Type.Optional(
+		Type.String({
+			description:
+				"Optional node format: bullet (default), todo, heading, code, quote, bash, json. " +
+				"Use 'bash' when the text is a shell command, 'code' for code, 'todo' for a task, etc.",
+		}),
+	),
 	children: Type.Optional(
 		Type.Array(Type.Any(), {
-			description: "Optional nested child nodes, each shaped { text, note?, children? }.",
+			description: "Optional nested child nodes, each shaped { text, note?, type?, children? }.",
 		}),
 	),
 });
@@ -26,6 +33,7 @@ export default function LflowWorkerFinish(pi: ExtensionAPI) {
 			"Call finish_worker exactly once when done. nodes is the answer itself, not a tool-by-tool log.",
 			"Return a SINGLE node unless the user explicitly asked for a list/steps/outline.",
 			"Plain text only — never markdown, bullets, or headings. Nesting is expressed with children, not text.",
+			"Set type per node when it fits: 'bash' for a shell command, 'code' for code, 'todo' for a task.",
 			"After finish_worker, assistant text must be only WORKER_DONE.",
 		],
 		parameters: Type.Object({

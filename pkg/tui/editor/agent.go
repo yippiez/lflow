@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -38,9 +37,21 @@ func (agentView) setSteerBuf(m *Model, it *item, b string, c int) {
 	d["steerCaret"] = c
 }
 
-// section is a red section header ("Tool calls 3", "Final"). Content sits on the
-// lines below it, indented, never red.
-func section(label string) string { return " " + cBold + cRed + label + cReset }
+// redRule is a red horizontal divider (bracketing the expanded view), sized to
+// fill exactly the room after the tree rail so it never overflows into an ellipsis.
+func redRule(rail string, width int) string {
+	n := width - visibleWidth(rail)
+	if n < 1 {
+		n = 1
+	}
+	return rail + cReset + cRed + strings.Repeat("─", n) + cReset
+}
+
+// agentNode renders one outline row inside the expanded view: rail + indent + ○ +
+// pre-styled text. The whole view is made of these so it reads like an outline.
+func agentNode(rail string, depth int, styled string) string {
+	return rail + cReset + strings.Repeat("  ", depth) + cDim + "○ " + cReset + styled
+}
 
 func (v agentView) Enter(m *Model, it *item) bool {
 	m.lastAgent = it.uuid
@@ -185,41 +196,53 @@ func (v agentView) steerKey(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, true
 }
 
-// Bands renders the current sub-view as bands beneath the node, self-windowed to
-// [scroll, scroll+winH); in steer it keeps the caret line visible.
+// Bands renders the expanded view bracketed by red dividers: a top rule below the
+// node, the scrollable content (an outline of nodes), a bottom rule, then a footer
+// hint. Only the content scrolls; the rules + footer stay fixed.
 func (v agentView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	var content []string
 	caretContentLine := -1
+	footer := " j/k scroll · s steer · x stop · esc close"
 	if v.sub(m, it) == subSteer {
 		content, caretContentLine = v.steerContent(m, it, rail, width, focused)
+		footer = " alt+s send · enter new node · tab indent · esc back"
 	} else {
 		content = v.observeContent(m, it, rail, width)
+	}
+	inner := winH - 3 // top rule + bottom rule + footer
+	if inner < 1 {
+		inner = 1
 	}
 	if focused && caretContentLine >= 0 {
 		if caretContentLine < scroll {
 			scroll = caretContentLine
 		}
-		if caretContentLine >= scroll+winH {
-			scroll = caretContentLine - winH + 1
+		if caretContentLine >= scroll+inner {
+			scroll = caretContentLine - inner + 1
 		}
+	}
+	if scroll > len(content)-inner {
+		scroll = len(content) - inner
 	}
 	if scroll < 0 {
 		scroll = 0
 	}
-	if scroll > len(content) {
-		scroll = len(content)
-	}
 	if focused {
 		m.focusScroll = scroll
 	}
-	end := scroll + winH
+	end := scroll + inner
 	if end > len(content) {
 		end = len(content)
 	}
-	return content[scroll:end]
+	out := []string{redRule(rail, width)}
+	out = append(out, content[scroll:end]...)
+	out = append(out, redRule(rail, width))
+	out = append(out, clip(rail+cReset+cDim+footer+cReset, width))
+	return out
 }
 
-// observeContent builds the sectioned observe pane lines (rail-prefixed).
+// observeContent builds the observe pane as a compact outline: section nodes
+// (Agent / Status / Tool calls / Final) each with their content as child nodes.
 func (v agentView) observeContent(m *Model, it *item, rail string, width int) []string {
 	name := m.tree.displayName(it)
 	if strings.TrimSpace(name) == "" {
@@ -229,79 +252,93 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 	status := statusWord(m.workerStatus[it.uuid], running)
 
 	var c []string
-	add := func(s string) { c = append(c, clip(rail+cReset+s, width)) }
+	node := func(depth int, styled string) { c = append(c, clip(agentNode(rail, depth, styled), width)) }
+	sub := func(depth int, styled string) { c = append(c, clip(rail+cReset+strings.Repeat("  ", depth+1)+"  "+styled, width)) }
 
-	add(section("Agent"))
-	for _, w := range wrapPlain(name, width-6) {
-		add("   " + cFG + w + cReset)
+	// Agent → query
+	node(0, cFG+"Agent"+cReset)
+	for _, w := range wrapPlain(name, width-8) {
+		node(1, cFG+w+cReset)
 	}
-	add("")
-	add(section("Status"))
-	add("   " + statusColor(m.workerStatus[it.uuid]) + status + cReset)
+	// Status → one compact line: status, usage, elapsed, then model
+	node(0, cFG+"Status"+cReset)
+	line := statusColor(m.workerStatus[it.uuid]) + status + cReset
 	if u, ok := m.workerUsage[it.uuid]; ok {
-		add("   " + cDim + fmt.Sprintf("↑%s ↓%s · $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset)
+		line += cDim + fmt.Sprintf("  ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset
 	}
+	if el := m.workerElapsed(it.uuid); el != "" {
+		line += cDim + "  " + el + cReset
+	}
+	node(1, line)
+	if mdl := m.workerModel[it.uuid]; mdl != "" {
+		node(1, cDim+mdl+cReset)
+	}
+	// Tool calls → one node per call
 	calls := m.workerActions[it.uuid]
-	add("")
-	add(section(fmt.Sprintf("Tool calls %d", len(calls))))
-	if len(calls) == 0 {
-		add("   " + cDim + "(no tool calls yet)" + cReset)
-	} else {
-		for _, a := range calls {
-			line := "   " + toolColor(a.tool) + toolLabel(a.tool) + cReset
-			if a.text != "" {
-				line += cDim + " " + a.text + cReset
-			}
-			add(line)
+	node(0, cFG+fmt.Sprintf("Tool calls (%d)", len(calls))+cReset)
+	for _, a := range calls {
+		t := toolColor(a.tool) + toolLabel(a.tool) + cReset
+		if a.text != "" {
+			t += cDim + " " + a.text + cReset
 		}
+		node(1, t)
 	}
 	if running {
 		if a, ok := m.workerAction[it.uuid]; ok && a.tool != "" {
-			add("   " + toolColor(a.tool) + toolLabel(a.tool) + cReset + cDim + " " + a.text + "…" + cReset)
+			node(1, toolColor(a.tool)+toolLabel(a.tool)+cReset+cDim+" "+a.text+"…"+cReset)
 		}
+	} else if len(calls) == 0 {
+		node(1, cDim+"none"+cReset)
 	}
-	add("")
-	add(section("Final"))
-	if md := m.workerDeliverable[it.uuid]; strings.TrimSpace(md) != "" {
-		for _, l := range outlinePreview(md, width-2) {
-			c = append(c, clip(rail+cReset+"  "+l, width))
+	// Final → the deliverable as nested nodes (with their custom types)
+	node(0, cFG+"Final"+cReset)
+	if nodes := parseDeliverNodes(m.workerDeliverable[it.uuid]); len(nodes) > 0 {
+		var walk func(ns []deliverNode, depth int)
+		walk = func(ns []deliverNode, depth int) {
+			for _, n := range ns {
+				txt := strings.TrimSpace(n.Text)
+				if txt == "" && len(n.Children) == 0 {
+					continue
+				}
+				node(depth, cFG+typeOf(deliverType(n.Type)).sign+txt+cReset)
+				if note := strings.TrimSpace(n.Note); note != "" {
+					for _, w := range wrapPlain(note, width-(depth+1)*2-6) {
+						sub(depth, cDim+w+cReset)
+					}
+				}
+				walk(n.Children, depth+1)
+			}
 		}
+		walk(nodes, 1)
 	} else if running {
-		add("   " + cDim + "(running…)" + cReset)
+		node(1, cDim+"running…"+cReset)
 	} else {
-		add("   " + cDim + "(no result yet)" + cReset)
+		node(1, cDim+"no result yet"+cReset)
 	}
-	add("")
-	add(" " + cDim + "j/k scroll · s steer · x stop · esc close" + cReset)
 	return c
 }
 
-// steerContent builds the outline composer lines (rail-prefixed) and returns the
-// content-line index of the caret (for scroll-follow).
+// steerContent builds the outline composer as nodes (a "Steer" node + one ○ per
+// line) and returns the content-line index of the caret (for scroll-follow).
 func (v agentView) steerContent(m *Model, it *item, rail string, width int, focused bool) ([]string, int) {
 	buf, caret := v.steerBuf(m, it)
 	var c []string
-	add := func(s string) { c = append(c, clip(rail+cReset+s, width)) }
-
-	add(" " + cBold + cRed + "Steer" + cReset + cDim + " · " + cReset + cFG + "compose a follow-up" + cReset)
+	c = append(c, clip(agentNode(rail, 0, cFG+"Steer"+cReset), width))
 	caretLine, caretCol := jsonCaretLC(buf, caret)
 	for i, raw := range strings.Split(buf, "\n") {
 		trimmed := strings.TrimLeft(raw, " ")
-		depth := (len([]rune(raw)) - len([]rune(trimmed))) / 2
-		indent := strings.Repeat("  ", depth)
-		glyph := cDim + "○ " + cReset
+		depth := 1 + (len([]rune(raw))-len([]rune(trimmed)))/2
 		if focused && i == caretLine {
 			col := caretCol - (len([]rune(raw)) - len([]rune(trimmed)))
 			if col < 0 {
 				col = 0
 			}
-			add(" " + indent + glyph + cFG + withCaret(trimmed, col) + cReset)
+			c = append(c, clip(agentNode(rail, depth, cFG+withCaret(trimmed, col)+cReset), width))
 		} else {
-			add(" " + indent + glyph + cFG + trimmed + cReset)
+			c = append(c, clip(agentNode(rail, depth, cFG+trimmed+cReset), width))
 		}
 	}
-	add(" " + cDim + "alt+s send · enter new node · tab indent · esc back" + cReset)
-	return c, caretLine + 1 // +1 for the title line
+	return c, caretLine + 1 // +1 for the "Steer" node
 }
 
 // liveSteer returns the steering channel for a worker whose pi process is still
@@ -314,40 +351,4 @@ func (m *Model) liveSteer(uuid string) chan string {
 		return nil
 	}
 	return m.workerSteer[uuid]
-}
-
-// outlinePreview renders the deliverable outline (nodes JSON) as outline rows
-// (○ + indentation), matching the shape Enter will harvest. Pure: mutates nothing.
-func outlinePreview(nodesJSON string, maxLine int) []string {
-	nodesJSON = strings.TrimSpace(nodesJSON)
-	if nodesJSON == "" {
-		return nil
-	}
-	var nodes []deliverNode
-	if json.Unmarshal([]byte(nodesJSON), &nodes) != nil {
-		var one deliverNode
-		if json.Unmarshal([]byte(nodesJSON), &one) != nil {
-			return []string{" " + cDim + clipStr(nodesJSON, maxLine-2) + cReset}
-		}
-		nodes = []deliverNode{one}
-	}
-	var out []string
-	var walk func(ns []deliverNode, depth int)
-	walk = func(ns []deliverNode, depth int) {
-		for _, n := range ns {
-			text := strings.TrimSpace(n.Text)
-			if text == "" && len(n.Children) == 0 {
-				continue
-			}
-			out = append(out, clip(" "+strings.Repeat("  ", depth)+cDim+"○ "+cReset+cFG+text+cReset, maxLine))
-			if note := strings.TrimSpace(n.Note); note != "" {
-				for _, w := range wrapPlain(note, maxLine-(depth*2)-5) {
-					out = append(out, clip(" "+strings.Repeat("  ", depth)+"   "+cDim+w+cReset, maxLine))
-				}
-			}
-			walk(n.Children, depth+1)
-		}
-	}
-	walk(nodes, 0)
-	return out
 }

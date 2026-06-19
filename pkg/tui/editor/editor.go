@@ -177,6 +177,11 @@ type Model struct {
 	// workerSteer carries follow-up prompts to a live worker's pi process (the
 	// 's' steer box writes here)
 	workerSteer map[string]chan string
+	// per-agent timing + model (model captured at launch so switching the global
+	// model only affects NEW agents): start time, last-activity time, model id
+	workerStart      map[string]time.Time
+	workerLastActive map[string]time.Time
+	workerModel      map[string]string
 
 	// inline expanded view: when focused, the cursor node's nodeView captures keys
 	// and renders bands beneath it (replaces the per-feature full-screen modes).
@@ -535,6 +540,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.workerAction[msg.uuid] = msg.act
 		if msg.status != "" {
 			m.workerStatus[msg.uuid] = msg.status
+		}
+		if m.workerLastActive != nil {
+			m.workerLastActive[msg.uuid] = time.Now()
 		}
 		if msg.start && msg.act.tool != "" {
 			m.workerActions[msg.uuid] = append(m.workerActions[msg.uuid], msg.act)

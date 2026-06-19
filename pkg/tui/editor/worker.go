@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -224,9 +225,56 @@ func runWorker(m *Model, it *item) tea.Cmd {
 		m.workerStatus = map[string]string{}
 	}
 	m.workerStatus[it.uuid] = "running"
+	if m.workerStart == nil {
+		m.workerStart = map[string]time.Time{}
+		m.workerLastActive = map[string]time.Time{}
+		m.workerModel = map[string]string{}
+	}
+	now := time.Now()
+	if m.workerStart[it.uuid].IsZero() {
+		m.workerStart[it.uuid] = now // first launch; survives re-runs
+	}
+	m.workerLastActive[it.uuid] = now
+	// capture the model at launch so switching the global model later only affects
+	// NEW agents; a re-run of this agent keeps its original model
 	model, thinking := piModelInfo()
+	if mm := m.workerModel[it.uuid]; mm != "" {
+		model = mm
+	} else {
+		m.workerModel[it.uuid] = model
+	}
 	go startWorker(it.uuid, task, model, thinking, ctx, ch, steer)
 	return waitBashCmd(ch)
+}
+
+// fmtDur renders a worker's elapsed work time compactly: 4s, 1m02s, 1h05m.
+func fmtDur(d time.Duration) string {
+	s := int(d.Seconds())
+	if s < 0 {
+		s = 0
+	}
+	if s < 60 {
+		return fmt.Sprintf("%ds", s)
+	}
+	mn := s / 60
+	s %= 60
+	if mn < 60 {
+		return fmt.Sprintf("%dm%02ds", mn, s)
+	}
+	return fmt.Sprintf("%dh%02dm", mn/60, mn%60)
+}
+
+// workerElapsed is the time worked: launch → last activity (frozen when idle).
+func (m *Model) workerElapsed(uuid string) string {
+	s, ok := m.workerStart[uuid]
+	if !ok {
+		return ""
+	}
+	e := m.workerLastActive[uuid]
+	if e.Before(s) {
+		e = s
+	}
+	return fmtDur(e.Sub(s))
 }
 
 // buildWorkerTask assembles the agent's first prompt from the worker node's own
@@ -497,6 +545,9 @@ func (m *Model) workerSuffix(it *item) string {
 	b.WriteString(statusColor(status) + statusWord(status, running) + cReset)
 	if hasUsage {
 		b.WriteString(cDim + fmt.Sprintf(" ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset)
+	}
+	if el := m.workerElapsed(it.uuid); el != "" {
+		b.WriteString(cDim + " " + el + cReset)
 	}
 	if hasAct {
 		b.WriteString(cDim + " · " + cReset)
