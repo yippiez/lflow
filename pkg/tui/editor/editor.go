@@ -190,6 +190,9 @@ type Model struct {
 	workerStart      map[string]time.Time
 	workerLastActive map[string]time.Time
 	workerModel      map[string]string
+	// ultraloop: per-agent recurring schedules (re-prompt every interval forever)
+	loops       map[string]*loopState
+	loopTicking bool
 
 	// inline expanded view: when focused, the cursor node's nodeView captures keys
 	// and renders bands beneath it (replaces the per-feature full-screen modes).
@@ -507,6 +510,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a keyword may have just been typed (or scrolled into view) — kick the
 		// animation tick if it isn't already running.
 		return m, m.startAnim(cmd)
+	case loopTickMsg:
+		cmds := m.advanceLoops()
+		if len(m.loops) > 0 {
+			cmds = append(cmds, loopTick())
+		} else {
+			m.loopTicking = false
+		}
+		return m, tea.Batch(cmds...)
 	case animTickMsg:
 		animFrame++
 		if m.hasMagicKeyword() {

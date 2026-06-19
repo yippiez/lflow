@@ -247,7 +247,15 @@ func runWorker(m *Model, it *item) tea.Cmd {
 		m.workerModel[it.uuid] = model
 	}
 	go startWorker(it.uuid, task, model, thinking, ctx, ch, steer)
-	return waitBashCmd(ch)
+
+	// ultraloop: if the query asks to loop, register the schedule and start the
+	// 1s loop tick (once) so it re-prompts forever.
+	cmd := waitBashCmd(ch)
+	if m.registerLoop(it.uuid, it.name) && !m.loopTicking {
+		m.loopTicking = true
+		cmd = tea.Batch(cmd, loopTick())
+	}
+	return cmd
 }
 
 // fmtDur renders a worker's elapsed work time compactly: 4s, 1m02s, 1h05m.
@@ -285,7 +293,7 @@ func (m *Model) workerElapsed(uuid string) string {
 // their source node's content. Context = message + note + children.
 func (m *Model) buildWorkerTask(it *item) string {
 	var b strings.Builder
-	b.WriteString(it.name)
+	b.WriteString(ultraloopStrip(it.name)) // prompt with the task, not the loop word
 	if note := strings.TrimSpace(it.note); note != "" {
 		b.WriteString("\n\n" + note)
 	}
@@ -551,6 +559,9 @@ func (m *Model) workerSuffix(it *item) string {
 	}
 	if el := m.workerElapsed(it.uuid); el != "" {
 		b.WriteString(cDim + " " + el + cReset)
+	}
+	if cd := m.loopCountdown(it.uuid); cd != "" {
+		b.WriteString(cDim + " · " + cReset + cd)
 	}
 	if hasAct {
 		b.WriteString(cDim + " · " + cReset)
