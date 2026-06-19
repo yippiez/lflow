@@ -537,3 +537,12 @@ Correcting the delegation shape. An agent's QUERY is its node name; its CHILDREN
 When
 2026-06-19 — commit 39184a9; verified live (alt+shift+s → "✦ summarize these notes" with child "◆ fact A about cats", ran using name as query + child as context). test-agent-query-in-name added; suite 31/31.
 ---
+
+---
+title: Core refactor — inline node views replace full-screen modes (P1–P4)
+
+Why
+The agent series weakened the core (see docs/CORE-AUDIT.md): rich types escaped the registry via bespoke full-screen modes, per-type Model maps, and scattered type-switches. Refactored so a node type contributes an INLINE expanded view via one registry field — alt+e focuses it, it renders as bands beneath the node (same screen, never the alt-screen — the user's "external displays should be internal"), esc defocuses. Implemented: P1 dormant substrate (nodeView interface + view field; m.focused/focusScroll; key-routing; band-append; ephemeral per-node store nodeStore). P2 JSON migrated to jsonView (deleted modeJSON + json* fields). P3 agent migrated to agentView with steer folded in as an observe|steer sub-state (deleted modeAgent, modeSteer, agent*/steer* fields, openAgent/openSteer/handle*/view* funcs); a focused view suppresses the temp split so it gets the full body. P4 dead chrome removed (viewJSON/viewAgent/viewSteer/hrule), View dispatch collapsed to modeFinder|viewOutline; expand field kept only for action-only types (voice play). Net: deleted 3 modes + ~14 Model fields; a rich type is now one nodeView + one registry line, no central edits. esc-esc quit guarded by !m.focused. Agent deliverable stays ephemeral (no behavior change), so the planned persisted+synced internal_data column was DEFERRED until a type actually needs persistence (molecule/CAD), avoiding premature DB/sync surface. P5 (moving the simple bash/voice/query maps into the generic store) deferred as churn-without-benefit. P6 (agent UX "operate like a bullet" pass) is the next, user-driven step.
+
+When
+2026-06-19 — commits 99400d4 (P1), 32c163a (P2), 9da6ff5 (P3+P4); 31/31 e2e; verified live (JSON edits inline; agent observe+steer inline beneath the node).
