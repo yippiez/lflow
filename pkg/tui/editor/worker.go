@@ -106,72 +106,40 @@ type workerDeliverableMsg struct {
 	nodes string
 }
 
-// --- staging (notebook → agent) ----------------------------------------------
+// --- launch (notes → Agent Domain) -------------------------------------------
 
-// stageToAgent wires a notebook node into an agent without running it (running is
-// alt+r). The agent's QUERY is its name; its CHILDREN are context.
-//
-//   - newAgent (alt+shift+s): create a fresh agent whose NAME is the node's text —
-//     i.e. "ask a new agent this". No child is added; the query lives in the name.
-//   - !newAgent (alt+s): add the node as a context mirror CHILD of the last agent
-//     (creating an empty one if none). The agent's title is never touched.
-//
-// Returns the agent.
-func (m *Model) stageToAgent(it *item, newAgent bool) *item {
+// launchAgentFromNote creates an agent in the Agent Domain from a notes node and
+// RUNS it immediately (alt+s): the node's text is the query, and its children
+// become the agent's context (as mirrors). Focus stays in notes.
+func (m *Model) launchAgentFromNote(note *item) tea.Cmd {
 	m.ensureTempTree()
-	src := m.tree.sourceUUID(it)
-	srcName := m.tree.displayName(it)
-
-	if newAgent {
-		w, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
-		if err != nil {
-			m.err = err
-			return nil
-		}
-		w.name = srcName // the query is the agent's name, not a child
-		w.parent = m.tempTree.root
-		m.tempTree.root.children = append(m.tempTree.root.children, w)
-		m.lastAgent = w.uuid
-		m.unsaved = true
-		m.flash = "asked new agent"
-		return w
-	}
-
-	// alt+s: add the node as a context child of the last agent (or a fresh one)
-	var w *item
-	if m.lastAgent != "" {
-		w = m.tempTree.byUUID[m.lastAgent]
-	}
-	if w == nil {
-		w = m.emptyDraftWorker()
-	}
-	if w == nil {
-		nw, err := m.tempTree.newItem()
-		if err != nil {
-			m.err = err
-			return nil
-		}
-		nw.parent = m.tempTree.root
-		m.tempTree.root.children = append(m.tempTree.root.children, nw)
-		w = nw
-	}
-	m.lastAgent = w.uuid
-
-	// a context mirror child — never touch the worker's title (its name is the query)
-	child, err := m.tempTree.newItem()
+	w, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
 	if err != nil {
 		m.err = err
 		return nil
 	}
-	child.typ = database.TypeBullets
-	child.mirrorOf = src
-	child.collapsed = true
-	child.parent = w
-	w.children = append(w.children, child)
-	m.tempTree.externalNames[src] = srcName
+	w.name = m.tree.displayName(note) // the query is the agent's name
+	w.parent = m.tempTree.root
+	// add after the compose line so the empty compose stays first
+	m.tempTree.root.children = append(m.tempTree.root.children, w)
+
+	for _, c := range note.children {
+		src := m.tree.sourceUUID(c)
+		child, err := m.tempTree.newItem()
+		if err != nil {
+			continue
+		}
+		child.typ = database.TypeBullets
+		child.mirrorOf = src
+		child.collapsed = true
+		child.parent = w
+		w.children = append(w.children, child)
+		m.tempTree.externalNames[src] = m.tree.displayName(c)
+	}
+	m.lastAgent = w.uuid
 	m.unsaved = true
-	m.flash = "added context"
-	return w
+	m.flash = "launched agent"
+	return runWorker(m, w)
 }
 
 // workerRan reports whether a worker has been launched (is running, or has a
@@ -184,21 +152,6 @@ func (m *Model) workerRan(it *item) bool {
 		return true
 	}
 	return m.workerStatus[it.uuid] != ""
-}
-
-// emptyDraftWorker returns an existing empty, never-run worker under the temp
-// root (the always-present placeholder) so the first delegation adopts it instead
-// of leaving it orphaned beside a fresh one. nil if there is none.
-func (m *Model) emptyDraftWorker() *item {
-	for _, c := range m.tempTree.root.children {
-		if c.typ != database.TypeWorker || strings.TrimSpace(c.name) != "" || len(c.children) > 0 {
-			continue
-		}
-		if _, ran := m.runOut[c.uuid]; !ran {
-			return c
-		}
-	}
-	return nil
 }
 
 // --- running ------------------------------------------------------------------

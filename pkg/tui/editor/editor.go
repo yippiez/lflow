@@ -710,12 +710,23 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		cur := m.cursorItem()
-		// harvest: Enter on a finished worker materializes its deliverable into the
-		// notebook (parsed into nodes), leaving the spent worker as a receipt.
+		// In the Agent Domain, Enter on a worker is launch/harvest, not a new node:
+		//   finished → harvest its result into notes; running → no-op;
+		//   compose line with text → launch (run) it + keep a fresh compose.
 		if m.tempActive && cur != nil && cur.typ == database.TypeWorker {
 			if m.harvestWorker(cur) {
 				return m, nil
 			}
+			if m.workerRan(cur) {
+				return m, nil // already launched; nothing to do on Enter
+			}
+			if strings.TrimSpace(cur.name) != "" {
+				cmd := runWorker(m, cur)
+				m.ensureComposeLine() // re-seed the empty compose at the top
+				m.refreshRows()
+				return m, cmd
+			}
+			return m, nil // empty compose — type first, then Enter launches
 		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
@@ -935,36 +946,19 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+r":
-		// Run only — never on staging. A runnable node (bash/query/worker) runs its
-		// own action; any other notebook node fires the last-staged agent (the one
-		// alt+s has been adding context to), so the loop is alt+s… then alt+r.
-		cur := m.cursorItem()
-		if cur == nil {
-			return m, nil
-		}
-		if run := typeOf(cur.typ).run; run != nil {
-			return m, run(m, cur)
-		}
-		if !m.tempActive && m.lastAgent != "" {
-			m.ensureTempTree()
-			if w := m.tempTree.byUUID[m.lastAgent]; w != nil {
-				m.flash = "running agent"
-				return m, runWorker(m, w)
+		// run / re-run a runnable node's own action (bash/query/worker). Never
+		// auto-runs; on an agent it re-runs the turn.
+		if cur := m.cursorItem(); cur != nil {
+			if run := typeOf(cur.typ).run; run != nil {
+				return m, run(m, cur)
 			}
 		}
 		return m, nil
 	case "alt+s":
-		// add the focused notebook node as CONTEXT (a child) to the last agent
-		// (created if none). Never sets the title; does NOT run (alt+r runs).
+		// launch an agent on the focused note: its text is the query, its children
+		// are context (mirrors), and it RUNS immediately in the Agent Domain.
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			m.stageToAgent(cur, false)
-		}
-		return m, nil
-	case "alt+shift+s", "alt+S":
-		// ask a NEW agent this: the focused node's text becomes the agent's name
-		// (the query). Context is added separately with alt+s. No run.
-		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			m.stageToAgent(cur, true)
+			return m, m.launchAgentFromNote(cur)
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
@@ -2620,6 +2614,10 @@ func (m *Model) bottomBar(maxLine int) string {
 			name = "untitled"
 		}
 		parts = append(parts, name)
+	}
+	// the bottom space is the Agent Domain — relabel its root in the breadcrumb
+	if m.tempActive && len(parts) > 0 {
+		parts[0] = "Agent Domain"
 	}
 	title := strings.Join(parts, " › ")
 	if title == "" {

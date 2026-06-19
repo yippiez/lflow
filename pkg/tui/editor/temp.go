@@ -1,6 +1,10 @@
 package editor
 
-import "github.com/lflow/lflow/pkg/tui/database"
+import (
+	"strings"
+
+	"github.com/lflow/lflow/pkg/tui/database"
+)
 
 // The Temporary Domain is an ephemeral scratch outline: a second tree with a nil
 // db, so it is never persisted or synced. It is ALWAYS visible — a dashed-icon
@@ -27,11 +31,32 @@ func (m *Model) ensureTempTree() {
 			snapshots:     map[string]snapshot{},
 			externalNames: map[string]string{},
 			byUUID:        map[string]*item{root.uuid: root},
+			defaultType:   database.TypeWorker, // Agent Domain nodes are agents
 		} // db is nil → save() is a no-op, so it never persists or syncs
 	}
-	if len(m.tempTree.root.children) == 0 {
-		_, _ = m.tempTree.insertFirstChild(m.tempTree.root) // always keep one node
+	m.ensureComposeLine()
+}
+
+// ensureComposeLine guarantees the Agent Domain's first node is an empty, never-run
+// worker — the compose line. Type into it and Enter launches an agent; it is "not
+// really a node yet" until launched. Prepends one only when the first node is taken.
+func (m *Model) ensureComposeLine() {
+	if m.tempTree == nil {
+		return
 	}
+	r := m.tempTree.root
+	if len(r.children) > 0 {
+		first := r.children[0]
+		if first.typ == database.TypeWorker && strings.TrimSpace(first.name) == "" && !m.workerRan(first) {
+			return // already have an empty compose line first
+		}
+	}
+	nc, err := m.tempTree.newItem() // typ defaults to worker
+	if err != nil {
+		return
+	}
+	nc.parent = r
+	r.children = append([]*item{nc}, r.children...)
 }
 
 // enterTemp moves focus into the Temporary Domain panel. It is reached by pressing
