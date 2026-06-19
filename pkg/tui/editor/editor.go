@@ -191,10 +191,11 @@ type Model struct {
 	agentNode   *item // the worker being observed
 	agentScroll int   // first visible body line
 
-	// steer (modeSteer) state — a one-line follow-up to a running/run worker
+	// steer (modeSteer) state — an outline composer for a follow-up to a worker
 	steerNode  *item
-	steerInput string
-	steerPrev  mode // the mode to return to on cancel/send (outline or agent)
+	steerInput string // multi-line buffer: each line is a node
+	steerCaret int    // rune index into steerInput
+	steerPrev  mode   // the mode to return to on cancel/send (outline or agent)
 
 	// query nodes: unix-seconds of the last run, keyed by node uuid, for the
 	// "updated <relative>" suffix
@@ -553,7 +554,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.workerDeliverable == nil {
 			m.workerDeliverable = map[string]string{}
 		}
-		m.workerDeliverable[msg.uuid] = msg.markdown
+		m.workerDeliverable[msg.uuid] = msg.nodes
 		return m, waitBashCmd(m.runCh[msg.uuid])
 	case voiceDoneMsg:
 		if m.voiceEnv == nil {
@@ -1101,6 +1102,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur.name == "" && len(cur.children) == 0 {
 			m.tree.remove(cur)
 			m.unsaved = true
+			m.ensureViewNonEmpty()
 			m.refreshRows()
 		}
 		return m, nil
@@ -1322,8 +1324,19 @@ func copyToClipboard(s string) {
 func (m *Model) deleteNode(it *item) {
 	m.tree.remove(it)
 	m.unsaved = true
+	m.ensureViewNonEmpty()
 	m.refreshRows()
 	m.caret = 0
+}
+
+// ensureViewNonEmpty keeps the current section from going empty: if the view root
+// has no children left (e.g. the last node was deleted), insert a fresh empty one
+// so there is always a node to type into.
+func (m *Model) ensureViewNonEmpty() {
+	root := m.viewRoot()
+	if root != nil && len(root.children) == 0 {
+		_, _ = m.tree.insertFirstChild(root)
+	}
 }
 
 // subtreeSize counts the node and everything below it.

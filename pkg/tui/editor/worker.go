@@ -24,9 +24,11 @@ import (
 // Grounded in work2/pchain/pi/src/agents/manager.ts.
 
 const workerSystemPrompt = "You are a worker doing a task for an outline. Do the work " +
-	"with your tools, then call finish_worker exactly once with the deliverable in " +
-	"markdown (the answer itself, not a recap of steps). The parent already sees your " +
-	"tool calls — never narrate your process in the answer. After finish_worker, your " +
+	"with your tools, then call finish_worker exactly once with the deliverable as " +
+	"outline nodes (the answer itself, not a recap of steps). The parent already sees " +
+	"your tool calls — never narrate your process. Return a SINGLE node unless the user " +
+	"explicitly asks for a list, steps, or an outline. Plain text only — never markdown, " +
+	"bullets, or headings; express nesting with child nodes. After finish_worker, your " +
 	"assistant text must be exactly: WORKER_DONE."
 
 // piEvent is one RPC event line from pi's stdout.
@@ -36,6 +38,7 @@ type piEvent struct {
 	ToolName      string          `json:"toolName"`
 	Args          json.RawMessage `json:"args"`
 	PartialResult json.RawMessage `json:"partialResult"`
+	Error         string          `json:"error"`
 }
 
 type piMessage struct {
@@ -96,11 +99,11 @@ type workerActivityMsg struct {
 	start  bool   // a tool_execution_start — append to the tool-call history
 }
 
-// workerDeliverableMsg carries the finish_worker markdown — the harvestable
-// result Enter materializes into the notebook.
+// workerDeliverableMsg carries the finish_worker outline (nodes JSON) — the
+// harvestable result Enter materializes into the notebook.
 type workerDeliverableMsg struct {
-	uuid     string
-	markdown string
+	uuid  string
+	nodes string
 }
 
 // --- staging (notebook → agent) ----------------------------------------------
@@ -135,13 +138,9 @@ func (m *Model) stageToAgent(it *item, newAgent bool) *item {
 		w = nw
 	}
 	m.lastAgent = w.uuid
-	// a fresh/empty worker takes the staged node's headline as its task name, so
-	// its temp line reads "◌ ✦ <task>" instead of a blank worker
-	if strings.TrimSpace(w.name) == "" {
-		w.name = srcName
-	}
 
-	// add the node as a context mirror child of the worker
+	// add the node as a context mirror child of the worker — never touch the
+	// worker's title (the user writes the task there; alt+s only adds context)
 	child, err := m.tempTree.newItem()
 	if err != nil {
 		m.err = err
@@ -291,6 +290,7 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 	c := exec.CommandContext(ctx, "pi", args...)
 	stdin, _ := c.StdinPipe()
 	stdout, _ := c.StdoutPipe()
+	stderr, _ := c.StderrPipe()
 	if err := c.Start(); err != nil {
 		ch <- bashLineMsg{uuid, "pi: " + err.Error(), true}
 		ch <- workerActivityMsg{uuid, workerActivity{text: "failed: " + err.Error()}, "error", false}
@@ -299,15 +299,42 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 	}
 	sendPrompt(stdin, task)
 
-	// forward steering messages (the agent UI's input, alt+r on a live agent)
+	// forward steering messages until the conversation is stopped (ctx cancelled);
+	// select on ctx.Done so this goroutine never leaks waiting on an idle worker.
 	go func() {
-		for msg := range steer {
-			sendPrompt(stdin, msg)
+		for {
+			select {
+			case msg, ok := <-steer:
+				if !ok {
+					stdin.Close()
+					return
+				}
+				sendPrompt(stdin, msg)
+			case <-ctx.Done():
+				stdin.Close()
+				return
+			}
 		}
-		stdin.Close() // steer closed → end the conversation
+	}()
+
+	// collect stderr — pi errors (rate limits, crashes, bad config) land here and
+	// were previously dropped, leaving the worker stuck "idle" when it had failed.
+	stderrCh := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		s := bufio.NewScanner(stderr)
+		s.Buffer(make([]byte, 64*1024), 1<<20)
+		for s.Scan() {
+			if line := strings.TrimSpace(s.Text()); line != "" {
+				b.WriteString(line + "\n")
+				ch <- bashLineMsg{uuid, "stderr: " + line, true}
+			}
+		}
+		stderrCh <- b.String()
 	}()
 
 	var use workerUsage
+	sawError := false
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
 	for sc.Scan() {
@@ -319,12 +346,13 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 		case "tool_execution_start":
 			if ev.ToolName == "finish_worker" {
 				ch <- workerActivityMsg{uuid, workerActivity{tool: "finish_worker", text: "writing result"}, "running", true}
+				// the deliverable is an outline (nodes), never markdown — carry the
+				// nodes JSON verbatim for the model side to materialize directly
 				var fw struct {
-					Markdown string `json:"markdown"`
+					Nodes json.RawMessage `json:"nodes"`
 				}
-				if json.Unmarshal(ev.Args, &fw) == nil && fw.Markdown != "" {
-					md := strings.TrimSpace(fw.Markdown)
-					ch <- workerDeliverableMsg{uuid, md}
+				if json.Unmarshal(ev.Args, &fw) == nil && len(fw.Nodes) > 0 {
+					ch <- workerDeliverableMsg{uuid, string(fw.Nodes)}
 				}
 				break
 			}
@@ -357,12 +385,53 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 			}
 		case "agent_end":
 			// a turn finished; keep the process alive for follow-up steering
-			ch <- workerActivityMsg{uuid, workerActivity{text: "idle"}, "idle", false}
+			st := "idle"
+			if sawError {
+				st = "error"
+			}
+			ch <- workerActivityMsg{uuid, workerActivity{text: st}, st, false}
+		default:
+			// any error-shaped event (error / agent_error / model_error …) — surface
+			// it instead of silently leaving the worker idle
+			if strings.Contains(ev.Type, "error") {
+				sawError = true
+				msg := ev.Error
+				if msg == "" && ev.Message != nil {
+					msg = ev.Message.text()
+				}
+				if msg == "" {
+					msg = ev.Type
+				}
+				ch <- workerActivityMsg{uuid, workerActivity{text: "error: " + clipStr(msg, 60)}, "error", false}
+				ch <- bashLineMsg{uuid, "error: " + msg, true}
+			}
 		}
 	}
-	stdin.Close()
-	_ = c.Wait()
-	ch <- bashDoneMsg{uuid, 0}
+	err := c.Wait()
+	stderrText := <-stderrCh
+	code := 0
+	if err != nil || sawError {
+		code = 1
+		last := lastLine(stderrText)
+		if last == "" {
+			last = "pi exited unexpectedly"
+		}
+		if !sawError { // an exit error we hadn't already reported
+			ch <- workerActivityMsg{uuid, workerActivity{text: "error: " + clipStr(last, 60)}, "error", false}
+		}
+	}
+	ch <- bashDoneMsg{uuid, code}
+}
+
+// lastLine returns the last non-empty line of s.
+func lastLine(s string) string {
+	var last string
+	for _, ln := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(ln); t != "" {
+			last = t
+		}
+	}
+	return last
 }
 
 // resultTail extracts the last non-empty line of a tool's partial result (the

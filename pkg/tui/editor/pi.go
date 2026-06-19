@@ -51,12 +51,20 @@ func piInfo() piSettings {
 }
 
 // piModelInfo returns pi's configured "provider/model" and thinking level for the
-// status bar and worker invocation.
+// status bar and worker invocation. LFLOW_PI_MODEL / LFLOW_PI_THINKING override
+// the config (used by e2e tests to pin a deterministic model like echo/echo).
 func piModelInfo() (model, thinking string) {
 	s := piInfo()
 	model = s.DefaultModel
 	if s.DefaultProvider != "" && model != "" {
 		model = s.DefaultProvider + "/" + model
 	}
-	return model, s.DefaultThinkingLevel
+	thinking = s.DefaultThinkingLevel
+	if v := os.Getenv("LFLOW_PI_MODEL"); v != "" {
+		model = v
+	}
+	if v := os.Getenv("LFLOW_PI_THINKING"); v != "" {
+		thinking = v
+	}
+	return model, thinking
 }

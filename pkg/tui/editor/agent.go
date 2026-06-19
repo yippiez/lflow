@@ -1,12 +1,11 @@
 package editor
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // The agent UI (modeAgent) is a full-panel, inline view for observing one worker:
@@ -127,12 +126,11 @@ func (m *Model) viewAgent(maxLine int) []string {
 		}
 	}
 
-	// Final section
+	// Final section — the deliverable rendered as an outline (the shape Enter will
+	// harvest into the notebook)
 	body = append(body, "", section("Final"), "")
 	if md := m.workerDeliverable[it.uuid]; strings.TrimSpace(md) != "" {
-		for _, w := range wrapPlain(md, maxLine-2) {
-			body = append(body, " "+cFG+w+cReset)
-		}
+		body = append(body, outlinePreview(md, maxLine)...)
 	} else if running {
 		body = append(body, " "+cDim+"(running…)"+cReset)
 	} else {
@@ -166,17 +164,29 @@ func (m *Model) viewAgent(maxLine int) []string {
 
 // --- steer (modeSteer) -------------------------------------------------------
 
-// openSteer opens the one-line steer box for a worker, returning to prev on exit.
+// openSteer opens the outline steer composer for a worker (each line is a node),
+// returning to prev on exit.
 func (m *Model) openSteer(it *item, prev mode) {
 	m.mode = modeSteer
 	m.steerNode = it
 	m.steerInput = ""
+	m.steerCaret = 0
 	m.steerPrev = prev
 	m.lastAgent = it.uuid
 }
 
-// handleSteerKey: type a follow-up, enter sends it to the live agent (or stages
-// it and (re)runs if the agent has exited), esc cancels.
+func (m *Model) steerInsert(s string) {
+	r := []rune(m.steerInput)
+	c := m.steerCaret
+	if c > len(r) {
+		c = len(r)
+	}
+	m.steerInput = string(r[:c]) + s + string(r[c:])
+	m.steerCaret = c + len([]rune(s))
+}
+
+// handleSteerKey drives the outline steer composer: enter starts a new node, tab
+// indents, alt+s (or ctrl+s) sends the composed outline to the agent, esc cancels.
 func (m *Model) handleSteerKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	it := m.steerNode
 	switch k.String() {
@@ -186,9 +196,10 @@ func (m *Model) handleSteerKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+c":
 		return m.quit()
-	case "enter":
+	case "alt+s", "alt+S", "ctrl+s":
 		msg := strings.TrimSpace(m.steerInput)
 		m.steerInput = ""
+		m.steerCaret = 0
 		m.mode = m.steerPrev
 		if it == nil || msg == "" {
 			m.steerNode = nil
@@ -196,30 +207,59 @@ func (m *Model) handleSteerKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.flash = "steered"
 		if ch := m.liveSteer(it.uuid); ch != nil {
-			ch <- msg // same conversation
+			ch <- msg // same conversation, as composed
+			// reflect the new turn immediately so the worker never reads "idle" while
+			// it is actually working (and isn't stuck idle if pi stalls)
+			if m.workerStatus != nil {
+				m.workerStatus[it.uuid] = "running"
+			}
+			if m.workerAction != nil {
+				m.workerAction[it.uuid] = workerActivity{text: "thinking…"}
+			}
 			return m, nil
 		}
-		// exited → stage the message as a context child and start a fresh turn
-		if child, err := m.tempTree.newItem(); err == nil {
-			child.typ = database.TypeBullets
-			child.name = msg
+		// exited → stage the composed outline as context children and (re)run
+		for _, child := range parseOutlineText(m.tempTree, msg) {
 			child.parent = it
 			it.children = append(it.children, child)
 		}
 		return m, runWorker(m, it)
+	case "enter":
+		m.steerInsert("\n")
+		return m, nil
+	case "tab":
+		m.steerInsert("  ")
+		return m, nil
+	case "left":
+		if m.steerCaret > 0 {
+			m.steerCaret--
+		}
+		return m, nil
+	case "right":
+		if m.steerCaret < len([]rune(m.steerInput)) {
+			m.steerCaret++
+		}
+		return m, nil
+	case "up":
+		m.steerCaret = jsonCaretLineMove(m.steerInput, m.steerCaret, -1)
+		return m, nil
+	case "down":
+		m.steerCaret = jsonCaretLineMove(m.steerInput, m.steerCaret, +1)
+		return m, nil
 	case "backspace":
 		r := []rune(m.steerInput)
-		if len(r) > 0 {
-			m.steerInput = string(r[:len(r)-1])
+		if m.steerCaret > 0 {
+			m.steerInput = string(r[:m.steerCaret-1]) + string(r[m.steerCaret:])
+			m.steerCaret--
 		}
 		return m, nil
 	default:
 		if k.Type == tea.KeySpace && !k.Alt {
-			m.steerInput += " "
+			m.steerInsert(" ")
 			return m, nil
 		}
 		if k.Type == tea.KeyRunes && !k.Alt {
-			m.steerInput += string(k.Runes)
+			m.steerInsert(string(k.Runes))
 		}
 	}
 	return m, nil
@@ -237,7 +277,8 @@ func (m *Model) liveSteer(uuid string) chan string {
 	return m.workerSteer[uuid]
 }
 
-// viewSteer renders the minimal one-line steer box.
+// viewSteer renders the outline steer composer: each buffer line is shown as a
+// node (○), with a block caret on the active line.
 func (m *Model) viewSteer(maxLine int) []string {
 	name := "agent"
 	if m.steerNode != nil {
@@ -247,13 +288,64 @@ func (m *Model) viewSteer(maxLine int) []string {
 		hrule(maxLine),
 		" " + cBold + cAccent + "Steer" + cReset + cDim + " · " + cReset + cFG + clipStr(name, maxLine-12) + cReset,
 		"",
-		" " + cDim + "› " + cReset + cFG + withCaret(m.steerInput, len([]rune(m.steerInput))) + cReset,
-		"",
-		" " + cDim + "enter send · esc cancel" + cReset,
+	}
+	caretLine, caretCol := jsonCaretLC(m.steerInput, m.steerCaret)
+	for i, raw := range strings.Split(m.steerInput, "\n") {
+		// leading spaces nest the node, matching how the outline will be parsed
+		trimmed := strings.TrimLeft(raw, " ")
+		depth := (len([]rune(raw)) - len([]rune(trimmed))) / 2
+		indent := strings.Repeat("  ", depth)
+		glyph := cDim + "○ " + cReset
+		if i == caretLine {
+			col := caretCol - (len([]rune(raw)) - len([]rune(trimmed)))
+			if col < 0 {
+				col = 0
+			}
+			lines = append(lines, clip(" "+indent+glyph+cFG+withCaret(trimmed, col)+cReset, maxLine))
+		} else {
+			lines = append(lines, clip(" "+indent+glyph+cFG+trimmed+cReset, maxLine))
+		}
 	}
 	for len(lines) < m.height-1 {
 		lines = append(lines, "")
 	}
+	lines = append(lines, clip(" "+cDim+"alt+s send · enter new node · tab indent · esc cancel"+cReset, maxLine))
 	lines = append(lines, hrule(maxLine))
 	return lines
+}
+
+// outlinePreview renders the deliverable outline (nodes JSON) as outline rows
+// (○ + indentation), matching the shape Enter will harvest. Pure: mutates nothing.
+func outlinePreview(nodesJSON string, maxLine int) []string {
+	nodesJSON = strings.TrimSpace(nodesJSON)
+	if nodesJSON == "" {
+		return nil
+	}
+	var nodes []deliverNode
+	if json.Unmarshal([]byte(nodesJSON), &nodes) != nil {
+		var one deliverNode
+		if json.Unmarshal([]byte(nodesJSON), &one) != nil {
+			return []string{" " + cDim + clipStr(nodesJSON, maxLine-2) + cReset}
+		}
+		nodes = []deliverNode{one}
+	}
+	var out []string
+	var walk func(ns []deliverNode, depth int)
+	walk = func(ns []deliverNode, depth int) {
+		for _, n := range ns {
+			text := strings.TrimSpace(n.Text)
+			if text == "" && len(n.Children) == 0 {
+				continue
+			}
+			out = append(out, clip(" "+strings.Repeat("  ", depth)+cDim+"○ "+cReset+cFG+text+cReset, maxLine))
+			if note := strings.TrimSpace(n.Note); note != "" {
+				for _, w := range wrapPlain(note, maxLine-(depth*2)-5) {
+					out = append(out, clip(" "+strings.Repeat("  ", depth)+"   "+cDim+w+cReset, maxLine))
+				}
+			}
+			walk(n.Children, depth+1)
+		}
+	}
+	walk(nodes, 0)
+	return out
 }
