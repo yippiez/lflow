@@ -118,7 +118,7 @@ func (m *Model) tempPanelBudget(rowBudget int) int {
 // editing) region exactly `budget` lines tall — padded with blanks so the layout
 // stays fixed and the temp panel anchors to the bottom. `dashed` swaps in the ◌
 // glyph for every non-mirror node (the Temporary Domain look).
-func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, maxLine int, dashed bool) []string {
+func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, maxLine int, dashed, hideCompose bool) []string {
 	if budget < 1 {
 		budget = 1
 	}
@@ -128,6 +128,11 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 		rows := tr.visibleRows(viewRoot)
 		for i, r := range rows {
 			it := r.it
+			// the always-present empty compose line is invisible unless focused here
+			if hideCompose && it.parent == tr.root && it.typ == database.TypeWorker &&
+				strings.TrimSpace(it.name) == "" && !m.workerRan(it) {
+				continue
+			}
 			glyph, glyphColor := glyphFor(it)
 			if r.mirrored {
 				glyph, glyphColor = glyphMirror, cRed

@@ -127,29 +127,16 @@ func (m *Model) launchAgentFromNote(note *item, destroy bool) tea.Cmd {
 	w.parent = m.tempTree.root
 	m.tempTree.root.children = append(m.tempTree.root.children, w)
 
+	// context is always deep-copied (a self-contained snapshot, never a live
+	// mirror) so the agent owns its inputs; destroy additionally removes the note.
+	for _, c := range note.children {
+		m.copyContextInto(c, w)
+	}
 	if destroy {
-		// self-contained copies — the source note is about to be removed
-		for _, c := range note.children {
-			m.copyContextInto(c, w)
-		}
 		m.tree.remove(note)
 		m.ensureViewNonEmpty()
 		m.refreshRows()
 		m.clampCursor()
-	} else {
-		for _, c := range note.children {
-			src := m.tree.sourceUUID(c)
-			child, err := m.tempTree.newItem()
-			if err != nil {
-				continue
-			}
-			child.typ = database.TypeBullets
-			child.mirrorOf = src
-			child.collapsed = true
-			child.parent = w
-			w.children = append(w.children, child)
-			m.tempTree.externalNames[src] = m.tree.displayName(c)
-		}
 	}
 	m.lastAgent = w.uuid
 	m.unsaved = true
@@ -177,6 +164,41 @@ func (m *Model) copyContextInto(src *item, parent *item) {
 	}
 }
 
+// runAgentAction is alt+r on an agent: RE-RUN it (never the old toggle-cancel). A
+// running agent is left alone (stop with x); an idle/alive one is re-prompted in
+// the same conversation; an exited one starts a fresh turn.
+func (m *Model) runAgentAction(it *item) tea.Cmd {
+	if m.workerStatus[it.uuid] == "running" {
+		return nil // already working
+	}
+	if ch := m.liveSteer(it.uuid); ch != nil {
+		ch <- ultraloopStrip(it.name) // re-prompt the same query, same conversation
+		if m.workerStatus != nil {
+			m.workerStatus[it.uuid] = "running"
+		}
+		if m.workerAction != nil {
+			m.workerAction[it.uuid] = workerActivity{text: "thinking…"}
+		}
+		if m.workerLastActive != nil {
+			m.workerLastActive[it.uuid] = time.Now()
+		}
+		m.flash = "re-running"
+		return nil
+	}
+	return runWorker(m, it) // exited → fresh turn
+}
+
+// stopAgent cancels a live agent's process (the intentional stop; not an error).
+func (m *Model) stopAgent(it *item) {
+	if cancel, running := m.runCancel[it.uuid]; running {
+		cancel()
+		delete(m.runCancel, it.uuid)
+		if m.workerStatus != nil {
+			m.workerStatus[it.uuid] = "done"
+		}
+	}
+}
+
 // workerRan reports whether a worker has been launched (is running, or has a
 // recorded status). Such a worker's title is locked — 's' steers it instead.
 func (m *Model) workerRan(it *item) bool {
@@ -200,10 +222,10 @@ func runWorker(m *Model, it *item) tea.Cmd {
 	if m.workerSteer == nil {
 		m.workerSteer = map[string]chan string{}
 	}
-	// already live → stop it (cancel kills the pi process)
-	if cancel, running := m.runCancel[it.uuid]; running {
-		cancel()
-		delete(m.runCancel, it.uuid)
+	// already live → don't double-spawn (stop is 'x'; re-run is runAgentAction).
+	// We never cancel here: cancelling an idle (alive) agent killed it and surfaced
+	// "pi exited unexpectedly" when the user just wanted to re-run.
+	if _, running := m.runCancel[it.uuid]; running {
 		return nil
 	}
 	m.lastAgent = it.uuid
@@ -468,6 +490,10 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 	}
 	err := c.Wait()
 	stderrText := <-stderrCh
+	if ctx.Err() != nil {
+		ch <- bashDoneMsg{uuid, 0} // intentional stop (cancel) — not an error
+		return
+	}
 	code := 0
 	if err != nil || sawError {
 		code = 1

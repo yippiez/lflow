@@ -87,15 +87,7 @@ func (v agentView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 		m.focusScroll = 0
 		return nil, true
 	case "x":
-		if m.runCancel != nil {
-			if cancel, running := m.runCancel[it.uuid]; running {
-				cancel()
-				delete(m.runCancel, it.uuid)
-				if m.workerStatus != nil {
-					m.workerStatus[it.uuid] = "done"
-				}
-			}
-		}
+		m.stopAgent(it)
 		return nil, true
 	case "down", "j", "pgdown":
 		step := 1

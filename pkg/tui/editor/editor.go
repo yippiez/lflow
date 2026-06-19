@@ -727,6 +727,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.saved.written += written
 		m.unsaved = false
 		return m, nil
+	case "ctrl+z", "alt+z":
+		// undo the last action (alt+z is the fallback where ctrl+z suspends)
+		m.undo()
+		return m, nil
 	case "enter":
 		cur := m.cursorItem()
 		// In the Agent Domain, Enter on a worker is launch/harvest, not a new node:
@@ -804,6 +808,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
+		if m.tempActive {
+			return m, nil // no indenting in the Agent Domain
+		}
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.indent(cur) {
@@ -819,6 +826,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "shift+tab":
+		if m.tempActive {
+			return m, nil // no outdenting in the Agent Domain
+		}
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.outdent(cur, mc.localRoot) {
@@ -1196,7 +1206,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// pchain, 's' focuses its inline view straight into the steer composer; other
 		// keys no-op.
 		if m.workerRan(cur) {
-			if string(k.Runes) == "s" && !k.Paste {
+			switch {
+			case string(k.Runes) == "s" && !k.Paste:
 				if v := nodeViewOf(cur); v != nil && v.Enter(m, cur) {
 					m.focused = true
 					m.focusScroll = 0
@@ -1205,6 +1216,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					d["steerBuf"] = ""
 					d["steerCaret"] = 0
 				}
+			case string(k.Runes) == "x" && !k.Paste:
+				m.stopAgent(cur) // stop a running/idle agent
 			}
 			return m, nil
 		}
@@ -2696,11 +2709,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if n := len(m.mainStash.viewStack); n > 0 {
 				mainRoot = m.mainStash.viewStack[n-1]
 			}
-			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false)
+			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false, false)
 			tempLines = focused // live, focused temp
 		} else {
 			mainLines = focused // live, focused main
-			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
+			// read-only temp panel: hide the empty compose line (only shows once focused)
+			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true, true)
 		}
 		body := mainLines
 		body = append(body, m.bottomBar(maxLine)) // the status bar is the divider

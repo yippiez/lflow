@@ -91,7 +91,7 @@ var nodeTypes = []nodeType{
 	},
 	{
 		key: database.TypeWorker, label: "Worker", sign: "✦ ", inlineEditable: true, tempOnly: true,
-		run:  runWorker,
+		run:  func(m *Model, it *item) tea.Cmd { return m.runAgentAction(it) }, // alt+r re-runs
 		view: agentView{}, // alt+e: inline observe + steer (steer is a sub-state)
 	},
 }
