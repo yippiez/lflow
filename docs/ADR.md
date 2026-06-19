@@ -582,3 +582,12 @@ Final cleanup of the core refactor. Voice (recording handle + waveform/duration)
 
 When
 2026-06-19 — commit aece1b5; 29/30 e2e (collapse-persist load flake, passes alone); voice/query verified.
+
+---
+title: Agent fixes + node links (re-run, copy, no-tab, hidden compose, undo, /link)
+
+Why
+A batch of fixes/refinements. (1) RE-RUN: alt+r on an agent re-runs (runAgentAction) — idle/alive agents are re-prompted in the same conversation, exited ones get a fresh turn, running ones are left alone. runWorker no longer cancels (the old toggle killed idle agents and surfaced "pi exited unexpectedly"); 'x' stops (agent view + outline); an intentional ctx-cancel is no longer reported as an error. (2) alt+shift+s now COPIES context (deep copy) like alt+s, not a live mirror. (3) No Tab/Shift+Tab in the Agent Domain. (4) The always-empty compose line is hidden while focus is in the notes (readonlyRegionLines hideCompose). (5) ctrl+z / alt+z undo. (6) NODE LINKS: a node links to one other (directed DAG edge) via /link (finder picker) → shows "→ target" muted gray on the right → alt+g reveals the target (opens its parent, cursor on it). Persisted via a new local link_to column (migration lm20; mirror_of precedent; Node/item/save/load/snapshot; sync deferred like style). Replaces the old clipboard /link.
+
+When
+2026-06-19 — commits b4e5a29 (fixes) + 27b43c4 (links); 30/30 e2e (two temp-panel tests updated to hidden-compose). Verified live: idle agent re-runs cleanly, compose hidden in notes, ctrl+z undo, /link + → + alt+g jump.
