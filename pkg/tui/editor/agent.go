@@ -24,7 +24,7 @@ func hrule(maxLine int) string {
 
 // section is a colored section header ("Tool calls 3", "Final").
 func section(label string) string {
-	return " " + cBold + cAccent + label + cReset
+	return " " + cBold + cRed + label + cReset
 }
 
 // openAgent enters the observe-only agent UI for a worker.
@@ -99,7 +99,7 @@ func (m *Model) viewAgent(maxLine int) []string {
 
 	// build the scrollable body
 	var body []string
-	body = append(body, " "+cBold+cAccent+"Agent "+cReset+cFG+clipStr(name, maxLine-8)+cReset, "")
+	body = append(body, " "+cBold+cRed+"Agent "+cReset+cFG+clipStr(name, maxLine-8)+cReset, "")
 	body = append(body, " "+cDim+"status "+cReset+statusColor(m.workerStatus[it.uuid])+status+cReset)
 	if u, ok := m.workerUsage[it.uuid]; ok {
 		body = append(body, " "+cDim+fmt.Sprintf("tokens ↑%s ↓%s · $%.4f", ktok(u.in), ktok(u.out), u.cost)+cReset)
@@ -337,7 +337,7 @@ func outlinePreview(nodesJSON string, maxLine int) []string {
 			if text == "" && len(n.Children) == 0 {
 				continue
 			}
-			out = append(out, clip(" "+strings.Repeat("  ", depth)+cDim+"○ "+cReset+cFG+text+cReset, maxLine))
+			out = append(out, clip(" "+strings.Repeat("  ", depth)+cRed+"○ "+text+cReset, maxLine))
 			if note := strings.TrimSpace(n.Note); note != "" {
 				for _, w := range wrapPlain(note, maxLine-(depth*2)-5) {
 					out = append(out, clip(" "+strings.Repeat("  ", depth)+"   "+cDim+w+cReset, maxLine))
