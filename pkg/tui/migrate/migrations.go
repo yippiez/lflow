@@ -782,6 +782,18 @@ var lm19 = migration{
 	},
 }
 
+// lm20 adds the per-node link_to: a single directed link to another node's uuid
+// (rendered as → target, jumped to with alt+g). Persisted locally.
+var lm20 = migration{
+	name: "add-link-to-to-nodes",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`ALTER TABLE nodes ADD COLUMN link_to text NOT NULL DEFAULT '';`); err != nil {
+			return errors.Wrap(err, "adding link_to column to nodes")
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {

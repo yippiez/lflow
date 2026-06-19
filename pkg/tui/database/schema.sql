@@ -21,7 +21,7 @@ CREATE TABLE nodes
 				usn integer NOT NULL DEFAULT 0,
 				deleted bool NOT NULL DEFAULT false,
 				dirty bool NOT NULL DEFAULT false
-			, style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false);
+			, style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false, link_to text NOT NULL DEFAULT '');
 CREATE INDEX idx_nodes_parent ON nodes(parent_uuid, rank);
 CREATE INDEX idx_nodes_dirty ON nodes(dirty);
 CREATE TABLE wf_mirrors
@@ -45,5 +45,5 @@ CREATE TRIGGER nodes_after_update AFTER UPDATE ON nodes BEGIN
 			END;
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 19);
+INSERT INTO system (key, value) VALUES ('schema', 20);
 INSERT INTO system (key, value) VALUES ('remote_schema', 1);

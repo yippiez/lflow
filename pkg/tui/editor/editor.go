@@ -50,6 +50,7 @@ const (
 	actMirrorHere finderAction = iota
 	actMoveTo
 	actGoto
+	actLinkTo
 )
 
 type slashCommand struct {
@@ -60,7 +61,7 @@ type slashCommand struct {
 var slashCommands = []slashCommand{
 	{"/complete", "Toggle done"},
 	{"/goto", "Jump the editor to another node"},
-	{"/link", "Copy this node's link - paste on another node to mirror"},
+	{"/link", "Link this node to another (→ target; alt+g jumps)"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/mirror:wf", "Pull a workflowy node in under this one"},
 	{"/move", "Move this node under another node"},
@@ -967,6 +968,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "alt+g":
+		// jump to the node this one links to (→ target), cursor on it
+		if cur := m.cursorItem(); cur != nil && cur.linkTo != "" && !m.tempActive {
+			return m.revealNode(cur.linkTo)
+		}
+		return m, nil
 	case "alt+e":
 		// toggle a type's inline expanded view (json/agent): alt+e focuses it,
 		// alt+e again collapses. Else fall back to an action-only expand (voice play).
@@ -1408,6 +1415,45 @@ func (m *Model) nodeStore(uuid string) map[string]any {
 		m.nodeData[uuid] = d
 	}
 	return d
+}
+
+// revealNode opens the editor on a node's PARENT and puts the cursor on the node
+// itself (so you see it in context), used by the alt+g link jump. Falls back to a
+// flash if the target is gone.
+func (m *Model) revealNode(uuid string) (tea.Model, tea.Cmd) {
+	n, err := database.GetNode(m.db, uuid)
+	if err != nil {
+		m.flash = "link target missing"
+		return m, nil
+	}
+	root := n.ParentUUID
+	if root == "" {
+		root = database.RootUUID
+	}
+	if _, err := m.saveAll(); err != nil {
+		m.err = err
+		return m.quit()
+	}
+	t, err := loadTree(m.db, root)
+	if err != nil {
+		m.err = err
+		return m.quit()
+	}
+	m.tree = t
+	m.viewStack = []*item{t.root}
+	m.undoStack = nil
+	m.refreshAncestors()
+	m.caret = 0
+	m.unsaved = false
+	m.refreshRows()
+	if target, ok := t.byUUID[uuid]; ok {
+		m.cursor = m.rowIndexOf(target)
+	} else {
+		m.cursor = 0
+	}
+	m.clampCursor()
+	m.flash = "→ " + clipStr(n.Name, 24)
+	return m, nil
 }
 
 // ensureViewNonEmpty keeps the current section from going empty: if the view root
@@ -1901,13 +1947,8 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/mirror":
 		m.openFinder(actMirrorHere)
 	case "/link":
-		// a mirror's link points at the original: same node everywhere
-		target := cur.uuid
-		if cur.mirrorOf != "" {
-			target = cur.mirrorOf
-		}
-		copyToClipboard("lflow://node/" + target)
-		m.flash = "link copied - paste it on another node to mirror"
+		// pick a node to link this one to (→ target, jump with alt+g)
+		m.openFinder(actLinkTo)
 	case "/move":
 		m.openFinder(actMoveTo)
 	case "/goto":
@@ -2244,6 +2285,16 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.caret = 0
 		m.unsaved = false
+	case actLinkTo:
+		// link the current node to the picked target (a single → reference)
+		dst := m.resolveSourceNode(target) // link to the original, not a mirror
+		m.pushUndo("")
+		cur.linkTo = dst.UUID
+		if _, inTree := m.tree.byUUID[dst.UUID]; !inTree {
+			m.tree.externalNames[dst.UUID] = dst.Name
+		}
+		m.unsaved = true
+		m.flash = "linked → " + clipStr(dst.Name, 24)
 	}
 
 	m.refreshRows()
@@ -2818,11 +2869,13 @@ func (m *Model) viewFinder(maxLine int) []string {
 		actMirrorHere: "/mirror",
 		actMoveTo:     "/move",
 		actGoto:       "/goto",
+		actLinkTo:     "/link",
 	}
 	hints := map[finderAction]string{
 		actMirrorHere: "Enter mirror at cursor",
 		actMoveTo:     "Enter move this node there",
 		actGoto:       "Enter open node",
+		actLinkTo:     "Enter link to this node",
 	}
 
 	query := cDim + " " + labels[m.finderAct] + " " + cFG + withCaret(m.finderQuery, len([]rune(m.finderQuery))) + cReset

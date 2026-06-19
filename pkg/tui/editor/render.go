@@ -969,8 +969,28 @@ func (m *Model) typeSuffix(it *item) string {
 	if len(parts) > 0 {
 		suffix = cDim + " · " + strings.Join(parts, " · ") + cReset
 	}
+	if it.linkTo != "" { // → linked node, muted gray, on the right (alt+g jumps)
+		suffix += cDim + "  → " + clipStr(m.linkName(it), 28) + cReset
+	}
 	if it.typ == database.TypeWorker {
 		suffix += m.workerSuffix(it) // ┊ model · ↑in ↓out $cost
 	}
 	return suffix
+}
+
+// linkName resolves the display name of a node's link target.
+func (m *Model) linkName(it *item) string {
+	if it.linkTo == "" {
+		return ""
+	}
+	if t, ok := m.tree.byUUID[it.linkTo]; ok {
+		return m.tree.displayName(t)
+	}
+	if n := m.tree.externalNames[it.linkTo]; n != "" {
+		return n
+	}
+	if n, err := database.GetNode(m.db, it.linkTo); err == nil && n.Name != "" {
+		return n.Name
+	}
+	return "(missing)"
 }

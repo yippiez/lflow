@@ -58,22 +58,23 @@ type Node struct {
 	Deleted     bool   `json:"deleted"`
 	Dirty       bool   `json:"dirty"`
 	Collapsed   bool   `json:"collapsed"` // local view-state, never synced
+	LinkTo      string `json:"link_to"`   // single directed link to another node's uuid
 }
 
-const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty, collapsed"
+const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty, collapsed, link_to"
 
 func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 	var n Node
 	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Type,
-		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty, &n.Collapsed)
+		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty, &n.Collapsed, &n.LinkTo)
 	return n, err
 }
 
 // Insert inserts the node.
 func (n Node) Insert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty, n.Collapsed)
+		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty, n.Collapsed, n.LinkTo)
 	if err != nil {
 		return errors.Wrapf(err, "inserting node %s", n.UUID)
 	}
@@ -92,9 +93,9 @@ func SetCollapsed(db *DB, uuid string, collapsed bool) error {
 // Update persists all mutable fields of the node.
 func (n Node) Update(db *DB) error {
 	_, err := db.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
-		style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = ? WHERE uuid = ?`,
+		style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = ?, link_to = ? WHERE uuid = ?`,
 		n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.EditedOn, n.USN, n.Deleted, n.Dirty, n.UUID)
+		n.EditedOn, n.USN, n.Deleted, n.Dirty, n.LinkTo, n.UUID)
 	if err != nil {
 		return errors.Wrapf(err, "updating node %s", n.UUID)
 	}
