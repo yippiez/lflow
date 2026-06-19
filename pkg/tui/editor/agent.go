@@ -97,44 +97,53 @@ func (m *Model) viewAgent(maxLine int) []string {
 	_, running := m.runCancel[it.uuid]
 	status := statusWord(m.workerStatus[it.uuid], running)
 
-	// build the scrollable body
+	// build the scrollable body — each section is a red title with its content on
+	// the lines below, indented. Content is never red.
 	var body []string
-	body = append(body, " "+cBold+cRed+"Agent "+cReset+cFG+clipStr(name, maxLine-8)+cReset, "")
-	body = append(body, " "+cDim+"status "+cReset+statusColor(m.workerStatus[it.uuid])+status+cReset)
-	if u, ok := m.workerUsage[it.uuid]; ok {
-		body = append(body, " "+cDim+fmt.Sprintf("tokens ↑%s ↓%s · $%.4f", ktok(u.in), ktok(u.out), u.cost)+cReset)
+
+	// Agent — the query, wrapped onto its own lines below the title
+	body = append(body, section("Agent"))
+	for _, w := range wrapPlain(name, maxLine-4) {
+		body = append(body, clip("   "+cFG+w+cReset, maxLine))
 	}
 
-	// Tool calls section
+	// Status — status word + usage
+	body = append(body, "", section("Status"))
+	body = append(body, "   "+statusColor(m.workerStatus[it.uuid])+status+cReset)
+	if u, ok := m.workerUsage[it.uuid]; ok {
+		body = append(body, "   "+cDim+fmt.Sprintf("↑%s ↓%s · $%.4f", ktok(u.in), ktok(u.out), u.cost)+cReset)
+	}
+
+	// Tool calls — the call history, indented
 	calls := m.workerActions[it.uuid]
 	body = append(body, "", section(fmt.Sprintf("Tool calls %d", len(calls))))
 	if len(calls) == 0 {
 		body = append(body, "   "+cDim+"(no tool calls yet)"+cReset)
 	} else {
 		for _, a := range calls {
-			line := "  " + toolColor(a.tool) + toolLabel(a.tool) + cReset
+			line := "   " + toolColor(a.tool) + toolLabel(a.tool) + cReset
 			if a.text != "" {
 				line += cDim + " " + a.text + cReset
 			}
 			body = append(body, clip(line, maxLine))
 		}
 	}
-	// the live activity, while running
 	if running {
 		if a, ok := m.workerAction[it.uuid]; ok && a.tool != "" {
-			body = append(body, "  "+toolColor(a.tool)+toolLabel(a.tool)+cReset+cDim+" "+a.text+"…"+cReset)
+			body = append(body, "   "+toolColor(a.tool)+toolLabel(a.tool)+cReset+cDim+" "+a.text+"…"+cReset)
 		}
 	}
 
-	// Final section — the deliverable rendered as an outline (the shape Enter will
-	// harvest into the notebook)
-	body = append(body, "", section("Final"), "")
+	// Final — the deliverable outline, indented (the shape Enter harvests)
+	body = append(body, "", section("Final"))
 	if md := m.workerDeliverable[it.uuid]; strings.TrimSpace(md) != "" {
-		body = append(body, outlinePreview(md, maxLine)...)
+		for _, l := range outlinePreview(md, maxLine-2) {
+			body = append(body, "  "+l)
+		}
 	} else if running {
-		body = append(body, " "+cDim+"(running…)"+cReset)
+		body = append(body, "   "+cDim+"(running…)"+cReset)
 	} else {
-		body = append(body, " "+cDim+"(no result yet)"+cReset)
+		body = append(body, "   "+cDim+"(no result yet)"+cReset)
 	}
 
 	// window the body between the top rule and the footer/bottom rule
@@ -337,7 +346,7 @@ func outlinePreview(nodesJSON string, maxLine int) []string {
 			if text == "" && len(n.Children) == 0 {
 				continue
 			}
-			out = append(out, clip(" "+strings.Repeat("  ", depth)+cRed+"○ "+text+cReset, maxLine))
+			out = append(out, clip(" "+strings.Repeat("  ", depth)+cDim+"○ "+cReset+cFG+text+cReset, maxLine))
 			if note := strings.TrimSpace(n.Note); note != "" {
 				for _, w := range wrapPlain(note, maxLine-(depth*2)-5) {
 					out = append(out, clip(" "+strings.Repeat("  ", depth)+"   "+cDim+w+cReset, maxLine))
