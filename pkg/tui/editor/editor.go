@@ -932,11 +932,14 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+e":
-		// focus a type's inline expanded view (json/agent), else fall back to an
-		// action-only expand (voice play)
+		// toggle a type's inline expanded view (json/agent): alt+e focuses it,
+		// alt+e again collapses. Else fall back to an action-only expand (voice play).
 		if cur := m.cursorItem(); cur != nil {
 			if v := nodeViewOf(cur); v != nil {
-				if v.Enter(m, cur) {
+				if m.focused {
+					v.Leave(m, cur)
+					m.focused = false
+				} else if v.Enter(m, cur) {
 					m.focused = true
 					m.focusScroll = 0
 				}
@@ -955,10 +958,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+s":
-		// launch an agent on the focused note: its text is the query, its children
-		// are context (mirrors), and it RUNS immediately in the Agent Domain.
+		// launch an agent on the focused note and REMOVE the note (move-to-agent):
+		// its text is the query, its children are context. Runs immediately.
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			return m, m.launchAgentFromNote(cur)
+			return m, m.launchAgentFromNote(cur, true)
+		}
+		return m, nil
+	case "alt+shift+s", "alt+S":
+		// launch an agent on the focused note but KEEP the note (copy-to-agent).
+		if cur := m.cursorItem(); cur != nil && !m.tempActive {
+			return m, m.launchAgentFromNote(cur, false)
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":

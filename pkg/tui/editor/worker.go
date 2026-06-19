@@ -109,9 +109,13 @@ type workerDeliverableMsg struct {
 // --- launch (notes → Agent Domain) -------------------------------------------
 
 // launchAgentFromNote creates an agent in the Agent Domain from a notes node and
-// RUNS it immediately (alt+s): the node's text is the query, and its children
-// become the agent's context (as mirrors). Focus stays in notes.
-func (m *Model) launchAgentFromNote(note *item) tea.Cmd {
+// RUNS it immediately: the node's text is the query, its children become context.
+//   - destroy (alt+s): MOVE — context is deep-copied (self-contained) and the
+//     original note is removed from notes.
+//   - keep (alt+shift+s): COPY — context is live mirrors of the note's children;
+//     the original note stays.
+// Focus stays in notes.
+func (m *Model) launchAgentFromNote(note *item, destroy bool) tea.Cmd {
 	m.ensureTempTree()
 	w, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
 	if err != nil {
@@ -120,26 +124,56 @@ func (m *Model) launchAgentFromNote(note *item) tea.Cmd {
 	}
 	w.name = m.tree.displayName(note) // the query is the agent's name
 	w.parent = m.tempTree.root
-	// add after the compose line so the empty compose stays first
 	m.tempTree.root.children = append(m.tempTree.root.children, w)
 
-	for _, c := range note.children {
-		src := m.tree.sourceUUID(c)
-		child, err := m.tempTree.newItem()
-		if err != nil {
-			continue
+	if destroy {
+		// self-contained copies — the source note is about to be removed
+		for _, c := range note.children {
+			m.copyContextInto(c, w)
 		}
-		child.typ = database.TypeBullets
-		child.mirrorOf = src
-		child.collapsed = true
-		child.parent = w
-		w.children = append(w.children, child)
-		m.tempTree.externalNames[src] = m.tree.displayName(c)
+		m.tree.remove(note)
+		m.ensureViewNonEmpty()
+		m.refreshRows()
+		m.clampCursor()
+	} else {
+		for _, c := range note.children {
+			src := m.tree.sourceUUID(c)
+			child, err := m.tempTree.newItem()
+			if err != nil {
+				continue
+			}
+			child.typ = database.TypeBullets
+			child.mirrorOf = src
+			child.collapsed = true
+			child.parent = w
+			w.children = append(w.children, child)
+			m.tempTree.externalNames[src] = m.tree.displayName(c)
+		}
 	}
 	m.lastAgent = w.uuid
 	m.unsaved = true
 	m.flash = "launched agent"
 	return runWorker(m, w)
+}
+
+// copyContextInto deep-copies a notes subtree into the temp tree as real context
+// nodes (no mirrors), so the agent is self-contained when the source is removed.
+func (m *Model) copyContextInto(src *item, parent *item) {
+	nn, err := m.tempTree.newItem()
+	if err != nil {
+		return
+	}
+	nn.name = m.tree.displayName(src)
+	nn.note = src.note
+	nn.typ = src.typ
+	if nn.typ == "" || nn.typ == database.TypeWorker {
+		nn.typ = database.TypeBullets
+	}
+	nn.parent = parent
+	parent.children = append(parent.children, nn)
+	for _, c := range src.children {
+		m.copyContextInto(c, nn)
+	}
 }
 
 // workerRan reports whether a worker has been launched (is running, or has a

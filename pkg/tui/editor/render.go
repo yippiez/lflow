@@ -469,7 +469,7 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		shown = shown[len(shown)-capN:]
 	}
 	for _, l := range shown {
-		col := cFG
+		col := cDim // bash/query output is muted gray
 		if l.err {
 			col = cRed
 		}
