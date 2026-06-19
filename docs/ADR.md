@@ -573,3 +573,12 @@ An agent whose query contains the magic word "ultraloop" (optionally an interval
 
 When
 2026-06-19 — commit a358bda; unit tests for parse/strip; verified live (15s loop re-fired, ↻ countdown decremented, skip-while-working).
+
+---
+title: P5 — per-type voice/query state moved to the node store (refactor cleanup done)
+
+Why
+Final cleanup of the core refactor. Voice (recording handle + waveform/duration) and the query "updated" timestamp moved off the Model struct into the generic per-node store (nodeStore) via typed accessors. Intentionally NOT moved (documented): runOut/runCancel/runCh are the shared RUN machinery used by every runnable type (generic infra, not per-type), and the worker* maps are the agent's cohesive runtime (don't grow with new node types; a typed home beats a stringly store). Net: the rule for new node types is "use nodeStore, add no Model field." Closes the P1–P5 refactor; P6 (Agent Domain workflow + UX) and P7 (ultraloop) shipped on top.
+
+When
+2026-06-19 — commit aece1b5; 29/30 e2e (collapse-persist load flake, passes alone); voice/query verified.
