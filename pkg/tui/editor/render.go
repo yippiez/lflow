@@ -954,7 +954,7 @@ func (m *Model) typeSuffix(it *item) string {
 	}
 	if it.typ == database.TypeQuery {
 		parts = append(parts, fmt.Sprintf("%d hits", queryHitCount(it)))
-		if ts := m.queryRunAt[it.uuid]; ts > 0 {
+		if ts := m.queryUpdatedAt(it.uuid); ts > 0 {
 			parts = append(parts, "updated "+relTime(ts))
 		}
 	}

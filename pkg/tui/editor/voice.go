@@ -33,18 +33,30 @@ func (m *Model) voicePath(uuid string) string {
 	return filepath.Join(m.ctx.Paths.Data, "lflow", "voice", uuid+".wav")
 }
 
+// voice state lives in the generic per-node store (no per-type Model maps).
+func (m *Model) voiceRecOf(uuid string) (*voiceRecording, bool) {
+	r, ok := m.nodeStore(uuid)["voiceRec"].(*voiceRecording)
+	return r, ok
+}
+func (m *Model) voiceWave(uuid string) ([]int, float64) {
+	d := m.nodeStore(uuid)
+	env, _ := d["voiceEnv"].([]int)
+	dur, _ := d["voiceDur"].(float64)
+	return env, dur
+}
+func (m *Model) setVoiceWave(uuid string, env []int, dur float64) {
+	d := m.nodeStore(uuid)
+	d["voiceEnv"] = env
+	d["voiceDur"] = dur
+}
+
 // runVoice toggles recording: alt+r starts ffmpeg (PulseAudio mono 16kHz), a
 // second alt+r stops it gracefully and computes the waveform.
 func runVoice(m *Model, it *item) tea.Cmd {
-	if m.voiceRec == nil {
-		m.voiceRec = map[string]*voiceRecording{}
-		m.voiceEnv = map[string][]int{}
-		m.voiceDur = map[string]float64{}
-	}
-	if rec, ok := m.voiceRec[it.uuid]; ok { // stop
+	if rec, ok := m.voiceRecOf(it.uuid); ok { // stop
 		io.WriteString(rec.stdin, "q\n") // ffmpeg stops gracefully on q
 		rec.stdin.Close()
-		delete(m.voiceRec, it.uuid)
+		delete(m.nodeStore(it.uuid), "voiceRec")
 		path := m.voicePath(it.uuid)
 		return func() tea.Msg {
 			rec.cmd.Wait()
@@ -68,7 +80,7 @@ func runVoice(m *Model, it *item) tea.Cmd {
 		m.flash = "voice: no audio device (need PulseAudio/WSLg)"
 		return nil
 	}
-	m.voiceRec[it.uuid] = &voiceRecording{cmd: cmd, stdin: stdin}
+	m.nodeStore(it.uuid)["voiceRec"] = &voiceRecording{cmd: cmd, stdin: stdin}
 	return nil
 }
 
@@ -83,26 +95,19 @@ func playVoice(m *Model, it *item) {
 
 // voiceRender is the inline display: recording state, or a ▸ waveform + duration.
 func (m *Model) voiceRender(it *item) string {
-	if _, recording := m.voiceRec[it.uuid]; recording {
+	if _, recording := m.voiceRecOf(it.uuid); recording {
 		return cRed + "●" + cReset + " " + cDim + "recording · ⌥r stop" + cReset
 	}
-	env := m.voiceEnv[it.uuid]
+	env, dur := m.voiceWave(it.uuid)
 	if len(env) == 0 { // lazily load from disk (e.g. after reopen)
 		if p := m.voicePath(it.uuid); fileExists(p) {
-			if m.voiceEnv == nil {
-				m.voiceEnv = map[string][]int{}
-				m.voiceDur = map[string]float64{}
-			}
-			var dur float64
 			env, dur = parseWavEnvelope(p, voiceBuckets)
-			m.voiceEnv[it.uuid] = env
-			m.voiceDur[it.uuid] = dur
+			m.setVoiceWave(it.uuid, env, dur)
 		}
 	}
 	if len(env) == 0 {
 		return cDim + "▸ empty · ⌥r record" + cReset
 	}
-	dur := m.voiceDur[it.uuid]
 	return cDim + "▸ " + cReset + cAccent + envBars(env) + cReset +
 		cDim + fmt.Sprintf("  %d:%02d · ⌥e play", int(dur)/60, int(dur)%60) + cReset
 }

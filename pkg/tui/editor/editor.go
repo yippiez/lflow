@@ -151,15 +151,14 @@ type Model struct {
 	piModel    string
 	piThinking string
 
-	// alt+r run output (bash) — ephemeral, in-memory only, keyed by node uuid
+	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure every
+	// runnable node type uses (bash, query, voice, worker). Not per-type: kept
+	// central on purpose. Ephemeral, in-memory only, keyed by node uuid.
+	// (Per-type state — voice waveform, query timestamp, agent runtime — lives in
+	// the generic nodeStore, not on the Model struct.)
 	runOut    map[string][]outLine
 	runCancel map[string]func()       // cancel a running command
 	runCh     map[string]chan tea.Msg // stream channel for a running command
-
-	// voice notes — local wav files, in-memory recording state + cached waveform
-	voiceRec map[string]*voiceRecording
-	voiceEnv map[string][]int
-	voiceDur map[string]float64
 
 	// Temporary Domain — an ephemeral scratch tree, never persisted
 	tempActive bool
@@ -202,10 +201,6 @@ type Model struct {
 	// persisted or synced — node views keep live/edit state here instead of
 	// growing the Model with one named map per type.
 	nodeData map[string]map[string]any
-
-	// query nodes: unix-seconds of the last run, keyed by node uuid, for the
-	// "updated <relative>" suffix
-	queryRunAt map[string]int64
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -574,12 +569,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.workerDeliverable[msg.uuid] = msg.nodes
 		return m, waitBashCmd(m.runCh[msg.uuid])
 	case voiceDoneMsg:
-		if m.voiceEnv == nil {
-			m.voiceEnv = map[string][]int{}
-			m.voiceDur = map[string]float64{}
-		}
-		m.voiceEnv[msg.uuid] = msg.env
-		m.voiceDur[msg.uuid] = msg.dur
+		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
 		return m, nil
 	case syncTickMsg:
 		return m, m.onSyncTick(time.Time(msg))

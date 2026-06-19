@@ -21,13 +21,16 @@ const queryMaxHits = 50
 func runQuery(m *Model, it *item) tea.Cmd {
 	matches := m.queryMatches(it)
 	m.reconcileQueryMirrors(it, matches)
-	if m.queryRunAt == nil {
-		m.queryRunAt = map[string]int64{}
-	}
-	m.queryRunAt[it.uuid] = time.Now().Unix()
+	m.nodeStore(it.uuid)["queryRunAt"] = time.Now().Unix()
 	m.unsaved = true
 	m.refreshRows()
 	return nil
+}
+
+// queryUpdatedAt is the unix-seconds of a query node's last run (0 if never).
+func (m *Model) queryUpdatedAt(uuid string) int64 {
+	v, _ := m.nodeStore(uuid)["queryRunAt"].(int64)
+	return v
 }
 
 // queryMatches finds nodes whose name or note contains the query, merging the

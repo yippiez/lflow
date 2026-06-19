@@ -8,9 +8,9 @@ import (
 	tuictx "github.com/lflow/lflow/pkg/tui/context"
 )
 
-// TestVoiceRenderNilMaps guards the panic where voiceRender wrote to the nil
-// m.voiceDur map when a voice node was loaded from disk (runVoice never ran, so
-// the lazy-load maps were nil). Rendering a voice node must never panic.
+// TestVoiceRenderNilMaps guards the panic where voiceRender wrote to a nil voice
+// map when a voice node was loaded from disk (runVoice never ran). Voice state now
+// lives in the per-node store (created on demand), so rendering must never panic.
 func TestVoiceRenderNilMaps(t *testing.T) {
 	dir := t.TempDir()
 	m := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
