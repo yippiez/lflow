@@ -564,3 +564,12 @@ A batch of agent refinements on the Agent Domain workflow. (1) alt+s MOVES a not
 
 When
 2026-06-19 — commits df0c12d, 20f5e99, 9eae1e2; 30/31 e2e (removed obsolete staging tests, added test-agent-domain-compose). Verified live (bash-typed deliverable harvested as ○ $ ls -la; expanded node-view with red dividers + elapsed + model; ctrl+p/ctrl+t).
+
+---
+title: Ultraloop — recurring self-prompting agents (P7)
+
+Why
+An agent whose query contains the magic word "ultraloop" (optionally an interval, e.g. "ultraloop 10m"; default 1m) re-prompts itself forever. Trigger is the keyword in the query (already an animated magic keyword in anim.go), not a command/prefix. A 1s loop tick (loopTick/loopTickMsg) fires every due agent with its ORIGINAL query (ultraloopStrip removes the "ultraloop [interval]" control word from the prompt); if the agent is still working that tick is SKIPPED. Live (idle) agents are re-prompted in the same conversation via steer; exited ones get a fresh runWorker turn. The agent line shows a ↻ countdown chip (loopCountdown) to the next prompt. Self-contained in loop.go (ultraloopParse/Strip, loopState, advanceLoops); wired through runWorker (register + start tick), the loopTickMsg handler, buildWorkerTask (strip), and workerSuffix (↻). Loops auto-prune when the agent is gone or the keyword is removed. Future: an LLM may rewrite the looped prompt for performance (deferred).
+
+When
+2026-06-19 — commit a358bda; unit tests for parse/strip; verified live (15s loop re-fired, ↻ countdown decremented, skip-while-working).
