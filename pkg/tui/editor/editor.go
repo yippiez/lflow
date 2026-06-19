@@ -378,7 +378,29 @@ func (m *Model) undo() {
 
 	m.tree.root = cloneItem(st.root, nil) // clone so the stacked entry stays pristine
 	m.tree.rebuildByUUID()
-	m.tree.deleted = append([]string(nil), st.deleted...)
+
+	// Reconcile the restored tree with what's actually in the DB (the snapshots map)
+	// so the next save is correct AND safe — this is what makes undo robust:
+	//   - a node already in the DB must UPDATE, never re-INSERT (the UNIQUE-constraint
+	//     crash); a never-saved node stays new.
+	//   - a node that was in the DB but is gone from the restored tree is tombstoned
+	//     (e.g. undoing a just-created agent removes it), and any live process stops.
+	m.tree.deleted = nil
+	for uuid, it := range m.tree.byUUID {
+		_, inDB := m.tree.snapshots[uuid]
+		it.isNew = !inDB
+	}
+	for uuid := range m.tree.snapshots {
+		if _, present := m.tree.byUUID[uuid]; !present {
+			m.tree.deleted = append(m.tree.deleted, uuid)
+			if m.runCancel != nil {
+				if cancel, running := m.runCancel[uuid]; running {
+					cancel()
+					delete(m.runCancel, uuid)
+				}
+			}
+		}
+	}
 
 	// restore the zoom path by uuid, falling back to the tree root
 	var vs []*item
@@ -1004,6 +1026,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// launch an agent on the focused note and REMOVE the note (move-to-agent):
 		// its text is the query, its children are context. Runs immediately.
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
+			m.pushUndo("") // alt+s destroys the note — undo must restore it
 			return m, m.launchAgentFromNote(cur, true)
 		}
 		return m, nil
@@ -2235,6 +2258,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 
 	switch m.finderAct {
 	case actMirrorHere:
+		m.pushUndo("")
 		target = m.resolveSourceNode(target)
 		if cur.name == "" && cur.mirrorOf == "" && len(cur.children) == 0 {
 			// the empty node where "/" was typed becomes the mirror
@@ -2254,6 +2278,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		}
 		m.unsaved = true
 	case actMoveTo:
+		m.pushUndo("")
 		if targetItem, inTree := m.tree.byUUID[target.UUID]; inTree {
 			if m.tree.reparent(cur, targetItem) {
 				m.unsaved = true

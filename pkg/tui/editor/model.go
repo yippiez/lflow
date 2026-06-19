@@ -558,7 +558,9 @@ func (t *tree) save() (int, error) {
 		s, existed := t.snapshots[it.uuid]
 		structChanged := !existed || s.parentUUID != parentUUID || s.rank != rank
 
-		if it.isNew {
+		// never INSERT a uuid that already exists in the DB — UPDATE it instead.
+		// Guards against a stale isNew (e.g. after undo) hitting the UNIQUE constraint.
+		if it.isNew && !existed {
 			n := database.Node{
 				UUID:        it.uuid,
 				ParentUUID:  parentUUID,
