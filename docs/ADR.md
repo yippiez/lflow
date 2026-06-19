@@ -505,3 +505,13 @@ Iteration on the shipped agent workflow, reconciled with pchain's actual impleme
 When
 2026-06-19 — commit 47d6197; verified live (delegate → run → single-line → alt+e → steer 2nd turn same conversation → Enter harvests latest deliverable); Go tests + 27/27 e2e pass
 ---
+
+---
+title: Agent workflow v3 — stage vs run split, pchain detail view, 's' steer
+
+Why
+Corrections to v2 after review. (1) STAGING NEVER RUNS (reverses v2's run-on-send): alt+s adds the focused notebook node to the last agent (created if none) as context only; alt+shift+s stages onto a fresh agent; neither runs. alt+r is run-only — it runs a focused runnable node (bash/query/worker) or, on an ordinary notebook node, fires the last-staged agent. Loop = alt+s…(stage) then alt+r(run). currentWorker→lastAgent already; stageToAgent replaces delegateToAgent. (2) AGENT DETAIL VIEW (alt+e) redesigned to match pchain's AlternateShowAgentDetails exactly (verified by running pchain in tmux: `PCHAIN_TEST=1 pi --no-session --model echo/echo` from the pchain root, Tab on a job row): sectioned + scrollable with horizontal rules and bold/colored headers — "Agent <name>", "status …", "tokens ↑in ↓out · $cost", "Tool calls N" (history from tool_execution_start), "Final" (deliverable). Observe-only (j/k scroll, esc/q). The v2 flat transcript dump looked bad and is gone. (3) STEER WITHOUT alt+e (pchain 's'): a launched worker's title is locked (task fixed once it runs); pressing 's' on it — in the outline OR the agent UI — opens a one-line steer box (modeSteer) that sends a follow-up to the live pi process (same --no-session conversation), or stages the text as a child and re-runs if the process exited. pchain's 's' opens AlternateSteerOutline → WorkerSteerJob; lflow mirrors the gesture with a minimal inline box. Tool-call history tracked via workerActions (workerActivityMsg.start flag).
+
+When
+2026-06-19 — commit ddc336e; verified live (stage no-run → alt+r run → alt+e sectioned view → 's' steers same conversation → title locked). Go+editor tests pass; e2e 27/27 (two persist tests flake only under full-suite tmux load).
+---
