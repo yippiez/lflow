@@ -18,14 +18,6 @@ type Config struct {
 	// DBPath relocates the SQLite database. The settings file is the only
 	// place to set it; there is no flag.
 	DBPath string `json:"dbPath,omitempty"`
-	// Workflowy holds the official workflowy v1 API credentials.
-	Workflowy WorkflowyConfig `json:"workflowy,omitempty"`
-}
-
-// WorkflowyConfig holds the official workflowy v1 API credentials.
-type WorkflowyConfig struct {
-	APIKey  string `json:"apiKey,omitempty"`
-	BaseURL string `json:"baseUrl,omitempty"`
 }
 
 // GetPath returns the path to the lflow settings file: ~/.lflow/settings.json.
