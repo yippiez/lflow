@@ -53,6 +53,33 @@ func agentNode(rail string, depth int, styled string) string {
 	return rail + cReset + strings.Repeat("  ", depth) + cDim + "○ " + cReset + styled
 }
 
+type agentInputLine struct {
+	depth int
+	text  string
+}
+
+func agentInputOutlineLines(s string) []agentInputLine {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	var out []agentInputLine
+	for _, raw := range strings.Split(s, "\n") {
+		trimmed := strings.TrimLeft(raw, " ")
+		if strings.TrimSpace(trimmed) == "" {
+			continue
+		}
+		lead := len([]rune(raw)) - len([]rune(trimmed))
+		depth := 1 + lead/2
+		text := strings.TrimSpace(trimmed)
+		if strings.HasPrefix(text, "- ") {
+			text = strings.TrimSpace(strings.TrimPrefix(text, "- "))
+		}
+		out = append(out, agentInputLine{depth: depth, text: text})
+	}
+	if len(out) == 0 {
+		return []agentInputLine{{depth: 1, text: "untitled"}}
+	}
+	return out
+}
+
 func (v agentView) Enter(m *Model, it *item) bool {
 	m.lastAgent = it.uuid
 	v.setSub(m, it, subObserve)
@@ -97,6 +124,16 @@ func (v agentView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 		m.focusScroll += step
 		return nil, true
 	case "up", "k", "pgup":
+		// In the Agent Domain, the focused worker detail occupies the whole lower
+		// pane. Treat Up at the top as crossing the pane boundary back into the
+		// main outline (matching outline Up at the top of the worker list); otherwise
+		// it would be swallowed by the detail view and strand focus in the worker.
+		if m.focusScroll == 0 && m.tempActive {
+			v.Leave(m, it)
+			m.focused = false
+			m.exitTemp()
+			return nil, true
+		}
 		step := 1
 		if k.String() == "pgup" {
 			step = 8
@@ -247,12 +284,19 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 
 	var c []string
 	node := func(depth int, styled string) { c = append(c, clip(agentNode(rail, depth, styled), width)) }
-	sub := func(depth int, styled string) { c = append(c, clip(rail+cReset+strings.Repeat("  ", depth+1)+"  "+styled, width)) }
+	sub := func(depth int, styled string) {
+		c = append(c, clip(rail+cReset+strings.Repeat("  ", depth+1)+"  "+styled, width))
+	}
 
-	// Agent → query
+	// Agent → query as an outline. Worker prompts often originate from copied
+	// pchain outline markdown ("- parent\n  - child"); strip only the structural
+	// bullet marker so the preview reads as "○ child", not "○ - child".
 	node(0, cFG+"Agent"+cReset)
-	for _, w := range wrapPlain(name, width-8) {
-		node(1, cFG+w+cReset)
+	for _, ln := range agentInputOutlineLines(name) {
+		textW := width - visibleWidth(rail) - ln.depth*2 - 4
+		for _, w := range wrapPlain(ln.text, textW) {
+			node(ln.depth, cFG+w+cReset)
+		}
 	}
 	// Status → one compact line: status, usage, elapsed, then model
 	node(0, cFG+"Status"+cReset)

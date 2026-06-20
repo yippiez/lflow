@@ -73,6 +73,49 @@ func (m *Model) enterTemp() {
 	m.caret = 0
 }
 
+// crossToNotes moves a top-level agent node out of the Agent Domain into the main
+// notes (under the current main view root) and follows it there — so alt+shift+up
+// at the top of the domain feels like moving across one continuous space. The node
+// and its subtree migrate in-memory (byUUID + snapshots) from the temp tree to the
+// main tree; the next save reparents it in the DB (the migrated snapshot's old
+// parent makes save UPDATE rather than re-INSERT).
+func (m *Model) crossToNotes(cur *item) {
+	if m.mainStash.tree == nil || len(m.mainStash.viewStack) == 0 {
+		return
+	}
+	dst := m.mainStash.viewStack[len(m.mainStash.viewStack)-1]
+	if dst == nil {
+		return
+	}
+	if idx := indexOf(cur); idx >= 0 {
+		cur.parent.children = append(cur.parent.children[:idx], cur.parent.children[idx+1:]...)
+	}
+	var migrate func(it *item)
+	migrate = func(it *item) {
+		delete(m.tempTree.byUUID, it.uuid)
+		m.mainStash.tree.byUUID[it.uuid] = it
+		if s, ok := m.tempTree.snapshots[it.uuid]; ok {
+			delete(m.tempTree.snapshots, it.uuid)
+			m.mainStash.tree.snapshots[it.uuid] = s
+		}
+		for _, c := range it.children {
+			migrate(c)
+		}
+	}
+	migrate(cur)
+	cur.parent = dst
+	dst.children = append(dst.children, cur)
+
+	m.undoStack = nil // the active tree changes; cross-tree undo would corrupt
+	m.exitTemp()      // back to the notes, with the moved node now in them
+	if r := m.rowIndexOf(cur); r >= 0 {
+		m.cursor = r
+	}
+	m.clampCursor()
+	m.unsaved = true
+	m.flash = "moved to notes"
+}
+
 func (m *Model) exitTemp() {
 	m.tempTree = m.tree // keep the scratch content in-memory for this session
 	s := m.mainStash
@@ -84,6 +127,22 @@ func (m *Model) exitTemp() {
 	m.tempActive = false
 	m.refreshRows()
 	m.clampCursor()
+}
+
+// atTopOfTempList reports whether Up should cross from the Agent Domain back into
+// the main outline. The empty compose worker is a structural first row; when it is
+// blank and never run, the first real worker just below it is also considered the
+// top of the worker list.
+func (m *Model) atTopOfTempList() bool {
+	if !m.tempActive || m.cursor <= 0 {
+		return m.tempActive && m.cursor == 0
+	}
+	if m.cursor != 1 || len(m.rows) == 0 {
+		return false
+	}
+	first := m.rows[0].it
+	return first != nil && first.parent == m.tempTree.root && first.typ == database.TypeWorker &&
+		strings.TrimSpace(first.name) == "" && !m.workerRan(first)
 }
 
 // tempRowCount is how many visible rows the scratch outline currently has.

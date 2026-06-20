@@ -903,13 +903,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// every alt+arrow chord has a ctrl twin: terminals like windows
 	// terminal grab alt+arrows for pane focus and never deliver them
 	case "alt+shift+up", "ctrl+shift+up", "ctrl+alt+up":
-		if cur := m.cursorItem(); cur != nil {
-			mc := m.mirrorContext()
-			if m.tree.move(cur, -1) {
-				m.unsaved = true
-				m.refreshRows()
-				m.cursor = m.findRow(cur, mc.ctx)
-			}
+		cur := m.cursorItem()
+		if cur == nil {
+			return m, nil
+		}
+		// at the top of the Agent Domain (the topmost agent, just under the compose
+		// line), alt+shift+up moves the node out into the notes — crossing the divider
+		// as if the two regions were one space.
+		if m.tempActive && cur.parent == m.tempTree.root && indexOf(cur) == 1 {
+			m.crossToNotes(cur)
+			return m, nil
+		}
+		mc := m.mirrorContext()
+		if m.tree.move(cur, -1) {
+			m.unsaved = true
+			m.refreshRows()
+			m.cursor = m.findRow(cur, mc.ctx)
 		}
 		return m, nil
 	case "alt+shift+down", "ctrl+shift+down", "ctrl+alt+down":
@@ -1023,17 +1032,17 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+s":
-		// launch an agent on the focused note and REMOVE the note (move-to-agent):
-		// its text is the query, its children are context. Runs immediately.
-		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			m.pushUndo("") // alt+s destroys the note — undo must restore it
-			return m, m.launchAgentFromNote(cur, true)
-		}
-		return m, nil
-	case "alt+shift+s", "alt+S":
 		// launch an agent on the focused note but KEEP the note (copy-to-agent).
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
 			return m, m.launchAgentFromNote(cur, false)
+		}
+		return m, nil
+	case "alt+shift+s", "alt+S":
+		// launch an agent on the focused note and REMOVE the note (move-to-agent):
+		// its text is the query, its children are context. Runs immediately.
+		if cur := m.cursorItem(); cur != nil && !m.tempActive {
+			m.pushUndo("") // alt+shift+s destroys the note — undo must restore it
+			return m, m.launchAgentFromNote(cur, true)
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
@@ -1063,6 +1072,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// walk up one visual line of the wrapped node first
 			goal := m.caretColumn(starts, line)
 			m.caret = m.caretAtColumn(starts, line-1, goal)
+		} else if m.atTopOfTempList() {
+			// at the top of the worker list: go back up into the main outline
+			m.exitTemp()
 		} else if m.cursor > 0 {
 			// from the first visual line, cross to the previous node and land
 			// on its last visual line, keeping the horizontal column
@@ -1071,9 +1083,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			prev := m.selectedVisualRows()
 			m.caret = m.caretAtColumn(prev, len(prev)-1, goal)
 			m.clampCaret()
-		} else if m.tempActive {
-			// at the very top of the Temporary Domain: go back up into the main outline
-			m.exitTemp()
 		}
 		return m, nil
 	case "down":

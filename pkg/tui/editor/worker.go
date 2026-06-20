@@ -111,10 +111,10 @@ type workerDeliverableMsg struct {
 
 // launchAgentFromNote creates an agent in the Agent Domain from a notes node and
 // RUNS it immediately: the node's text is the query, its children become context.
-//   - destroy (alt+s): MOVE — context is deep-copied (self-contained) and the
+//   - keep (alt+s): COPY — context is deep-copied (self-contained) and the
+//     original note stays.
+//   - destroy (alt+shift+s): MOVE — context is deep-copied (self-contained) and the
 //     original note is removed from notes.
-//   - keep (alt+shift+s): COPY — context is live mirrors of the note's children;
-//     the original note stays.
 // Focus stays in notes.
 func (m *Model) launchAgentFromNote(note *item, destroy bool) tea.Cmd {
 	m.ensureTempTree()
