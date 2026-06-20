@@ -600,18 +600,6 @@ var lm15 = migration{
 			return errors.Wrap(err, "creating node indices")
 		}
 
-		_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS wf_mirrors
-			(
-				node_uuid text PRIMARY KEY,
-				wf_id text NOT NULL,
-				anchor text NOT NULL DEFAULT '',
-				last_sync integer NOT NULL DEFAULT 0,
-				wf_modified integer NOT NULL DEFAULT 0
-			)`)
-		if err != nil {
-			return errors.Wrap(err, "creating wf_mirrors table")
-		}
-
 		_, err = tx.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(content=nodes, name, note, tokenize="porter unicode61 categories 'L* N* Co Ps Pe'");`)
 		if err != nil {
 			return errors.Wrap(err, "creating node_fts")

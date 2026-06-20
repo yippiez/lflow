@@ -35,7 +35,6 @@ func TestRun(t *testing.T) {
 	expectedTables := []string{
 		"CREATE TABLE nodes",
 		"CREATE TABLE system",
-		"CREATE TABLE wf_mirrors",
 		"CREATE VIRTUAL TABLE node_fts",
 	}
 

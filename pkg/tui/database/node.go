@@ -103,7 +103,7 @@ func (n Node) Update(db *DB) error {
 }
 
 // UpdateUUID rewrites the node's uuid and every reference to it
-// (children's parent_uuid, mirrors' mirror_of, wf_mirrors).
+// (children's parent_uuid, mirrors' mirror_of).
 func (n *Node) UpdateUUID(db *DB, newUUID string) error {
 	if _, err := db.Exec("UPDATE nodes SET uuid = ? WHERE uuid = ?", newUUID, n.UUID); err != nil {
 		return errors.Wrapf(err, "updating node uuid %s -> %s", n.UUID, newUUID)
@@ -114,9 +114,6 @@ func (n *Node) UpdateUUID(db *DB, newUUID string) error {
 	if _, err := db.Exec("UPDATE nodes SET mirror_of = ? WHERE mirror_of = ?", newUUID, n.UUID); err != nil {
 		return errors.Wrapf(err, "updating mirrors of %s", n.UUID)
 	}
-	if _, err := db.Exec("UPDATE wf_mirrors SET node_uuid = ? WHERE node_uuid = ?", newUUID, n.UUID); err != nil {
-		return errors.Wrapf(err, "updating wf mirror of %s", n.UUID)
-	}
 	n.UUID = newUUID
 	return nil
 }
@@ -125,9 +122,6 @@ func (n *Node) UpdateUUID(db *DB, newUUID string) error {
 func (n Node) Expunge(db *DB) error {
 	if _, err := db.Exec("DELETE FROM nodes WHERE uuid = ?", n.UUID); err != nil {
 		return errors.Wrapf(err, "expunging node %s", n.UUID)
-	}
-	if _, err := db.Exec("DELETE FROM wf_mirrors WHERE node_uuid = ?", n.UUID); err != nil {
-		return errors.Wrapf(err, "expunging wf mirror of %s", n.UUID)
 	}
 	return nil
 }

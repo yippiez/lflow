@@ -67,7 +67,6 @@ func TestUpdateUUIDRewritesReferences(t *testing.T) {
 
 	seedTree(t, db)
 	mustInsert(t, db, Node{UUID: "m1", Name: "mirror", MirrorOf: "c1", Rank: 2})
-	MustExec(t, "wf mirror", db, "INSERT INTO wf_mirrors (node_uuid, wf_id) VALUES (?, ?)", "c1", "wf-abc")
 
 	n, err := GetNode(db, "c1")
 	if err != nil {
@@ -88,10 +87,6 @@ func TestUpdateUUIDRewritesReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, mirror.MirrorOf, "c1-new", "mirror_of should be rewritten")
-
-	var wfNodeUUID string
-	MustScan(t, "wf mirror node", db.QueryRow("SELECT node_uuid FROM wf_mirrors WHERE wf_id = ?", "wf-abc"), &wfNodeUUID)
-	assert.Equal(t, wfNodeUUID, "c1-new", "wf_mirrors.node_uuid should be rewritten")
 }
 
 func TestGetChildrenAndSubtree(t *testing.T) {

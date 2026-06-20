@@ -24,14 +24,6 @@ CREATE TABLE nodes
 			, style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false, link_to text NOT NULL DEFAULT '');
 CREATE INDEX idx_nodes_parent ON nodes(parent_uuid, rank);
 CREATE INDEX idx_nodes_dirty ON nodes(dirty);
-CREATE TABLE wf_mirrors
-			(
-				node_uuid text PRIMARY KEY,
-				wf_id text NOT NULL,
-				anchor text NOT NULL DEFAULT '',
-				last_sync integer NOT NULL DEFAULT 0,
-				wf_modified integer NOT NULL DEFAULT 0
-			);
 CREATE VIRTUAL TABLE node_fts USING fts5(content=nodes, name, note, tokenize="porter unicode61 categories 'L* N* Co Ps Pe'");
 CREATE TRIGGER nodes_after_insert AFTER INSERT ON nodes BEGIN
 				INSERT INTO node_fts(rowid, name, note) VALUES (new.id, new.name, new.note);

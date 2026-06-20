@@ -61,18 +61,15 @@ func TestInit(t *testing.T) {
 	}
 
 	// the node model should exist; legacy tables should be gone (converted)
-	var nodesTableCount, wfMirrorsTableCount, booksTableCount, systemTableCount int
+	var nodesTableCount, booksTableCount, systemTableCount int
 	database.MustScan(t, "counting nodes table",
 		db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = ? AND name = ?", "table", "nodes"), &nodesTableCount)
-	database.MustScan(t, "counting wf_mirrors table",
-		db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = ? AND name = ?", "table", "wf_mirrors"), &wfMirrorsTableCount)
 	database.MustScan(t, "counting books table",
 		db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = ? AND name = ?", "table", "books"), &booksTableCount)
 	database.MustScan(t, "counting system table",
 		db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = ? AND name = ?", "table", "system"), &systemTableCount)
 
 	assert.Equal(t, nodesTableCount, 1, "nodes table count mismatch")
-	assert.Equal(t, wfMirrorsTableCount, 1, "wf_mirrors table count mismatch")
 	assert.Equal(t, booksTableCount, 0, "books table should have been dropped")
 	assert.Equal(t, systemTableCount, 1, "system table count mismatch")
 
