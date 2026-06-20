@@ -591,3 +591,12 @@ A batch of fixes/refinements. (1) RE-RUN: alt+r on an agent re-runs (runAgentAct
 
 When
 2026-06-19 — commits b4e5a29 (fixes) + 27b43c4 (links); 30/30 e2e (two temp-panel tests updated to hidden-compose). Verified live: idle agent re-runs cleanly, compose hidden in notes, ctrl+z undo, /link + → + alt+g jump.
+
+---
+title: alt+s launches an agent and leaves a mirror in place (was copy)
+
+Why
+Reworked the notes→agent launch gestures. alt+s now sends+starts an agent AND replaces the source note in place with a MIRROR (◆) of the new agent, so the live agent's name/output shows through in the notes (previously alt+s left a static copy). alt+shift+s still sends+starts but REMOVES the note entirely. Context is deep-copied into the agent both ways (the agent owns its inputs). The agent lives in the ephemeral Agent Domain (temp tree); for the main-tree mirror to resolve a temp node, the agent's uuid is bridged into the main tree's byUUID index. The bridge is read-only: save() walks real children from the root and never reaches the agent, so the agent is never persisted/synced (invariant preserved). After restart the agent is gone and the persisted mirror resolves to "(missing)" — acceptable, agents are session-scoped. alt+s now pushes an undo snapshot (it mutates the note); undo restores the note + children (the agent keeps running in the domain, consistent with alt+shift+s).
+
+When
+2026-06-20 — note replaced by ◆ mirror of agent; bridge in launchAgentFromNote (worker.go); handlers + undo in editor.go.

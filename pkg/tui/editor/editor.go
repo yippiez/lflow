@@ -1032,13 +1032,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+s":
-		// launch an agent on the focused note but KEEP the note (copy-to-agent).
+		// launch an agent on the focused note and leave a MIRROR of the agent in
+		// its place, so the live agent shows through in the notes.
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
+			m.pushUndo("") // alt+s replaces the note with a mirror — undo must restore it
 			return m, m.launchAgentFromNote(cur, false)
 		}
 		return m, nil
 	case "alt+shift+s", "alt+S":
-		// launch an agent on the focused note and REMOVE the note (move-to-agent):
+		// launch an agent on the focused note and REMOVE the note entirely:
 		// its text is the query, its children are context. Runs immediately.
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
 			m.pushUndo("") // alt+shift+s destroys the note — undo must restore it
