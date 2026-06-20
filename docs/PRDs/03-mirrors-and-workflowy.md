@@ -8,6 +8,13 @@
 | **Related commits** | 57a1a2d, c0b5b40, b90b256, cea98f6, a72cf91, df4313e, c4f4eb7, af6b159, 66322bc |
 | **Related ADRs** | — |
 
+> **Update (2026-06-20):** the Workflowy integration was removed entirely — the
+> `wf` client/sync package, the `/mirror:wf` editor pull, the background mirror
+> scheduler, the `wf_mirrors` table, and the `workflowy` config block are all gone.
+> The local **mirror node** concept (red `◆`, read-only view of a source) remains;
+> only the Workflowy source backend was dropped. The Workflowy details below are
+> kept as historical record.
+
 ## Problem / Context
 
 Workflowy is one optional backend, not the backend. The user's framing: "local sync

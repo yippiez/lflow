@@ -1,6 +1,6 @@
 ![Build Status](https://github.com/lflow/lflow/actions/workflows/ci.yml/badge.svg)
 
-lflow is a fork of [dnote](https://github.com/dnote/dnote) reworked into a local-first terminal outline editor: your whole tree lives in one SQLite file, every command is one-shot and pipe-friendly, and `lflow node open` drops you into an inline editor that draws in the terminal scrollback rather than the alternate screen. Nodes can be bullets, headings, todos, code, quotes and mirrors; device sync against a self-hostable server and a Workflowy integration are optional.
+lflow is a fork of [dnote](https://github.com/dnote/dnote) reworked into a local-first terminal outline editor: your whole tree lives in one SQLite file, every command is one-shot and pipe-friendly, and `lflow node open` drops you into an inline editor that draws in the terminal scrollback rather than the alternate screen. Nodes can be bullets, headings, todos, code, quotes and mirrors; device sync against a self-hostable server is optional.
 
 ## Examples
 
@@ -21,9 +21,8 @@ lflow node open
 lflow node list
 lflow node list "reading list" --format json | jq -r '.children[].name'
 
-# Sync to a self-hosted server, or reconcile a Workflowy mirror — both optional
+# Sync to a self-hosted server — optional
 lflow server sync
-lflow wf pull
 ```
 
 See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command and flag reference, and [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) for running the sync server.

@@ -3,7 +3,7 @@
 ## What lflow is
 
 lflow is a local-first **terminal outline editor** (Go + bubbletea), forked from
-dnote and reshaped into a Workflowy-style outliner. The whole tree lives in one
+dnote and reshaped into a keyboard-driven outliner. The whole tree lives in one
 SQLite file. Every CLI command is one-shot and pipe-friendly; `lflow node open`
 drops into an inline editor that draws in the terminal **scrollback**, never the
 alternate screen. Everything is a node with a free-string `type`, and node types
@@ -73,7 +73,7 @@ re-litigate settled choices (e.g. no inline markup, no emojis, no alt-screen).
   cancels). The server stores runnable types as opaque strings, never executes.
 - Never synced: local view-state (collapsed), derived/generated content, the
   Temporary Domain, voice/binary files, and **secrets**. Today secrets live in
-  local config stores — Workflowy keys in `~/.lflow/settings.json`, Pi settings in
+  local config stores — Pi settings in
   `~/.pi/agent/settings.json`; a consolidated `~/.config/lflow/credentials.json`
   (mode 0600) is the planned target for `lflow auth`, not yet implemented. Either
   way, secrets are never in argv, shell history, the synced DB, or logs.

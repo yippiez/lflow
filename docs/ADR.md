@@ -625,3 +625,23 @@ When
 2026-06-20 — launchAgentFromNote simplified (worker.go); actBringHere + /bring +
 bring* helpers (editor.go); e2e test-bring-moves-node-here.sh; agent + styling e2e
 tests updated for the new gesture / shifted slash-menu window; 31/31 e2e.
+
+---
+title: Remove the Workflowy integration entirely
+
+Why
+Workflowy was the original optional pull-only backend (mirror nodes sourced from
+Workflowy via the internal/v1 API). It was dropped completely to shed the unused
+surface area: the `pkg/tui/wf` client + mirror-sync engine + journal, the editor's
+`/mirror:wf` pull flow and its single-line prompt mode, the background mirror
+scheduler (5s visible / 60s hidden / sync-on-appear in editor/sync.go), the
+`wf_mirrors` table (removed from the lm15 migration; schema.sql regenerated), the
+`workflowy.apiKey` config block, and all `~/.lflow/settings.json` Workflowy keys.
+The local MIRROR NODE concept (red `◆`, read-only view of a source via `/mirror`,
+`mirror_of`) is untouched — only the Workflowy source backend is gone. Existing DBs
+keep their now-orphan `wf_mirrors` table harmlessly; fresh DBs never create it.
+
+When
+2026-06-20 — commits: editor (drop /mirror:wf + scheduler), wf (delete package),
+config (drop credentials), database (drop wf_mirrors + regenerate schema), docs.
+Full build + test suite green with the fts5 tag.

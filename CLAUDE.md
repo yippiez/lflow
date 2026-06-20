@@ -32,10 +32,9 @@ settled choices.
   no DB migration. Run output is ephemeral in-memory only (never persisted; a generic
   `NodeInternalData` JSON blob is planned, not implemented); binary → local file.
 - Never auto-run runnable nodes (alt+r only). Never sync secrets, view-state, the
-  Temporary Domain, or binary files. Secrets live in local config — Workflowy in
-  `~/.lflow/settings.json`, Pi in `~/.pi/agent/settings.json` (a consolidated
-  `~/.config/lflow/credentials.json` is planned, not yet built). Status bar is the
-  last rendered line.
+  Temporary Domain, or binary files. Secrets live in local config — Pi in
+  `~/.pi/agent/settings.json` (a consolidated `~/.config/lflow/credentials.json` is
+  planned, not yet built). Status bar is the last rendered line.
 
 ## Pointers
 

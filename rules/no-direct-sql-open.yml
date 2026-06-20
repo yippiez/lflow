@@ -5,11 +5,11 @@ message: Use database.Open instead of sql.Open — it sets the sqlite busy timeo
 note: |
   All sqlite connections must be created through database.Open
   (pkg/tui/database/sql.go), which appends `_busy_timeout=5000` to the DSN.
-  The editor's background workflowy-mirror sync writes from a separate
-  goroutine; without the busy timeout, concurrent writers fail immediately
-  with SQLITE_BUSY instead of waiting. Calling sql.Open directly bypasses
-  that and reintroduces the race, so it is only permitted inside
-  pkg/tui/database/sql.go (the one wrapper that owns the DSN).
+  Background goroutines (e.g. the sync engine) write concurrently; without the
+  busy timeout, concurrent writers fail immediately with SQLITE_BUSY instead of
+  waiting. Calling sql.Open directly bypasses that and reintroduces the race, so
+  it is only permitted inside pkg/tui/database/sql.go (the one wrapper that owns
+  the DSN).
 rule:
   pattern:
     context: "v := sql.Open($$$)"

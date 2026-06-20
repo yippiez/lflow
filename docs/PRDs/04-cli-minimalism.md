@@ -17,7 +17,7 @@ describe the environment in the config file, not on the command line.
 
 ## Goals
 
-- A grouped command tree: `lflow node open|list|add|move|remove|edit`, `lflow server …`, `lflow wf …`, `lflow export`, `lflow version`.
+- A grouped command tree: `lflow node open|list|add|move|remove|edit`, `lflow server …`, `lflow export`, `lflow version`.
 - No aliases, no help examples, no `help` subcommand (only `--help`).
 - A custom light cobra help renderer.
 - Settings that describe the environment (e.g. `dbPath`) live only in `~/.lflow/settings.json`.

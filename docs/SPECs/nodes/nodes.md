@@ -89,7 +89,7 @@ loopback (ported from `beyin-monorepo/packages/compute/src/auth`).
 
 **HARD INVARIANT:** secrets never appear in argv, shell history, the synced DB, or logs.
 They live only in a local `~/.config/lflow/credentials.json`, mode `0600`. This unblocks
-`/mirror:wf` (workflowy), Colab, and worker provider keys.
+Colab and worker provider keys.
 
 ### 1.4 `Context() string` — the universal node seam
 

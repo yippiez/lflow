@@ -12,7 +12,7 @@ feature, grounded in the git history and the source under `pkg/tui/editor/`.
 - [00-template](00-template.md) — the reusable PRD template (copy this for new work).
 - [01-fork-rename](01-fork-rename.md) — reshape the dnote fork into lflow; rename module, branch, headers.
 - [02-outline-editor-core](02-outline-editor-core.md) — unified node model + best-match CLI + inline scrollback editor.
-- [03-mirrors-and-workflowy](03-mirrors-and-workflowy.md) — red `◆` mirror nodes + pull-only Workflowy integration.
+- [03-mirrors-and-workflowy](03-mirrors-and-workflowy.md) — red `◆` mirror nodes (the Workflowy pull was later removed).
 - [04-cli-minimalism](04-cli-minimalism.md) — grouped command tree, no aliases, light help, config-only settings.
 - [05-wysiwyg-rows](05-wysiwyg-rows.md) — WYSIWYG rows, gray bullets, block cursor, node links, date pills.
 - [06-editor-hardening](06-editor-hardening.md) — wrapping/cursor/resize/paste fixes from hostile tmux break-testing.

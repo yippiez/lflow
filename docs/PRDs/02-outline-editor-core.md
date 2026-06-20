@@ -33,7 +33,7 @@ into it."
 
 ## Approach / Design
 
-- Data model: `pkg/tui/database` — one `nodes` table with `wf_mirrors` and fts5; a migration converts dnote books/notes into the node tree.
+- Data model: `pkg/tui/database` — one `nodes` table with fts5; a migration converts dnote books/notes into the node tree.
 - Sync: the dnote USN engine and API client are adapted to operate on nodes (`1706337`); server gains the node model, `/api/v3/nodes` CRUD and sync fragments (`e0cdf32`).
 - Resolver: best-match by name so commands target the closest node without exact ids (`42bfe32`).
 - Editor: `pkg/tui/editor` — scrollback-mode bubbletea editor with slash menu, fuzzy finder, and zoom (`899daa7`). It renders into normal scrollback, never the alternate screen.
@@ -41,7 +41,7 @@ into it."
 
 ## Decisions
 
-- Local SQLite first; Workflowy is optional and comes later.
+- Local SQLite first; remote sync is optional.
 - Everything-is-a-node with a free-string `type` so future node types need no DB migration.
 - Editor never uses the alternate screen (later enforced by an ast-grep lint rule, see 06-editor-hardening).
 - Debug to stderr, results to stdout, so commands stay pipeable.

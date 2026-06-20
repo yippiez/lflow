@@ -9,7 +9,6 @@ you typed is a reference you meant.
 lflow node open|list|add|move|remove|edit
 lflow export                      dump the whole forest
 lflow server login|logout|sync    self-hosted lflow-server
-lflow wf ...                      workflowy integration
 lflow version
 ```
 
@@ -178,70 +177,6 @@ Sync nodes with the lflow server, requires `lflow server login`.
 | `-f`, `--full` | false | perform a full sync instead of an incremental one |
 | `--dry-run` | false | show what would be synced without making changes |
 | `--apiEndpoint <url>` | "" | API endpoint to connect to, defaults to the config value |
-
-## lflow wf
-
-Workflowy integration: anchor workflowy nodes into the local tree. The `wf` command
-has subcommands:
-
-### lflow wf login
-
-```
-lflow wf login
-```
-
-Log in to workflowy, or store a session id directly.
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--session <id>` | "" | store a workflowy sessionid directly, for 2FA accounts |
-| `--base-url <url>` | "" | override the workflowy endpoint for testing or self-hosting |
-
-### lflow wf mirror
-
-```
-lflow wf mirror <url|wf-id>
-```
-
-Anchor a workflowy node into the local tree. The argument may be a workflowy URL
-like `https://workflowy.com/#/abc123def456` or a node id.
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--into <node>` | "" | local parent node, defaults to a new root |
-
-### lflow wf list
-
-```
-lflow wf list
-```
-
-List workflowy mirrors with last sync time and node count.
-
-### lflow wf pull / lflow wf push
-
-```
-lflow wf pull [mirror]
-lflow wf push [mirror]
-```
-
-Reconcile mirrors with workflowy. Both subcommands run sync in **both directions**;
-the name only reflects emphasis. With no argument, all mirrors are synced; with a
-mirror reference, only that anchor. Conflicts are resolved in workflowy's favour and
-the overwritten local value is journaled to `wf-journal.log`.
-
-### lflow wf unmirror
-
-```
-lflow wf unmirror <mirror>
-```
-
-Detach a workflowy mirror. You must pass exactly one of:
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--keep` | false | keep the local copy |
-| `--drop` | false | delete the local copy |
 
 ## lflow version
 
