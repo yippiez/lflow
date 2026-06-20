@@ -110,14 +110,11 @@ type workerDeliverableMsg struct {
 // --- launch (notes → Agent Domain) -------------------------------------------
 
 // launchAgentFromNote creates an agent in the Agent Domain from a notes node and
-// RUNS it immediately: the node's text is the query, its children become context.
-//   - mirror (alt+s): the original note is replaced in place by a MIRROR of the new
-//     agent, so the live agent's name/output shows through in the notes.
-//   - destroy (alt+shift+s): the original note is removed from the notes entirely.
-//
-// Context is always deep-copied into the agent (a self-contained snapshot, never a
-// live mirror) so the agent owns its inputs. Focus stays in notes.
-func (m *Model) launchAgentFromNote(note *item, destroy bool) tea.Cmd {
+// RUNS it immediately: the node's text is the query, its children become context
+// (deep-copied so the agent owns its inputs). The original note is removed from the
+// notes — use /bring to pull the agent (and its output) back into the notes later.
+// Focus stays in notes.
+func (m *Model) launchAgentFromNote(note *item) tea.Cmd {
 	m.ensureTempTree()
 	w, err := m.tempTree.newItem() // typ defaults to worker (temp tree)
 	if err != nil {
@@ -132,35 +129,13 @@ func (m *Model) launchAgentFromNote(note *item, destroy bool) tea.Cmd {
 		m.copyContextInto(c, w)
 	}
 
-	if destroy {
-		m.tree.remove(note)
-		m.ensureViewNonEmpty()
-	} else {
-		// Replace the note in place with a mirror of the agent. The agent lives in
-		// the ephemeral Agent Domain (temp tree); bridge its uuid into the main
-		// tree's index so the main-tree mirror resolves the agent's live name and
-		// subtree through. The bridge is read-only — save() walks real children
-		// from the root and never reaches the agent, so it is never persisted.
-		m.tree.byUUID[w.uuid] = w
-		for _, c := range append([]*item(nil), note.children...) {
-			m.tree.remove(c) // the originals were copied into the agent
-		}
-		note.children = nil
-		note.name = ""
-		note.note = ""
-		note.typ = database.TypeBullets
-		note.mirrorOf = w.uuid
-	}
-
+	m.tree.remove(note)
+	m.ensureViewNonEmpty()
 	m.refreshRows()
 	m.clampCursor()
 	m.lastAgent = w.uuid
 	m.unsaved = true
-	if destroy {
-		m.flash = "launched agent"
-	} else {
-		m.flash = "launched agent (mirrored)"
-	}
+	m.flash = "launched agent"
 	return runWorker(m, w)
 }
 

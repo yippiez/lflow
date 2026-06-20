@@ -600,3 +600,28 @@ Reworked the notes→agent launch gestures. alt+s now sends+starts an agent AND 
 
 When
 2026-06-20 — note replaced by ◆ mirror of agent; bridge in launchAgentFromNote (worker.go); handlers + undo in editor.go.
+
+---
+title: Drop alt+s; launch is alt+shift+s only; add /bring to pull a node here
+
+Why
+The two-gesture launch (alt+s mirror / alt+shift+s delete) was confusing, so alt+s
+is removed entirely. alt+shift+s is now the single launch gesture: it sends+starts
+an agent and consumes the source note (query = note text, children = context,
+deep-copied). To get a node (or an agent's output) into your notes you now use a new
+explicit /bring command: a fuzzy finder that MOVES the picked node — the real node
+and its whole subtree — to the cursor location (inverse of /move's here→there). The
+picker also reaches into the ephemeral Agent Domain (tempFinderHits synthesizes its
+agents as finder candidates), so the post-alt+shift+s workflow is: launch with
+alt+shift+s, let it run, then /bring the agent back into notes when ready. Three move
+paths: bringFromTemp (cross-tree migrate an agent out of the domain; the live
+process keeps running, run maps are uuid-keyed), bringWithin (reparent a node already
+loaded in the open subtree, with a self-into-subtree guard), bringFromDB (relocate a
+node living elsewhere in the DB, then reload the view). /bring pushes an undo
+snapshot. The earlier alt+s-leaves-a-mirror behavior (and its cross-tree byUUID
+bridge) is fully removed.
+
+When
+2026-06-20 — launchAgentFromNote simplified (worker.go); actBringHere + /bring +
+bring* helpers (editor.go); e2e test-bring-moves-node-here.sh; agent + styling e2e
+tests updated for the new gesture / shifted slash-menu window; 31/31 e2e.

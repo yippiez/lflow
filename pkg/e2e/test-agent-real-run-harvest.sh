@@ -4,9 +4,9 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 
 # End-to-end agent loop against a REAL pi model (gated by require_pi — SKIP when
 # pi or ~/.pi is absent). Drives the whole workflow:
-#   alt+s on a note → launches+runs an agent in the Agent Domain →
-#   reach a terminal state (no stuck idle) → open the agent view (alt+e) showing
-#   a "Final" outline → harvest (enter).
+#   alt+shift+s on a note → launches+runs an agent in the Agent Domain (the note
+#   is consumed) → reach a terminal state (no stuck idle) → open the agent view
+#   (alt+e) showing a "Final" outline → harvest (enter).
 #
 # Real models are non-deterministic, so we assert STRUCTURE (status/usage reached,
 # Final section, harvest succeeded), never exact wording.
@@ -19,7 +19,7 @@ launch
 type "what is the capital of France"
 wait_for "what is the capital of France"
 
-send M-s            # launch an agent on this note (query=note) and RUN it now
+send M-S            # launch an agent on this note (query=note) and RUN it now
 
 # it must reach a terminal state, not hang — the stuck-idle bug regression guard.
 # A cost chip ("$") only appears once usage has streamed back. Generous timeouts:

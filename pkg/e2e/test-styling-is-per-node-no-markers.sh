@@ -51,7 +51,7 @@ wait_for "a*b*c"
 # Type "/" to open the slash menu (it is typed inline into the node text but
 # stripped when a command runs).
 type "/"
-wait_for "/style"
+wait_for "Toggle done"
 
 # Type "style" to filter the menu to just /style.
 type "style"
@@ -78,7 +78,7 @@ assert_not_contains "○ abc"
 # Re-open /style and verify "Bold (on)" appears in the picker — meaning the
 # style attribute was set, not that asterisk markup triggered rendering.
 type "/"
-wait_for "/style"
+wait_for "Toggle done"
 type "style"
 wait_for "/style"
 send Enter

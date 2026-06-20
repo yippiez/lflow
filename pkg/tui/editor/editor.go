@@ -51,6 +51,7 @@ const (
 	actMoveTo
 	actGoto
 	actLinkTo
+	actBringHere
 )
 
 type slashCommand struct {
@@ -59,6 +60,7 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
+	{"/bring", "Bring another node (or an agent) here"},
 	{"/complete", "Toggle done"},
 	{"/goto", "Jump the editor to another node"},
 	{"/link", "Link this node to another (→ target; alt+g jumps)"},
@@ -1031,20 +1033,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case "alt+s":
-		// launch an agent on the focused note and leave a MIRROR of the agent in
-		// its place, so the live agent shows through in the notes.
-		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			m.pushUndo("") // alt+s replaces the note with a mirror — undo must restore it
-			return m, m.launchAgentFromNote(cur, false)
-		}
-		return m, nil
 	case "alt+shift+s", "alt+S":
-		// launch an agent on the focused note and REMOVE the note entirely:
-		// its text is the query, its children are context. Runs immediately.
+		// launch an agent on the focused note and REMOVE the note: its text is the
+		// query, its children are context. Runs immediately. Pull the agent back
+		// into the notes later with /bring.
 		if cur := m.cursorItem(); cur != nil && !m.tempActive {
 			m.pushUndo("") // alt+shift+s destroys the note — undo must restore it
-			return m, m.launchAgentFromNote(cur, true)
+			return m, m.launchAgentFromNote(cur)
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
@@ -1978,6 +1973,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeNote
 		m.notePrev = cur.note
 		m.caret = len([]rune(cur.note))
+	case "/bring":
+		// pick any node (incl. an Agent Domain agent) and move it here
+		m.openFinder(actBringHere)
 	case "/mirror":
 		m.openFinder(actMirrorHere)
 	case "/link":
@@ -2216,10 +2214,37 @@ func (m *Model) refreshFinder() {
 		}
 		filtered = append(filtered, h)
 	}
+	// /bring can also pull a node out of the (ephemeral, DB-less) Agent Domain, so
+	// surface its agents alongside the saved nodes — most recent first.
+	if m.finderAct == actBringHere {
+		filtered = append(m.tempFinderHits(cur), filtered...)
+	}
 	m.finderHits = filtered
 	if m.finderSel >= len(m.finderHits) {
 		m.finderSel = 0
 	}
+}
+
+// tempFinderHits returns the Agent Domain's named nodes as finder candidates,
+// synthesized as database.Node so they sit in the same picker list as saved nodes.
+// The always-empty compose line and the cursor node are skipped.
+func (m *Model) tempFinderHits(cur *item) []database.Node {
+	if m.tempTree == nil || m.tempTree == m.tree {
+		return nil // no domain, or we're already inside it
+	}
+	q := strings.ToLower(strings.TrimSpace(m.finderQuery))
+	var hits []database.Node
+	for _, it := range m.tempTree.root.children {
+		name := strings.TrimSpace(it.name)
+		if name == "" || (cur != nil && it.uuid == cur.uuid) {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(name), q) {
+			continue
+		}
+		hits = append(hits, database.Node{UUID: it.uuid, Name: it.name, Type: it.typ})
+	}
+	return hits
 }
 
 func (m *Model) handleFinderKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2331,6 +2356,17 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		}
 		m.unsaved = true
 		m.flash = "linked → " + clipStr(dst.Name, 24)
+	case actBringHere:
+		// move the picked node (and its subtree) to the cursor location.
+		m.pushUndo("")
+		if src, ok := m.tempTree.byUUID[target.UUID]; ok && m.tempTree != m.tree {
+			m.bringFromTemp(src, cur) // pull an agent out of the Agent Domain
+		} else if it, inTree := m.tree.byUUID[target.UUID]; inTree {
+			m.bringWithin(it, cur) // already in the open subtree
+		} else if err := m.bringFromDB(target, cur); err != nil {
+			m.err = err
+			return m.quit()
+		}
 	}
 
 	m.refreshRows()
@@ -2357,6 +2393,116 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 		cur.parent.children = append(cur.parent.children[:idx], cur.parent.children[idx+1:]...)
 	}
 	m.refreshRows()
+	return nil
+}
+
+// placeBrought splices an already-detached subtree in as a sibling right after cur,
+// registers it (and its descendants) in the current tree's index, and moves the
+// cursor onto it. Used by /bring once the source has been unhooked from its origin.
+func (m *Model) placeBrought(it, cur *item) {
+	parent := cur.parent
+	it.parent = parent
+	idx := indexOf(cur)
+	parent.children = append(parent.children, nil)
+	copy(parent.children[idx+2:], parent.children[idx+1:])
+	parent.children[idx+1] = it
+
+	var reg func(x *item)
+	reg = func(x *item) {
+		m.tree.byUUID[x.uuid] = x
+		for _, c := range x.children {
+			reg(c)
+		}
+	}
+	reg(it)
+
+	m.unsaved = true
+	m.refreshRows()
+	m.cursor = m.rowIndexOf(it)
+	m.flash = "brought here"
+}
+
+// bringFromTemp migrates an agent (and its subtree) out of the ephemeral Agent
+// Domain into the main tree at the cursor. Any live process keeps running — the run
+// machinery is keyed by uuid, not by which tree owns the node. The Agent Domain
+// keeps its compose line afterward.
+func (m *Model) bringFromTemp(src, cur *item) {
+	if idx := indexOf(src); idx >= 0 {
+		src.parent.children = append(src.parent.children[:idx], src.parent.children[idx+1:]...)
+	}
+	var migrate func(x *item)
+	migrate = func(x *item) {
+		delete(m.tempTree.byUUID, x.uuid)
+		if s, ok := m.tempTree.snapshots[x.uuid]; ok {
+			delete(m.tempTree.snapshots, x.uuid)
+			m.tree.snapshots[x.uuid] = s
+		}
+		for _, c := range x.children {
+			migrate(c)
+		}
+	}
+	migrate(src)
+	m.ensureComposeLine()
+	m.placeBrought(src, cur)
+}
+
+// bringWithin relocates a node already loaded in the open subtree to sit right after
+// cur. Bringing a node into its own subtree is a no-op.
+func (m *Model) bringWithin(it, cur *item) {
+	for p := cur; p != nil; p = p.parent {
+		if p == it {
+			m.flash = "can't bring a node into itself"
+			return
+		}
+	}
+	if idx := indexOf(it); idx >= 0 {
+		it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
+	}
+	parent := cur.parent
+	it.parent = parent
+	idx := indexOf(cur)
+	parent.children = append(parent.children, nil)
+	copy(parent.children[idx+2:], parent.children[idx+1:])
+	parent.children[idx+1] = it
+	m.unsaved = true
+	m.refreshRows()
+	m.cursor = m.rowIndexOf(it)
+	m.flash = "brought here"
+}
+
+// bringFromDB moves a node that lives elsewhere in the database under the cursor's
+// parent, then reloads the open view so the brought subtree appears. Like moveToDB
+// but in the opposite direction (target → here rather than here → target).
+func (m *Model) bringFromDB(target database.Node, cur *item) error {
+	if _, err := m.saveAll(); err != nil {
+		return err
+	}
+	m.unsaved = false
+
+	parentUUID := cur.parent.uuid
+	rank, err := database.NextRank(m.db, parentUUID)
+	if err != nil {
+		return err
+	}
+	if _, err := m.db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ?, dirty = 1 WHERE uuid = ?",
+		parentUUID, rank, target.UUID); err != nil {
+		return errors.Wrap(err, "bringing node")
+	}
+
+	root := m.viewRoot()
+	t, err := loadTree(m.db, root.uuid)
+	if err != nil {
+		return err
+	}
+	m.tree = t
+	m.viewStack = []*item{t.root}
+	m.refreshAncestors()
+	m.refreshRows()
+	if it, ok := t.byUUID[target.UUID]; ok {
+		m.cursor = m.rowIndexOf(it)
+	}
+	m.clampCursor()
+	m.flash = "brought here"
 	return nil
 }
 
@@ -2906,12 +3052,14 @@ func (m *Model) viewFinder(maxLine int) []string {
 		actMoveTo:     "/move",
 		actGoto:       "/goto",
 		actLinkTo:     "/link",
+		actBringHere:  "/bring",
 	}
 	hints := map[finderAction]string{
 		actMirrorHere: "Enter mirror at cursor",
 		actMoveTo:     "Enter move this node there",
 		actGoto:       "Enter open node",
 		actLinkTo:     "Enter link to this node",
+		actBringHere:  "Enter bring this node here",
 	}
 
 	query := cDim + " " + labels[m.finderAct] + " " + cFG + withCaret(m.finderQuery, len([]rune(m.finderQuery))) + cReset
