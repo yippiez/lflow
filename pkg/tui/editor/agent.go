@@ -129,8 +129,10 @@ func (v agentView) steerKey(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, true // handled → central esc won't defocus the whole view
 	case "alt+s", "alt+S", "ctrl+s":
 		msg := strings.TrimSpace(buf)
-		v.setSteerBuf(m, it, "", 0)
-		v.setSub(m, it, subObserve)
+		// after sending, leave the agent view entirely → back to the outline (not
+		// the detail/observe view)
+		v.Leave(m, it)
+		m.focused = false
 		m.focusScroll = 0
 		if msg == "" {
 			return nil, true
@@ -311,26 +313,49 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 }
 
 // steerContent builds the outline composer as nodes (a "Steer" node + one ○ per
-// line) and returns the content-line index of the caret (for scroll-follow).
+// line, long lines WRAPPED) and returns the content-line index of the caret (for
+// scroll-follow).
 func (v agentView) steerContent(m *Model, it *item, rail string, width int, focused bool) ([]string, int) {
 	buf, caret := v.steerBuf(m, it)
 	var c []string
 	c = append(c, clip(agentNode(rail, 0, cFG+"Steer"+cReset), width))
 	caretLine, caretCol := jsonCaretLC(buf, caret)
+	caretContentLine := 0
+	railW := visibleWidth(rail)
 	for i, raw := range strings.Split(buf, "\n") {
 		trimmed := strings.TrimLeft(raw, " ")
-		depth := 1 + (len([]rune(raw))-len([]rune(trimmed)))/2
+		lead := len([]rune(raw)) - len([]rune(trimmed))
+		depth := 1 + lead/2
+		indent := strings.Repeat("  ", depth)
+		textW := width - railW - len([]rune(indent)) - 2 // room after rail+indent+"○ "
+		if textW < 8 {
+			textW = 8
+		}
+		runes := []rune(trimmed)
+		lineCaret := -1
 		if focused && i == caretLine {
-			col := caretCol - (len([]rune(raw)) - len([]rune(trimmed)))
-			if col < 0 {
-				col = 0
+			if lineCaret = caretCol - lead; lineCaret < 0 {
+				lineCaret = 0
 			}
-			c = append(c, clip(agentNode(rail, depth, cFG+withCaret(trimmed, col)+cReset), width))
-		} else {
-			c = append(c, clip(agentNode(rail, depth, cFG+trimmed+cReset), width))
+		}
+		segs := wrapNoteSegs(runes, textW)
+		placed := false
+		for si, sg := range segs {
+			seg := string(runes[sg.start:sg.end])
+			prefix := indent + "  " // continuation aligns under the first line's text
+			if si == 0 {
+				prefix = indent + cDim + "○ " + cReset
+			}
+			body := cFG + seg + cReset
+			if lineCaret >= 0 && !placed && lineCaret >= sg.start && (lineCaret < sg.end || si == len(segs)-1) {
+				caretContentLine = len(c)
+				body = cFG + withCaret(seg, lineCaret-sg.start) + cReset
+				placed = true
+			}
+			c = append(c, clip(rail+cReset+prefix+body, width))
 		}
 	}
-	return c, caretLine + 1 // +1 for the "Steer" node
+	return c, caretContentLine
 }
 
 // liveSteer returns the steering channel for a worker whose pi process is still
