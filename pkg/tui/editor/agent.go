@@ -47,65 +47,10 @@ func redRule(rail string, width int) string {
 	return rail + cReset + cRed + strings.Repeat("─", n) + cReset
 }
 
-// agentInlineText turns worker/content text into a single safe outline-row
-// string. Newlines and tabs become spaces (so raw line breaks never leak into a
-// terminal row); other control bytes are stripped as render-boundary defense.
-func agentInlineText(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-	s = strings.Map(func(r rune) rune {
-		switch r {
-		case '\n', '\t':
-			return ' '
-		case 0x7F:
-			return -1
-		}
-		if r < 0x20 {
-			return -1
-		}
-		return r
-	}, s)
-	return strings.TrimSpace(s)
-}
-
-// agentBlockText keeps intentional newlines for note-like blocks while still
-// neutralising tabs and terminal control bytes.
-func agentBlockText(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-	s = strings.Map(func(r rune) rune {
-		switch r {
-		case '\n':
-			return r
-		case '\t':
-			return ' '
-		case 0x7F:
-			return -1
-		}
-		if r < 0x20 {
-			return -1
-		}
-		return r
-	}, s)
-	return strings.TrimSpace(s)
-}
-
-// agentNodeLines renders one outline row inside the expanded view and soft-wraps
-// it with a hanging indent under the node text. Wrapped lines are continuations
-// of the same node, not new bullet rows, so long Final answers stay readable.
-func agentNodeLines(rail string, depth int, styled string, width int) []string {
-	indent := strings.Repeat("  ", depth)
-	first := rail + cReset + indent + cDim + "○ " + cReset + styled
-	cont := rail + cReset + indent + "  "
-	return wrapLine(first, width, cont)
-}
-
-// agentSubLines renders a bullet-less child/detail row (used for notes) with the
-// same hanging-wrap behavior as agentNodeLines.
-func agentSubLines(rail string, depth int, styled string, width int) []string {
-	indent := strings.Repeat("  ", depth+1) + "  "
-	first := rail + cReset + indent + styled
-	return wrapLine(first, width, rail+cReset+indent)
+// agentNode renders one outline row inside the expanded view: rail + indent + ○ +
+// pre-styled text. The whole view is made of these so it reads like an outline.
+func agentNode(rail string, depth int, styled string) string {
+	return rail + cReset + strings.Repeat("  ", depth) + cDim + "○ " + cReset + styled
 }
 
 type agentInputLine struct {
@@ -338,15 +283,20 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 	status := statusWord(m.workerStatus[it.uuid], running)
 
 	var c []string
-	node := func(depth int, styled string) { c = append(c, agentNodeLines(rail, depth, styled, width)...) }
-	sub := func(depth int, styled string) { c = append(c, agentSubLines(rail, depth, styled, width)...) }
+	node := func(depth int, styled string) { c = append(c, clip(agentNode(rail, depth, styled), width)) }
+	sub := func(depth int, styled string) {
+		c = append(c, clip(rail+cReset+strings.Repeat("  ", depth+1)+"  "+styled, width))
+	}
 
 	// Agent → query as an outline. Worker prompts often originate from copied
 	// pchain outline markdown ("- parent\n  - child"); strip only the structural
 	// bullet marker so the preview reads as "○ child", not "○ - child".
 	node(0, cFG+"Agent"+cReset)
 	for _, ln := range agentInputOutlineLines(name) {
-		node(ln.depth, cFG+agentInlineText(ln.text)+cReset)
+		textW := width - visibleWidth(rail) - ln.depth*2 - 4
+		for _, w := range wrapPlain(ln.text, textW) {
+			node(ln.depth, cFG+w+cReset)
+		}
 	}
 	// Status → one compact line: status, usage, elapsed, then model
 	node(0, cFG+"Status"+cReset)
@@ -367,13 +317,13 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 	for _, a := range calls {
 		t := toolColor(a.tool) + toolLabel(a.tool) + cReset
 		if a.text != "" {
-			t += cDim + " " + agentInlineText(a.text) + cReset
+			t += cDim + " " + a.text + cReset
 		}
 		node(1, t)
 	}
 	if running {
 		if a, ok := m.workerAction[it.uuid]; ok && a.tool != "" {
-			node(1, toolColor(a.tool)+toolLabel(a.tool)+cReset+cDim+" "+agentInlineText(a.text)+"…"+cReset)
+			node(1, toolColor(a.tool)+toolLabel(a.tool)+cReset+cDim+" "+a.text+"…"+cReset)
 		}
 	} else if len(calls) == 0 {
 		node(1, cDim+"none"+cReset)
@@ -384,12 +334,12 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 		var walk func(ns []deliverNode, depth int)
 		walk = func(ns []deliverNode, depth int) {
 			for _, n := range ns {
-				txt := agentInlineText(n.Text)
+				txt := strings.TrimSpace(n.Text)
 				if txt == "" && len(n.Children) == 0 {
 					continue
 				}
-				node(depth, renderBody(&item{typ: deliverType(n.Type)}, txt, -1, false))
-				if note := agentBlockText(n.Note); note != "" {
+				node(depth, cFG+typeOf(deliverType(n.Type)).sign+txt+cReset)
+				if note := strings.TrimSpace(n.Note); note != "" {
 					for _, w := range wrapPlain(note, width-(depth+1)*2-6) {
 						sub(depth, cDim+w+cReset)
 					}
@@ -412,7 +362,7 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 func (v agentView) steerContent(m *Model, it *item, rail string, width int, focused bool) ([]string, int) {
 	buf, caret := v.steerBuf(m, it)
 	var c []string
-	c = append(c, agentNodeLines(rail, 0, cFG+"Steer"+cReset, width)...)
+	c = append(c, clip(agentNode(rail, 0, cFG+"Steer"+cReset), width))
 	caretLine, caretCol := jsonCaretLC(buf, caret)
 	caretContentLine := 0
 	railW := visibleWidth(rail)
