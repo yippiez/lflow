@@ -32,20 +32,20 @@ wait_for "⬡ c1ccccc1"
 # --- alt+e opens the inline 2D viewer ---
 send M-e
 
-# the viewer header reports the detected format, computed formula and atom count
+# the framed info bar reports format, formula, weight, atom and bond counts
 wait_for "molecule · SMILES"
 assert_contains "C6H6"
 assert_contains "6 atoms"
-assert_contains "depth shaded"
+assert_contains "6 bonds"
+assert_contains "MW"
 
-# atoms render as circles (nodes); the legend describes the node-link drawing
+# atoms render as circles (nodes) inside the full-width framed panel
 assert_contains "○"
-assert_contains "bonds"
 
 # esc collapses the viewer back to the plain node (json/agent close pattern)
 send Escape
 wait_for "⬡ c1ccccc1"
-assert_not_contains "depth shaded"
+assert_not_contains "atoms"
 
 assert_no_crash
 pass
