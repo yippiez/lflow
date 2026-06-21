@@ -522,8 +522,8 @@ type vec3 struct{ x, y, z float64 }
 // layoutMolecule places atoms with a deterministic 3D Fruchterman-Reingold
 // spring layout. A mild flattening force pulls atoms toward the z=0 plane, so
 // small molecules stay essentially planar while large, crowded ones bulge into
-// the third dimension — which the viewer renders as a darker background (depth),
-// giving the "circuit board" look the deeper the trace runs.
+// the third dimension — which the viewer renders as dimmer glyphs (depth), the
+// deeper the atom or trace sits.
 func layoutMolecule(g *molGraph) []vec3 {
 	n := len(g.atoms)
 	pos := make([]vec3, n)
@@ -614,106 +614,96 @@ func layoutMolecule(g *molGraph) []vec3 {
 	return pos
 }
 
-// ── depth-shaded canvas ─────────────────────────────────────────────────────
+// ── glyph-only depth-shaded canvas ──────────────────────────────────────────
 
-// molDepthBG is the per-depth background palette (darkest → nearest), a dark
-// teal gradient evoking a circuit board; the deepest level fills the board.
-var molDepthBG = []string{
-	"\x1b[48;2;12;17;23m",
-	"\x1b[48;2;15;27;31m",
-	"\x1b[48;2;19;38;42m",
-	"\x1b[48;2;25;51;55m",
-	"\x1b[48;2;33;67;71m",
-}
-
-const (
-	colSingle = "\x1b[38;2;96;156;146m" // teal trace
-	colDouble = "\x1b[38;2;220;220;170m"
-	colTriple = "\x1b[38;2;244;71;71m"
-	colArom   = "\x1b[38;2;78;201;176m"
-)
-
-func atomColor(sym string) string {
+// atomRGB / bondRGB are the base (nearest) colours; depth dims them toward the
+// background so deeper atoms/bonds read as further away — the depth cue lives on
+// the glyph foreground, never on a cell background.
+func atomRGB(sym string) [3]int {
 	switch sym {
 	case "C":
-		return cFG
+		return [3]int{212, 212, 212}
 	case "O":
-		return styleColorCode["red"]
+		return [3]int{244, 71, 71}
 	case "N":
-		return styleColorCode["blue"]
+		return [3]int{86, 156, 214}
 	case "S":
-		return styleColorCode["yellow"]
+		return [3]int{220, 220, 170}
 	case "P":
-		return styleColorCode["orange"]
+		return [3]int{206, 145, 120}
 	case "F", "Cl", "Br", "I":
-		return styleColorCode["green"]
+		return [3]int{106, 153, 85}
 	case "H":
-		return cDim
+		return [3]int{122, 122, 122}
 	default:
-		return styleColorCode["purple"]
+		return [3]int{197, 134, 192}
 	}
 }
 
-func bondColor(b molBond) string {
+func bondRGB(b molBond) [3]int {
 	switch {
 	case b.arom:
-		return colArom
+		return [3]int{78, 201, 176} // cyan
 	case b.order >= 3:
-		return colTriple
+		return [3]int{244, 71, 71} // red
 	case b.order == 2:
-		return colDouble
+		return [3]int{220, 220, 170} // yellow
 	default:
-		return colSingle
+		return [3]int{96, 156, 146} // teal
 	}
+}
+
+// depthFg maps a base colour and a depth in [0,1] (1 = nearest) to an SGR
+// foreground escape, dimming deeper glyphs toward the dark board colour.
+func depthFg(rgb [3]int, t float64) string {
+	if t < 0 {
+		t = 0
+	}
+	if t > 1 {
+		t = 1
+	}
+	f := 0.32 + 0.68*t
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", int(float64(rgb[0])*f), int(float64(rgb[1])*f), int(float64(rgb[2])*f))
 }
 
 type molCanvas struct {
 	w, h int
 	ch   []rune
-	fg   []string
-	bg   []int // depth level index into molDepthBG
+	fg   []string // pre-shaded SGR foreground per cell; "" = empty
 }
 
 func newMolCanvas(w, h int) *molCanvas {
-	c := &molCanvas{w: w, h: h, ch: make([]rune, w*h), fg: make([]string, w*h), bg: make([]int, w*h)}
+	c := &molCanvas{w: w, h: h, ch: make([]rune, w*h), fg: make([]string, w*h)}
 	for i := range c.ch {
 		c.ch[i] = ' '
 	}
 	return c
 }
 
-func (c *molCanvas) set(col, row int, ch rune, fg string, depth int) {
+func (c *molCanvas) set(col, row int, ch rune, fg string) {
 	if col < 0 || col >= c.w || row < 0 || row >= c.h {
 		return
 	}
 	i := row*c.w + col
 	c.ch[i] = ch
 	c.fg[i] = fg
-	c.bg[i] = depth
 }
 
-// lines serializes the canvas into colored strings with run-length-grouped SGR.
+// lines serializes the canvas to colored strings, resetting between runs so a
+// bold atom never bleeds its attributes into the following bond.
 func (c *molCanvas) lines() []string {
 	out := make([]string, 0, c.h)
 	for row := 0; row < c.h; row++ {
 		var b strings.Builder
-		curFg, curBg := "", -1
+		cur := "\x00" // sentinel so the first cell always emits
 		for col := 0; col < c.w; col++ {
 			i := row*c.w + col
-			bg := molDepthBG[c.bg[i]]
-			fg := c.fg[i]
-			if c.bg[i] != curBg {
-				b.WriteString(bg)
-				curBg = c.bg[i]
-				curFg = "" // bg reset may drop fg; force re-emit
-			}
-			if fg != curFg {
-				if fg == "" {
-					b.WriteString(cFG)
-				} else {
-					b.WriteString(fg)
+			if c.fg[i] != cur {
+				b.WriteString(cReset)
+				if c.fg[i] != "" {
+					b.WriteString(c.fg[i])
 				}
-				curFg = fg
+				cur = c.fg[i]
 			}
 			b.WriteRune(c.ch[i])
 		}
@@ -739,26 +729,9 @@ func bondGlyph(dcol, drow int) rune {
 	}
 }
 
-func depthLevel(t float64) int {
-	if t < 0 {
-		t = 0
-	}
-	if t > 1 {
-		t = 1
-	}
-	l := int(math.Round(t * float64(len(molDepthBG)-1)))
-	if l < 0 {
-		l = 0
-	}
-	if l >= len(molDepthBG) {
-		l = len(molDepthBG) - 1
-	}
-	return l
-}
-
-// drawLine rasterizes a depth-shaded segment (Bresenham), interpolating the
-// depth level between endpoints so a trace darkens as it runs into the board.
-func (c *molCanvas) drawLine(c0, r0, c1, r1 int, ch rune, fg string, d0, d1 int) {
+// drawLine rasterizes a segment (Bresenham), interpolating the depth t between
+// endpoints so a trace dims as it runs away from the viewer.
+func (c *molCanvas) drawLine(c0, r0, c1, r1 int, ch rune, rgb [3]int, t0, t1 float64) {
 	dc := abs(c1 - c0)
 	dr := -abs(r1 - r0)
 	sc, sr := sign(c1-c0), sign(r1-r0)
@@ -772,9 +745,8 @@ func (c *molCanvas) drawLine(c0, r0, c1, r1 int, ch rune, fg string, d0, d1 int)
 	}
 	x, y, n := c0, r0, 0
 	for {
-		t := float64(n) / float64(steps)
-		depth := int(math.Round(float64(d0)*(1-t) + float64(d1)*t))
-		c.set(x, y, ch, fg, depth)
+		p := float64(n) / float64(steps)
+		c.set(x, y, ch, depthFg(rgb, t0*(1-p)+t1*p))
 		if x == c1 && y == r1 {
 			break
 		}
@@ -811,9 +783,9 @@ func sign(a int) int {
 	return 0
 }
 
-// renderMolecule lays out and rasterizes the molecule into depth-shaded canvas
-// lines that fit within availW columns.
-func renderMolecule(g *molGraph, availW int) []string {
+// renderMolecule lays out and rasterizes the molecule into glyph-colored canvas
+// lines, depth-shaded and centered within innerW columns.
+func renderMolecule(g *molGraph, innerW int) []string {
 	pos := layoutMolecule(g)
 	n := len(pos)
 	if n == 0 {
@@ -832,12 +804,12 @@ func renderMolecule(g *molGraph, availW int) []string {
 	spanY := math.Max(maxY-minY, 1e-6)
 	spanZ := maxZ - minZ
 
-	cw := availW - 4
+	cw := innerW - 2
 	if cw < 20 {
 		cw = 20
 	}
-	if cw > 76 {
-		cw = 76
+	if cw > 110 {
+		cw = 110
 	}
 	const maxH = 22
 	// terminal cells are ~twice as tall as wide → 2 columns per x-unit, 1 row per y-unit.
@@ -861,34 +833,32 @@ func renderMolecule(g *molGraph, availW int) []string {
 
 	cols := make([]int, n)
 	rows := make([]int, n)
-	depths := make([]int, n)
+	depthT := make([]float64, n)
 	for i, p := range pos {
 		cols[i] = int((p.x-minX)*2*s) + 1
 		rows[i] = int((p.y-minY)*s) + 1
-		t := 0.0
+		t := 1.0 // flat molecule → uniformly near (no fake depth)
 		if spanZ > 1e-6 {
-			t = (p.z - minZ) / spanZ // 0 = far (dark), 1 = near (bright)
+			t = (p.z - minZ) / spanZ // 0 = far (dim), 1 = near (bright)
 		}
-		depths[i] = depthLevel(t)
+		depthT[i] = t
 	}
 
 	cv := newMolCanvas(w, h)
 
 	// bonds first, far → near, so nearer traces overlay deeper ones.
-	border := append([]molBond(nil), g.bonds...)
-	sort.SliceStable(border, func(i, j int) bool {
-		zi := (depths[border[i].a] + depths[border[i].b])
-		zj := (depths[border[j].a] + depths[border[j].b])
-		return zi < zj
+	bonds := append([]molBond(nil), g.bonds...)
+	sort.SliceStable(bonds, func(i, j int) bool {
+		return depthT[bonds[i].a]+depthT[bonds[i].b] < depthT[bonds[j].a]+depthT[bonds[j].b]
 	})
-	for _, b := range border {
+	for _, b := range bonds {
 		if b.a == b.b {
 			continue
 		}
-		ca, ra, da := cols[b.a], rows[b.a], depths[b.a]
-		cb, rb, db := cols[b.b], rows[b.b], depths[b.b]
+		ca, ra, ta := cols[b.a], rows[b.a], depthT[b.a]
+		cb, rb, tb := cols[b.b], rows[b.b], depthT[b.b]
 		glyph := bondGlyph(cb-ca, rb-ra)
-		fg := bondColor(b)
+		rgb := bondRGB(b)
 		// parallel offsets render bond multiplicity legibly in plain text too.
 		var offs []int
 		switch {
@@ -904,7 +874,7 @@ func renderMolecule(g *molGraph, availW int) []string {
 			ox, oy = 1, 0 // verticalish → stack cols
 		}
 		for _, o := range offs {
-			cv.drawLine(ca+ox*o, ra+oy*o, cb+ox*o, rb+oy*o, glyph, fg, da, db)
+			cv.drawLine(ca+ox*o, ra+oy*o, cb+ox*o, rb+oy*o, glyph, rgb, ta, tb)
 		}
 	}
 
@@ -913,64 +883,107 @@ func renderMolecule(g *molGraph, availW int) []string {
 	for i := range order {
 		order[i] = i
 	}
-	sort.SliceStable(order, func(i, j int) bool { return depths[order[i]] < depths[order[j]] })
+	sort.SliceStable(order, func(i, j int) bool { return depthT[order[i]] < depthT[order[j]] })
 	for _, i := range order {
 		a := g.atoms[i]
-		fg := cBold + atomColor(a.sym)
+		fg := cBold + depthFg(atomRGB(a.sym), depthT[i])
 		if a.sym == "C" {
-			cv.set(cols[i], rows[i], '○', fg, depths[i])
+			cv.set(cols[i], rows[i], '○', fg)
 			continue
 		}
 		runes := []rune(a.sym)
-		cv.set(cols[i], rows[i], runes[0], fg, depths[i])
+		cv.set(cols[i], rows[i], runes[0], fg)
 		if len(runes) > 1 {
-			cv.set(cols[i]+1, rows[i], runes[1], fg, depths[i])
+			cv.set(cols[i]+1, rows[i], runes[1], fg)
 		}
 	}
-	return cv.lines()
+
+	// center the drawing within the full-width frame.
+	lines := cv.lines()
+	if pad := (innerW - w) / 2; pad > 0 {
+		prefix := strings.Repeat(" ", pad)
+		for i := range lines {
+			lines[i] = prefix + lines[i]
+		}
+	}
+	return lines
 }
 
 // ── inline 2D viewer (alt+e) ────────────────────────────────────────────────
 
 func moleculeGlyph(it *item) (string, string) { return "⬡", cAccent }
 
-// moleculeView is the molecule node's inline expanded view: a depth-shaded 2D
-// node-link drawing rendered as bands beneath the node (never a separate
-// screen). It is read-only — the molecule comes from the node text — so Key only
-// scrolls and Leave just clears the render cache.
-type moleculeView struct{}
-
-func (moleculeView) content(m *Model, it *item, width int) []string {
-	d := m.nodeStore(it.uuid)
-	key := fmt.Sprintf("%d|%s", width, it.name)
-	if d["molKey"] == key {
-		if lines, ok := d["molLines"].([]string); ok {
-			return lines
-		}
-	}
-	lines := moleculeContent(it.name, width)
-	d["molKey"] = key
-	d["molLines"] = lines
-	return lines
+// atomicWeight is the standard atomic weight for the common organic-subset
+// elements, used for the best-effort MW readout in the info bar.
+var atomicWeight = map[string]float64{
+	"H": 1.008, "B": 10.81, "C": 12.011, "N": 14.007, "O": 15.999,
+	"F": 18.998, "P": 30.974, "S": 32.06, "Cl": 35.45, "Br": 79.904, "I": 126.90,
 }
 
-// moleculeContent builds the full (unwindowed) band content for a notation
-// string: a header, the depth-shaded canvas, and a legend.
-func moleculeContent(name string, width int) []string {
-	g, err := parseMolecule(name)
-	if err != nil {
-		return []string{
-			cDim + "  molecule · esc close" + cReset,
-			cRed + "  cannot parse: " + err.Error() + cReset,
+// weight estimates the molecular weight (heavy atoms + implicit H from formula).
+func (g *molGraph) weight() float64 {
+	mw := 0.0
+	for _, a := range g.atoms {
+		mw += atomicWeight[a.sym]
+	}
+	// add implicit hydrogens parsed back out of the Hill formula.
+	if f := g.formula(); strings.Contains(f, "H") {
+		mw += float64(hydrogenCount(f)) * atomicWeight["H"]
+	}
+	return mw
+}
+
+// hydrogenCount reads the H multiplicity out of a Hill formula like "C2H6O".
+func hydrogenCount(formula string) int {
+	r := []rune(formula)
+	for i := 0; i < len(r); i++ {
+		if r[i] == 'H' {
+			j := i + 1
+			num := 0
+			for j < len(r) && r[j] >= '0' && r[j] <= '9' {
+				num = num*10 + int(r[j]-'0')
+				j++
+			}
+			if j == i+1 {
+				return 1 // bare "H" means one
+			}
+			return num
 		}
 	}
-	header := fmt.Sprintf("  molecule · %s · %s · %d atoms · depth shaded · ↑↓ scroll · esc",
-		g.format, g.formula(), len(g.atoms))
-	out := []string{cDim + clip(header, width-1) + cReset}
-	out = append(out, renderMolecule(g, width)...)
-	legend := "  ○ C · letters heteroatoms · ─│╱╲ bonds (teal·single yellow·double red·triple cyan·aromatic) · darker = deeper"
-	out = append(out, cDim+clip(legend, width-1)+cReset)
-	return out
+	return 0
+}
+
+// moleculeView is the molecule node's inline expanded view: a full-width framed
+// panel — muted-gray top/bottom borders and a divider, an info bar, and a
+// glyph-colored depth-shaded 2D node-link drawing — rendered as bands beneath
+// the node (never a separate screen). Read-only; state is cached ephemerally.
+type moleculeView struct{}
+
+// state returns the info-bar text and the (uncached → cached) canvas lines for
+// the given interior width, recomputing only when the text or width changes.
+func (moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
+	d := m.nodeStore(it.uuid)
+	key := fmt.Sprintf("%d|%s", innerW, it.name)
+	if d["molKey"] == key {
+		info, _ := d["molInfo"].(string)
+		lines, _ := d["molLines"].([]string)
+		return info, lines
+	}
+	var info string
+	var lines []string
+	g, err := parseMolecule(it.name)
+	if err != nil {
+		info = "molecule · cannot parse · esc close"
+		lines = []string{cRed + "  " + err.Error() + cReset}
+	} else {
+		info = fmt.Sprintf("molecule · %s · %s · MW %.2f · %d atoms · %d bonds · ↑↓ scroll · esc",
+			g.format, g.formula(), g.weight(), len(g.atoms), len(g.bonds))
+		lines = renderMolecule(g, innerW)
+	}
+	d["molKey"] = key
+	d["molInfo"] = info
+	d["molLines"] = lines
+	return info, lines
 }
 
 func (v moleculeView) Enter(m *Model, it *item) bool {
@@ -980,11 +993,17 @@ func (v moleculeView) Enter(m *Model, it *item) bool {
 func (v moleculeView) Leave(m *Model, it *item) {
 	d := m.nodeStore(it.uuid)
 	delete(d, "molKey")
+	delete(d, "molInfo")
 	delete(d, "molLines")
+	delete(d, "molTotal")
 }
 
 func (v moleculeView) Lines(m *Model, it *item, width int) int {
-	return len(v.content(m, it, width))
+	if t, ok := m.nodeStore(it.uuid)["molTotal"].(int); ok {
+		return t
+	}
+	_, lines := v.state(m, it, width-2)
+	return molChrome + len(lines)
 }
 
 func (v moleculeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
@@ -1001,21 +1020,51 @@ func (v moleculeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false // esc / ctrl+c handled centrally
 }
 
+// molChrome is the fixed band count around the scrollable canvas: top border,
+// info bar, divider, bottom border.
+const molChrome = 4
+
+// grayRule is a full-width muted-gray horizontal line (border / divider).
+func grayRule(rail string, width int) string {
+	n := width - visibleWidth(rail)
+	if n < 1 {
+		n = 1
+	}
+	return rail + cReset + cDim + strings.Repeat("─", n) + cReset
+}
+
 func (v moleculeView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
-	content := v.content(m, it, width)
+	innerW := width - visibleWidth(rail)
+	if innerW < 10 {
+		innerW = width
+	}
+	info, canvas := v.state(m, it, innerW)
+	m.nodeStore(it.uuid)["molTotal"] = molChrome + len(canvas)
+
+	inner := winH - molChrome
+	if inner < 1 {
+		inner = 1
+	}
+	if scroll > len(canvas)-inner {
+		scroll = len(canvas) - inner
+	}
 	if scroll < 0 {
 		scroll = 0
 	}
-	if scroll > len(content) {
-		scroll = len(content)
+	if focused {
+		m.focusScroll = scroll
 	}
-	end := scroll + winH
-	if end > len(content) {
-		end = len(content)
+	end := scroll + inner
+	if end > len(canvas) {
+		end = len(canvas)
 	}
-	out := make([]string, 0, end-scroll)
-	for _, line := range content[scroll:end] {
+
+	out := []string{grayRule(rail, width)}                           // top border
+	out = append(out, clip(rail+cReset+cDim+" "+info+cReset, width)) // info bar
+	out = append(out, grayRule(rail, width))                         // divider through
+	for _, line := range canvas[scroll:end] {
 		out = append(out, clip(rail+cReset+line, width))
 	}
+	out = append(out, grayRule(rail, width)) // bottom border
 	return out
 }
