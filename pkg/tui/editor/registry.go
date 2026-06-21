@@ -101,6 +101,11 @@ var nodeTypes = []nodeType{
 		run:     runVoice,
 		expand:  playVoice,
 	},
+	{
+		key: database.TypeMol, label: "Molecule", inlineEditable: true,
+		glyph: moleculeGlyph,
+		view:  moleculeView{}, // alt+e: inline 2D node-link viewer (atoms ○ / bonds ─│╱╲)
+	},
 }
 
 var byType = func() map[string]nodeType {
