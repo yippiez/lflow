@@ -217,6 +217,11 @@ var nodeTypes = []nodeType{
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
+	{
+		key: database.TypeMol, label: "Molecule", inlineEditable: true,
+		glyph: moleculeGlyph,
+		view:  moleculeView{}, // alt+e: inline 2D node-link viewer (atoms ○ / bonds ─│╱╲)
+	},
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see
 	// nodeplugin.go.

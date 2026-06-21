@@ -32,6 +32,7 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
+	TypeMol        = "molecule" // SMILES/SELFIES notation; alt+e opens the 2D viewer
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -63,6 +64,7 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
+	TypeMol,
 	TypeAgent,
 	TypeWF,
 }
