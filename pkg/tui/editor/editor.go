@@ -889,7 +889,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		mc := m.mirrorContext()
-		if m.tree.move(cur, -1) {
+		if m.tree.move(cur, -1, m.viewRoot()) {
 			m.unsaved = true
 			m.refreshRows()
 			m.cursor = m.findRow(cur, mc.ctx)
@@ -898,7 +898,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+shift+down", "ctrl+shift+down", "ctrl+alt+down":
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
-			if m.tree.move(cur, 1) {
+			if m.tree.move(cur, 1, m.viewRoot()) {
 				m.unsaved = true
 				m.refreshRows()
 				m.cursor = m.findRow(cur, mc.ctx)

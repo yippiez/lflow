@@ -469,18 +469,44 @@ func (t *tree) outdent(it *item, viewRoot *item) bool {
 	return true
 }
 
-// move shifts the item up or down among its siblings.
-func (t *tree) move(it *item, delta int) bool {
+// move shifts the item among its siblings. At the top/bottom edge of the
+// sibling list it instead crosses into the neighbouring subtree: moving down
+// drops the item in as the first child of its parent's next sibling, moving up
+// appends it as the last child of its parent's previous sibling. viewRoot bounds
+// the crossing so a zoomed-in view never spills items out of itself.
+func (t *tree) move(it *item, delta int, viewRoot *item) bool {
 	idx := indexOf(it)
 	if idx < 0 {
 		return false
 	}
-	target := idx + delta
-	if target < 0 || target >= len(it.parent.children) {
+	sibs := it.parent.children
+	if target := idx + delta; target >= 0 && target < len(sibs) {
+		sibs[idx], sibs[target] = sibs[target], sibs[idx]
+		return true
+	}
+	// at the edge — slip into the adjacent sibling of the parent
+	parent := it.parent
+	if parent == viewRoot || parent.parent == nil {
 		return false
 	}
-	sibs := it.parent.children
-	sibs[idx], sibs[target] = sibs[target], sibs[idx]
+	nIdx := indexOf(parent) + delta
+	uncles := parent.parent.children
+	if nIdx < 0 || nIdx >= len(uncles) {
+		return false
+	}
+	// resolve, like indent, so a mirror target attaches the child to the source
+	dest := t.resolve(uncles[nIdx])
+	parent.children = append(parent.children[:idx], parent.children[idx+1:]...)
+	it.parent = dest
+	if delta > 0 {
+		dest.children = append([]*item{it}, dest.children...)
+	} else {
+		dest.children = append(dest.children, it)
+	}
+	dest.collapsed = false
+	if t.db != nil {
+		_ = database.SetCollapsed(t.db, dest.uuid, false) // persist the auto-expand
+	}
 	return true
 }
 
