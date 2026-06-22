@@ -169,6 +169,7 @@ func (m *Model) runAgentAction(it *item) tea.Cmd {
 	}
 	if s := m.liveSteer(it.uuid); s != nil {
 		_ = s.Steer(ultraloopStrip(it.name)) // re-prompt the same query, same conversation
+		m.appendXcript(it.uuid, "you", ultraloopStrip(it.name))
 		if m.workerStatus != nil {
 			m.workerStatus[it.uuid] = "running"
 		}
@@ -233,7 +234,8 @@ func runWorker(m *Model, it *item) tea.Cmd {
 	if m.workerSessLoaded == nil {
 		m.workerSessLoaded = map[string]bool{}
 	}
-	m.workerSessLoaded[it.uuid] = true // memory authoritative; render won't reload over it
+	m.workerSessLoaded[it.uuid] = true                      // memory authoritative; render won't reload over it
+	m.appendXcript(it.uuid, "you", ultraloopStrip(it.name)) // record this user turn
 	// persist first so the context (mirror sources + this worker's subtree) is in
 	// the DB for buildWorkerTask to read
 	if _, err := m.saveAll(); err == nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/lflow/lflow/pkg/agent"
@@ -37,6 +38,63 @@ type workerActivityDisk struct {
 	Text string `json:"text,omitempty"`
 }
 
+// xline is one line of a worker's conversation transcript: a user turn ("you")
+// or the answer that turn produced ("agent"). Captured at the model layer so it
+// is identical for every backend (pi / opencode / grok).
+type xline struct {
+	role string // "you" | "agent"
+	text string
+}
+
+type xlineDisk struct {
+	Role string `json:"role"`
+	Text string `json:"text"`
+}
+
+// appendXcript records one transcript line and snapshots it, so the conversation
+// survives a quit at any point. Empty text is ignored.
+func (m *Model) appendXcript(uuid, role, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	if m.workerTranscript == nil {
+		m.workerTranscript = map[string][]xline{}
+	}
+	m.workerTranscript[uuid] = append(m.workerTranscript[uuid], xline{role: role, text: text})
+	m.persistWorkerSess(uuid)
+}
+
+// deliverableToText flattens a finish_worker deliverable (outline nodes JSON, or
+// a single plain node for opencode/grok) into indented plain text for the
+// transcript. Returns "" when the deliverable is empty/unparseable.
+func deliverableToText(nodesJSON string) string {
+	nodes := parseDeliverNodes(nodesJSON)
+	if len(nodes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	var walk func(ns []deliverNode, depth int)
+	walk = func(ns []deliverNode, depth int) {
+		for _, n := range ns {
+			t := strings.TrimSpace(n.Text)
+			if t != "" {
+				b.WriteString(strings.Repeat("  ", depth))
+				b.WriteString(t)
+				b.WriteString("\n")
+			}
+			if note := strings.TrimSpace(n.Note); note != "" {
+				b.WriteString(strings.Repeat("  ", depth+1))
+				b.WriteString(note)
+				b.WriteString("\n")
+			}
+			walk(n.Children, depth+1)
+		}
+	}
+	walk(nodes, 0)
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // workerSessDisk is the serialisable snapshot of a worker's run state.
 type workerSessDisk struct {
 	Provider    string               `json:"provider"`
@@ -50,6 +108,7 @@ type workerSessDisk struct {
 	Estimated   bool                 `json:"estimated,omitempty"`
 	Actions     []workerActivityDisk `json:"actions,omitempty"`
 	Deliverable string               `json:"deliverable,omitempty"`
+	Transcript  []xlineDisk          `json:"transcript,omitempty"`
 	StartUnix   int64                `json:"startUnix,omitempty"`
 	ActiveUnix  int64                `json:"activeUnix,omitempty"`
 }
@@ -100,6 +159,16 @@ func (m *Model) ensureWorkerSessLoaded(uuid string) {
 		}
 		m.workerActions[uuid] = acts
 	}
+	if len(d.Transcript) > 0 {
+		if m.workerTranscript == nil {
+			m.workerTranscript = map[string][]xline{}
+		}
+		xs := make([]xline, len(d.Transcript))
+		for i, x := range d.Transcript {
+			xs[i] = xline{role: x.Role, text: x.Text}
+		}
+		m.workerTranscript[uuid] = xs
+	}
 	if d.StartUnix > 0 {
 		m.workerStart[uuid] = time.Unix(d.StartUnix, 0)
 	}
@@ -133,6 +202,9 @@ func (m *Model) persistWorkerSess(uuid string) {
 	}
 	for _, a := range m.workerActions[uuid] {
 		d.Actions = append(d.Actions, workerActivityDisk{Tool: a.tool, Text: a.text})
+	}
+	for _, x := range m.workerTranscript[uuid] {
+		d.Transcript = append(d.Transcript, xlineDisk{Role: x.role, Text: x.text})
 	}
 	if t := m.workerStart[uuid]; !t.IsZero() {
 		d.StartUnix = t.Unix()

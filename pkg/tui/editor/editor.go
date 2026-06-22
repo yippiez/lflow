@@ -164,6 +164,11 @@ type Model struct {
 	// status/result is mirrored to a local file so a reopened worker shows its
 	// prior run; the live conversation resumes via the backend's own session.
 	workerSessLoaded map[string]bool
+	// workerTranscript is the worker's persisted conversation — each user turn and
+	// the answer it produced — so a reopened worker shows full scrollback, not just
+	// the last deliverable. Captured at the model layer (CLI-agnostic) and mirrored
+	// to the snapshot (workersess.go); never in the DB or sync.
+	workerTranscript map[string][]xline
 
 	// Temporary Domain — an ephemeral scratch tree, never persisted
 	tempActive bool
@@ -582,7 +587,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workerDeliverable = map[string]string{}
 		}
 		m.workerDeliverable[msg.uuid] = msg.nodes
-		m.persistWorkerSess(msg.uuid)
+		m.appendXcript(msg.uuid, "agent", deliverableToText(msg.nodes)) // record the turn's answer (persists)
 		return m, waitBashCmd(m.runCh[msg.uuid])
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)

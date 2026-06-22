@@ -232,6 +232,7 @@ func (v agentView) steerKey(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		m.flash = "steered"
+		m.appendXcript(it.uuid, "you", msg)
 		if s := m.liveSteer(it.uuid); s != nil {
 			_ = s.Steer(msg) // same conversation, as composed
 			// reflect the new turn immediately so it never reads "idle" while working
@@ -379,6 +380,23 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 		}
 	} else if len(calls) == 0 {
 		node(1, cDim+"none"+cReset)
+	}
+	// Transcript → the full conversation (you ↔ agent), restored on reopen so the
+	// scrollback survives a quit, not just the last deliverable. Per-CLI agnostic.
+	if xs := m.workerTranscript[it.uuid]; len(xs) > 0 {
+		node(0, cFG+fmt.Sprintf("Transcript (%d)", len(xs))+cReset)
+		for _, x := range xs {
+			label, col := "you", cAccent
+			if x.role == "agent" {
+				label, col = "agent", cGreen
+			}
+			node(1, col+label+cReset)
+			for _, raw := range strings.Split(agentBlockText(x.text), "\n") {
+				for _, w := range wrapPlain(raw, width-2*2-6) {
+					sub(1, cDim+w+cReset)
+				}
+			}
+		}
 	}
 	// Final → the deliverable as nested nodes (with their custom types)
 	node(0, cFG+"Final"+cReset)

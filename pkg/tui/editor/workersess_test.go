@@ -53,6 +53,49 @@ func TestWorkerSessPersistsAcrossReload(t *testing.T) {
 	}
 }
 
+// TestWorkerTranscriptPersistsAcrossReload: the full you↔agent conversation is
+// snapshotted and restored on reopen, so the scrollback survives a quit — and the
+// capture is CLI-agnostic (appendXcript is the same path for pi/opencode/grok).
+func TestWorkerTranscriptPersistsAcrossReload(t *testing.T) {
+	dir := t.TempDir()
+	m := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	m.ensureWorkerMaps()
+
+	m.appendXcript("w1", "you", "count the go files")
+	m.appendXcript("w1", "agent", deliverableToText(`[{"text":"there are 12"}]`))
+	m.appendXcript("w1", "you", "and the test files?")
+	m.appendXcript("w1", "agent", deliverableToText(`[{"text":"there are 5"}]`))
+
+	re := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	re.ensureWorkerSessLoaded("w1")
+
+	got := re.workerTranscript["w1"]
+	if len(got) != 4 {
+		t.Fatalf("want 4 transcript lines, got %d: %+v", len(got), got)
+	}
+	if got[0].role != "you" || got[0].text != "count the go files" {
+		t.Errorf("line 0 wrong: %+v", got[0])
+	}
+	if got[1].role != "agent" || got[1].text != "there are 12" {
+		t.Errorf("line 1 (answer) wrong: %+v", got[1])
+	}
+	if got[3].role != "agent" || got[3].text != "there are 5" {
+		t.Errorf("line 3 wrong: %+v", got[3])
+	}
+}
+
+// TestDeliverableToTextFlattens: nested deliverable nodes flatten to indented text.
+func TestDeliverableToTextFlattens(t *testing.T) {
+	got := deliverableToText(`[{"text":"parent","children":[{"text":"child"}]}]`)
+	want := "parent\n  child"
+	if got != want {
+		t.Errorf("deliverableToText = %q, want %q", got, want)
+	}
+	if deliverableToText("") != "" || deliverableToText("not json") != "" {
+		t.Errorf("empty/garbage deliverable should flatten to empty")
+	}
+}
+
 // TestDeleteWorkerSessRemovesSnapshot: removing the node drops its snapshot, so a
 // fresh worker reusing the uuid is not treated as resumable.
 func TestDeleteWorkerSessRemovesSnapshot(t *testing.T) {
