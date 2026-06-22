@@ -2891,7 +2891,9 @@ func (m *Model) bottomBar(maxLine int) string {
 	if m.mode == modeOutline {
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
-				state += fmt.Sprintf(" · ctrl+t %q → %s", d.phrase, d.canonical())
+				// the date picker hint reads white against the dim status bar, then
+				// hands the color back so the rest of the bar stays muted
+				state += fmt.Sprintf(" · "+cFG+"ctrl+t %q → %s"+cDim, d.phrase, d.canonical())
 			}
 		}
 	}
