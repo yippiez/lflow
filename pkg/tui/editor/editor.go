@@ -1147,6 +1147,19 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if prev.mirrorOf != "" {
 				return m, nil // can't merge into a mirror reference
 			}
+			// merging up into a blank placeholder line: the absorbed node is really
+			// the content, so carry its style/type/collapsed across — otherwise
+			// backspacing a red, collapsed node into an empty line above it would
+			// silently drop its colour and re-expand its children.
+			if prev.name == "" && prev.style == "" && len(prev.children) == 0 {
+				prev.style = cur.style
+				prev.typ = cur.typ
+				prev.completedAt = cur.completedAt
+				prev.collapsed = cur.collapsed
+				if m.tree.db != nil {
+					_ = database.SetCollapsed(m.tree.db, prev.uuid, cur.collapsed)
+				}
+			}
 			mergeAt := len([]rune(prev.name))
 			prev.name += cur.name
 			for _, c := range cur.children {
