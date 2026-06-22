@@ -382,7 +382,7 @@ func hasInvert(state []string) bool {
 // h1/h2/h3 stay visible in a single-line wysiwyg row.
 func glyphFor(it *item) (string, string) {
 	if it.mirrorOf != "" {
-		return glyphMirror, cAccent // a mirror is the blue ◆ — red is reserved for the cursor
+		return glyphMirror, cDim // a mirror is the muted ◆ — the diamond marks it, red stays the cursor
 	}
 	if g := typeOf(it.typ).glyph; g != nil {
 		return g(it) // per-type glyph (todo box, heading digit)
