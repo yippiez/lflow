@@ -23,6 +23,10 @@ type Config struct {
 	// backend, or "<cli>:upstream/model" for opencode/grok. Empty → fall back to
 	// pi's own configured default.
 	AgentModel string `json:"agentModel,omitempty"`
+	// AgentThinking is the default thinking level for new agents, set by ctrl+t in
+	// the editor and persisted on save. One of agent.ThinkingLevels (off/low/
+	// medium/high). Empty → fall back to the backend's own default.
+	AgentThinking string `json:"agentThinking,omitempty"`
 }
 
 // GetPath returns the path to the lflow settings file: ~/.lflow/settings.json.

@@ -738,6 +738,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = err
 			return m.quit()
 		}
+		if m.piThinking != "" {
+			m.persistDefaultThinking(m.piThinking) // make the ctrl+t change stick
+		}
 		m.saved.written += written
 		m.unsaved = false
 		return m, nil
@@ -1846,7 +1849,9 @@ func (m *Model) cycleThinking() {
 		}
 	}
 	m.piThinking = agent.ThinkingLevels[(idx+1)%len(agent.ThinkingLevels)]
-	m.flash = "thinking: " + m.piThinking
+	// the status bar already shows the live level (· <thinking>); flag the change
+	// as unsaved instead of a transient flash, and persist it on the next save.
+	m.unsaved = true
 }
 
 // filteredTypes returns the node-type keys matching the picker's search query

@@ -14,8 +14,13 @@ import (
 func (m *Model) curModel() (model, thinking string) {
 	dm, dth := agent.DefaultModel()
 	model, thinking = dm.String(), dth
-	if c, err := config.Read(m.ctx); err == nil && c.AgentModel != "" {
-		model = c.AgentModel // persisted /model default wins over pi's config
+	if c, err := config.Read(m.ctx); err == nil {
+		if c.AgentModel != "" {
+			model = c.AgentModel // persisted /model default wins over pi's config
+		}
+		if c.AgentThinking != "" {
+			thinking = c.AgentThinking // persisted ctrl+t default
+		}
 	}
 	if m.piModel != "" {
 		model = m.piModel
@@ -35,5 +40,16 @@ func (m *Model) persistDefaultModel(model string) {
 		return
 	}
 	c.AgentModel = model
+	_ = config.Write(m.ctx, c)
+}
+
+// persistDefaultThinking saves the ctrl+t thinking level as lflow's default so it
+// survives restarts. Called when the editor saves, mirroring persistDefaultModel.
+func (m *Model) persistDefaultThinking(thinking string) {
+	c, err := config.Read(m.ctx)
+	if err != nil {
+		return
+	}
+	c.AgentThinking = thinking
 	_ = config.Write(m.ctx, c)
 }
