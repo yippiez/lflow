@@ -84,7 +84,16 @@ func (msg *piMessage) text() string {
 func (piBackend) Run(ctx context.Context, task string, opts RunOptions) (Session, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	args := []string{"--mode", "rpc", "--no-session", "--approve", "--no-extensions"}
+	// Sessions are the default — never ephemeral. --session-id resumes the real
+	// on-disk conversation if it already exists (creating it if missing), so a
+	// worker keeps its memory across editor restarts. --session-dir pins storage.
+	args := []string{"--mode", "rpc", "--approve", "--no-extensions"}
+	if opts.SessionID != "" {
+		args = append(args, "--session-id", opts.SessionID)
+		if opts.SessionDir != "" {
+			args = append(args, "--session-dir", opts.SessionDir)
+		}
+	}
 	if opts.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", opts.SystemPrompt)
 	}

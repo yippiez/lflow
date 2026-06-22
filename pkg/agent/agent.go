@@ -88,6 +88,12 @@ type RunOptions struct {
 	SystemPrompt string   // appended system prompt
 	Extensions   []string // pi --extension paths (pi only)
 	Cwd          string   // working directory ("" = inherit)
+	// SessionID is a stable, resumable conversation id. Sessions are the default:
+	// re-running with the same id RESUMES the real on-disk conversation (the agent
+	// keeps its memory) instead of starting over. The editor uses the worker node's
+	// uuid. SessionDir pins where the backend stores sessions (pi --session-dir).
+	SessionID  string
+	SessionDir string
 }
 
 // Run starts a fresh turn on provider p (pir's run()). The provided context scopes
