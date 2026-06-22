@@ -37,10 +37,17 @@ func runBash(m *Model, it *item) tea.Cmd {
 	if cancel, running := m.runCancel[it.uuid]; running {
 		cancel()
 		delete(m.runCancel, it.uuid)
+		m.persistRunOut(it.uuid) // keep whatever was captured before the cancel
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.runCancel[it.uuid] = cancel
+	// a fresh run owns the band now: memory is authoritative, so don't reload the
+	// old on-disk output over the incoming stream.
+	if m.runOutLoaded == nil {
+		m.runOutLoaded = map[string]bool{}
+	}
+	m.runOutLoaded[it.uuid] = true
 	m.runOut[it.uuid] = nil
 	ch := make(chan tea.Msg, 1024)
 	m.runCh[it.uuid] = ch

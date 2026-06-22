@@ -143,14 +143,19 @@ type Model struct {
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure every
 	// runnable node type uses (bash, query, voice, worker). Not per-type: kept
 	// central on purpose. Ephemeral, in-memory only, keyed by node uuid.
-	// WARNING (invariant): run output is NEVER persisted or synced — it lives only
-	// in these maps and is dropped on quit. (A generic NodeInternalData JSON blob to
-	// optionally persist it is planned, not implemented.) Binary output → local file.
+	// WARNING (invariant): run output is NEVER in the DB or synced — it is not
+	// notebook content. It lives in these maps and, for a bash node's run band, is
+	// also mirrored to a local JSON file (see runout.go) so it survives a restart.
 	// (Per-type state — voice waveform, query timestamp, agent runtime — lives in
 	// the generic nodeStore, not on the Model struct.)
 	runOut    map[string][]outLine
 	runCancel map[string]func()       // cancel a running command
 	runCh     map[string]chan tea.Msg // stream channel for a running command
+	// runOutLoaded marks uuids whose run band has been hydrated from (or is
+	// authoritative over) the on-disk cache — see runout.go. The band itself is
+	// mirrored to a local file so a bash node's output survives a restart; the
+	// file is never in the DB or sync.
+	runOutLoaded map[string]bool
 
 	// Temporary Domain — an ephemeral scratch tree, never persisted
 	tempActive bool
@@ -525,6 +530,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashDoneMsg:
 		delete(m.runCancel, msg.uuid)
 		delete(m.runCh, msg.uuid)
+		m.persistRunOut(msg.uuid) // cache the finished band so it survives a restart
 		if m.workerSess != nil {
 			delete(m.workerSess, msg.uuid)
 		}
@@ -1410,6 +1416,15 @@ func copyToClipboard(s string) {
 
 // deleteNode removes the node and its subtree from the tree.
 func (m *Model) deleteNode(it *item) {
+	// drop each removed node's persisted run-output cache so it doesn't outlive it
+	var dropRunOut func(x *item)
+	dropRunOut = func(x *item) {
+		m.deleteRunOut(x.uuid)
+		for _, c := range x.children {
+			dropRunOut(c)
+		}
+	}
+	dropRunOut(it)
 	m.tree.remove(it)
 	m.unsaved = true
 	m.ensureViewNonEmpty()

@@ -468,11 +468,13 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 	return cDim + string(cells)
 }
 
-// runBandLines renders a bash node's ephemeral run output beneath it: stdout in
-// the normal color, stderr red, capped to the last few lines, with a running
-// indicator. Output is in-memory only and never persisted.
+// runBandLines renders a bash node's run output beneath it: stdout in the normal
+// color, stderr red, capped to the last few lines, with a running indicator. The
+// band is hydrated from its on-disk cache on first render (see runout.go) so it
+// survives a restart, but it never enters the DB or sync.
 func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	uuid := r.it.uuid
+	m.ensureRunOutLoaded(uuid)
 	out := m.runOut[uuid]
 	_, running := m.runCancel[uuid]
 	if len(out) == 0 && !running {
