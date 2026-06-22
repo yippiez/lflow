@@ -144,8 +144,11 @@ type Model struct {
 	// runnable node type uses (bash, query, voice, worker). Not per-type: kept
 	// central on purpose. Ephemeral, in-memory only, keyed by node uuid.
 	// WARNING (invariant): run output is NEVER in the DB or synced — it is not
-	// notebook content. It lives in these maps and, for a bash node's run band, is
-	// also mirrored to a local JSON file (see runout.go) so it survives a restart.
+	// notebook content. It lives in these maps and is also mirrored to a local JSON
+	// file so it survives a restart: a bash node's run band via runout.go, a
+	// worker's run state (status/usage/tool-calls/deliverable) via workersess.go.
+	// A worker's live CONVERSATION resumes separately, from the agent backend's own
+	// on-disk session (pi --session-id, keyed by the node uuid) — never our DB.
 	// (Per-type state — voice waveform, query timestamp, agent runtime — lives in
 	// the generic nodeStore, not on the Model struct.)
 	runOut    map[string][]outLine
@@ -156,6 +159,11 @@ type Model struct {
 	// mirrored to a local file so a bash node's output survives a restart; the
 	// file is never in the DB or sync.
 	runOutLoaded map[string]bool
+	// workerSessLoaded marks uuids whose run state has been hydrated from (or is
+	// authoritative over) the on-disk snapshot — see workersess.go. A worker's
+	// status/result is mirrored to a local file so a reopened worker shows its
+	// prior run; the live conversation resumes via the backend's own session.
+	workerSessLoaded map[string]bool
 
 	// Temporary Domain — an ephemeral scratch tree, never persisted
 	tempActive bool
@@ -539,6 +547,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if s := m.workerStatus[msg.uuid]; s != "error" {
 				m.workerStatus[msg.uuid] = "done"
 			}
+			if _, isWorker := m.workerStatus[msg.uuid]; isWorker {
+				m.persistWorkerSess(msg.uuid) // snapshot the finished run for resume
+			}
 		}
 		return m, nil
 	case workerUsageMsg:
@@ -546,6 +557,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workerUsage = map[string]workerUsage{}
 		}
 		m.workerUsage[msg.uuid] = msg.usage
+		m.persistWorkerSess(msg.uuid)
 		return m, waitBashCmd(m.runCh[msg.uuid])
 	case workerActivityMsg:
 		if m.workerAction == nil {
@@ -563,12 +575,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.start && msg.act.tool != "" {
 			m.workerActions[msg.uuid] = append(m.workerActions[msg.uuid], msg.act)
 		}
+		m.persistWorkerSess(msg.uuid)
 		return m, waitBashCmd(m.runCh[msg.uuid])
 	case workerDeliverableMsg:
 		if m.workerDeliverable == nil {
 			m.workerDeliverable = map[string]string{}
 		}
 		m.workerDeliverable[msg.uuid] = msg.nodes
+		m.persistWorkerSess(msg.uuid)
 		return m, waitBashCmd(m.runCh[msg.uuid])
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
@@ -1420,6 +1434,7 @@ func (m *Model) deleteNode(it *item) {
 	var dropRunOut func(x *item)
 	dropRunOut = func(x *item) {
 		m.deleteRunOut(x.uuid)
+		m.deleteWorkerSess(x.uuid) // and its worker run-state snapshot
 		for _, c := range x.children {
 			dropRunOut(c)
 		}

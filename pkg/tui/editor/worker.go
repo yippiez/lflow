@@ -225,12 +225,20 @@ func runWorker(m *Model, it *item) tea.Cmd {
 		return nil
 	}
 	m.lastAgent = it.uuid
+	// a worker that already has a session — live this run, or persisted from a prior
+	// run (even across an editor restart) — RESUMES its conversation; only a
+	// brand-new worker sends the full assembled context. workerHasSession hydrates
+	// the snapshot, so this is correct right after reopening too.
+	resuming := m.workerHasSession(it.uuid)
+	if m.workerSessLoaded == nil {
+		m.workerSessLoaded = map[string]bool{}
+	}
+	m.workerSessLoaded[it.uuid] = true // memory authoritative; render won't reload over it
 	// persist first so the context (mirror sources + this worker's subtree) is in
 	// the DB for buildWorkerTask to read
 	if _, err := m.saveAll(); err == nil {
 		m.unsaved = false
 	}
-	task := m.buildWorkerTask(it)
 
 	m.runOut[it.uuid] = nil
 	ch := make(chan tea.Msg, 1024)
@@ -262,7 +270,12 @@ func runWorker(m *Model, it *item) tea.Cmd {
 	opts := agent.RunOptions{
 		Model:    mdl,
 		Thinking: thinking, // "off" handled by the backend (→ no --thinking)
+		// sessions are the default: a stable id keyed on the node makes the
+		// conversation resumable across restarts (pi --session-id + --session-dir).
+		SessionID:  it.uuid,
+		SessionDir: m.piSessionDir(),
 	}
+	task := m.buildWorkerTask(it)
 	if mdl.CLI == agent.ProviderPi {
 		// pi has lflow's finish_worker extension: the deliverable is structured
 		// outline nodes the agent emits via that tool.
@@ -271,10 +284,17 @@ func runWorker(m *Model, it *item) tea.Cmd {
 		if ext := workerExtensionPath(); ext != "" {
 			opts.Extensions = []string{ext}
 		}
+		// resuming pi: the session already holds the context, so send only the new
+		// turn rather than re-assembling and re-sending the whole context.
+		if resuming {
+			task = ultraloopStrip(it.name)
+		}
 	} else {
 		// opencode / grok have no finish_worker extension and may not accept a
 		// system prompt over their CLI, so the directive rides inline on the task
 		// and adaptSession harvests the final assistant message as the deliverable.
+		// Native cross-restart resume is not wired for these yet, so always send the
+		// full context (their session id is ignored by the backend).
 		task = workerTextInstruction + "\n\n" + task
 	}
 	sess, err := agent.Run(context.Background(), mdl.CLI, task, opts)
@@ -457,6 +477,7 @@ func ktok(n int) string {
 // status · ↑in ↓out $cost · live activity. Minimal — the transcript and steering
 // live in the agent UI (alt+e). Grounded in work2/pchain's job line.
 func (m *Model) workerSuffix(it *item) string {
+	m.ensureWorkerSessLoaded(it.uuid) // a reopened worker shows its prior run
 	status := m.workerStatus[it.uuid]
 	_, running := m.runCancel[it.uuid]
 	u, hasUsage := m.workerUsage[it.uuid]
