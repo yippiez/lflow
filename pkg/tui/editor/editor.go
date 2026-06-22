@@ -143,6 +143,9 @@ type Model struct {
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure every
 	// runnable node type uses (bash, query, voice, worker). Not per-type: kept
 	// central on purpose. Ephemeral, in-memory only, keyed by node uuid.
+	// WARNING (invariant): run output is NEVER persisted or synced — it lives only
+	// in these maps and is dropped on quit. (A generic NodeInternalData JSON blob to
+	// optionally persist it is planned, not implemented.) Binary output → local file.
 	// (Per-type state — voice waveform, query timestamp, agent runtime — lives in
 	// the generic nodeStore, not on the Model struct.)
 	runOut    map[string][]outLine
@@ -2794,6 +2797,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 	return lines
 }
 
+// WARNING (invariant): the bottom/status bar is the LAST rendered line of every
+// frame — tooling and the inline renderer treat the final line as the status line.
+// Always append it last (see viewOutline); never emit content below it.
 func (m *Model) bottomBar(maxLine int) string {
 	total := len(m.rows)
 	pos := m.cursor + 1
@@ -2953,6 +2959,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	m.refreshRows()
 	m.ensureTempTree() // the panel is always visible, so it must always have >=1 node
 
+	// WARNING (invariant): inline scrollback only — NEVER pass tea.WithAltScreen.
+	// The alt-screen erases the styled outline on quit and breaks scriptable
+	// scrollback output. Lint-enforced (see rules/).
 	p := tea.NewProgram(m) // inline: no alt screen
 	final, err := p.Run()
 	if err != nil {

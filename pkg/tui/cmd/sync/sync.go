@@ -437,6 +437,9 @@ func getDirtyNodes(tx *database.DB) ([]dirtyNode, error) {
 	return ret, nil
 }
 
+// WARNING (invariant): never sync secrets, local view-state (e.g. Collapsed), the
+// Temporary/Agent Domain, or binary files. Only durable, shared node content goes
+// into the push payload — keep view-state and ephemeral domains out of it.
 func nodePayload(n database.Node) client.NodePayload {
 	return client.NodePayload{
 		ParentUUID:  n.ParentUUID,

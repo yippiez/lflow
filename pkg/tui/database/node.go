@@ -41,6 +41,10 @@ var ValidTypes = map[string]bool{
 
 // Node is the single content model: every bullet, heading, todo and mirror
 // instance is a node. ParentUUID == "" means a root in the local forest.
+//
+// WARNING (invariant): no markup leaks into stored text. Name holds PLAIN text
+// only — styling, dates and links are per-node attributes (Style, MirrorOf,
+// LinkTo, CompletedAt) or render-time chips, never inline markers baked into Name.
 type Node struct {
 	RowID       int    `json:"rowid"`
 	UUID        string `json:"uuid"`

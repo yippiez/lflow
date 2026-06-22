@@ -62,6 +62,10 @@ func nodeViewOf(it *item) nodeView {
 }
 
 // nodeTypes is the ordered registry; the /type picker shows it in this order.
+//
+// WARNING (invariant): everything is a node with a free-string type — a NEW node
+// type is a new entry here (plus its descriptor), NOT a DB migration. nodes.type
+// is free text and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{
 	{key: database.TypeBullets, label: "Bullet", inlineEditable: true},
 	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true},
