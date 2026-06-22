@@ -645,3 +645,125 @@ When
 2026-06-20 — commits: editor (drop /mirror:wf + scheduler), wf (delete package),
 config (drop credentials), database (drop wf_mirrors + regenerate schema), docs.
 Full build + test suite green with the fts5 tag.
+
+---
+title: Extract agent execution into pkg/agent (multi-CLI backend) + /model command
+
+Why
+Agent execution lived tangled in editor/ (worker.go spawned `pi --mode rpc`
+directly; pi.go held model/config logic). Following work2/pir's design — but
+idiomatic Go, since Effect has no Go port (context = scope, channels = the event
+stream, errors = typed failures) — this is now a standalone pkg/agent: a Backend
+interface (Name/Available/ListModels/Run) with pi, opencode and grok adapters, a
+steerable Session (Events channel + Steer + Stop + Err), and a normalized
+agent.Event union. The editor's worker.go shrank to adaptSession, which translates
+agent.Event into the existing worker tea.Msgs; editor/pi.go was deleted (model
+listing + DefaultModel + Settings moved to pkg/agent; curModel/persistDefaultModel
+moved to editor/agentcfg.go). pi is the verified run path; opencode (`opencode run
+--format json`, one process per turn, --continue for steer) and grok (`grok agent
+stdio` ACP, ported from pir) are wired and list models, but their RUN paths are
+unverified here (opencode JSON schema is version-specific; grok needs auth).
+
+A new editor slash command `/model` opens the existing ctrl+p model picker, now fed
+by agent.ListModels() (cached) which aggregates all available CLIs — entries are
+canonical agent.Model strings ("upstream/model" for pi, "<cli>:upstream/model" for
+opencode/grok; the ":" vs "/" split disambiguates a CLI prefix from a provider).
+Selecting a model both sets the session override AND persists it as the default in
+~/.lflow/settings.json (new Config.AgentModel field), so it survives restarts; the
+editor resolution order is config default → pi config/env → session override.
+
+When
+2026-06-22 — pkg/agent (agent.go provider.go model.go config.go session.go pi.go
+opencode.go grok.go + agent_test.go); editor refactor (worker.go adaptSession,
+agentcfg.go, delete pi.go, /model in editor.go slashCommands+runSlash, workerSteer
+→ workerSess Session map); config.AgentModel. Full build + `go test --tags fts5
+./...` green. tmux-verified: /model lists pi(40)/opencode(13)/grok(2), filters,
+persists; a pi agent ran end-to-end (tool calls, usage ↑/↓/$, finish_worker
+deliverable harvested), was steered into the same conversation (cumulative tokens),
+and stopped cleanly.
+
+---
+title: opencode/grok agents deliver via final text; branched agent detail view
+
+Why
+Two follow-ups to the pkg/agent work. (1) opencode agents got stuck at "running…"
+with no result: opencode has no finish_worker extension (pi-only) and its
+`run --format json` events nest under `part` (part.text / part.tokens / part.cost),
+which the first decoder missed. Fixed opencodeDecode to the real schema, and made
+adaptSession harvest the final assistant message as the deliverable (one plain
+node) for any backend that does not call finish_worker — so opencode/grok now
+produce a harvestable Final. runWorker is backend-aware: pi keeps the finish_worker
+tool/extension + structured-nodes prompt; opencode/grok get an inline plain-text
+directive (workerTextInstruction) since they may not accept a CLI system prompt.
+(2) The expanded agent view (alt+e) rendered flat indents; it now draws the same
+tree connectors as the outline (│ / ├─ / ╰─) via renderObserveRows, so sections and
+their children read as a branched outline.
+
+When
+2026-06-22 — agent/opencode.go (real part-nested decode); editor worker.go
+(adaptSession text→deliverable, backend-aware runWorker, workerTextInstruction);
+editor agent.go (renderObserveRows connectors). Build + tests green. tmux-verified:
+an opencode/deepseek agent ran, answered "Hello. 4.", surfaced it as the Final and
+harvested it into notes; the detail view shows ├─/╰─ branches.
+
+---
+title: Fix grok agent over ACP stdio (flags, cwd, message vs thought chunks)
+
+Why
+Grok agents errored instantly ("error 0s") and, once started, produced no
+deliverable. Three bugs in the grok ACP adapter: (1) `-m MODEL` was passed to the
+`stdio` subcommand, which rejects it — it belongs on `grok agent` (`grok agent -m
+MODEL stdio`); also added `--always-approve` so tool turns don't block on
+permission. (2) session/new was sent with `cwd:""` (RunOptions.Cwd unset), which
+grok rejects as "Path is not absolute" — acpClient now defaults cwd to os.Getwd().
+(3) the adapter accumulated BOTH agent_message_chunk (the answer) and
+agent_thought_chunk (reasoning, dozens per turn) as deliverable text; now only
+message chunks become the deliverable, thoughts are dropped, and each turn emits
+usage parsed from the session/prompt result _meta (modelId/inputTokens/outputTokens)
+plus a turn-end. Steering routes through the same grokRunTurn so steered turns also
+report usage and return to idle.
+
+When
+2026-06-22 — agent/grok.go. Build + tests green. tmux-verified end-to-end: a
+grok-composer-2.5-fast agent ran, Final showed exactly "hello" (no reasoning),
+usage ↑13.1k ↓48, branched detail view. All three backends (pi/opencode/grok) now
+run agents to a harvestable deliverable.
+
+---
+title: CostEstimator for backends that report tokens but no cost (grok)
+
+Why
+grok over ACP returns token counts (inputTokens / outputTokens / cachedReadTokens)
+but no cost, so worker lines showed $0.0000; pi and opencode report cost directly.
+Added pkg/agent/cost.go: a hardcoded per-model price table (USD per 1M in/out, plus
+an optional cached-read rate) and EstimateCost(model, in, out, cachedRead). grok's
+grokRunTurn now fills Usage.Cost from it. An unknown model returns (0, false) so we
+never fabricate a number — only models in the table get an estimate. Prices were
+web-sourced (June 2026): grok-build = official xAI $1/$2 per 1M with $0.20
+cached-read (docs.x.ai); grok-composer-2.5-fast = Cursor's published Fast-tier
+$3/$15 (no cached rate published → billed at input rate), since xAI publishes no
+per-token price for that id. Cached-read tokens use CachedReadPer1M when set
+(grok-build), else the input rate.
+
+When
+2026-06-22 — agent/cost.go + grok.go. tmux-verified: a grok-composer agent showed
+a non-zero estimated cost instead of $0.0000; numbers reflect real June-2026
+xAI/Cursor pricing.
+
+---
+title: Accumulate usage/cost across steps and turns for opencode and grok
+
+Why
+Verifying cost across all three backends exposed an undercount: pi accumulates
+usage over a session, but opencode emitted per-STEP usage (a multi-step turn has
+several step-finish events, each with its own cost) and grok emitted per-TURN
+usage, and adaptSession replaces rather than sums — so only the last step/turn
+showed. Both now thread a running Usage total (opencodeLoop across steps+turns;
+grok across turns, editor-serialized so no lock) and emit the cumulative total,
+matching pi. Confirmed opencode reports real per-step cost for paid models
+(xai/grok-4.20: 0.0091 + 0.0021) while free models report 0 correctly.
+
+When
+2026-06-22 — agent/opencode.go, agent/grok.go. tmux-verified non-zero cost on all
+three: pi gpt-5.5 $0.0265 (CLI cost), opencode xai/grok-4.20 $0.0216 (CLI cost,
+accumulated), grok composer-2.5-fast $0.0406 (estimated from tokens).
