@@ -21,6 +21,7 @@ const (
 	TypeQuery   = "query"
 	TypeVoice   = "voice"
 	TypeWorker  = "worker"
+	TypeDivider = "divider"
 )
 
 // ValidTypes is the set of accepted type values.
@@ -37,6 +38,7 @@ var ValidTypes = map[string]bool{
 	TypeQuery:   true,
 	TypeVoice:   true,
 	TypeWorker:  true,
+	TypeDivider: true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror

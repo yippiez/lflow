@@ -2442,6 +2442,12 @@ func (m *Model) finalView(maxLine int) []string {
 	var lines []string
 	allRows := m.tree.allRows()
 	for i, r := range allRows {
+		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
+		if r.it.typ == database.TypeDivider {
+			lines = append(lines, dividerLine(r, maxLine, false))
+			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
+			continue
+		}
 		glyph, glyphColor := glyphFor(r.it)
 		if r.mirrored {
 			glyph, glyphColor = glyphMirror, cDim
@@ -2452,7 +2458,6 @@ func (m *Model) finalView(maxLine int) []string {
 			body = rm(m, r.it)
 		}
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r.it)
-		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 	}
@@ -2474,6 +2479,18 @@ func (m *Model) viewOutline(maxLine int) []string {
 	for i, r := range rows {
 		it := r.it
 		selected := i == m.cursor
+
+		// a divider is a full-width rule with no glyph/body; it still hangs a note
+		if it.typ == database.TypeDivider {
+			below := i+1 < len(rows) && rows[i+1].depth > r.depth
+			groups[i] = []string{dividerLine(r, maxLine, selected)} // single line, never wrapped
+			noteCaret := -1
+			if selected && m.mode == modeNote {
+				noteCaret = m.caret
+			}
+			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+			continue
+		}
 
 		glyph, glyphColor := glyphFor(it)
 		if r.mirrored {

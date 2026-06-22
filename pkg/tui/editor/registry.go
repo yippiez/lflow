@@ -69,6 +69,10 @@ func nodeViewOf(it *item) nodeView {
 var nodeTypes = []nodeType{
 	{key: database.TypeBullets, label: "Bullet", inlineEditable: true},
 	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true},
+	// a divider has no body text — viewOutline/finalView render it as a full-width
+	// rule (see dividerLine), hiding the glyph. It is otherwise a normal node: it
+	// nests, moves, takes a /note, and is removed with ctrl+d.
+	{key: database.TypeDivider, label: "Divider", inlineEditable: false},
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},

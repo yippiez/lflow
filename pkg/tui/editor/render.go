@@ -420,6 +420,23 @@ func connector(r row) string {
 	return b.String()
 }
 
+// dividerLine renders a divider node as a single full-width horizontal rule.
+// The glyph (circle) is hidden: the rule starts at the glyph column, after the
+// row's indent/rail, and stretches to the right edge. Muted gray normally, red
+// under the cursor — the rule itself is the selection cue since there's no glyph.
+func dividerLine(r row, maxLine int, selected bool) string {
+	prefix := " " + cDim + connector(r)
+	col := cDim
+	if selected {
+		col = cRed
+	}
+	pad := maxLine - visibleWidth(prefix)
+	if pad < 1 {
+		pad = 1
+	}
+	return prefix + cReset + col + strings.Repeat("─", pad) + cReset
+}
+
 // continuationPrefix builds the dim-styled hanging indent for a row's wrapped
 // continuation lines. It keeps the tree rail continuous: a │ sits in every
 // ancestor column that has a later sibling, in the node's own branch column
