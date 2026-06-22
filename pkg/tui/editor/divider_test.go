@@ -39,13 +39,17 @@ func TestDividerRendersFullWidthRule(t *testing.T) {
 	}
 }
 
-// TestDividerLineFillsWidth: the rule fills the line to the right edge.
-func TestDividerLineFillsWidth(t *testing.T) {
-	m := newTestModel(30, "x")
+// TestDividerLineLeavesRightPadding: the rule stops short of the right edge
+// (~90% of width) so there's a little breathing room before the window.
+func TestDividerLineLeavesRightPadding(t *testing.T) {
+	m := newTestModel(60, "x")
 	r := m.rows[0]
 	maxLine := m.width - 1
 	got := visibleWidth(dividerLine(r, maxLine, false))
-	if got != maxLine {
-		t.Errorf("divider rule width = %d, want %d", got, maxLine)
+	if got != maxLine*9/10 {
+		t.Errorf("divider rule width = %d, want %d (~90%%)", got, maxLine*9/10)
+	}
+	if got >= maxLine {
+		t.Errorf("divider should not reach the right edge: %d of %d", got, maxLine)
 	}
 }

@@ -420,9 +420,10 @@ func connector(r row) string {
 	return b.String()
 }
 
-// dividerLine renders a divider node as a single full-width horizontal rule.
-// The glyph (circle) is hidden: the rule starts at the glyph column, after the
-// row's indent/rail, and stretches to the right edge. Muted gray normally, red
+// dividerLine renders a divider node as a single horizontal rule. The glyph
+// (circle) is hidden: the rule starts at the glyph column, after the row's
+// indent/rail, and runs to ~90% of the width — a little breathing room is left
+// at the right edge rather than touching the window. Muted gray normally, red
 // under the cursor — the rule itself is the selection cue since there's no glyph.
 func dividerLine(r row, maxLine int, selected bool) string {
 	prefix := " " + cDim + connector(r)
@@ -430,7 +431,7 @@ func dividerLine(r row, maxLine int, selected bool) string {
 	if selected {
 		col = cRed
 	}
-	pad := maxLine - visibleWidth(prefix)
+	pad := maxLine*9/10 - visibleWidth(prefix) // stop short of the right edge
 	if pad < 1 {
 		pad = 1
 	}
