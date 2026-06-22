@@ -1,16 +1,3 @@
-# CLAUDE.md
-
-lflow is a local-first terminal outline editor (Go + bubbletea). This file is the
-quick-reference; **[AGENTS.md](AGENTS.md) is the full agent governance guide — read
-it.**
-
-## Record decisions
-
-Append every non-trivial decision (autonomous or user-directed) to
-**[docs/ADR.md](docs/ADR.md)** using the format documented there (title / Why /
-When, newest at the bottom). Read it before you start so you don't re-litigate
-settled choices.
-
 ## Build / test / run
 
 - Always build with the fts5 tag (required by SQLite FTS5 node triggers):
@@ -24,21 +11,16 @@ settled choices.
 - Commit each logical change as its own `label: description` commit; push as you go.
 - No emojis — plain Unicode symbols only (○ ◆ ▸ ● $ {} →). CLI output uses `→`/`·`.
 
-## Key invariants (full list + rationale in AGENTS.md and docs/ADR.md)
+## Key invariants
 
-- Inline scrollback only, never the alt-screen (lint-enforced).
-- No markup leaks into stored text — styling/dates/links are per-node attrs or chips.
-- Everything is a node; new types go in the registry (`pkg/tui/editor/registry.go`),
-  no DB migration. Run output is ephemeral in-memory only (never persisted; a generic
-  `NodeInternalData` JSON blob is planned, not implemented); binary → local file.
-- Never auto-run runnable nodes (alt+r only). Never sync secrets, view-state, the
-  Temporary Domain, or binary files. Secrets live in local config — Pi in
-  `~/.pi/agent/settings.json` (a consolidated `~/.config/lflow/credentials.json` is
-  planned, not yet built). Status bar is the last rendered line.
+The structural invariants now live as `// WARNING (invariant):` comments next to the
+code they govern — grep `WARNING (invariant)`. They cover: inline scrollback / no
+alt-screen, no markup in stored text, the node-type registry (no DB migration),
+ephemeral run output, sync exclusions (secrets / view-state / Temporary Domain /
+binary), and the status bar being the last rendered line.
 
-## Pointers
+Remaining doc-level rules:
 
-- **[AGENTS.md](AGENTS.md)** — full operating guide and invariants.
-- **[docs/ADR.md](docs/ADR.md)** — decision log; append to it as you work.
-- **[docs/PRDs/](docs/PRDs/)** — feature PRDs; copy `00-template.md` for new ones.
-- **docs/SPECs/**, **docs/COMMANDS.md**, **docs/SELF_HOSTING.md** — specs and refs.
+- Never auto-run runnable nodes (alt+r only).
+- Secrets live in local config — Pi in `~/.pi/agent/settings.json` (a consolidated
+  `~/.config/lflow/credentials.json` is planned, not yet built).
