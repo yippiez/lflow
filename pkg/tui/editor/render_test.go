@@ -217,8 +217,8 @@ func TestGlyphForMutedBullets(t *testing.T) {
 		t.Errorf("plain bullets should be muted gray, got %q", color)
 	}
 	_, color = glyphFor(&item{mirrorOf: "x"})
-	if color != cRed {
-		t.Errorf("mirrors keep their red identity, got %q", color)
+	if color != cAccent {
+		t.Errorf("mirrors are the blue ◆ — red is reserved for the cursor, got %q", color)
 	}
 }
 

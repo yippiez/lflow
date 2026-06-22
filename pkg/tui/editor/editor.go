@@ -2444,7 +2444,7 @@ func (m *Model) finalView(maxLine int) []string {
 	for i, r := range allRows {
 		glyph, glyphColor := glyphFor(r.it)
 		if r.mirrored {
-			glyph, glyphColor = glyphMirror, cRed
+			glyph, glyphColor = glyphMirror, cAccent
 		}
 		name := m.tree.displayName(r.it)
 		body := renderBody(r.it, name, -1, false)
@@ -2477,7 +2477,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 		glyph, glyphColor := glyphFor(it)
 		if r.mirrored {
-			glyph, glyphColor = glyphMirror, cRed
+			glyph, glyphColor = glyphMirror, cAccent
 		}
 		if m.tempActive && !r.mirrored {
 			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
