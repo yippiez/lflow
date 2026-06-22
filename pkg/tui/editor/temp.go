@@ -192,6 +192,17 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 				strings.TrimSpace(it.name) == "" && !m.workerRan(it) {
 				continue
 			}
+			below := i+1 < len(rows) && rows[i+1].depth > r.depth
+			// a divider is a full-width rule, not a glyph+body node; render it as the
+			// rule here too so the read-only region keeps it (never the cursor color)
+			if it.typ == database.TypeDivider {
+				if i == cursor {
+					cursorAt = len(flat)
+				}
+				flat = append(flat, dividerLine(r, maxLine, false))
+				flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
+				continue
+			}
 			glyph, glyphColor := glyphFor(it)
 			if r.mirrored {
 				glyph, glyphColor = glyphMirror, cRed
@@ -205,7 +216,6 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 				body = rm(m, it)
 			}
 			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
-			below := i+1 < len(rows) && rows[i+1].depth > r.depth
 			if i == cursor {
 				cursorAt = len(flat)
 			}
