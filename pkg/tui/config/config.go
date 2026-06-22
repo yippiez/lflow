@@ -18,6 +18,11 @@ type Config struct {
 	// DBPath relocates the SQLite database. The settings file is the only
 	// place to set it; there is no flag.
 	DBPath string `json:"dbPath,omitempty"`
+	// AgentModel is the default model for new agents, set by the editor's /model
+	// command. It is a canonical agent.Model string: "upstream/model" for the pi
+	// backend, or "<cli>:upstream/model" for opencode/grok. Empty → fall back to
+	// pi's own configured default.
+	AgentModel string `json:"agentModel,omitempty"`
 }
 
 // GetPath returns the path to the lflow settings file: ~/.lflow/settings.json.
