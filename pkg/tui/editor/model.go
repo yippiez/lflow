@@ -584,8 +584,9 @@ func (t *tree) save() (int, error) {
 		s, existed := t.snapshots[it.uuid]
 		structChanged := !existed || s.parentUUID != parentUUID || s.rank != rank
 
-		// never INSERT a uuid that already exists in the DB — UPDATE it instead.
-		// Guards against a stale isNew (e.g. after undo) hitting the UNIQUE constraint.
+		// a brand-new node Upserts: if its uuid somehow already has a (tombstoned)
+		// row — a delete that was saved then undone leaves the snapshot gone but the
+		// row alive — it is revived instead of crashing on UNIQUE(uuid).
 		if it.isNew && !existed {
 			n := database.Node{
 				UUID:        it.uuid,
@@ -603,7 +604,7 @@ func (t *tree) save() (int, error) {
 				Dirty:       true,
 				Collapsed:   it.collapsed,
 			}
-			if err := n.Insert(tx); err != nil {
+			if err := n.Upsert(tx); err != nil {
 				return err
 			}
 			written++

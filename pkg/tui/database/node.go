@@ -87,6 +87,28 @@ func (n Node) Insert(db *DB) error {
 	return nil
 }
 
+// Upsert inserts the node, or — if a row with the same uuid already exists — revives
+// and overwrites it (deleted = 0). A delete that was saved (tombstoning the row and
+// dropping its in-memory snapshot) and then undone leaves the editor believing the
+// restored node is brand new; a plain INSERT would then crash on UNIQUE(uuid). The
+// original added_on and usn are preserved. FTS stays consistent via the AFTER UPDATE
+// trigger (which fires on the conflict branch).
+func (n Node) Upsert(db *DB) error {
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+		`ON CONFLICT(uuid) DO UPDATE SET
+			parent_uuid = excluded.parent_uuid, rank = excluded.rank, name = excluded.name,
+			note = excluded.note, type = excluded.type, style = excluded.style,
+			mirror_of = excluded.mirror_of, completed_at = excluded.completed_at,
+			edited_on = excluded.edited_on, collapsed = excluded.collapsed,
+			link_to = excluded.link_to, deleted = 0, dirty = 1`,
+		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
+		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty, n.Collapsed, n.LinkTo)
+	if err != nil {
+		return errors.Wrapf(err, "upserting node %s", n.UUID)
+	}
+	return nil
+}
+
 // SetCollapsed persists a node's collapsed flag. It is local view-state, so it
 // leaves dirty/usn/edited_on untouched and never syncs to the server.
 func SetCollapsed(db *DB, uuid string, collapsed bool) error {
