@@ -30,7 +30,7 @@ func EnsureRoot(db *DB) error {
 	}
 	if exists == 0 {
 		if _, err := db.Exec(`INSERT INTO nodes (uuid, parent_uuid, rank, name, type, dirty)
-			VALUES (?, '', 0, 'root', 'bullets', 0)`, RootUUID); err != nil {
+			VALUES (?, '', 0, 'Root', 'bullets', 0)`, RootUUID); err != nil {
 			return errors.Wrap(err, "creating root node")
 		}
 	}

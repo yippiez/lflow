@@ -782,6 +782,19 @@ var lm20 = migration{
 	},
 }
 
+// lm21 capitalizes the root node's name from the seeded lowercase "root" to
+// "Root", so the breadcrumb reads "Root" without a render-time relabel. The root
+// is local-only and never synced, so its dirty flag is left untouched.
+var lm21 = migration{
+	name: "capitalize-root-node-name",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec("UPDATE nodes SET name = 'Root' WHERE uuid = ? AND name = 'root'", database.RootUUID); err != nil {
+			return errors.Wrap(err, "capitalizing root node name")
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {

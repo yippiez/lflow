@@ -37,5 +37,5 @@ CREATE TRIGGER nodes_after_update AFTER UPDATE ON nodes BEGIN
 			END;
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 20);
+INSERT INTO system (key, value) VALUES ('schema', 21);
 INSERT INTO system (key, value) VALUES ('remote_schema', 1);
