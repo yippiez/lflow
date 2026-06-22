@@ -101,8 +101,8 @@ func (m *Model) advanceLoops() []tea.Cmd {
 		}
 		ls.next = now.Add(ls.interval)
 		query := ultraloopStrip(w.name)
-		if ch := m.liveSteer(uuid); ch != nil {
-			ch <- query // same conversation, re-prompt
+		if s := m.liveSteer(uuid); s != nil {
+			_ = s.Steer(query) // same conversation, re-prompt
 			m.workerStatus[uuid] = "running"
 			if m.workerAction != nil {
 				m.workerAction[uuid] = workerActivity{text: "thinking…"}

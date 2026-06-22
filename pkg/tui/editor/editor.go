@@ -15,6 +15,7 @@ import (
 
 	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/pkg/agent"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/mattn/go-runewidth"
@@ -55,6 +56,7 @@ var slashCommands = []slashCommand{
 	{"/goto", "Jump the editor to another node"},
 	{"/link", "Link this node to another (→ target; alt+g jumps)"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
+	{"/model", "Set the model for new agents (pi / opencode / grok)"},
 	{"/move", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
 	{"/style", "Set this node's text style or color"},
@@ -168,9 +170,9 @@ type Model struct {
 	workerActions map[string][]workerActivity
 	// workerStatus is the worker's lifecycle word: running / idle / done / error
 	workerStatus map[string]string
-	// workerSteer carries follow-up prompts to a live worker's pi process (the
-	// 's' steer box writes here)
-	workerSteer map[string]chan string
+	// workerSess holds each live worker's agent.Session, so steering (the 's' box,
+	// alt+r, ultraloop) and stop go through Session.Steer / Session.Stop.
+	workerSess map[string]agent.Session
 	// per-agent timing + model (model captured at launch so switching the global
 	// model only affects NEW agents): start time, last-activity time, model id
 	workerStart      map[string]time.Time
@@ -520,8 +522,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashDoneMsg:
 		delete(m.runCancel, msg.uuid)
 		delete(m.runCh, msg.uuid)
-		if m.workerSteer != nil {
-			delete(m.workerSteer, msg.uuid)
+		if m.workerSess != nil {
+			delete(m.workerSess, msg.uuid)
 		}
 		// a worker's pi process has exited: mark it done unless it errored
 		if m.workerStatus != nil {
@@ -1742,7 +1744,8 @@ func (m *Model) handleModelKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		filt := m.filteredModels()
 		if m.modelSel < len(filt) {
-			m.piModel = filt[m.modelSel]
+			m.piModel = filt[m.modelSel] // session override for new agents
+			m.persistDefaultModel(filt[m.modelSel]) // and persist as the default
 			m.flash = "model: " + filt[m.modelSel]
 		}
 		m.mode = modeOutline
@@ -1758,13 +1761,16 @@ func (m *Model) handleModelKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// filteredModels returns the model ids matching the picker's search query.
+// filteredModels returns the canonical model strings (across all available CLI
+// backends — pi / opencode / grok) matching the picker's search query.
+// agent.ListModels caches, so per-keystroke filtering doesn't re-shell the CLIs.
 func (m *Model) filteredModels() []string {
 	q := strings.ToLower(m.modelQuery)
 	var out []string
-	for _, md := range piModels() {
-		if q == "" || strings.Contains(strings.ToLower(md), q) {
-			out = append(out, md)
+	for _, md := range agent.ListModels() {
+		s := md.String()
+		if q == "" || strings.Contains(strings.ToLower(s), q) {
+			out = append(out, s)
 		}
 	}
 	return out
@@ -1775,12 +1781,12 @@ func (m *Model) filteredModels() []string {
 func (m *Model) cycleThinking() {
 	_, cur := m.curModel()
 	idx := -1
-	for i, l := range thinkingLevels {
+	for i, l := range agent.ThinkingLevels {
 		if l == cur {
 			idx = i
 		}
 	}
-	m.piThinking = thinkingLevels[(idx+1)%len(thinkingLevels)]
+	m.piThinking = agent.ThinkingLevels[(idx+1)%len(agent.ThinkingLevels)]
 	m.flash = "thinking: " + m.piThinking
 }
 
@@ -1918,6 +1924,12 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case "/model":
+		// open the model picker (same picker as ctrl+p); choosing persists the
+		// model as the default for new agents across all CLI backends.
+		m.mode = modeModel
+		m.modelSel = 0
+		m.modelQuery = ""
 	case "/complete":
 		m.pushUndo("")
 		if cur.completedAt > 0 {

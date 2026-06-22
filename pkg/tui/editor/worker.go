@@ -1,20 +1,45 @@
 package editor
 
 import (
-	"bufio"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/lflow/lflow/pkg/agent"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/outline"
 )
+
+//go:embed pi/worker_finish.ts
+var workerFinishTS string
+
+// workerExtensionPath writes lflow's finish_worker pi extension to ~/.lflow/pi/
+// (creating it if needed) and returns its path, for `pi --extension`. The pi
+// backend passes it through RunOptions.Extensions.
+func workerExtensionPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".lflow", "pi")
+	if os.MkdirAll(dir, 0o755) != nil {
+		return ""
+	}
+	path := filepath.Join(dir, "worker_finish.ts")
+	if cur, _ := os.ReadFile(path); string(cur) != workerFinishTS {
+		if os.WriteFile(path, []byte(workerFinishTS), 0o644) != nil {
+			return ""
+		}
+	}
+	return path
+}
 
 // A worker node: an agent doing a task for the outline. It is shown on a single
 // minimal line (status · usage · live activity); the full transcript and a
@@ -32,53 +57,29 @@ const workerSystemPrompt = "You are a worker doing a task for an outline. Do the
 	"bullets, or headings; express nesting with child nodes. After finish_worker, your " +
 	"assistant text must be exactly: WORKER_DONE."
 
-// piEvent is one RPC event line from pi's stdout.
-type piEvent struct {
-	Type          string          `json:"type"`
-	Message       *piMessage      `json:"message"`
-	ToolName      string          `json:"toolName"`
-	Args          json.RawMessage `json:"args"`
-	PartialResult json.RawMessage `json:"partialResult"`
-	Error         string          `json:"error"`
-}
-
-type piMessage struct {
-	Role     string `json:"role"`
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	Content  []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	Usage *piUsage `json:"usage"`
-}
-
-type piUsage struct {
-	Input  int `json:"input"`
-	Output int `json:"output"`
-	Cost   *struct {
-		Total float64 `json:"total"`
-	} `json:"cost"`
-}
-
-func (msg *piMessage) text() string {
-	if msg == nil {
-		return ""
-	}
-	var b strings.Builder
-	for _, c := range msg.Content {
-		if c.Type == "text" {
-			b.WriteString(c.Text)
-		}
-	}
-	return strings.TrimSpace(b.String())
-}
+// workerTextInstruction frames the task for backends without the finish_worker
+// extension (opencode / grok): they answer in plain assistant text, which the
+// editor harvests verbatim as the deliverable. Kept terse and prepended to the task.
+const workerTextInstruction = "You are a worker doing a task for an outline. Do the work with " +
+	"your tools, then reply with ONLY the deliverable — the answer itself, not a recap of your " +
+	"steps. Plain text, no markdown, bullets, or headings. Keep it concise unless the task asks " +
+	"for a list. Task:"
 
 // workerUsage is the running token/cost total shown next to a worker node.
 type workerUsage struct {
-	model   string
-	in, out int
-	cost    float64
+	model     string
+	in, out   int
+	cost      float64
+	estimated bool // cost is an estimate (grok) — rendered with a ~ prefix
+}
+
+// costStr formats a worker's cost, marking estimates (grok, which reports no cost)
+// with a leading ~ to distinguish them from pi/opencode's CLI-reported cost.
+func costStr(u workerUsage) string {
+	if u.estimated {
+		return fmt.Sprintf("~$%.4f", u.cost)
+	}
+	return fmt.Sprintf("$%.4f", u.cost)
 }
 
 type workerUsageMsg struct {
@@ -166,8 +167,8 @@ func (m *Model) runAgentAction(it *item) tea.Cmd {
 	if m.workerStatus[it.uuid] == "running" {
 		return nil // already working
 	}
-	if ch := m.liveSteer(it.uuid); ch != nil {
-		ch <- ultraloopStrip(it.name) // re-prompt the same query, same conversation
+	if s := m.liveSteer(it.uuid); s != nil {
+		_ = s.Steer(ultraloopStrip(it.name)) // re-prompt the same query, same conversation
 		if m.workerStatus != nil {
 			m.workerStatus[it.uuid] = "running"
 		}
@@ -214,8 +215,8 @@ func runWorker(m *Model, it *item) tea.Cmd {
 		m.runOut = map[string][]outLine{}
 		m.runCh = map[string]chan tea.Msg{}
 	}
-	if m.workerSteer == nil {
-		m.workerSteer = map[string]chan string{}
+	if m.workerSess == nil {
+		m.workerSess = map[string]agent.Session{}
 	}
 	// already live → don't double-spawn (stop is 'x'; re-run is runAgentAction).
 	// We never cancel here: cancelling an idle (alive) agent killed it and surfaced
@@ -231,13 +232,9 @@ func runWorker(m *Model, it *item) tea.Cmd {
 	}
 	task := m.buildWorkerTask(it)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	m.runCancel[it.uuid] = cancel
 	m.runOut[it.uuid] = nil
 	ch := make(chan tea.Msg, 1024)
 	m.runCh[it.uuid] = ch
-	steer := make(chan string, 16)
-	m.workerSteer[it.uuid] = steer
 	if m.workerStatus == nil {
 		m.workerStatus = map[string]string{}
 	}
@@ -255,15 +252,41 @@ func runWorker(m *Model, it *item) tea.Cmd {
 	// capture the model at launch so switching the global model later only affects
 	// NEW agents; a re-run of this agent keeps its original model
 	model, thinking := m.curModel()
-	if thinking == "off" {
-		thinking = "" // "off" override → no --thinking flag
-	}
 	if mm := m.workerModel[it.uuid]; mm != "" {
 		model = mm
 	} else {
 		m.workerModel[it.uuid] = model
 	}
-	go startWorker(it.uuid, task, model, thinking, ctx, ch, steer)
+	mdl := agent.ParseModel(model) // mdl.CLI selects the backend (pi/opencode/grok)
+
+	opts := agent.RunOptions{
+		Model:    mdl,
+		Thinking: thinking, // "off" handled by the backend (→ no --thinking)
+	}
+	if mdl.CLI == agent.ProviderPi {
+		// pi has lflow's finish_worker extension: the deliverable is structured
+		// outline nodes the agent emits via that tool.
+		opts.Tools = []string{"read", "bash", "grep", "find", "ls", "edit", "write", "finish_worker"}
+		opts.SystemPrompt = workerSystemPrompt
+		if ext := workerExtensionPath(); ext != "" {
+			opts.Extensions = []string{ext}
+		}
+	} else {
+		// opencode / grok have no finish_worker extension and may not accept a
+		// system prompt over their CLI, so the directive rides inline on the task
+		// and adaptSession harvests the final assistant message as the deliverable.
+		task = workerTextInstruction + "\n\n" + task
+	}
+	sess, err := agent.Run(context.Background(), mdl.CLI, task, opts)
+	if err != nil {
+		m.workerStatus[it.uuid] = "error"
+		delete(m.runCh, it.uuid)
+		m.err = err
+		return nil
+	}
+	m.workerSess[it.uuid] = sess
+	m.runCancel[it.uuid] = sess.Stop
+	go adaptSession(it.uuid, sess, ch)
 
 	// ultraloop: if the query asks to loop, register the schedule and start the
 	// 1s loop tick (once) so it re-prompts forever.
@@ -337,90 +360,37 @@ func (m *Model) buildWorkerTask(it *item) string {
 	return b.String()
 }
 
-// sendPrompt writes one RPC prompt line to pi's stdin.
-func sendPrompt(stdin io.Writer, msg string) {
-	if strings.TrimSpace(msg) == "" {
-		return
-	}
-	j, _ := json.Marshal(msg)
-	io.WriteString(stdin, fmt.Sprintf(`{"id":"1","type":"prompt","message":%s}`+"\n", j))
-}
+// adaptSession bridges a pkg/agent Session to the editor's tea.Msg stream: it
+// translates each normalized agent.Event into the worker UI messages (activity,
+// usage, deliverable, transcript) the editor already renders, then emits a
+// terminal bashDoneMsg when the session's event stream closes. This is the only
+// seam between the provider-agnostic agent layer and the bubbletea worker UI.
+func adaptSession(uuid string, sess agent.Session, ch chan tea.Msg) {
+	code := 0
+	var turnText strings.Builder // assistant text accumulated for the current turn
+	gotFinish := false           // did finish_worker fire this turn? (pi only)
 
-// startWorker spawns pi in RPC mode (no extensions + lflow's finish tool), sends
-// the task, then keeps the process alive: a steering goroutine forwards follow-up
-// messages, and the scanner translates pi's event stream into transcript lines,
-// usage, and a live activity line until the process exits.
-func startWorker(uuid, task, model, thinking string, ctx context.Context, ch chan tea.Msg, steer chan string) {
-	args := []string{"--mode", "rpc", "--no-session", "--approve", "--no-extensions",
-		"--append-system-prompt", workerSystemPrompt,
-		"--tools", "read,bash,grep,find,ls,edit,write,finish_worker"}
-	if ext := workerExtensionPath(); ext != "" {
-		args = append(args, "--extension", ext)
-	}
-	if model != "" {
-		args = append(args, "--model", model)
-	}
-	if thinking != "" {
-		args = append(args, "--thinking", thinking)
-	}
-	c := exec.CommandContext(ctx, "pi", args...)
-	stdin, _ := c.StdinPipe()
-	stdout, _ := c.StdoutPipe()
-	stderr, _ := c.StderrPipe()
-	if err := c.Start(); err != nil {
-		ch <- bashLineMsg{uuid, "pi: " + err.Error(), true}
-		ch <- workerActivityMsg{uuid, workerActivity{text: "failed: " + err.Error()}, "error", false}
-		ch <- bashDoneMsg{uuid, 1}
-		return
-	}
-	sendPrompt(stdin, task)
-
-	// forward steering messages until the conversation is stopped (ctx cancelled);
-	// select on ctx.Done so this goroutine never leaks waiting on an idle worker.
-	go func() {
-		for {
-			select {
-			case msg, ok := <-steer:
-				if !ok {
-					stdin.Close()
-					return
-				}
-				sendPrompt(stdin, msg)
-			case <-ctx.Done():
-				stdin.Close()
-				return
-			}
+	// flushDeliverable turns a turn's final assistant text into the deliverable for
+	// backends that lack finish_worker (opencode/grok): the answer IS the message,
+	// wrapped as one plain node. A turn that already called finish_worker, or that
+	// produced no text, contributes nothing here.
+	flushDeliverable := func() {
+		t := strings.TrimSpace(turnText.String())
+		turnText.Reset()
+		if gotFinish || t == "" {
+			gotFinish = false
+			return
 		}
-	}()
-
-	// collect stderr — pi errors (rate limits, crashes, bad config) land here and
-	// were previously dropped, leaving the worker stuck "idle" when it had failed.
-	stderrCh := make(chan string, 1)
-	go func() {
-		var b strings.Builder
-		s := bufio.NewScanner(stderr)
-		s.Buffer(make([]byte, 64*1024), 1<<20)
-		for s.Scan() {
-			if line := strings.TrimSpace(s.Text()); line != "" {
-				b.WriteString(line + "\n")
-				ch <- bashLineMsg{uuid, "stderr: " + line, true}
-			}
+		if b, err := json.Marshal([]deliverNode{{Text: t}}); err == nil {
+			ch <- workerDeliverableMsg{uuid, string(b)}
 		}
-		stderrCh <- b.String()
-	}()
+	}
 
-	var use workerUsage
-	sawError := false
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 64*1024), 1<<20)
-	for sc.Scan() {
-		var ev piEvent
-		if json.Unmarshal(sc.Bytes(), &ev) != nil {
-			continue
-		}
-		switch ev.Type {
-		case "tool_execution_start":
-			if ev.ToolName == "finish_worker" {
+	for ev := range sess.Events() {
+		switch ev.Kind {
+		case agent.EventToolStart:
+			if ev.Tool == "finish_worker" {
+				gotFinish = true
 				ch <- workerActivityMsg{uuid, workerActivity{tool: "finish_worker", text: "writing result"}, "running", true}
 				// the deliverable is an outline (nodes), never markdown — carry the
 				// nodes JSON verbatim for the model side to materialize directly
@@ -430,116 +400,40 @@ func startWorker(uuid, task, model, thinking string, ctx context.Context, ch cha
 				if json.Unmarshal(ev.Args, &fw) == nil && len(fw.Nodes) > 0 {
 					ch <- workerDeliverableMsg{uuid, string(fw.Nodes)}
 				}
-				break
+				continue
 			}
-			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: toolDetail(ev.Args)}, "running", true}
-		case "tool_execution_update":
-			// stream the tail of the tool's live output onto the activity line
-			detail := toolDetail(ev.Args)
-			if tail := resultTail(ev.PartialResult); tail != "" {
-				if detail != "" {
-					detail += " · " + tail
-				} else {
-					detail = tail
-				}
+			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.Tool, text: ev.Detail}, "running", true}
+		case agent.EventToolUpdate:
+			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.Tool, text: ev.Detail}, "running", false}
+		case agent.EventUsage:
+			if ev.Usage != nil {
+				ch <- workerUsageMsg{uuid, workerUsage{model: ev.Usage.Model, in: ev.Usage.In, out: ev.Usage.Out, cost: ev.Usage.Cost, estimated: ev.Usage.Estimated}}
 			}
-			ch <- workerActivityMsg{uuid, workerActivity{tool: ev.ToolName, text: detail}, "running", false}
-		case "message_end":
-			if ev.Message == nil {
-				break
-			}
-			if u := ev.Message.Usage; u != nil {
-				use.in += u.Input
-				use.out += u.Output
-				if u.Cost != nil {
-					use.cost += u.Cost.Total
-				}
-				if ev.Message.Model != "" {
-					use.model = ev.Message.Provider + "/" + ev.Message.Model
-				}
-				ch <- workerUsageMsg{uuid, use}
-			}
-		case "agent_end":
-			// a turn finished; keep the process alive for follow-up steering
-			st := "idle"
-			if sawError {
-				st = "error"
-			}
-			ch <- workerActivityMsg{uuid, workerActivity{text: st}, st, false}
-		default:
-			// any error-shaped event (error / agent_error / model_error …) — surface
-			// it instead of silently leaving the worker idle
-			if strings.Contains(ev.Type, "error") {
-				sawError = true
-				msg := ev.Error
-				if msg == "" && ev.Message != nil {
-					msg = ev.Message.text()
-				}
-				if msg == "" {
-					msg = ev.Type
-				}
-				ch <- workerActivityMsg{uuid, workerActivity{text: "error: " + clipStr(msg, 60)}, "error", false}
-				ch <- bashLineMsg{uuid, "error: " + msg, true}
-			}
+		case agent.EventAgentText:
+			// pi narrates nothing here (it uses finish_worker); opencode/grok emit
+			// their answer as text, which becomes the deliverable on turn end.
+			turnText.WriteString(ev.Text)
+		case agent.EventTurnEnd:
+			flushDeliverable()
+			ch <- workerActivityMsg{uuid, workerActivity{text: ev.Status}, ev.Status, false}
+		case agent.EventError:
+			code = 1
+			ch <- workerActivityMsg{uuid, workerActivity{text: "error: " + clipStr(ev.Text, 60)}, "error", false}
+			ch <- bashLineMsg{uuid, "error: " + ev.Text, true}
+		case agent.EventLog:
+			ch <- bashLineMsg{uuid, ev.Text, ev.IsErr}
 		}
 	}
-	err := c.Wait()
-	stderrText := <-stderrCh
-	if ctx.Err() != nil {
-		ch <- bashDoneMsg{uuid, 0} // intentional stop (cancel) — not an error
-		return
-	}
-	code := 0
-	if err != nil || sawError {
+	flushDeliverable() // stream closed without a turn-end (e.g. one-shot exit)
+	// stream closed → the process exited. Surface a terminal error we hadn't
+	// already reported as an activity, then mark the worker done.
+	if err := sess.Err(); err != nil {
+		if code == 0 {
+			ch <- workerActivityMsg{uuid, workerActivity{text: "error: " + clipStr(err.Error(), 60)}, "error", false}
+		}
 		code = 1
-		last := lastLine(stderrText)
-		if last == "" {
-			last = "pi exited unexpectedly"
-		}
-		if !sawError { // an exit error we hadn't already reported
-			ch <- workerActivityMsg{uuid, workerActivity{text: "error: " + clipStr(last, 60)}, "error", false}
-		}
 	}
 	ch <- bashDoneMsg{uuid, code}
-}
-
-// lastLine returns the last non-empty line of s.
-func lastLine(s string) string {
-	var last string
-	for _, ln := range strings.Split(s, "\n") {
-		if t := strings.TrimSpace(ln); t != "" {
-			last = t
-		}
-	}
-	return last
-}
-
-// resultTail extracts the last non-empty line of a tool's partial result (the
-// live output pchain appends after " · ").
-func resultTail(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if json.Unmarshal(raw, &s) != nil {
-		var obj map[string]any
-		if json.Unmarshal(raw, &obj) != nil {
-			return ""
-		}
-		for _, k := range []string{"value", "text", "output", "content", "stdout"} {
-			if v, ok := obj[k].(string); ok {
-				s = v
-				break
-			}
-		}
-	}
-	var last string
-	for _, ln := range strings.Split(s, "\n") {
-		if t := strings.TrimSpace(ln); t != "" {
-			last = t
-		}
-	}
-	return clipStr(last, 48)
 }
 
 func clipStr(s string, n int) string {
@@ -576,7 +470,7 @@ func (m *Model) workerSuffix(it *item) string {
 	b.WriteString(cDim + " · " + cReset)
 	b.WriteString(statusColor(status) + statusWord(status, running) + cReset)
 	if hasUsage {
-		b.WriteString(cDim + fmt.Sprintf(" ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset)
+		b.WriteString(cDim + fmt.Sprintf(" ↑%s ↓%s %s", ktok(u.in), ktok(u.out), costStr(u)) + cReset)
 	}
 	if el := m.workerElapsed(it.uuid); el != "" {
 		b.WriteString(cDim + " " + el + cReset)
@@ -650,18 +544,4 @@ func toolColor(tool string) string {
 	default:
 		return cFG
 	}
-}
-
-// toolDetail pulls a short, human detail (file or command) out of a tool's args.
-func toolDetail(args json.RawMessage) string {
-	var m map[string]any
-	if json.Unmarshal(args, &m) != nil {
-		return ""
-	}
-	for _, k := range []string{"path", "file", "file_path", "filename", "command", "cmd", "pattern", "query", "url"} {
-		if v, ok := m[k].(string); ok && v != "" {
-			return clipStr(v, 48)
-		}
-	}
-	return ""
 }

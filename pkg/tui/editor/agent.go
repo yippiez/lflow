@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/agent"
 )
 
 // agentView is the worker's inline expanded view (alt+e): a sectioned, scrollable
@@ -230,8 +232,8 @@ func (v agentView) steerKey(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		m.flash = "steered"
-		if ch := m.liveSteer(it.uuid); ch != nil {
-			ch <- msg // same conversation, as composed
+		if s := m.liveSteer(it.uuid); s != nil {
+			_ = s.Steer(msg) // same conversation, as composed
 			// reflect the new turn immediately so it never reads "idle" while working
 			if m.workerStatus != nil {
 				m.workerStatus[it.uuid] = "running"
@@ -337,9 +339,9 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 	_, running := m.runCancel[it.uuid]
 	status := statusWord(m.workerStatus[it.uuid], running)
 
-	var c []string
-	node := func(depth int, styled string) { c = append(c, agentNodeLines(rail, depth, styled, width)...) }
-	sub := func(depth int, styled string) { c = append(c, agentSubLines(rail, depth, styled, width)...) }
+	var rows []orow
+	node := func(depth int, styled string) { rows = append(rows, orow{depth: depth, styled: styled}) }
+	sub := func(depth int, styled string) { rows = append(rows, orow{depth: depth, sub: true, styled: styled}) }
 
 	// Agent → query as an outline. Worker prompts often originate from copied
 	// pchain outline markdown ("- parent\n  - child"); strip only the structural
@@ -352,7 +354,7 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 	node(0, cFG+"Status"+cReset)
 	line := statusColor(m.workerStatus[it.uuid]) + status + cReset
 	if u, ok := m.workerUsage[it.uuid]; ok {
-		line += cDim + fmt.Sprintf("  ↑%s ↓%s $%.4f", ktok(u.in), ktok(u.out), u.cost) + cReset
+		line += cDim + fmt.Sprintf("  ↑%s ↓%s %s", ktok(u.in), ktok(u.out), costStr(u)) + cReset
 	}
 	if el := m.workerElapsed(it.uuid); el != "" {
 		line += cDim + "  " + el + cReset
@@ -403,7 +405,82 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 	} else {
 		node(1, cDim+"no result yet"+cReset)
 	}
-	return c
+	return renderObserveRows(rail, rows, width)
+}
+
+// orow is one collected observe-pane row before tree connectors are drawn: a
+// bulleted node, or a bullet-less sub line (a note/continuation under a node).
+type orow struct {
+	depth  int
+	sub    bool
+	styled string
+}
+
+// renderObserveRows draws the collected rows with the same tree connectors as the
+// main outline (│ continuation columns, ├─/╰─ drops), so the expanded agent view
+// reads as a branched outline rather than flat indents. Depth-0 rows (the section
+// headers) sit at the root with no connector; their children branch off them.
+func renderObserveRows(rail string, rows []orow, width int) []string {
+	n := len(rows)
+	// isLast[i]: node row i is the last among its siblings (no later same-depth
+	// node before the depth drops below it). Sub rows are skipped — they are
+	// continuations of the preceding node, not tree nodes.
+	isLast := make([]bool, n)
+	for i := 0; i < n; i++ {
+		if rows[i].sub {
+			continue
+		}
+		d := rows[i].depth
+		isLast[i] = true
+		for j := i + 1; j < n; j++ {
+			if rows[j].sub {
+				continue
+			}
+			if rows[j].depth < d {
+				break
+			}
+			if rows[j].depth == d {
+				isLast[i] = false
+				break
+			}
+		}
+	}
+
+	ancestorMore := map[int]bool{} // depth → current ancestor at that depth has a later sibling
+	var out []string
+	cont := "  " // continuation/sub prefix of the most recent node (under "○ ")
+	for i := 0; i < n; i++ {
+		r := rows[i]
+		if r.sub {
+			first := rail + cReset + cont + r.styled
+			out = append(out, wrapLine(first, width, rail+cReset+cont)...)
+			continue
+		}
+		var bars strings.Builder
+		for k := 1; k < r.depth; k++ {
+			if ancestorMore[k] {
+				bars.WriteString("│  ")
+			} else {
+				bars.WriteString("   ")
+			}
+		}
+		conn := bars.String()
+		contBars := bars.String()
+		if r.depth >= 1 {
+			if isLast[i] {
+				conn += "╰─ "
+				contBars += "   "
+			} else {
+				conn += "├─ "
+				contBars += "│  "
+			}
+		}
+		ancestorMore[r.depth] = !isLast[i]
+		cont = contBars + "  " // align continuations/notes under this node's "○ "
+		first := rail + cReset + conn + cDim + "○ " + cReset + r.styled
+		out = append(out, wrapLine(first, width, rail+cReset+cont)...)
+	}
+	return out
 }
 
 // steerContent builds the outline composer as nodes (a "Steer" node + one ○ per
@@ -452,14 +529,15 @@ func (v agentView) steerContent(m *Model, it *item, rail string, width int, focu
 	return c, caretContentLine
 }
 
-// liveSteer returns the steering channel for a worker whose pi process is still
-// alive (running or idle-but-open), or nil if it has exited.
-func (m *Model) liveSteer(uuid string) chan string {
-	if m.workerSteer == nil {
+// liveSteer returns the agent.Session for a worker whose process is still alive
+// (running or idle-but-open), or nil if it has exited. Callers Steer it to push a
+// follow-up into the same conversation.
+func (m *Model) liveSteer(uuid string) agent.Session {
+	if m.workerSess == nil {
 		return nil
 	}
 	if _, alive := m.runCancel[uuid]; !alive {
 		return nil
 	}
-	return m.workerSteer[uuid]
+	return m.workerSess[uuid]
 }
