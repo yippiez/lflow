@@ -43,6 +43,15 @@ func (m *Model) queryMatches(q *item) []database.Node {
 		return nil
 	}
 	lc := strings.ToLower(query)
+	// a bare "#tag" query matches the whole tag exactly — FTS strips the '#' and
+	// would otherwise prefix-match "log" into "logic", so we filter strictly.
+	tag, isTag := tagQuery(query)
+	matches := func(name, note string) bool {
+		if isTag {
+			return nodeHasTag(name, tag) || nodeHasTag(note, tag)
+		}
+		return strings.Contains(strings.ToLower(name), lc) || strings.Contains(strings.ToLower(note), lc)
+	}
 	seen := map[string]bool{}
 	var out []database.Node
 
@@ -51,16 +60,20 @@ func (m *Model) queryMatches(q *item) []database.Node {
 		if it == q || it.mirrorOf != "" || it.name == "" {
 			continue // skip self, mirror rows, and empty/derived names
 		}
-		if strings.Contains(strings.ToLower(it.name), lc) || strings.Contains(strings.ToLower(it.note), lc) {
+		if matches(it.name, it.note) {
 			out = append(out, database.Node{UUID: uuid, Name: it.name})
 			seen[uuid] = true
 		}
 	}
 
-	// saved nodes from the DB (may live outside the loaded subtree)
+	// saved nodes from the DB (may live outside the loaded subtree). For a tag
+	// query the DB returns a loose superset; nodeHasTag tightens it to whole tags.
 	if dbm, err := database.SearchNodes(m.db, query, true); err == nil {
 		for _, mn := range dbm {
 			if seen[mn.UUID] || mn.Deleted || mn.Name == "" || mn.UUID == q.uuid {
+				continue
+			}
+			if isTag && !nodeHasTag(mn.Name, tag) && !nodeHasTag(mn.Note, tag) {
 				continue
 			}
 			out = append(out, mn)

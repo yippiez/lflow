@@ -108,19 +108,23 @@ func TestRenderBodyChipsBareDate(t *testing.T) {
 	}
 }
 
-// TestRenderBodyDateChipBackgroundOnly: a detected date gets only its
-// background colored — the chip — regardless of the node's /color. The
-// foreground keeps the node's color rather than being forced to a default.
-func TestRenderBodyDateChipBackgroundOnly(t *testing.T) {
+// TestRenderBodyDateChipUnaffectedByColor: a date chip is a structural token, so
+// the node's /color never bleeds into it — the chip keeps its pill background and
+// a neutral foreground even when the node is colored red.
+func TestRenderBodyDateChipUnaffectedByColor(t *testing.T) {
 	it := &item{typ: database.TypeBullets, style: "color:red"}
 
 	rendered := renderBody(it, "2026-06-14", -1, false)
 	if !strings.Contains(rendered, bgPill) {
 		t.Errorf("date should get the chip background: %q", rendered)
 	}
-	// the chip is background-only: the date keeps the node's red foreground
-	if !strings.Contains(rendered, styleColorCode["red"]) {
-		t.Errorf("date foreground should keep the node color: %q", rendered)
+	// the chip's runes use the neutral foreground, not the node's red
+	if strings.Contains(rendered, bgPill+styleColorCode["red"]) ||
+		strings.Contains(rendered, styleColorCode["red"]+bgPill) {
+		t.Errorf("date chip must not take the node color: %q", rendered)
+	}
+	if !strings.Contains(rendered, cFG+bgPill) {
+		t.Errorf("date chip should use the neutral foreground: %q", rendered)
 	}
 }
 

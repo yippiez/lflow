@@ -800,17 +800,24 @@ func stripControlBytes(s string) string {
 // format in the plain text and chips those runes.
 type spanFlags struct {
 	date    bool   // part of a canonical YYYY-MM-DD[ HH:MM] date, painted as a chip
+	tag     bool   // part of a #tag, always painted muted gray
 	kwColor string // animated magic-keyword foreground (ultracode/ultraloop), "" = none
 }
 
-// inlineSpans marks the runes that fall inside a canonical date so renderBody
-// can paint them as a chip. Detection is purely by format — the stored text has
-// no brackets.
+// inlineSpans marks the runes inside a canonical date or a #tag so renderBody
+// can paint them specially. Detection is purely by format — the stored text has
+// no brackets or markers.
 func inlineSpans(runes []rune) []spanFlags {
 	flags := make([]spanFlags, len(runes))
-	for _, span := range detectDateSpans(string(runes)) {
+	name := string(runes)
+	for _, span := range detectDateSpans(name) {
 		for k := span[0]; k < span[1] && k < len(flags); k++ {
 			flags[k].date = true
+		}
+	}
+	for _, span := range detectTagSpans(name) {
+		for k := span[0]; k < span[1] && k < len(flags); k++ {
+			flags[k].tag = true
 		}
 	}
 	return flags
@@ -862,9 +869,16 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 		if f.kwColor != "" {
 			fg = f.kwColor
 		}
+		// #tags and date chips are structural tokens with a fixed color, so a
+		// node's /color never bleeds into them: tags stay muted gray, date chips
+		// keep a neutral foreground on their pill.
+		if f.tag {
+			fg = cDim
+		}
+		if f.date {
+			fg = cFG
+		}
 		s := cReset + fg + attrs
-		// a detected date gets only its background colored — the chip. The
-		// foreground keeps the node's own color/attrs; nothing else is special.
 		if f.date {
 			s += bgPill
 		}
