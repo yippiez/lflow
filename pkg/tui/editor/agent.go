@@ -494,8 +494,8 @@ func renderObserveRows(rail string, rows []orow, width int) []string {
 			}
 		}
 		ancestorMore[r.depth] = !isLast[i]
-		cont = contBars + "  " // align continuations/notes under this node's "○ "
-		first := rail + cReset + conn + cDim + "○ " + cReset + r.styled
+		cont = cDim + contBars + cReset + "  " // muted │ columns, aligned under "○ "
+		first := rail + cReset + cDim + conn + "○ " + cReset + r.styled
 		out = append(out, wrapLine(first, width, rail+cReset+cont)...)
 	}
 	return out
