@@ -566,9 +566,16 @@ type moleculeView struct{}
 
 // state returns the info-bar text and the (uncached → cached) canvas lines for
 // the given interior width, recomputing only when the text or width changes.
-func (moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
+func (moleculeView) viewIndex(m *Model, it *item) int {
+	vi, _ := m.nodeStore(it.uuid)["molView"].(int)
+	n := molViewCount()
+	return ((vi % n) + n) % n
+}
+
+func (v moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 	d := m.nodeStore(it.uuid)
-	key := fmt.Sprintf("%d|%s", innerW, it.name)
+	vi := v.viewIndex(m, it)
+	key := fmt.Sprintf("%d|%d|%s", vi, innerW, it.name)
 	if d["molKey"] == key {
 		info, _ := d["molInfo"].(string)
 		lines, _ := d["molLines"].([]string)
@@ -581,9 +588,10 @@ func (moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 		info = "molecule · cannot parse · esc close"
 		lines = []string{cRed + "  " + err.Error() + cReset}
 	} else {
-		info = fmt.Sprintf("molecule · %s · %s · MW %.2f · %d atoms · %d bonds · ↑↓ scroll · esc",
-			g.format, g.formula(), g.weight(), len(g.atoms), len(g.bonds))
-		lines = renderMolecule(g, innerW)
+		name, rendered := molViewAt(vi, g, innerW)
+		lines = rendered
+		info = fmt.Sprintf("molecule · %s · %s · MW %.2f · %d atoms · view: %s [%d/%d] · tab switch · esc",
+			g.format, g.formula(), g.weight(), len(g.atoms), name, vi+1, molViewCount())
 	}
 	d["molKey"] = key
 	d["molInfo"] = info
@@ -611,6 +619,14 @@ func (v moleculeView) Lines(m *Model, it *item, width int) int {
 	return molChrome + len(lines)
 }
 
+func (v moleculeView) cycle(m *Model, it *item, delta int) {
+	d := m.nodeStore(it.uuid)
+	vi, _ := d["molView"].(int)
+	d["molView"] = vi + delta
+	delete(d, "molKey") // force a re-render in the new view
+	m.focusScroll = 0
+}
+
 func (v moleculeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "down", "j":
@@ -620,6 +636,12 @@ func (v moleculeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 		if m.focusScroll > 0 {
 			m.focusScroll--
 		}
+		return nil, true
+	case "tab", "right", "l":
+		v.cycle(m, it, +1)
+		return nil, true
+	case "shift+tab", "left", "h":
+		v.cycle(m, it, -1)
 		return nil, true
 	}
 	return nil, false // esc / ctrl+c handled centrally

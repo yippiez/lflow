@@ -32,15 +32,21 @@ wait_for "⬡ c1ccccc1"
 # --- alt+e opens the inline 2D viewer ---
 send M-e
 
-# the framed info bar reports format, formula, weight, atom and bond counts
+# the framed info bar reports format, formula, weight, atom count and the
+# current view (the viewer offers several views, cycled with tab)
 wait_for "molecule · SMILES"
 assert_contains "C6H6"
 assert_contains "6 atoms"
-assert_contains "6 bonds"
 assert_contains "MW"
+assert_contains "view: structure"
+assert_contains "tab switch"
 
 # atoms render as circles (nodes) inside the full-width framed panel
 assert_contains "○"
+
+# tab cycles to the next view (structure → topo)
+send Tab
+wait_for "view: topo"
 
 # esc collapses the viewer back to the plain node (json/agent close pattern)
 send Escape
