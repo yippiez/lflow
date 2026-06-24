@@ -1,24 +1,15 @@
 package editor
 
-import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-)
+import "encoding/json"
 
-// A runnable node's captured output (bash stdout/stderr) is ephemeral in memory,
-// but it is also mirrored to a local JSON file so it survives a restart — the
-// outline reads the same way it looked when you last ran the command. Like the
-// voice wav, this cache lives under the data dir; it is NEVER in the DB or sync
-// (run output is not notebook content), so no migration and no churn.
+// A runnable node's captured output (bash/query stdout/stderr) is ephemeral in
+// memory, but it is also mirrored into the node_output DB table so it survives a
+// restart — the outline reads the same way it looked when you last ran the
+// command. The table is keyed by node uuid and decoupled from the node row, so
+// output persists the instant a run finishes (even before the node is saved).
 //
-// Query output is already persistent (it materializes as mirror child nodes) and
-// a worker's deliverable is harvested into real nodes, so this covers the one
-// output that was being dropped: a bash node's run band.
-
-func (m *Model) runOutPath(uuid string) string {
-	return filepath.Join(m.ctx.Paths.Data, "lflow", "runout", uuid+".json")
-}
+// WARNING (invariant): run output is local-only — node_output is never synced and
+// never enters the synced node payload. It is not notebook content.
 
 // outLineDisk is the serialisable form of outLine (its fields are unexported).
 type outLineDisk struct {
@@ -26,8 +17,8 @@ type outLineDisk struct {
 	Err  bool   `json:"e,omitempty"`
 }
 
-// ensureRunOutLoaded lazily hydrates a node's run band from disk the first time
-// it is rendered, so persisted output shows after a restart. A node that is
+// ensureRunOutLoaded lazily hydrates a node's run band from node_output the first
+// time it is rendered, so persisted output shows after a restart. A node that is
 // currently running already has its lines in memory and is left untouched.
 func (m *Model) ensureRunOutLoaded(uuid string) {
 	if m.runOutLoaded == nil {
@@ -36,14 +27,20 @@ func (m *Model) ensureRunOutLoaded(uuid string) {
 	if m.runOutLoaded[uuid] {
 		return
 	}
-	m.runOutLoaded[uuid] = true // mark first: a missing/garbled file is not retried
+	m.runOutLoaded[uuid] = true // mark first: a missing/garbled row is not retried
+	if m.ctx.DB == nil {
+		return
+	}
 
-	data, err := os.ReadFile(m.runOutPath(uuid))
-	if err != nil {
+	var raw string
+	if err := m.ctx.DB.QueryRow("SELECT output FROM node_output WHERE uuid = ?", uuid).Scan(&raw); err != nil {
 		return // never run, or no persisted output
 	}
+	if raw == "" {
+		return
+	}
 	var disk []outLineDisk
-	if json.Unmarshal(data, &disk) != nil {
+	if json.Unmarshal([]byte(raw), &disk) != nil {
 		return
 	}
 	if m.runOut == nil {
@@ -56,19 +53,21 @@ func (m *Model) ensureRunOutLoaded(uuid string) {
 	m.runOut[uuid] = out
 }
 
-// persistRunOut writes a node's accumulated run band to disk (overwriting any
-// previous run). An empty band removes the file, so a re-run that produced
+// persistRunOut writes a node's accumulated run band to node_output (overwriting
+// any previous run). An empty band deletes the row, so a re-run that produced
 // nothing clears stale output. Best-effort: a write error never blocks the run.
 func (m *Model) persistRunOut(uuid string) {
 	if m.runOutLoaded == nil {
 		m.runOutLoaded = map[string]bool{}
 	}
 	m.runOutLoaded[uuid] = true // memory is now the source of truth for this uuid
+	if m.ctx.DB == nil {
+		return
+	}
 
 	out := m.runOut[uuid]
-	path := m.runOutPath(uuid)
 	if len(out) == 0 {
-		_ = os.Remove(path)
+		_, _ = m.ctx.DB.Exec("DELETE FROM node_output WHERE uuid = ?", uuid)
 		return
 	}
 	disk := make([]outLineDisk, len(out))
@@ -79,14 +78,16 @@ func (m *Model) persistRunOut(uuid string) {
 	if err != nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	_ = os.WriteFile(path, data, 0o644)
+	_, _ = m.ctx.DB.Exec(
+		"INSERT INTO node_output (uuid, output) VALUES (?, ?) ON CONFLICT(uuid) DO UPDATE SET output = excluded.output",
+		uuid, string(data))
 }
 
 // deleteRunOut drops a node's persisted run band — called when the node itself
-// is removed so the cache does not outlive it.
+// is removed so the row does not outlive it.
 func (m *Model) deleteRunOut(uuid string) {
-	_ = os.Remove(m.runOutPath(uuid))
+	if m.ctx.DB == nil {
+		return
+	}
+	_, _ = m.ctx.DB.Exec("DELETE FROM node_output WHERE uuid = ?", uuid)
 }

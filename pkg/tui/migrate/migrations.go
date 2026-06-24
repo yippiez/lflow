@@ -808,6 +808,23 @@ var lm22 = migration{
 	},
 }
 
+// lm23 adds the node_output table — a bash/query node's captured run output,
+// keyed by node uuid and decoupled from the node row's lifecycle, so output
+// persists the instant a run finishes (before the node itself is saved). Local
+// only, never synced: it replaces the old on-disk run cache with DB storage.
+var lm23 = migration{
+	name: "add-node-output-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS node_output (
+			uuid text PRIMARY KEY,
+			output text NOT NULL DEFAULT ''
+		);`); err != nil {
+			return errors.Wrap(err, "creating node_output table")
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {

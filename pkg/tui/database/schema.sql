@@ -35,7 +35,11 @@ CREATE TRIGGER nodes_after_update AFTER UPDATE ON nodes BEGIN
 				INSERT INTO node_fts(node_fts, rowid, name, note) VALUES ('delete', old.id, old.name, old.note);
 				INSERT INTO node_fts(rowid, name, note) VALUES (new.id, new.name, new.note);
 			END;
+CREATE TABLE node_output (
+			uuid text PRIMARY KEY,
+			output text NOT NULL DEFAULT ''
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 22);
+INSERT INTO system (key, value) VALUES ('schema', 23);
 INSERT INTO system (key, value) VALUES ('remote_schema', 1);

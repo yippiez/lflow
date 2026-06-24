@@ -4,13 +4,14 @@ import (
 	"testing"
 
 	tuictx "github.com/lflow/lflow/pkg/tui/context"
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // TestRunOutPersistsAcrossReload pins the fix: a bash node's run band is written
-// to a local cache and rehydrated on the next render, so output survives a quit.
+// to node_output and rehydrated on the next render, so output survives a quit.
 func TestRunOutPersistsAcrossReload(t *testing.T) {
-	dir := t.TempDir()
-	m := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	db := database.InitTestMemoryDB(t)
+	m := &Model{ctx: tuictx.DnoteCtx{DB: db}}
 
 	m.runOut = map[string][]outLine{"b1": {
 		{text: "hello"},
@@ -18,8 +19,8 @@ func TestRunOutPersistsAcrossReload(t *testing.T) {
 	}}
 	m.persistRunOut("b1")
 
-	// simulate a restart: fresh maps, nothing in memory
-	reopened := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	// simulate a restart: fresh maps, nothing in memory, same DB
+	reopened := &Model{ctx: tuictx.DnoteCtx{DB: db}}
 	reopened.ensureRunOutLoaded("b1")
 
 	got := reopened.runOut["b1"]
@@ -36,8 +37,8 @@ func TestRunOutPersistsAcrossReload(t *testing.T) {
 
 // TestRunOutEmptyClearsCache: a re-run that produced nothing removes stale output.
 func TestRunOutEmptyClearsCache(t *testing.T) {
-	dir := t.TempDir()
-	m := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	db := database.InitTestMemoryDB(t)
+	m := &Model{ctx: tuictx.DnoteCtx{DB: db}}
 
 	m.runOut = map[string][]outLine{"b1": {{text: "old"}}}
 	m.persistRunOut("b1")
@@ -46,7 +47,7 @@ func TestRunOutEmptyClearsCache(t *testing.T) {
 	m.runOut["b1"] = nil
 	m.persistRunOut("b1")
 
-	reopened := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	reopened := &Model{ctx: tuictx.DnoteCtx{DB: db}}
 	reopened.ensureRunOutLoaded("b1")
 	if len(reopened.runOut["b1"]) != 0 {
 		t.Errorf("stale output should be cleared, got %+v", reopened.runOut["b1"])
@@ -55,14 +56,14 @@ func TestRunOutEmptyClearsCache(t *testing.T) {
 
 // TestDeleteRunOutRemovesCache: deleting the node drops its persisted band.
 func TestDeleteRunOutRemovesCache(t *testing.T) {
-	dir := t.TempDir()
-	m := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	db := database.InitTestMemoryDB(t)
+	m := &Model{ctx: tuictx.DnoteCtx{DB: db}}
 	m.runOut = map[string][]outLine{"b1": {{text: "x"}}}
 	m.persistRunOut("b1")
 
 	m.deleteRunOut("b1")
 
-	reopened := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	reopened := &Model{ctx: tuictx.DnoteCtx{DB: db}}
 	reopened.ensureRunOutLoaded("b1")
 	if len(reopened.runOut["b1"]) != 0 {
 		t.Errorf("cache should be gone after delete, got %+v", reopened.runOut["b1"])
