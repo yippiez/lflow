@@ -421,21 +421,26 @@ func connector(r row) string {
 }
 
 // dividerLine renders a divider node as a single horizontal rule. The glyph
-// (circle) is hidden: the rule starts at the glyph column, after the row's
-// indent/rail, and runs to ~90% of the width — a little breathing room is left
-// at the right edge rather than touching the window. Muted gray normally, red
-// under the cursor — the rule itself is the selection cue since there's no glyph.
+// (circle) is hidden: the rule is ~80% of the width available after the row's
+// indent/rail, CENTERED in that space so equal gaps hang on the left and right.
+// Muted gray normally, red under the cursor — the rule itself is the selection
+// cue since there's no glyph.
 func dividerLine(r row, maxLine int, selected bool) string {
 	prefix := " " + cDim + connector(r)
 	col := cDim
 	if selected {
 		col = cRed
 	}
-	pad := maxLine*9/10 - visibleWidth(prefix) // stop short of the right edge
-	if pad < 1 {
-		pad = 1
+	avail := maxLine - visibleWidth(prefix) // content width after the indent/rail
+	ruleW := avail * 8 / 10
+	if ruleW < 1 {
+		ruleW = 1
 	}
-	return prefix + cReset + col + strings.Repeat("─", pad) + cReset
+	leftGap := (avail - ruleW) / 2
+	if leftGap < 0 {
+		leftGap = 0
+	}
+	return prefix + cReset + strings.Repeat(" ", leftGap) + col + strings.Repeat("─", ruleW) + cReset
 }
 
 // continuationPrefix builds the dim-styled hanging indent for a row's wrapped

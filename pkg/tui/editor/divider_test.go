@@ -39,17 +39,28 @@ func TestDividerRendersFullWidthRule(t *testing.T) {
 	}
 }
 
-// TestDividerLineLeavesRightPadding: the rule stops short of the right edge
-// (~90% of width) so there's a little breathing room before the window.
-func TestDividerLineLeavesRightPadding(t *testing.T) {
+// TestDividerLineCentered: the rule is ~80% of the available width and centered,
+// with roughly equal gaps on the left and right so it sits in the middle.
+func TestDividerLineCentered(t *testing.T) {
 	m := newTestModel(60, "x")
 	r := m.rows[0]
 	maxLine := m.width - 1
-	got := visibleWidth(dividerLine(r, maxLine, false))
-	if got != maxLine*9/10 {
-		t.Errorf("divider rule width = %d, want %d (~90%%)", got, maxLine*9/10)
+
+	line := stripSGR(dividerLine(r, maxLine, false))
+	dashes := strings.Count(line, "─")
+	leading := len(line) - len(strings.TrimLeft(line, " "))
+
+	const prefixW = 1 // " " before the (empty) depth-0 connector
+	avail := maxLine - prefixW
+	if want := avail * 8 / 10; dashes != want {
+		t.Errorf("rule width = %d, want %d (~80%% of %d)", dashes, want, avail)
 	}
-	if got >= maxLine {
-		t.Errorf("divider should not reach the right edge: %d of %d", got, maxLine)
+	leftGap := leading - prefixW
+	rightGap := maxLine - leading - dashes
+	if d := leftGap - rightGap; d < -1 || d > 1 {
+		t.Errorf("rule not centered: leftGap=%d rightGap=%d", leftGap, rightGap)
+	}
+	if leftGap < 1 {
+		t.Errorf("rule should hang short on the left too, leftGap=%d", leftGap)
 	}
 }
