@@ -33,20 +33,19 @@ wait_for "⬡ c1ccccc1"
 send M-e
 
 # the framed info bar reports format, formula, weight, atom count and the
-# current view (the viewer offers several views, cycled with tab)
+# current view; the viewer cycles cloud → pointillist → chord with tab
 wait_for "molecule · SMILES"
 assert_contains "C6H6"
 assert_contains "6 atoms"
 assert_contains "MW"
-assert_contains "view: structure"
+assert_contains "view: cloud"
 assert_contains "tab switch"
 
-# atoms render as circles (nodes) inside the full-width framed panel
-assert_contains "○"
-
-# tab cycles to the next view (structure → topo)
+# tab cycles cloud → pointillist → chord
 send Tab
-wait_for "view: topo"
+wait_for "view: pointillist"
+send Tab
+wait_for "view: chord"
 
 # esc collapses the viewer back to the plain node (json/agent close pattern)
 send Escape
