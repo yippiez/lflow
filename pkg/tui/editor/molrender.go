@@ -764,3 +764,272 @@ func renderBraille(g *molGraph, innerW int) []string {
 	}
 	return lines
 }
+
+// ── multiple views ───────────────────────────────────────────────────────────
+//
+// The molecule node offers several VIEWS of the same graph, cycled with tab in
+// the viewer. Each view is one entry here: a name + a renderer that turns the
+// graph into centered, colored canvas lines for innerW columns. New looks plug
+// in as one more entry — the viewer, caching and chrome are view-agnostic.
+
+type molView struct {
+	name string
+	fn   func(g *molGraph, innerW int) []string
+}
+
+var molViews = []molView{
+	{"structure", func(g *molGraph, w int) []string { return renderMoleculeStyle(g, w, styleManhattan) }},
+	{"topo", renderTopo},
+	{"cloud", renderCloud},
+}
+
+func molViewCount() int { return len(molViews) }
+
+// molViewAt renders view i (wrapped), returning its name and lines.
+func molViewAt(i int, g *molGraph, innerW int) (string, []string) {
+	n := len(molViews)
+	v := molViews[((i%n)+n)%n]
+	return v.name, v.fn(g, innerW)
+}
+
+// ── shared scalar field (density over the cell grid) ─────────────────────────
+//
+// Both the topo and cloud views read the same field: a sum of Gaussian bumps at
+// each atom (taller for heavier atoms) plus ridges along bonds. owner[i] is the
+// atom that contributes most density to a cell, so a cell can be tinted by its
+// element. Deriving several looks from one field is the whole point — add a new
+// field-based view by writing only its cell→glyph mapping.
+
+type molField struct {
+	w, h  int
+	f     []float64 // density per cell
+	owner []int     // nearest/strongest atom index per cell (-1 = none)
+	maxF  float64
+	acol  []int // atom cell columns
+	arow  []int // atom cell rows
+}
+
+func (fld *molField) at(c, r int) float64 { return fld.f[r*fld.w+c] }
+
+// buildField projects the layout into a grid sized to innerW and accumulates the
+// density field. yScale compensates for the ~2:1 terminal cell aspect.
+func buildField(g *molGraph, innerW int) *molField {
+	pos := layoutMolecule(g)
+	n := len(pos)
+	if n == 0 {
+		return &molField{w: 1, h: 1, f: []float64{0}, owner: []int{-1}}
+	}
+	minX, maxX := pos[0].x, pos[0].x
+	minY, maxY := pos[0].y, pos[0].y
+	for _, p := range pos {
+		minX, maxX = math.Min(minX, p.x), math.Max(maxX, p.x)
+		minY, maxY = math.Min(minY, p.y), math.Max(maxY, p.y)
+	}
+	spanX := math.Max(maxX-minX, 1e-6)
+	spanY := math.Max(maxY-minY, 1e-6)
+
+	cw := innerW - 2
+	if cw < 24 {
+		cw = 24
+	}
+	if cw > 96 {
+		cw = 96
+	}
+	const maxH = 24
+	const pad = 4
+	s := math.Min(float64(cw-pad)/(spanX*2), float64(maxH-pad)/spanY)
+	if s <= 0 || math.IsInf(s, 0) {
+		s = 1
+	}
+	w := int(spanX*2*s) + pad
+	h := int(spanY*s) + pad
+	if w < 6 {
+		w = 6
+	}
+	if h < 4 {
+		h = 4
+	}
+	if w > cw {
+		w = cw
+	}
+
+	acol := make([]int, n)
+	arow := make([]int, n)
+	for i, p := range pos {
+		acol[i] = int((p.x-minX)*2*s) + pad/2
+		arow[i] = int((p.y-minY)*s) + pad/2
+	}
+
+	fld := &molField{w: w, h: h, f: make([]float64, w*h), owner: make([]int, w*h), acol: acol, arow: arow}
+	for i := range fld.owner {
+		fld.owner[i] = -1
+	}
+
+	// per-atom Gaussian bumps (heavier atom → taller, wider), plus bond ridges.
+	for i := range pos {
+		cx, cy := float64(acol[i]), float64(arow[i])
+		sigma := 2.0 + atomicWeight[g.atoms[i].sym]/40.0
+		amp := 1.0 + atomicWeight[g.atoms[i].sym]/30.0
+		rad := int(sigma*3) + 1
+		for r := int(cy) - rad; r <= int(cy)+rad; r++ {
+			if r < 0 || r >= h {
+				continue
+			}
+			for c := int(cx) - rad*2; c <= int(cx)+rad*2; c++ {
+				if c < 0 || c >= w {
+					continue
+				}
+				dx := (float64(c) - cx) / 2
+				dy := float64(r) - cy
+				v := amp * math.Exp(-(dx*dx+dy*dy)/(2*sigma*sigma))
+				if v < 1e-3 {
+					continue
+				}
+				fld.f[r*w+c] += v
+			}
+		}
+	}
+	// bond ridges: add density along each bond so bonds appear as bridges.
+	for _, b := range g.bonds {
+		steps := 12
+		for t := 0; t <= steps; t++ {
+			ft := float64(t) / float64(steps)
+			cx := float64(acol[b.a])*(1-ft) + float64(acol[b.b])*ft
+			cy := float64(arow[b.a])*(1-ft) + float64(arow[b.b])*ft
+			sigma := 1.2
+			rad := 3
+			for r := int(cy) - rad; r <= int(cy)+rad; r++ {
+				if r < 0 || r >= h {
+					continue
+				}
+				for c := int(cx) - rad*2; c <= int(cx)+rad*2; c++ {
+					if c < 0 || c >= w {
+						continue
+					}
+					dx := (float64(c) - cx) / 2
+					dy := float64(r) - cy
+					v := 0.7 * math.Exp(-(dx*dx+dy*dy)/(2*sigma*sigma))
+					if v < 1e-3 {
+						continue
+					}
+					fld.f[r*w+c] += v
+				}
+			}
+		}
+	}
+	// owner = nearest atom (for element tint) and field max.
+	for r := 0; r < h; r++ {
+		for c := 0; c < w; c++ {
+			idx := r*w + c
+			if fld.f[idx] > fld.maxF {
+				fld.maxF = fld.f[idx]
+			}
+			best, bd := -1, math.MaxFloat64
+			for i := range pos {
+				dx := (float64(c) - float64(acol[i])) / 2
+				dy := float64(r) - float64(arow[i])
+				if d := dx*dx + dy*dy; d < bd {
+					bd, best = d, i
+				}
+			}
+			fld.owner[idx] = best
+		}
+	}
+	if fld.maxF <= 0 {
+		fld.maxF = 1
+	}
+	return fld
+}
+
+func centerPad(lines []string, w, innerW int) []string {
+	if pad := (innerW - w) / 2; pad > 0 {
+		prefix := strings.Repeat(" ", pad)
+		for i := range lines {
+			lines[i] = prefix + lines[i]
+		}
+	}
+	return lines
+}
+
+// topoRamp: valley → peak hypsometric tints.
+var topoRamp = [][3]int{
+	{24, 33, 66}, {30, 72, 96}, {38, 116, 96}, {120, 142, 64},
+	{205, 150, 72}, {232, 200, 128}, {245, 238, 214},
+}
+
+// renderTopo draws the density field as a stepped topographic relief: bands of
+// hypsometric colour with the atom summits labelled.
+func renderTopo(g *molGraph, innerW int) []string {
+	fld := buildField(g, innerW)
+	w, h := fld.w, fld.h
+	const levels = 7
+	cv := newMolCanvas(w, h)
+	for r := 0; r < h; r++ {
+		for c := 0; c < w; c++ {
+			v := fld.at(c, r) / fld.maxF
+			if v < 0.06 {
+				continue // sea level: leave dark
+			}
+			lvl := int(v * float64(levels))
+			if lvl >= levels {
+				lvl = levels - 1
+			}
+			rgb := topoRamp[lvl]
+			// contour edge: brighten where the band steps up vs the cell to the left/up.
+			glyph := '█'
+			fg := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", rgb[0], rgb[1], rgb[2])
+			cv.set(c, r, glyph, fg)
+		}
+	}
+	// atom summits as bold element labels.
+	for i, a := range g.atoms {
+		fg := cBold + fmt.Sprintf("\x1b[38;2;%d;%d;%dm", atomRGB(a.sym)[0], atomRGB(a.sym)[1], atomRGB(a.sym)[2])
+		ch := '●'
+		if a.sym != "C" {
+			ch = []rune(a.sym)[0]
+		}
+		cv.set(fld.acol[i], fld.arow[i], ch, fg)
+	}
+	return centerPad(cv.lines(), w, innerW)
+}
+
+// cloudStipple: density → stipple ramp (sparse dots → solid).
+var cloudStipple = []rune{' ', '·', '∘', '○', '░', '▒', '▓', '█'}
+
+// renderCloud draws the density field as a soft, element-tinted electron cloud.
+func renderCloud(g *molGraph, innerW int) []string {
+	fld := buildField(g, innerW)
+	w, h := fld.w, fld.h
+	cv := newMolCanvas(w, h)
+	for r := 0; r < h; r++ {
+		for c := 0; c < w; c++ {
+			v := fld.at(c, r) / fld.maxF
+			if v < 0.04 {
+				continue
+			}
+			gi := int(v * float64(len(cloudStipple)))
+			if gi >= len(cloudStipple) {
+				gi = len(cloudStipple) - 1
+			}
+			if gi <= 0 {
+				continue
+			}
+			owner := fld.owner[r*w+c]
+			rgb := [3]int{170, 170, 170}
+			if owner >= 0 {
+				rgb = atomRGB(g.atoms[owner].sym)
+			}
+			b := 0.35 + 0.65*v // brighter toward dense cores
+			fg := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", int(float64(rgb[0])*b), int(float64(rgb[1])*b), int(float64(rgb[2])*b))
+			cv.set(c, r, cloudStipple[gi], fg)
+		}
+	}
+	for i, a := range g.atoms {
+		if a.sym == "C" {
+			continue // carbons dissolve into the cloud
+		}
+		fg := cBold + fmt.Sprintf("\x1b[38;2;%d;%d;%dm", atomRGB(a.sym)[0], atomRGB(a.sym)[1], atomRGB(a.sym)[2])
+		cv.set(fld.acol[i], fld.arow[i], []rune(a.sym)[0], fg)
+	}
+	return centerPad(cv.lines(), w, innerW)
+}
