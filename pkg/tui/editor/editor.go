@@ -840,10 +840,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
-		// Tab on an "@…" path token completes it into a chip instead of indenting
-		// (see file.go / chip.go); anywhere else it indents as usual
+		// Tab on a "#…" path token (one that looks like a path) completes it into a
+		// chip instead of indenting; a bare #tag or anything else indents as usual
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" && typeOf(cur.typ).inlineEditable && !cur.readonly {
-			if _, _, ok := chipTokenAt([]rune(cur.name), m.caret); ok {
+			runes := []rune(cur.name)
+			if s, e, ok := chipTokenAt(runes, m.caret); ok && looksLikePath(string(runes[s+1:e])) {
 				m.completeChipUnderCaret(cur)
 				return m, nil
 			}

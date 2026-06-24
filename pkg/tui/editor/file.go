@@ -183,7 +183,7 @@ func (m *Model) completeChipUnderCaret(cur *item) bool {
 // text (not yet a committed chip).
 func (m *Model) setChipPartial(cur *item, start, end int, partial string, cands []string, sel int) {
 	runes := []rune(cur.name)
-	tok := []rune("@" + partial)
+	tok := []rune("#" + partial)
 	cur.name = string(runes[:start]) + string(tok) + string(runes[end:])
 	m.caret = start + len(tok)
 	m.unsaved = true
