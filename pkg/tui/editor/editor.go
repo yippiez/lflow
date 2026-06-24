@@ -771,15 +771,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil // empty compose — type first, then Enter launches
 		}
-		// committing a file node: expand ~ and resolve relative → absolute, then
-		// lock it read-only so the path can't be fumbled. /lock unlocks to re-edit.
-		// Falls through to the normal new-node behavior (the new sibling is empty).
-		if cur != nil && cur.typ == database.TypeFile && cur.mirrorOf == "" && !cur.readonly && strings.TrimSpace(cur.name) != "" {
-			cur.name = normalizeFilePath(cur.name)
-			cur.readonly = true
-			m.caret = len([]rune(cur.name))
-			m.unsaved = true
-		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
 		// node and its whole subtree intact and push it down, opening an empty node

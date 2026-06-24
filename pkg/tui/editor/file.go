@@ -2,18 +2,14 @@ package editor
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
-// File node: the node's name is a filesystem path. Tab completes it shell-style,
-// Enter normalizes it to an absolute path (see editor.go), and ⌥e opens it in
-// $EDITOR. Completion is prefix-based on the basename so Tab can advance to the
-// longest common prefix; repeated Tab on an ambiguous path cycles the matches.
+// Filesystem-path completion for the @path chip (see chip.go). Completion is
+// prefix-based on the basename so Tab can advance to the longest common prefix;
+// an ambiguous prefix cycles, a file commits to a chip, a directory keeps drilling.
 
 // expandHome turns a leading ~ into the user's home directory. Other paths are
 // returned unchanged.
@@ -97,60 +93,6 @@ func commonPrefix(ss []string) string {
 		}
 	}
 	return p
-}
-
-// completeFilePath performs one Tab of shell-style path completion on a file
-// node: it fills the longest common prefix and lists the matches, then cycles
-// through them on repeated Tab. It edits it.name and moves the caret to the end.
-func (m *Model) completeFilePath(it *item) {
-	text := it.name
-	d := m.nodeStore(it.uuid)
-
-	// sitting on a previously-offered candidate → cycle to the next one
-	if cands, ok := d["fileCompCands"].([]string); ok && len(cands) > 1 {
-		for i, c := range cands {
-			if c == text {
-				ni := (i + 1) % len(cands)
-				m.setFileComplete(it, cands[ni], cands, ni)
-				return
-			}
-		}
-	}
-
-	matches := fileCandidates(text)
-	switch len(matches) {
-	case 0:
-		m.flash = "no path match"
-		delete(d, "fileCompCands")
-	case 1:
-		m.setFileComplete(it, matches[0], nil, 0)
-		delete(d, "fileCompCands")
-	default:
-		if lcp := commonPrefix(matches); len([]rune(lcp)) > len([]rune(text)) {
-			// advance to the shared prefix and list; next Tab starts cycling
-			m.setFileComplete(it, lcp, matches, -1)
-		} else {
-			// already at the shared prefix — begin cycling now
-			m.setFileComplete(it, matches[0], matches, 0)
-		}
-	}
-}
-
-// setFileComplete writes a completion result: the new name, caret at the end,
-// remembered candidates for cycling, and a flash listing the matches.
-func (m *Model) setFileComplete(it *item, name string, cands []string, sel int) {
-	it.name = name
-	m.caret = len([]rune(name))
-	m.unsaved = true
-	d := m.nodeStore(it.uuid)
-	if len(cands) > 1 {
-		d["fileCompCands"] = cands
-		d["fileCompIdx"] = sel
-		m.flash = fileCompList(cands, sel)
-	} else {
-		delete(d, "fileCompCands")
-		m.flash = ""
-	}
 }
 
 // fileCompList renders the match basenames for the status bar, marking the
@@ -269,21 +211,4 @@ func (m *Model) commitPathChip(cur *item, start, end int, absPath string) {
 	m.unsaved = true
 	m.flash = ""
 	delete(m.nodeStore(cur.uuid), "chipCands")
-}
-
-// openFileInEditor opens the file node's path in $EDITOR (falling back to nvim),
-// suspending the inline UI while the editor runs and resuming after it exits.
-func openFileInEditor(m *Model, it *item) tea.Cmd {
-	path := normalizeFilePath(it.name)
-	if path == "" {
-		m.flash = "empty path"
-		return nil
-	}
-	ed := os.Getenv("EDITOR")
-	if ed == "" {
-		ed = "nvim"
-	}
-	parts := strings.Fields(ed)
-	c := exec.Command(parts[0], append(parts[1:], path)...)
-	return tea.ExecProcess(c, func(error) tea.Msg { return nil })
 }

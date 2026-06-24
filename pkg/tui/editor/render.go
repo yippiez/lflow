@@ -3,7 +3,6 @@ package editor
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -864,30 +863,10 @@ func inlineSpans(runes []rune) []spanFlags {
 // every row — selection is carried by the red glyph alone. Unselected rows
 // hide the markdown markers; the selected row shows them and the block
 // cursor inverts the cell under the rune at the caret index (-1 for none).
-// renderFileTag renders a locked file node's absolute path as a compact tag —
-// "@" + the final path component, cyan like a structural token. Under the cursor
-// it inverts (reverse-video block) since there is no caret to mark selection.
-func renderFileTag(path string, selected bool) string {
-	base := filepath.Base(path)
-	if base == "." || base == string(filepath.Separator) || base == "" {
-		base = path
-	}
-	tag := "@" + base
-	if selected {
-		return cInvert + tag + cReset + cFG
-	}
-	return cCyan + tag + cReset
-}
-
 func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip) string {
 	name = stripControlBytes(name)
 	if r := typeOf(it.typ).render; r != nil {
 		return r(it, name) // per-type inline-body override (json preview)
-	}
-	// a committed (locked) file node stores the long absolute path but renders as a
-	// compact cyan @basename tag — no caret, since it can't be edited until unlocked.
-	if it.typ == database.TypeFile && it.readonly {
-		return renderFileTag(name, selected)
 	}
 	base := cFG
 	// a /color picks the node's foreground; default stays the palette gray
