@@ -18,6 +18,7 @@ registry — one descriptor per type in `pkg/tui/editor/registry.go`.
   outline at `~/.local/share/lflow/lflow.db`. SQLite surgery goes through a
   `-tags fts5` Go program (the sqlite3 CLI lacks fts5).
 - Commit each logical change as its own `label: description` commit; push as you go.
+  Branches are named `label/explanation` — see [CONTRIBUTING.md](CONTRIBUTING.md).
 - No emojis — plain Unicode symbols only (○ ◆ ▸ ● $ {} →). CLI output uses `→`/`·`.
 
 ## Adding new nodes
