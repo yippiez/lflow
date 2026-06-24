@@ -53,6 +53,7 @@ type slashCommand struct {
 var slashCommands = []slashCommand{
 	{"/bring", "Bring another node (or an agent) here"},
 	{"/complete", "Toggle done"},
+	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/goto", "Jump the editor to another node"},
 	{"/link", "Link this node to another (→ target; alt+g jumps)"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
@@ -2002,6 +2003,19 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 			cur.completedAt = time.Now().Unix()
 		}
 		m.unsaved = true
+	case "/duplicate":
+		// deep-copy this node (and its subtree) in as the next sibling, then
+		// land the cursor on the copy so it is ready to rename/edit
+		m.pushUndo("")
+		ctx := m.cursorCtx()
+		clone, err := m.tree.duplicate(cur)
+		if err != nil {
+			m.flash = err.Error()
+			return m, nil
+		}
+		m.unsaved = true
+		m.refreshRows()
+		m.cursor = m.findRow(clone, ctx)
 	case "/note":
 		// a mirror is the same node everywhere: edit the original's note
 		cur = m.tree.resolve(cur)

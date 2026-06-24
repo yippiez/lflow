@@ -406,6 +406,57 @@ func (t *tree) insertFirstChild(parent *item) (*item, error) {
 	return it, nil
 }
 
+// duplicate deep-copies the item's subtree with fresh uuids and inserts the
+// copy as its next sibling — a duplicate "next to it". Mirrors and links keep
+// pointing at their originals. The view root (no parent) cannot be duplicated.
+func (t *tree) duplicate(it *item) (*item, error) {
+	if it.parent == nil {
+		return nil, errors.New("cannot duplicate the root node")
+	}
+	clone, err := t.cloneSubtree(it)
+	if err != nil {
+		return nil, err
+	}
+	clone.parent = it.parent
+	idx := indexOf(it)
+	it.parent.children = append(it.parent.children, nil)
+	copy(it.parent.children[idx+2:], it.parent.children[idx+1:])
+	it.parent.children[idx+1] = clone
+	return clone, nil
+}
+
+// cloneSubtree deep-copies an item subtree, handing out fresh uuids and marking
+// the copy as new so it persists on the next save. mirrorOf and linkTo are
+// preserved so duplicated mirrors/links keep resolving to their originals.
+func (t *tree) cloneSubtree(src *item) (*item, error) {
+	uuid, err := utils.GenerateUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "generating uuid")
+	}
+	c := &item{
+		uuid:        uuid,
+		name:        src.name,
+		note:        src.note,
+		typ:         src.typ,
+		style:       src.style,
+		mirrorOf:    src.mirrorOf,
+		linkTo:      src.linkTo,
+		completedAt: src.completedAt,
+		collapsed:   src.collapsed,
+		isNew:       true,
+	}
+	t.byUUID[uuid] = c
+	for _, ch := range src.children {
+		dup, err := t.cloneSubtree(ch)
+		if err != nil {
+			return nil, err
+		}
+		dup.parent = c
+		c.children = append(c.children, dup)
+	}
+	return c, nil
+}
+
 // remove detaches the item (and its subtree) from the tree and records
 // pre-existing nodes for tombstoning on save.
 func (t *tree) remove(it *item) {

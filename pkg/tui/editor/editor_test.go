@@ -1324,3 +1324,94 @@ func TestCtrlArrowJumpsWords(t *testing.T) {
 		t.Fatalf("ctrl arrows must not zoom, viewStack depth=%d", len(m.viewStack))
 	}
 }
+
+// dupModel builds root → [A, B(child C)] with uuids, for the /duplicate tests.
+func dupModel() (*Model, *item, *item, *item) {
+	root := &item{}
+	a := &item{uuid: "a", name: "A", parent: root}
+	b := &item{uuid: "b", name: "B", parent: root}
+	c := &item{uuid: "c", name: "C", parent: b}
+	b.children = []*item{c}
+	root.children = []*item{a, b}
+	tr := &tree{root: root, byUUID: map[string]*item{"a": a, "b": b, "c": c}, externalNames: map[string]string{}}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	return m, a, b, c
+}
+
+// TestDuplicateInsertsCopyNextToNode is the /duplicate contract: the cursor
+// node and its whole subtree are copied in as the next sibling with fresh
+// uuids, content preserved, and the cursor lands on the copy.
+func TestDuplicateInsertsCopyNextToNode(t *testing.T) {
+	m, _, b, c := dupModel()
+	m.cursor = m.rowIndexOf(b)
+
+	mm, _ := m.runSlash("/duplicate")
+	*m = *mm.(*Model)
+
+	kids := m.tree.root.children
+	if len(kids) != 3 || kids[1] != b || kids[2].name != "B" {
+		t.Fatalf("duplicate should insert the copy after the node, got %v", namesOf(kids))
+	}
+	clone := kids[2]
+	if clone.uuid == "" || clone.uuid == b.uuid {
+		t.Fatalf("clone needs a fresh uuid, got %q", clone.uuid)
+	}
+	if clone.parent != m.tree.root {
+		t.Fatalf("clone parent should be root")
+	}
+	if !clone.isNew {
+		t.Fatalf("clone must be marked new so it persists on save")
+	}
+	if len(clone.children) != 1 || clone.children[0].name != "C" || clone.children[0].uuid == c.uuid {
+		t.Fatalf("clone's subtree must be copied with fresh uuids, got %v", namesOf(clone.children))
+	}
+	if clone.children[0].parent != clone {
+		t.Fatalf("cloned child must reparent onto the clone")
+	}
+	if got := m.cursorItem(); got != clone {
+		t.Fatalf("cursor should land on the duplicate, got %q", got.name)
+	}
+}
+
+// TestDuplicateRootIsNoop: the root has no sibling slot, so duplicating it is
+// refused without mutating the tree. (The view root is never a selectable row,
+// so this exercises tree.duplicate directly -- the guard runSlash relies on.)
+func TestDuplicateRootIsNoop(t *testing.T) {
+	m, _, _, _ := dupModel()
+	before := len(m.tree.root.children)
+
+	clone, err := m.tree.duplicate(m.tree.root)
+	if err == nil || clone != nil {
+		t.Fatalf("duplicating the root must fail, got clone=%v err=%v", clone, err)
+	}
+	if len(m.tree.root.children) != before {
+		t.Fatalf("duplicating the root must not add nodes, got %d", len(m.tree.root.children))
+	}
+}
+
+// TestUndoRevertsDuplicate: a duplicate is a single undoable structural step.
+func TestUndoRevertsDuplicate(t *testing.T) {
+	m, _, b, _ := dupModel()
+	m.cursor = m.rowIndexOf(b)
+	before := len(m.tree.root.children)
+
+	mm, _ := m.runSlash("/duplicate")
+	*m = *mm.(*Model)
+	if len(m.tree.root.children) != before+1 {
+		t.Fatalf("duplicate should add a node, got %d", len(m.tree.root.children))
+	}
+
+	m.undo()
+	if len(m.tree.root.children) != before {
+		t.Fatalf("undo should remove the duplicate, got %d", len(m.tree.root.children))
+	}
+}
+
+func namesOf(items []*item) []string {
+	var out []string
+	for _, it := range items {
+		out = append(out, it.name)
+	}
+	return out
+}
