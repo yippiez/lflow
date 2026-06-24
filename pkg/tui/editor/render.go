@@ -27,6 +27,7 @@ const (
 	cUnderline = "\x1b[4m"
 	cStrike    = "\x1b[9m"
 	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
+	bgTerm  = "\x1b[48;2;18;20;26m"  // #12141a terminal block behind bash rows
 	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
 	bgNote  = "\x1b[48;2;34;40;49m"  // #222831 subtle band behind a node's note
 	cInvert = "\x1b[7m"              // the block cursor: inverts the cell beneath it
@@ -884,9 +885,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		prefix = cAccent + glyphQuoteBar + cReset + " "
 	case database.TypeCode:
 		attrs += bgCode
+	case database.TypeBash:
+		attrs += bgTerm // dark terminal block; the "$ " prompt is folded into the pad
 	}
-	if s := typeOf(it.typ).sign; s != "" {
-		prefix = cDim + s + cReset // type sign, e.g. "$ " for bash
+	if s := typeOf(it.typ).sign; s != "" && it.typ != database.TypeBash {
+		prefix = cDim + s + cReset // type sign, e.g. "⌕ " for query
 	}
 	// /bold, /italic, /underline layer on top of the layout's own attributes
 	attrs += styleAttrs(it.style)
@@ -925,8 +928,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	var b strings.Builder
 	b.WriteString(prefix)
 	cur := ""
-	if it.typ == database.TypeCode {
+	switch it.typ {
+	case database.TypeCode:
 		b.WriteString(cReset + attrs + " ") // pad the code block
+	case database.TypeBash:
+		b.WriteString(cReset + attrs + cDim + "$ " + cReset + attrs) // prompt on the tint
 	}
 	for i := 0; i < len(runes); {
 		// a chip anchor renders collapsed: the chip kind's color + compact display,
@@ -969,7 +975,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		// past the last rune: paint one trailing cell
 		b.WriteString(cReset + cFG + cInvert + " ")
 	}
-	if it.typ == database.TypeCode {
+	if it.typ == database.TypeCode || it.typ == database.TypeBash {
 		b.WriteString(cReset + attrs + " ")
 	}
 	b.WriteString(cReset)
