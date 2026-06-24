@@ -351,6 +351,27 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 		// FTS syntax errors on odd queries are non-fatal; lexical results stand.
 	}
 
+	// chip pass: anchors hide chip content (e.g. a path's basename) from the LIKE
+	// and FTS passes, which see only the opaque anchor. Resolve anchors for the
+	// anchor-bearing nodes and match the display + full value. char(65532) is the
+	// anchor sentinel U+FFFC, so this stays off chipless nodes.
+	if rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE deleted = 0 AND instr(name, char(65532)) > 0 LIMIT 200"); err == nil {
+		chips, _ := LoadChips(db)
+		lq := strings.ToLower(q)
+		for rows.Next() {
+			n, scanErr := scanNode(rows)
+			if scanErr != nil {
+				rows.Close()
+				return nil, errors.Wrap(scanErr, "scanning node")
+			}
+			hay := strings.ToLower(DisplayAnchors(n.Name, chips) + " " + ExpandAnchors(n.Name, chips))
+			if strings.Contains(hay, lq) {
+				appendNode(n)
+			}
+		}
+		rows.Close()
+	}
+
 	return ret, nil
 }
 

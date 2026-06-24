@@ -29,13 +29,20 @@ func ChipDisplay(c Chip) string {
 			base = c.Value
 		}
 		return "@" + base
+	case "tag":
+		return "#" + c.Value
 	default:
 		return c.Value
 	}
 }
 
 // ChipExpand is a chip's full underlying value (e.g. the absolute path).
-func ChipExpand(c Chip) string { return c.Value }
+func ChipExpand(c Chip) string {
+	if c.Kind == "tag" {
+		return "#" + c.Value
+	}
+	return c.Value
+}
 
 // resolveAnchors rewrites each anchor in name using f(chip). A missing record
 // degrades to "@?" so a raw anchor never leaks to a read surface.

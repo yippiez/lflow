@@ -128,7 +128,11 @@ type chipKind struct {
 	expand  func(value string) string // full value, e.g. the absolute path
 }
 
-const chipKindPath = "path"
+const (
+	chipKindPath = "path"
+	chipKindTag  = "tag"
+	chipKindDate = "date"
+)
 
 var chipKinds = map[string]chipKind{
 	chipKindPath: {
@@ -142,6 +146,21 @@ var chipKinds = map[string]chipKind{
 			return "@" + base
 		},
 		expand: func(v string) string { return v },
+	},
+	// tag/date kinds make the chip model uniform (see the chip-kind design). Their
+	// display equals their value, so nothing is hidden; legacy plain-text #tags and
+	// dates still render via inlineSpans until they are backfilled into chips.
+	chipKindTag: {
+		key:     chipKindTag,
+		color:   cDim,
+		display: func(v string) string { return "#" + v },
+		expand:  func(v string) string { return "#" + v },
+	},
+	chipKindDate: {
+		key:     chipKindDate,
+		color:   cFG,
+		display: func(v string) string { return v },
+		expand:  func(v string) string { return v },
 	},
 }
 
