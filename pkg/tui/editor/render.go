@@ -421,7 +421,7 @@ func connector(r row) string {
 }
 
 // dividerLine renders a divider node as a single horizontal rule. The glyph
-// (circle) is hidden: the rule is ~80% of the width available after the row's
+// (circle) is hidden: the rule is ~90% of the width available after the row's
 // indent/rail, CENTERED in that space so equal gaps hang on the left and right.
 // Muted gray normally, red under the cursor — the rule itself is the selection
 // cue since there's no glyph.
@@ -432,7 +432,7 @@ func dividerLine(r row, maxLine int, selected bool) string {
 		col = cRed
 	}
 	avail := maxLine - visibleWidth(prefix) // content width after the indent/rail
-	ruleW := avail * 8 / 10
+	ruleW := avail * 9 / 10
 	if ruleW < 1 {
 		ruleW = 1
 	}
