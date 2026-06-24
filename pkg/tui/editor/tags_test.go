@@ -44,7 +44,7 @@ func TestNodeHasTagWholeWord(t *testing.T) {
 // the node's /color.
 func TestRenderBodyTagMutedGray(t *testing.T) {
 	it := &item{typ: database.TypeBullets, style: "color:red"}
-	rendered := renderBody(it, "ship #log today", -1, false)
+	rendered := renderBody(it, "ship #log today", -1, false, nil)
 
 	if got := stripSGR(rendered); got != "ship #log today" {
 		t.Errorf("tag text must render literally: %q", got)
