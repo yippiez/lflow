@@ -20,6 +20,7 @@ import (
 
 type options struct {
 	parent   string
+	typ      string
 	intoNote bool
 	top      bool
 	strict   bool
@@ -37,6 +38,7 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&opts.parent, "parent", "", "parent node, defaults to root")
+	f.StringVar(&opts.typ, "type", database.TypeBullets, "node type: bullets, todo, h1, h2, h3, code or quote")
 	f.BoolVar(&opts.intoNote, "note", false, "append the text to the parent's note instead of creating children")
 	f.BoolVar(&opts.top, "top", false, "prepend instead of append")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
@@ -68,7 +70,7 @@ func readLines(args []string) ([]string, error) {
 	return nil, errors.New("no content: pass text or pipe stdin")
 }
 
-func insertChildren(db *database.DB, parentUUID string, lines []string, top bool) (int, error) {
+func insertChildren(db *database.DB, parentUUID string, lines []string, typ string, top bool) (int, error) {
 	now := time.Now().UnixNano()
 
 	var rank int
@@ -97,7 +99,7 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, top bool
 			ParentUUID: parentUUID,
 			Rank:       rank + i,
 			Name:       line,
-			Type:     database.TypeBullets,
+			Type:     typ,
 			AddedOn:    now,
 			EditedOn:   now,
 			Dirty:      true,
@@ -116,6 +118,10 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		db := ctx.DB
 		if err := database.EnsureRoot(db); err != nil {
 			return err
+		}
+
+		if !database.ValidTypes[opts.typ] {
+			return errors.Errorf("unknown type %q: bullets, todo, h1, h2, h3, code or quote", opts.typ)
 		}
 
 		// resolve --parent, defaulting to the always-available root
@@ -165,7 +171,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			return nil
 		}
 
-		count, err := insertChildren(db, parentUUID, lines, opts.top)
+		count, err := insertChildren(db, parentUUID, lines, opts.typ, opts.top)
 		if err != nil {
 			return errors.Wrap(err, "inserting nodes")
 		}
