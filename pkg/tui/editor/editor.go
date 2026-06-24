@@ -3122,7 +3122,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	}
 	m.refreshAncestors()
 	m.refreshRows()
-	m.ensureTempTree() // the panel is always visible, so it must always have >=1 node
+	m.ensureTempTree()    // the panel is always visible, so it must always have >=1 node
+	m.backfillChipsOnce() // one-time: convert legacy plain-text #tags/dates to chips
+	m.refreshRows()
 
 	// WARNING (invariant): inline scrollback only — NEVER pass tea.WithAltScreen.
 	// The alt-screen erases the styled outline on quit and breaks scriptable

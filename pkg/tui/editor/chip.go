@@ -2,6 +2,7 @@ package editor
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/lflow/lflow/pkg/tui/database"
@@ -221,6 +222,73 @@ func (m *Model) replaceRangeWithChip(cur *item, start, end int, kind, value stri
 	m.caret = start + len([]rune(anchor))
 	m.unsaved = true
 	return true
+}
+
+// backfillChipsOnce converts every legacy plain-text #tag and canonical date in
+// the outline into chips, exactly once (guarded by a system flag). It reuses the
+// same detection that renders them, so what becomes a chip is exactly what
+// already rendered as one.
+func (m *Model) backfillChipsOnce() {
+	if m.ctx.DB == nil {
+		return
+	}
+	var done string
+	if database.GetSystem(m.ctx.DB, "chips_backfilled", &done) == nil && done == "1" {
+		return
+	}
+	converted := 0
+	var walk func(it *item)
+	walk = func(it *item) {
+		if it.mirrorOf == "" && it.name != "" && !hasAnchor(it.name) {
+			converted += m.backfillName(it)
+		}
+		for _, c := range it.children {
+			walk(c)
+		}
+	}
+	walk(m.tree.root)
+	if converted > 0 {
+		if _, err := m.tree.save(); err == nil {
+			m.tree.refreshSnapshots()
+		}
+	}
+	_ = database.UpsertSystem(m.ctx.DB, "chips_backfilled", "1")
+}
+
+// backfillName rewrites it.name, replacing every tag/date span with a chip
+// anchor; it returns how many it converted.
+func (m *Model) backfillName(it *item) int {
+	type match struct {
+		start, end  int
+		kind, value string
+	}
+	name := it.name
+	runes := []rune(name)
+	var ms []match
+	for _, sp := range detectTagSpans(name) {
+		ms = append(ms, match{sp[0], sp[1], chipKindTag, strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#")})
+	}
+	for _, sp := range detectDateSpans(name) {
+		ms = append(ms, match{sp[0], sp[1], chipKindDate, string(runes[sp[0]:sp[1]])})
+	}
+	if len(ms) == 0 {
+		return 0
+	}
+	sort.Slice(ms, func(i, j int) bool { return ms[i].start < ms[j].start })
+
+	var b strings.Builder
+	prev, last, n := 0, -1, 0
+	for _, mm := range ms {
+		if mm.start < last {
+			continue // overlapping span (e.g. a date inside a tag) — keep the earlier
+		}
+		b.WriteString(string(runes[prev:mm.start]))
+		b.WriteString(m.createChip(mm.kind, mm.value))
+		prev, last, n = mm.end, mm.end, n+1
+	}
+	b.WriteString(string(runes[prev:]))
+	it.name = b.String()
+	return n
 }
 
 // ── Model chip store ───────────────────────────────────────────────────────
