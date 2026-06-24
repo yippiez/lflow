@@ -2608,7 +2608,10 @@ func (m *Model) viewOutline(maxLine int) []string {
 		// workers render on a single line (status/usage/activity in the suffix); the
 		// transcript lives in the agent UI (alt+e). Other runnable nodes (bash/query)
 		// hang their ephemeral output beneath them.
-		if it.typ != database.TypeWorker {
+		// the focused bash node shows its full scrollable viewer (the nodeView band
+		// below) instead of this capped inline band, so don't render both
+		focusedView := m.focused && i == m.cursor && nodeViewOf(it) != nil
+		if it.typ != database.TypeWorker && !focusedView {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
 		}
 	}

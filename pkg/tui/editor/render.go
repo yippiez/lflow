@@ -468,6 +468,21 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 	return cDim + string(cells)
 }
 
+// styleOutLine renders one captured output line. If the program emitted its own
+// ANSI color (a SGR escape is present), it is passed through faithfully so the
+// command's colors survive; an uncolored line falls back to muted gray, stderr
+// red. A trailing reset guards against an unterminated sequence bleeding out.
+func styleOutLine(l outLine) string {
+	if strings.ContainsRune(l.text, '\x1b') {
+		return l.text + cReset
+	}
+	col := cDim
+	if l.err {
+		col = cRed
+	}
+	return col + l.text + cReset
+}
+
 // runBandLines renders a bash node's run output beneath it: stdout in the normal
 // color, stderr red, capped to the last few lines, with a running indicator. The
 // band is hydrated from its on-disk cache on first render (see runout.go) so it
@@ -489,11 +504,7 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		shown = shown[len(shown)-capN:]
 	}
 	for _, l := range shown {
-		col := cDim // bash/query output is muted gray
-		if l.err {
-			col = cRed
-		}
-		lines = append(lines, clip(rail+cReset+col+"  "+l.text+cReset, maxLine))
+		lines = append(lines, clip(rail+cReset+"  "+styleOutLine(l), maxLine))
 	}
 	if running {
 		lines = append(lines, clip(rail+cReset+cDim+"  running…"+cReset, maxLine))

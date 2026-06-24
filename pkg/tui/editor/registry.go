@@ -85,7 +85,8 @@ var nodeTypes = []nodeType{
 	},
 	{
 		key: database.TypeBash, label: "Bash", sign: "$ ", inlineEditable: true,
-		run: runBash,
+		run:  runBash,
+		view: bashView{}, // alt+e: scrollable, color-preserving output viewer
 	},
 	{
 		key: database.TypeQuery, label: "Query", sign: "⌕ ", inlineEditable: true,
