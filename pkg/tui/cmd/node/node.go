@@ -4,6 +4,7 @@ package node
 
 import (
 	"github.com/lflow/lflow/pkg/tui/cmd/add"
+	"github.com/lflow/lflow/pkg/tui/cmd/grep"
 	"github.com/lflow/lflow/pkg/tui/cmd/list"
 	"github.com/lflow/lflow/pkg/tui/cmd/mv"
 	"github.com/lflow/lflow/pkg/tui/cmd/open"
@@ -22,6 +23,7 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd.AddCommand(open.NewCmd(ctx))
 	cmd.AddCommand(list.NewCmd(ctx))
 	cmd.AddCommand(add.NewCmd(ctx))
+	cmd.AddCommand(grep.NewCmd(ctx))
 	cmd.AddCommand(mv.NewCmd(ctx))
 	cmd.AddCommand(remove.NewCmd(ctx))
 	cmd.AddCommand(newEditCmd(ctx))
