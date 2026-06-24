@@ -777,10 +777,12 @@ type molView struct {
 	fn   func(g *molGraph, innerW int) []string
 }
 
+// molViews is the ordered set the viewer cycles with tab. cloud is the default
+// (index 0), then pointillist, then chord.
 var molViews = []molView{
-	{"structure", func(g *molGraph, w int) []string { return renderMoleculeStyle(g, w, styleManhattan) }},
-	{"topo", renderTopo},
 	{"cloud", renderCloud},
+	{"pointillist", renderPointillist},
+	{"chord", renderChord},
 }
 
 func molViewCount() int { return len(molViews) }
@@ -813,11 +815,15 @@ func (fld *molField) at(c, r int) float64 { return fld.f[r*fld.w+c] }
 
 // buildField projects the layout into a grid sized to innerW and accumulates the
 // density field. yScale compensates for the ~2:1 terminal cell aspect.
-func buildField(g *molGraph, innerW int) *molField {
+// projectGrid lays the molecule out (3D, projected to x/y) and fits it into a
+// cell grid sized to innerW, returning the grid dims and each atom's cell. The
+// 2× column factor compensates for the ~2:1 terminal cell aspect. Shared by all
+// grid-based views so they size identically.
+func projectGrid(g *molGraph, innerW int) (w, h int, acol, arow []int) {
 	pos := layoutMolecule(g)
 	n := len(pos)
 	if n == 0 {
-		return &molField{w: 1, h: 1, f: []float64{0}, owner: []int{-1}}
+		return 1, 1, nil, nil
 	}
 	minX, maxX := pos[0].x, pos[0].x
 	minY, maxY := pos[0].y, pos[0].y
@@ -841,8 +847,8 @@ func buildField(g *molGraph, innerW int) *molField {
 	if s <= 0 || math.IsInf(s, 0) {
 		s = 1
 	}
-	w := int(spanX*2*s) + pad
-	h := int(spanY*s) + pad
+	w = int(spanX*2*s) + pad
+	h = int(spanY*s) + pad
 	if w < 6 {
 		w = 6
 	}
@@ -852,13 +858,22 @@ func buildField(g *molGraph, innerW int) *molField {
 	if w > cw {
 		w = cw
 	}
-
-	acol := make([]int, n)
-	arow := make([]int, n)
+	acol = make([]int, n)
+	arow = make([]int, n)
 	for i, p := range pos {
 		acol[i] = int((p.x-minX)*2*s) + pad/2
 		arow[i] = int((p.y-minY)*s) + pad/2
 	}
+	return w, h, acol, arow
+}
+
+func buildField(g *molGraph, innerW int) *molField {
+	pos := layoutMolecule(g)
+	n := len(pos)
+	if n == 0 {
+		return &molField{w: 1, h: 1, f: []float64{0}, owner: []int{-1}}
+	}
+	w, h, acol, arow := projectGrid(g, innerW)
 
 	fld := &molField{w: w, h: h, f: make([]float64, w*h), owner: make([]int, w*h), acol: acol, arow: arow}
 	for i := range fld.owner {
@@ -1030,6 +1045,211 @@ func renderCloud(g *molGraph, innerW int) []string {
 		}
 		fg := cBold + fmt.Sprintf("\x1b[38;2;%d;%d;%dm", atomRGB(a.sym)[0], atomRGB(a.sym)[1], atomRGB(a.sym)[2])
 		cv.set(fld.acol[i], fld.arow[i], []rune(a.sym)[0], fg)
+	}
+	return centerPad(cv.lines(), w, innerW)
+}
+
+// ── colour helpers (shared by pointillist / chord) ───────────────────────────
+
+func clampByte(v float64) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return int(v)
+}
+
+func rgbFg(c [3]int, scale float64) string {
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm",
+		clampByte(float64(c[0])*scale), clampByte(float64(c[1])*scale), clampByte(float64(c[2])*scale))
+}
+
+func lerpRGB(a, b [3]int, t float64) [3]int {
+	return [3]int{
+		int(float64(a[0])*(1-t) + float64(b[0])*t),
+		int(float64(a[1])*(1-t) + float64(b[1])*t),
+		int(float64(a[2])*(1-t) + float64(b[2])*t),
+	}
+}
+
+// molHash is a tiny deterministic FNV-1a over two ints, for stable jitter
+// (no RNG, so renders are byte-identical run to run).
+func molHash(a, b int) uint32 {
+	h := uint32(2166136261)
+	for _, v := range [2]int{a, b} {
+		h = (h ^ uint32(uint32(v)&0xffff)) * 16777619
+	}
+	return h
+}
+
+// ── pointillist view ─────────────────────────────────────────────────────────
+
+var pointRamp = []rune{'·', '⋅', '∙', '°', '∘', '•', '●'}
+
+// renderPointillist scatters the molecule as colored dots: dense element-tinted
+// clusters at atoms, dot streams (hue-graded) along bonds.
+func renderPointillist(g *molGraph, innerW int) []string {
+	w, h, acol, arow := projectGrid(g, innerW)
+	if w <= 1 || acol == nil {
+		return nil
+	}
+	cv := newMolCanvas(w, h)
+
+	// bond streams first (atoms overpaint them).
+	for bi, b := range g.bonds {
+		if b.a == b.b {
+			continue
+		}
+		ra := atomRGB(g.atoms[b.a].sym)
+		rb := atomRGB(g.atoms[b.b].sym)
+		const steps = 28
+		for s := 0; s <= steps; s++ {
+			t := float64(s) / float64(steps)
+			x := float64(acol[b.a]) + float64(acol[b.b]-acol[b.a])*t
+			y := float64(arow[b.a]) + float64(arow[b.b]-arow[b.a])*t
+			hh := molHash(bi*131+s, b.a*7+b.b+1)
+			jx := int(hh%5) - 2     // -2..2 cols
+			jy := int((hh/5)%3) - 1 // -1..1 rows
+			gi := 1 + int((hh/15)%3)
+			cv.set(int(x+0.5)+jx, int(y+0.5)+jy, pointRamp[gi], rgbFg(lerpRGB(ra, rb, t), 0.85))
+		}
+	}
+
+	// atom clusters: a golden-angle disk of dots, dense/bright at the core.
+	for i, a := range g.atoms {
+		rgb := atomRGB(a.sym)
+		nd := 9 + int(atomicWeight[a.sym]/6)
+		for k := 0; k < nd; k++ {
+			ang := float64(k) * 2.39996
+			rr := math.Sqrt(float64(k)) * 1.05
+			dc := int(math.Cos(ang) * rr * 2) // 2× cols for aspect
+			dr := int(math.Sin(ang) * rr)
+			dens := 1 - float64(k)/float64(nd)
+			gi := 2 + int(dens*float64(len(pointRamp)-3))
+			if gi >= len(pointRamp) {
+				gi = len(pointRamp) - 1
+			}
+			cv.set(acol[i]+dc, arow[i]+dr, pointRamp[gi], rgbFg(rgb, 0.6+0.4*dens))
+		}
+		// bright core / heteroatom label on top.
+		core := '●'
+		if a.sym != "C" {
+			core = []rune(a.sym)[0]
+		}
+		cv.set(acol[i], arow[i], core, cBold+rgbFg(rgb, 1.0))
+	}
+	return centerPad(cv.lines(), w, innerW)
+}
+
+// ── chord view (radial) ──────────────────────────────────────────────────────
+
+// chordOrder walks the bond graph greedily so bonded atoms land near each other
+// on the ring (shorter, prettier chords).
+func chordOrder(g *molGraph) []int {
+	n := len(g.atoms)
+	adj := make([][]int, n)
+	for _, b := range g.bonds {
+		if b.a != b.b {
+			adj[b.a] = append(adj[b.a], b.b)
+			adj[b.b] = append(adj[b.b], b.a)
+		}
+	}
+	seen := make([]bool, n)
+	order := make([]int, 0, n)
+	var dfs func(u int)
+	dfs = func(u int) {
+		seen[u] = true
+		order = append(order, u)
+		for _, v := range adj[u] {
+			if !seen[v] {
+				dfs(v)
+			}
+		}
+	}
+	for i := 0; i < n; i++ {
+		if !seen[i] {
+			dfs(i)
+		}
+	}
+	return order
+}
+
+// renderChord places atoms evenly on a circle and draws each bond as a quadratic
+// chord bowing toward the centre, colored by bond order (double/triple = extra
+// concentric strands).
+func renderChord(g *molGraph, innerW int) []string {
+	n := len(g.atoms)
+	if n == 0 {
+		return nil
+	}
+	rad := 9
+	if n > 12 {
+		rad = 11
+	}
+	if maxRad := (innerW - 4) / 4; rad > maxRad {
+		rad = maxRad
+	}
+	if rad < 4 {
+		rad = 4
+	}
+	w := rad*4 + 3
+	h := rad*2 + 3
+	cx, cy := w/2, h/2
+	cv := newMolCanvas(w, h)
+
+	order := chordOrder(g)
+	slot := make([]int, n)
+	for s, atom := range order {
+		slot[atom] = s
+	}
+	acol := make([]int, n)
+	arow := make([]int, n)
+	for atom := 0; atom < n; atom++ {
+		ang := 2*math.Pi*float64(slot[atom])/float64(n) - math.Pi/2
+		acol[atom] = cx + int(math.Cos(ang)*float64(rad)*2)
+		arow[atom] = cy + int(math.Sin(ang)*float64(rad))
+	}
+
+	// chords first.
+	for _, b := range g.bonds {
+		if b.a == b.b {
+			continue
+		}
+		rgb := bondRGB(b)
+		strands := 1
+		if b.order == 2 {
+			strands = 2
+		} else if b.order >= 3 {
+			strands = 3
+		}
+		for si := 0; si < strands; si++ {
+			bow := 0.5 + 0.08*float64(si)
+			mx := float64(acol[b.a]+acol[b.b]) / 2
+			my := float64(arow[b.a]+arow[b.b]) / 2
+			px := mx + (float64(cx)-mx)*bow
+			py := my + (float64(cy)-my)*bow
+			const steps = 30
+			for s := 0; s <= steps; s++ {
+				t := float64(s) / float64(steps)
+				omt := 1 - t
+				x := omt*omt*float64(acol[b.a]) + 2*omt*t*px + t*t*float64(acol[b.b])
+				y := omt*omt*float64(arow[b.a]) + 2*omt*t*py + t*t*float64(arow[b.b])
+				cv.set(int(x+0.5), int(y+0.5), '∙', rgbFg(rgb, 0.85))
+			}
+		}
+	}
+
+	// faint ring + atom nodes on top.
+	for atom := 0; atom < n; atom++ {
+		a := g.atoms[atom]
+		rgb := atomRGB(a.sym)
+		core := '○'
+		if a.sym != "C" {
+			core = []rune(a.sym)[0]
+		}
+		cv.set(acol[atom], arow[atom], core, cBold+rgbFg(rgb, 1.0))
 	}
 	return centerPad(cv.lines(), w, innerW)
 }
