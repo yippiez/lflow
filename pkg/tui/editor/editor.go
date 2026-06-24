@@ -105,9 +105,10 @@ var stylePickerLabels = map[string]string{
 
 // Model is the bubbletea model for the editor.
 type Model struct {
-	db   *database.DB
-	ctx  context.DnoteCtx // for config and node context
-	tree *tree
+	db    *database.DB
+	ctx   context.DnoteCtx // for config and node context
+	tree  *tree
+	chips map[string]database.Chip // inline chip records, keyed by id (see chip.go)
 
 	viewStack []*item // zoom stack; last is the current view root
 	cursor    int     // index into visibleRows
@@ -844,11 +845,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
-		// on an unlocked file node Tab completes the path instead of indenting
-		// (see file.go); once locked it indents like any other node
-		if cur := m.cursorItem(); cur != nil && cur.typ == database.TypeFile && cur.mirrorOf == "" && !cur.readonly {
-			m.completeFilePath(cur)
-			return m, nil
+		// Tab on an "@…" path token completes it into a chip instead of indenting
+		// (see file.go / chip.go); anywhere else it indents as usual
+		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" && typeOf(cur.typ).inlineEditable && !cur.readonly {
+			if _, _, ok := chipTokenAt([]rune(cur.name), m.caret); ok {
+				m.completeChipUnderCaret(cur)
+				return m, nil
+			}
 		}
 		if m.tempActive {
 			return m, nil // no indenting in the Agent Domain
@@ -1121,6 +1124,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "left":
 		if m.caret > 0 {
 			m.caret--
+			// a chip anchor is atomic: if the step landed inside one, jump to its start
+			if cur := m.cursorItem(); cur != nil {
+				if sp := spanContaining(anchorSpans([]rune(cur.name)), m.caret); sp != nil {
+					m.caret = sp.start
+				}
+			}
 		} else if m.cursor > 0 {
 			// at the start of a node, cross to the previous node and land at its end
 			m.cursor--
@@ -1133,6 +1142,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cur := m.cursorItem()
 		if cur != nil && m.caret < len([]rune(cur.name)) {
 			m.caret++
+			// a chip anchor is atomic: if the step landed inside one, jump past it
+			if sp := spanContaining(anchorSpans([]rune(cur.name)), m.caret); sp != nil {
+				m.caret = sp.end
+			}
 		} else if cur != nil && m.cursor < len(m.rows)-1 {
 			// at the end of a node, cross to the next node and land at its start
 			m.cursor++
@@ -1180,6 +1193,14 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.caret > 0 {
 			runes := []rune(cur.name)
+			// backspace at a chip anchor's end deletes the whole chip (anchor + record)
+			if sp := spanEndingAt(anchorSpans(runes), m.caret); sp != nil {
+				m.deleteChipID(sp.id)
+				cur.name = string(runes[:sp.start]) + string(runes[sp.end:])
+				m.caret = sp.start
+				m.unsaved = true
+				return m, nil
+			}
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
 			m.caret--
 			m.unsaved = true
@@ -1574,6 +1595,9 @@ func (m *Model) selectedVisualRows() []int {
 	firstCol := visibleWidth(" " + connector(r) + glyph + " ")
 	below := m.cursor+1 < len(m.rows) && m.rows[m.cursor+1].depth > r.depth
 	hang := visibleWidth(continuationPrefix(r, below))
+	if hasAnchor(name) {
+		return chipVisualRows(name, maxLine, firstCol, hang, m.chips)
+	}
 	return visualRows(name, maxLine, firstCol, hang)
 }
 
@@ -1592,6 +1616,9 @@ func (m *Model) caretColumn(starts []int, line int) int {
 	end := m.caret
 	if end > len(runes) {
 		end = len(runes)
+	}
+	if spans := anchorSpans(runes); len(spans) > 0 {
+		return chipDispWidth(runes, start, end, spans, m.chips)
 	}
 	return visibleWidth(string(runes[start:end]))
 }
@@ -1618,6 +1645,9 @@ func (m *Model) caretAtColumn(starts []int, line, col int) int {
 		// is consumed by the break, so land on the last rune of this line
 		end = starts[line+1]
 	}
+	if spans := anchorSpans(runes); len(spans) > 0 {
+		return chipCaretAtColumn(runes, start, end, col, spans, m.chips)
+	}
 	w := 0
 	for i := start; i < end; i++ {
 		rw := runewidth.RuneWidth(runes[i])
@@ -1631,8 +1661,13 @@ func (m *Model) caretAtColumn(starts []int, line, col int) int {
 
 func (m *Model) clampCaret() {
 	if cur := m.cursorItem(); cur != nil {
-		if n := len([]rune(cur.name)); m.caret > n {
-			m.caret = n
+		runes := []rune(cur.name)
+		if m.caret > len(runes) {
+			m.caret = len(runes)
+		}
+		// a chip anchor is atomic — never leave the caret stranded inside one
+		if sp := spanContaining(anchorSpans(runes), m.caret); sp != nil {
+			m.caret = sp.end
 		}
 	}
 }
@@ -2534,7 +2569,7 @@ func (m *Model) finalView(maxLine int) []string {
 			glyph, glyphColor = glyphMirror, cDim
 		}
 		name := m.tree.displayName(r.it)
-		body := renderBody(r.it, name, -1, false)
+		body := renderBody(r.it, name, -1, false, m.chips)
 		if rm := typeOf(r.it.typ).renderM; rm != nil {
 			body = rm(m, r.it)
 		}
@@ -2589,7 +2624,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		if selected && m.mode != modeNote && it.mirrorOf == "" {
 			caret = m.caret
 		}
-		body := renderBody(it, name, caret, selected)
+		body := renderBody(it, name, caret, selected, m.chips)
 		if rm := typeOf(it.typ).renderM; rm != nil {
 			body = rm(m, it) // Model-aware override (voice waveform)
 		}
@@ -3072,10 +3107,16 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	}
 	tempTree.defaultType = database.TypeWorker // temp is the agent surface
 
+	chips, err := database.LoadChips(ctx.DB)
+	if err != nil {
+		return errors.Wrap(err, "loading chips")
+	}
+
 	m := &Model{
 		db:        ctx.DB,
 		ctx:       ctx,
 		tree:      t,
+		chips:     chips,
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
 	}

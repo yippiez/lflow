@@ -879,7 +879,7 @@ func renderFileTag(path string, selected bool) string {
 	return cCyan + tag + cReset
 }
 
-func renderBody(it *item, name string, caret int, selected bool) string {
+func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip) string {
 	name = stripControlBytes(name)
 	if r := typeOf(it.typ).render; r != nil {
 		return r(it, name) // per-type inline-body override (json preview)
@@ -918,6 +918,7 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	runes := []rune(name)
 	flags := inlineSpans(runes)
 	markKeywords(runes, flags, animFrame) // ultracode/ultraloop: render-time only
+	chipsp := anchorSpans(runes)          // inline chip anchors, drawn collapsed
 
 	sgr := func(f spanFlags) string {
 		fg := base
@@ -948,13 +949,34 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 	if it.typ == database.TypeCode {
 		b.WriteString(cReset + attrs + " ") // pad the code block
 	}
-	for i, r := range runes {
+	for i := 0; i < len(runes); {
+		// a chip anchor renders collapsed: the chip kind's color + compact display,
+		// atomic. The caret only ever sits at its boundaries (see snapCaret).
+		if sp := spanStartingAt(chipsp, i); sp != nil {
+			col := cCyan
+			if c, ok := chips[sp.id]; ok {
+				if k, ok := chipKindOf(c.Kind); ok {
+					col = k.color
+				}
+			}
+			b.WriteString(cReset + col)
+			if caret == sp.start {
+				b.WriteString(cInvert) // cursor sits on the whole chip
+			}
+			b.WriteString(dispByID(sp.id, chips))
+			b.WriteString(cReset)
+			cur = ""
+			i = sp.end
+			continue
+		}
+		r := runes[i]
 		f := flags[i]
 		if i == caret {
 			// the block cursor sits ON the rune: same colors, dark red cell
 			b.WriteString(sgr(f) + cInvert)
 			b.WriteRune(r)
 			cur = "" // force a state re-emit after the caret cell
+			i++
 			continue
 		}
 		if s := sgr(f); s != cur {
@@ -962,6 +984,7 @@ func renderBody(it *item, name string, caret int, selected bool) string {
 			cur = s
 		}
 		b.WriteRune(r)
+		i++
 	}
 	if caret >= len(runes) && caret >= 0 {
 		// past the last rune: paint one trailing cell

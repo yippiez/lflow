@@ -408,7 +408,7 @@ func (v agentView) observeContent(m *Model, it *item, rail string, width int) []
 				if txt == "" && len(n.Children) == 0 {
 					continue
 				}
-				node(depth, renderBody(&item{typ: deliverType(n.Type)}, txt, -1, false))
+				node(depth, renderBody(&item{typ: deliverType(n.Type)}, txt, -1, false, m.chips))
 				if note := agentBlockText(n.Note); note != "" {
 					for _, w := range wrapPlain(note, width-(depth+1)*2-6) {
 						sub(depth, cDim+w+cReset)

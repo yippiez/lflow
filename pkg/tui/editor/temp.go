@@ -211,7 +211,7 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 				glyph = glyphDotted
 			}
 			name := tr.displayName(it)
-			body := renderBody(it, name, -1, false)
+			body := renderBody(it, name, -1, false, m.chips)
 			if rm := typeOf(it.typ).renderM; rm != nil {
 				body = rm(m, it)
 			}

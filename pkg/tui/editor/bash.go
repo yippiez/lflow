@@ -53,7 +53,7 @@ func runBash(m *Model, it *item) tea.Cmd {
 	m.runOut[it.uuid] = nil
 	ch := make(chan tea.Msg, 1024)
 	m.runCh[it.uuid] = ch
-	go startBash(it.uuid, it.name, ctx, ch)
+	go startBash(it.uuid, expandAnchors(it.name, m.chips), ctx, ch) // chips → full paths
 	return waitBashCmd(ch)
 }
 

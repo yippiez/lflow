@@ -170,6 +170,107 @@ func fileCompList(cands []string, sel int) string {
 	return strings.Join(parts, "  ")
 }
 
+// absolutizePath expands ~ and resolves a path to absolute, preserving a
+// trailing slash (so a completed directory keeps drilling).
+func absolutizePath(p string) string {
+	trailing := strings.HasSuffix(p, "/")
+	abs := normalizeFilePath(p)
+	if trailing && !strings.HasSuffix(abs, string(filepath.Separator)) {
+		abs += string(filepath.Separator)
+	}
+	return abs
+}
+
+func pathExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// completeChipUnderCaret performs one Tab of path completion on the "@token"
+// under the caret (in any node). A file match commits to a path chip (the typed
+// text becomes an anchor); a directory or an ambiguous prefix stays plain text so
+// Tab can keep drilling/cycling. Returns false when there's no @token to complete.
+func (m *Model) completeChipUnderCaret(cur *item) bool {
+	runes := []rune(cur.name)
+	start, end, ok := chipTokenAt(runes, m.caret)
+	if !ok {
+		return false
+	}
+	partial := string(runes[start+1 : end]) // text after "@"
+	d := m.nodeStore(cur.uuid)
+
+	// sitting on a previously-offered candidate → cycle to the next one
+	if cands, ok := d["chipCands"].([]string); ok && len(cands) > 1 {
+		for i, c := range cands {
+			if c == partial {
+				ni := (i + 1) % len(cands)
+				m.setChipPartial(cur, start, end, cands[ni], cands, ni)
+				return true
+			}
+		}
+	}
+
+	matches := fileCandidates(partial)
+	if len(matches) == 0 {
+		if abs := absolutizePath(partial); partial != "" && pathExists(abs) {
+			m.commitPathChip(cur, start, end, abs) // a fully-typed path → commit it
+		} else {
+			m.flash = "no path match"
+			delete(d, "chipCands")
+		}
+		return true
+	}
+	if len(matches) == 1 {
+		if strings.HasSuffix(matches[0], string(filepath.Separator)) {
+			m.setChipPartial(cur, start, end, matches[0], nil, 0) // directory: keep drilling
+		} else {
+			m.commitPathChip(cur, start, end, absolutizePath(matches[0])) // file: commit chip
+		}
+		delete(d, "chipCands")
+		return true
+	}
+	if lcp := commonPrefix(matches); len([]rune(lcp)) > len([]rune(partial)) {
+		m.setChipPartial(cur, start, end, lcp, matches, -1) // advance to shared prefix
+	} else {
+		m.setChipPartial(cur, start, end, matches[0], matches, 0) // begin cycling
+	}
+	return true
+}
+
+// setChipPartial replaces the @token with "@"+partial — still plain, editable
+// text (not yet a committed chip).
+func (m *Model) setChipPartial(cur *item, start, end int, partial string, cands []string, sel int) {
+	runes := []rune(cur.name)
+	tok := []rune("@" + partial)
+	cur.name = string(runes[:start]) + string(tok) + string(runes[end:])
+	m.caret = start + len(tok)
+	m.unsaved = true
+	d := m.nodeStore(cur.uuid)
+	if len(cands) > 1 {
+		d["chipCands"] = cands
+		d["chipIdx"] = sel
+		m.flash = fileCompList(cands, sel)
+	} else {
+		delete(d, "chipCands")
+		m.flash = ""
+	}
+}
+
+// commitPathChip replaces the @token [start,end) with a path-chip anchor whose
+// record holds the absolute path.
+func (m *Model) commitPathChip(cur *item, start, end int, absPath string) {
+	anchor := m.createChip(chipKindPath, absPath)
+	if anchor == "" {
+		return
+	}
+	runes := []rune(cur.name)
+	cur.name = string(runes[:start]) + anchor + string(runes[end:])
+	m.caret = start + len([]rune(anchor))
+	m.unsaved = true
+	m.flash = ""
+	delete(m.nodeStore(cur.uuid), "chipCands")
+}
+
 // openFileInEditor opens the file node's path in $EDITOR (falling back to nvim),
 // suspending the inline UI while the editor runs and resuming after it exits.
 func openFileInEditor(m *Model, it *item) tea.Cmd {
