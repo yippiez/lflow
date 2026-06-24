@@ -771,6 +771,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil // empty compose — type first, then Enter launches
 		}
+		// commit a #tag or date token under the caret into a chip before splitting
+		if cur != nil {
+			m.chipifyBeforeCaret(cur)
+		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
 		// node and its whole subtree intact and push it down, opening an empty node
@@ -1316,6 +1320,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				text = ""
 			}
+		}
+
+		// typing a space commits a #tag or date token before it into a chip
+		if text == " " && !k.Paste {
+			m.chipifyBeforeCaret(cur)
 		}
 
 		runes := []rune(cur.name)

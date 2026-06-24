@@ -158,7 +158,7 @@ var chipKinds = map[string]chipKind{
 	},
 	chipKindDate: {
 		key:     chipKindDate,
-		color:   cFG,
+		color:   bgPill + cFG, // the date pill, matching legacy date rendering
 		display: func(v string) string { return v },
 		expand:  func(v string) string { return v },
 	},
@@ -183,6 +183,44 @@ func chipExpand(c database.Chip) string {
 		return k.expand(c.Value)
 	}
 	return c.Value
+}
+
+// chipifyBeforeCaret converts a #tag or canonical date ending exactly at the
+// caret into a chip anchor — called when a token is committed (a space typed, or
+// Enter). It reuses the same detection that renders legacy tags/dates, so there
+// are no new false positives. Returns true if it converted something.
+func (m *Model) chipifyBeforeCaret(cur *item) bool {
+	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly {
+		return false
+	}
+	name := cur.name
+	runes := []rune(name)
+	for _, sp := range detectTagSpans(name) {
+		if sp[1] == m.caret {
+			val := strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#")
+			return m.replaceRangeWithChip(cur, sp[0], sp[1], chipKindTag, val)
+		}
+	}
+	for _, sp := range detectDateSpans(name) {
+		if sp[1] == m.caret {
+			return m.replaceRangeWithChip(cur, sp[0], sp[1], chipKindDate, string(runes[sp[0]:sp[1]]))
+		}
+	}
+	return false
+}
+
+// replaceRangeWithChip swaps runes[start:end) for a new chip anchor of the given
+// kind/value and parks the caret just after it.
+func (m *Model) replaceRangeWithChip(cur *item, start, end int, kind, value string) bool {
+	anchor := m.createChip(kind, value)
+	if anchor == "" {
+		return false
+	}
+	runes := []rune(cur.name)
+	cur.name = string(runes[:start]) + anchor + string(runes[end:])
+	m.caret = start + len([]rune(anchor))
+	m.unsaved = true
+	return true
 }
 
 // ── Model chip store ───────────────────────────────────────────────────────
