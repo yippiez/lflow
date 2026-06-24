@@ -769,6 +769,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil // empty compose — type first, then Enter launches
 		}
+		// committing a file node: expand ~ and resolve relative → absolute, then
+		// fall through to the normal new-node behavior (the new sibling is empty).
+		if cur != nil && cur.typ == database.TypeFile && cur.mirrorOf == "" && strings.TrimSpace(cur.name) != "" {
+			cur.name = normalizeFilePath(cur.name)
+			m.caret = len([]rune(cur.name))
+			m.unsaved = true
+		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
 		// node and its whole subtree intact and push it down, opening an empty node
@@ -834,6 +841,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
+		// on a file node Tab completes the path instead of indenting (see file.go)
+		if cur := m.cursorItem(); cur != nil && cur.typ == database.TypeFile && cur.mirrorOf == "" {
+			m.completeFilePath(cur)
+			return m, nil
+		}
 		if m.tempActive {
 			return m, nil // no indenting in the Agent Domain
 		}
@@ -1021,7 +1033,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.focusScroll = 0
 				}
 			} else if e := typeOf(cur.typ).expand; e != nil {
-				e(m, cur)
+				return m, e(m, cur)
 			}
 		}
 		return m, nil

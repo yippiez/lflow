@@ -25,7 +25,7 @@ type nodeType struct {
 	renderM        func(m *Model, it *item) string     // Model-aware inline-body override (voice waveform)
 	inlineEditable bool                                // false → typing/backspace/enter is a no-op
 	tempOnly       bool                                // only offered/allowed in the Temporary Domain
-	expand         func(m *Model, it *item)           // alt+e action (action-only types, e.g. voice play)
+	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
 }
@@ -96,6 +96,12 @@ var nodeTypes = []nodeType{
 		renderM: func(m *Model, it *item) string { return m.voiceRender(it) },
 		run:     runVoice,
 		expand:  playVoice,
+	},
+	{
+		// a file node's name IS a filesystem path: ⌥e opens it in $EDITOR, Tab
+		// completes the path (see file.go), Enter normalizes ~/relative → absolute.
+		key: database.TypeFile, label: "File", sign: "@ ", inlineEditable: true,
+		expand: openFileInEditor,
 	},
 	{
 		key: database.TypeWorker, label: "Worker", sign: "✦ ", inlineEditable: true, tempOnly: true,

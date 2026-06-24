@@ -85,12 +85,13 @@ func runVoice(m *Model, it *item) tea.Cmd {
 }
 
 // playVoice plays the recording via ffplay (detached, fire-and-forget).
-func playVoice(m *Model, it *item) {
+func playVoice(m *Model, it *item) tea.Cmd {
 	path := m.voicePath(it.uuid)
 	if _, err := os.Stat(path); err != nil {
-		return
+		return nil
 	}
 	_ = exec.Command("ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path).Start()
+	return nil
 }
 
 // voiceRender is the inline display: recording state, or a ▸ waveform + duration.
