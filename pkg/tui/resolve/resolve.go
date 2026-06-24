@@ -102,6 +102,7 @@ func CountNoun(n int, noun string) string {
 
 // PrintMatches lists matches with short ids for --strict.
 func PrintMatches(db *database.DB, matches []database.Node) {
+	chips, _ := database.LoadChips(db) // resolve inline chip anchors for display
 	for _, n := range matches {
 		count, err := database.CountSubtree(db, n.UUID)
 		if err != nil {
@@ -111,6 +112,6 @@ func PrintMatches(db *database.DB, matches []database.Node) {
 		if len(shortID) > 6 {
 			shortID = shortID[:6]
 		}
-		fmt.Printf("    %s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %s", n.Type, CountNoun(count, "node")))
+		fmt.Printf("    %s  %-40s %s\n", dim.Sprint(shortID), database.DisplayAnchors(n.Name, chips), dim.Sprintf("%s · %s", n.Type, CountNoun(count, "node")))
 	}
 }

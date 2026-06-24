@@ -48,6 +48,7 @@ func listRoots(db *database.DB) error {
 	if err != nil {
 		return errors.Wrap(err, "querying top-level nodes")
 	}
+	chips, _ := database.LoadChips(db)
 	for _, n := range roots {
 		count, err := database.CountSubtree(db, n.UUID)
 		if err != nil {
@@ -57,7 +58,7 @@ func listRoots(db *database.DB) error {
 		if len(shortID) > 6 {
 			shortID = shortID[:6]
 		}
-		fmt.Printf("%s  %-40s %s\n", dim.Sprint(shortID), n.Name, dim.Sprintf("%s · %s", n.Type, resolve.CountNoun(count, "node")))
+		fmt.Printf("%s  %-40s %s\n", dim.Sprint(shortID), database.DisplayAnchors(n.Name, chips), dim.Sprintf("%s · %s", n.Type, resolve.CountNoun(count, "node")))
 	}
 	return nil
 }

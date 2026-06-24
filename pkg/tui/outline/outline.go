@@ -6,10 +6,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/pkg/errors"
 )
+
+// chip anchors in a node name are resolved at render time. The store is loaded
+// once per process (the CLI is one-shot) — display form for human output,
+// expanded value for machine output (JSON/export).
+var (
+	chipCacheOnce sync.Once
+	chipCache     map[string]database.Chip
+)
+
+func chipsFor(db *database.DB) map[string]database.Chip {
+	chipCacheOnce.Do(func() { chipCache, _ = database.LoadChips(db) })
+	return chipCache
+}
 
 // JSONNode is the nested JSON representation of a node.
 type JSONNode struct {
@@ -22,24 +36,32 @@ type JSONNode struct {
 	Children    []JSONNode `json:"children"`
 }
 
-// resolveName returns the display name of a node: mirrors show the
-// original's name (same node everywhere).
-func resolveName(db *database.DB, n database.Node) string {
-	if n.MirrorOf == "" {
-		return n.Name
+// resolveName returns the renderable name of a node: mirrors show the original's
+// name (same node everywhere), and chip anchors resolve to their display form
+// (human output) or full value (expand=true, for JSON/export).
+func resolveName(db *database.DB, n database.Node, expand bool) string {
+	name := n.Name
+	if n.MirrorOf != "" {
+		orig, err := database.GetNode(db, n.MirrorOf)
+		if err != nil {
+			return "(missing mirror)"
+		}
+		name = orig.Name
 	}
-	orig, err := database.GetNode(db, n.MirrorOf)
-	if err != nil {
-		return "(missing mirror)"
+	if database.HasAnchor(name) {
+		if expand {
+			return database.ExpandAnchors(name, chipsFor(db))
+		}
+		return database.DisplayAnchors(name, chipsFor(db))
 	}
-	return orig.Name
+	return name
 }
 
 // BuildJSON builds the nested JSON tree for a node.
 func BuildJSON(db *database.DB, root database.Node, depth int, includeCompleted bool) (JSONNode, error) {
 	ret := JSONNode{
 		UUID:        root.UUID,
-		Name:        resolveName(db, root),
+		Name:        resolveName(db, root, true), // machine output: full value
 		Note:        root.Note,
 		Type:        root.Type,
 		MirrorOf:    root.MirrorOf,
@@ -88,7 +110,7 @@ func renderLines(db *database.DB, root database.Node, depth int, includeComplete
 	var walk func(n database.Node, level, remaining int) error
 	walk = func(n database.Node, level, remaining int) error {
 		indent := strings.Repeat("  ", level)
-		name := resolveName(db, n)
+		name := resolveName(db, n, false) // human output: compact display
 		if n.MirrorOf != "" {
 			name += " (mirror)"
 		}

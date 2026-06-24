@@ -63,6 +63,8 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			os.Exit(1)
 		}
 
+		chips, _ := database.LoadChips(db) // resolve inline chip anchors for display
+
 		fmt.Printf("%-8s  %-40s  %4s  %s\n",
 			dim.Sprint("id"), dim.Sprint("name"), dim.Sprint("kids"), dim.Sprint("type"))
 		for _, n := range matches {
@@ -70,9 +72,9 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			if len(shortID) > 6 {
 				shortID = shortID[:6]
 			}
-			name := n.Name
-			if len(name) > 40 {
-				name = name[:39] + "…"
+			name := database.DisplayAnchors(n.Name, chips)
+			if len([]rune(name)) > 40 {
+				name = string([]rune(name)[:39]) + "…"
 			}
 			fmt.Printf("%-8s  %-40s  %4d  %s\n",
 				dim.Sprint(shortID), name, childCount(db, n.UUID), dim.Sprint(n.Type))

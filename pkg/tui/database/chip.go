@@ -1,6 +1,87 @@
 package database
 
-import "github.com/pkg/errors"
+import (
+	"path/filepath"
+	"strings"
+
+	"github.com/pkg/errors"
+)
+
+// ChipSentinel opens and closes an in-text anchor: "￼<id>￼". The editor and
+// every read surface (CLI, export, search) resolve anchors through the chip store.
+const ChipSentinel = '￼'
+
+// ChipAnchor builds the in-text anchor for a chip id.
+func ChipAnchor(id string) string {
+	return string(ChipSentinel) + id + string(ChipSentinel)
+}
+
+// HasAnchor reports whether name contains any chip anchor.
+func HasAnchor(name string) bool { return strings.ContainsRune(name, ChipSentinel) }
+
+// ChipDisplay is a chip's compact form (e.g. "@readme.txt"). Keep in sync with
+// the editor's chip-kind registry; this is the lower-level copy CLI surfaces use.
+func ChipDisplay(c Chip) string {
+	switch c.Kind {
+	case "path":
+		base := filepath.Base(c.Value)
+		if base == "" || base == "." || base == string(filepath.Separator) {
+			base = c.Value
+		}
+		return "@" + base
+	default:
+		return c.Value
+	}
+}
+
+// ChipExpand is a chip's full underlying value (e.g. the absolute path).
+func ChipExpand(c Chip) string { return c.Value }
+
+// resolveAnchors rewrites each anchor in name using f(chip). A missing record
+// degrades to "@?" so a raw anchor never leaks to a read surface.
+func resolveAnchors(name string, chips map[string]Chip, f func(Chip) string) string {
+	if !HasAnchor(name) {
+		return name
+	}
+	runes := []rune(name)
+	var b strings.Builder
+	i := 0
+	for j := 0; j < len(runes); j++ {
+		if runes[j] != ChipSentinel {
+			continue
+		}
+		k := j + 1
+		for k < len(runes) && runes[k] != ChipSentinel {
+			k++
+		}
+		if k >= len(runes) {
+			break
+		}
+		b.WriteString(string(runes[i:j]))
+		id := string(runes[j+1 : k])
+		if c, ok := chips[id]; ok {
+			b.WriteString(f(c))
+		} else {
+			b.WriteString("@?")
+		}
+		i = k + 1
+		j = k
+	}
+	b.WriteString(string(runes[i:]))
+	return b.String()
+}
+
+// DisplayAnchors resolves every anchor in name to its compact display form —
+// for human-readable surfaces (node list, grep).
+func DisplayAnchors(name string, chips map[string]Chip) string {
+	return resolveAnchors(name, chips, ChipDisplay)
+}
+
+// ExpandAnchors resolves every anchor in name to its full value — for machine
+// surfaces (json export, scripts, search).
+func ExpandAnchors(name string, chips map[string]Chip) string {
+	return resolveAnchors(name, chips, ChipExpand)
+}
 
 // Chip is an inline structured token referenced by an anchor in a node's name
 // (see the chip-kind registry in pkg/tui/editor). The name text holds an opaque
