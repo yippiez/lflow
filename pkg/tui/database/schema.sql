@@ -39,7 +39,12 @@ CREATE TABLE node_output (
 			uuid text PRIMARY KEY,
 			output text NOT NULL DEFAULT ''
 		);
+CREATE TABLE chips (
+			id text PRIMARY KEY,
+			kind text NOT NULL DEFAULT '',
+			value text NOT NULL DEFAULT ''
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 23);
+INSERT INTO system (key, value) VALUES ('schema', 24);
 INSERT INTO system (key, value) VALUES ('remote_schema', 1);

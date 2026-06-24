@@ -825,6 +825,23 @@ var lm23 = migration{
 	},
 }
 
+// lm24 adds the chips table — inline structured tokens (path/date/tag) that a
+// node's name references by an anchor. Local for now (path chips hold
+// machine-specific absolute paths); cross-device sync is a later milestone.
+var lm24 = migration{
+	name: "add-chips-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS chips (
+			id text PRIMARY KEY,
+			kind text NOT NULL DEFAULT '',
+			value text NOT NULL DEFAULT ''
+		);`); err != nil {
+			return errors.Wrap(err, "creating chips table")
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {
