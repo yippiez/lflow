@@ -221,6 +221,11 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			}
 			flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 			flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
+			// a bash/query node's run output hangs beneath it in the live view; keep it
+			// in the read-only region too so it doesn't vanish when the Agent Domain opens
+			if it.typ != database.TypeWorker {
+				flat = append(flat, m.runBandLines(r, below, maxLine)...)
+			}
 		}
 	}
 
