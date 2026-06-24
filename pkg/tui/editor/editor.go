@@ -56,6 +56,7 @@ var slashCommands = []slashCommand{
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/goto", "Jump the editor to another node"},
 	{"/link", "Link this node to another (→ target; alt+g jumps)"},
+	{"/lock", "Lock or unlock this node (read-only)"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/model", "Set the model for new agents (pi / opencode / grok)"},
 	{"/move", "Move this node under another node"},
@@ -770,9 +771,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil // empty compose — type first, then Enter launches
 		}
 		// committing a file node: expand ~ and resolve relative → absolute, then
-		// fall through to the normal new-node behavior (the new sibling is empty).
-		if cur != nil && cur.typ == database.TypeFile && cur.mirrorOf == "" && strings.TrimSpace(cur.name) != "" {
+		// lock it read-only so the path can't be fumbled. /lock unlocks to re-edit.
+		// Falls through to the normal new-node behavior (the new sibling is empty).
+		if cur != nil && cur.typ == database.TypeFile && cur.mirrorOf == "" && !cur.readonly && strings.TrimSpace(cur.name) != "" {
 			cur.name = normalizeFilePath(cur.name)
+			cur.readonly = true
 			m.caret = len([]rune(cur.name))
 			m.unsaved = true
 		}
@@ -841,8 +844,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
-		// on a file node Tab completes the path instead of indenting (see file.go)
-		if cur := m.cursorItem(); cur != nil && cur.typ == database.TypeFile && cur.mirrorOf == "" {
+		// on an unlocked file node Tab completes the path instead of indenting
+		// (see file.go); once locked it indents like any other node
+		if cur := m.cursorItem(); cur != nil && cur.typ == database.TypeFile && cur.mirrorOf == "" && !cur.readonly {
 			m.completeFilePath(cur)
 			return m, nil
 		}
@@ -1171,8 +1175,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur == nil || cur.mirrorOf != "" {
 			return m, nil
 		}
-		if !typeOf(cur.typ).inlineEditable {
-			return m, nil // e.g. json — edited only in the alt+e editor
+		if !typeOf(cur.typ).inlineEditable || cur.readonly {
+			return m, nil // e.g. json — edited only in the alt+e editor; or a locked node
 		}
 		if m.caret > 0 {
 			runes := []rune(cur.name)
@@ -1253,7 +1257,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeSlash
 			m.slashQuery = ""
 			m.slashSel = 0
-			m.slashInline = cur.mirrorOf == ""
+			m.slashInline = cur.mirrorOf == "" && !cur.readonly
 			if m.slashInline {
 				runes := []rune(cur.name)
 				cur.name = string(runes[:m.caret]) + "/" + string(runes[m.caret:])
@@ -1287,8 +1291,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur.mirrorOf != "" {
 			return m, nil // a mirror reference is edited at its original — see mirrorContext
 		}
-		if !typeOf(cur.typ).inlineEditable {
-			return m, nil // e.g. json — edited only in the alt+e editor (slash above still works)
+		if !typeOf(cur.typ).inlineEditable || cur.readonly {
+			return m, nil // e.g. json — edited only in the alt+e editor; or a locked node (slash above still works)
 		}
 
 		text := string(k.Runes)
@@ -2007,6 +2011,17 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeModel
 		m.modelSel = 0
 		m.modelQuery = ""
+	case "/lock":
+		// toggle the read-only lock: locked nodes ignore inline text edits (a file
+		// node locks itself on Enter); unlock to edit, Enter re-locks a file node.
+		m.pushUndo("")
+		cur.readonly = !cur.readonly
+		m.unsaved = true
+		if cur.readonly {
+			m.flash = "locked · /lock to unlock"
+		} else {
+			m.flash = "unlocked"
+		}
 	case "/complete":
 		m.pushUndo("")
 		if cur.completedAt > 0 {

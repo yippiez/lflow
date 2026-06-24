@@ -21,7 +21,7 @@ CREATE TABLE nodes
 				usn integer NOT NULL DEFAULT 0,
 				deleted bool NOT NULL DEFAULT false,
 				dirty bool NOT NULL DEFAULT false
-			, style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false, link_to text NOT NULL DEFAULT '');
+			, style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false, link_to text NOT NULL DEFAULT '', readonly bool NOT NULL DEFAULT false);
 CREATE INDEX idx_nodes_parent ON nodes(parent_uuid, rank);
 CREATE INDEX idx_nodes_dirty ON nodes(dirty);
 CREATE VIRTUAL TABLE node_fts USING fts5(content=nodes, name, note, tokenize="porter unicode61 categories 'L* N* Co Ps Pe'");
@@ -37,5 +37,5 @@ CREATE TRIGGER nodes_after_update AFTER UPDATE ON nodes BEGIN
 			END;
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 21);
+INSERT INTO system (key, value) VALUES ('schema', 22);
 INSERT INTO system (key, value) VALUES ('remote_schema', 1);

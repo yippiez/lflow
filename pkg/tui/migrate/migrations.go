@@ -795,6 +795,19 @@ var lm21 = migration{
 	},
 }
 
+// lm22 adds the per-node readonly flag — a node lock (e.g. a file node's path is
+// locked once committed with Enter). Local-only like style/link_to: persisted so
+// the lock survives a restart, but never synced.
+var lm22 = migration{
+	name: "add-readonly-to-nodes",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`ALTER TABLE nodes ADD COLUMN readonly bool NOT NULL DEFAULT false;`); err != nil {
+			return errors.Wrap(err, "adding readonly column to nodes")
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {

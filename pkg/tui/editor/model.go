@@ -21,6 +21,7 @@ type item struct {
 	children    []*item
 	parent      *item
 	collapsed   bool
+	readonly    bool // node lock: inline edits are no-ops (see canEdit)
 	isNew       bool
 }
 
@@ -36,6 +37,7 @@ type snapshot struct {
 	linkTo      string
 	completedAt int64
 	collapsed   bool
+	readonly    bool
 }
 
 // tree is the in-memory model of the subtree being edited.
@@ -68,6 +70,7 @@ func cloneItem(src, parent *item) *item {
 		linkTo:      src.linkTo,
 		completedAt: src.completedAt,
 		collapsed:   src.collapsed,
+		readonly:    src.readonly,
 		isNew:       src.isNew,
 		parent:      parent,
 	}
@@ -118,6 +121,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			linkTo:      n.LinkTo,
 			completedAt: n.CompletedAt,
 			collapsed:   n.Collapsed,
+			readonly:    n.Readonly,
 		}
 		t.snapshots[n.UUID] = snapshot{
 			parentUUID:  n.ParentUUID,
@@ -130,6 +134,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			linkTo:      n.LinkTo,
 			completedAt: n.CompletedAt,
 			collapsed:   n.Collapsed,
+			readonly:    n.Readonly,
 		}
 	}
 
@@ -613,7 +618,7 @@ func (t *tree) changed(it *item) bool {
 	}
 	return s.name != it.name || s.note != it.note || s.typ != it.typ ||
 		s.style != it.style || s.mirrorOf != it.mirrorOf || s.linkTo != it.linkTo ||
-		s.completedAt != it.completedAt
+		s.completedAt != it.completedAt || s.readonly != it.readonly
 }
 
 // save writes the in-memory tree back to the database in one transaction.
@@ -654,6 +659,7 @@ func (t *tree) save() (int, error) {
 				EditedOn:    now,
 				Dirty:       true,
 				Collapsed:   it.collapsed,
+				Readonly:    it.readonly,
 			}
 			if err := n.Upsert(tx); err != nil {
 				return err
@@ -661,8 +667,8 @@ func (t *tree) save() (int, error) {
 			written++
 		} else if t.changed(it) || structChanged {
 			if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
-				style = ?, mirror_of = ?, link_to = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
-				parentUUID, rank, it.name, it.note, it.typ, it.style, it.mirrorOf, it.linkTo, it.completedAt, now, it.uuid); err != nil {
+				style = ?, mirror_of = ?, link_to = ?, readonly = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
+				parentUUID, rank, it.name, it.note, it.typ, it.style, it.mirrorOf, it.linkTo, it.readonly, it.completedAt, now, it.uuid); err != nil {
 				return errors.Wrapf(err, "updating node %s", it.uuid)
 			}
 			written++
@@ -735,6 +741,7 @@ func (t *tree) refreshSnapshots() {
 			linkTo:      it.linkTo,
 			completedAt: it.completedAt,
 			collapsed:   it.collapsed,
+			readonly:    it.readonly,
 		}
 		for i, c := range it.children {
 			walk(c, it.uuid, i)

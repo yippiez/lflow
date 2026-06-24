@@ -986,6 +986,9 @@ func (m *Model) typeSuffix(it *item) string {
 	if it.mirrorOf != "" {
 		parts = append(parts, "mirror")
 	}
+	if it.readonly {
+		parts = append(parts, "locked")
+	}
 	if it.typ == database.TypeQuery {
 		parts = append(parts, fmt.Sprintf("%d hits", queryHitCount(it)))
 		if ts := m.queryUpdatedAt(it.uuid); ts > 0 {
