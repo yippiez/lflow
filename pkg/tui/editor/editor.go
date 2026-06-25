@@ -2612,7 +2612,13 @@ func (m *Model) finalView(maxLine int) []string {
 			body = rm(m, r.it)
 		}
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r.it)
-		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
+		wrapped := wrapLine(line, maxLine, continuationPrefix(r, below))
+		if r.it.typ == database.TypeBash { // full-width terminal block
+			for j := range wrapped {
+				wrapped[j] = padBgToWidth(wrapped[j], maxLine, bgTerm)
+			}
+		}
+		lines = append(lines, wrapped...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 	}
 	return lines
@@ -2671,6 +2677,11 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
+		if it.typ == database.TypeBash { // full-width terminal block
+			for j := range groups[i] {
+				groups[i][j] = padBgToWidth(groups[i][j], maxLine, bgTerm)
+			}
+		}
 		// the note hangs beneath the node as a tinted band; on the selected row in
 		// note mode that same band becomes the editing surface (block cursor)
 		noteCaret := -1

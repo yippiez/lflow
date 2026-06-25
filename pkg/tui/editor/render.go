@@ -27,7 +27,7 @@ const (
 	cUnderline = "\x1b[4m"
 	cStrike    = "\x1b[9m"
 	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
-	bgTerm  = "\x1b[48;2;18;20;26m"  // #12141a terminal block behind bash rows
+	bgTerm  = "\x1b[48;2;30;34;48m"  // #1e2230 terminal block behind bash rows
 	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
 	bgNote  = "\x1b[48;2;34;40;49m"  // #222831 subtle band behind a node's note
 	cInvert = "\x1b[7m"              // the block cursor: inverts the cell beneath it
@@ -472,6 +472,17 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 		cells[1+3*r.depth] = '│'
 	}
 	return cDim + string(cells)
+}
+
+// padBgToWidth extends a rendered line's background to the full display width by
+// appending bg-tinted spaces — used to make a bash row read as a terminal line
+// rather than floating text. A line already at/over width is returned unchanged.
+func padBgToWidth(line string, width int, bg string) string {
+	w := visibleWidth(line)
+	if w >= width {
+		return line
+	}
+	return line + bg + strings.Repeat(" ", width-w) + cReset
 }
 
 // styleOutLine renders one captured output line. If the program emitted its own
