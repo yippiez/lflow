@@ -302,7 +302,7 @@ func (m *Model) snapshotForKey(key string, k tea.KeyMsg) {
 	case "enter", "tab", "shift+tab",
 		"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 		"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
-		"ctrl+d", "ctrl+shift+backspace", "ctrl+backspace", "ctrl+h", "ctrl+w",
+		"ctrl+d", "alt+d", "ctrl+shift+backspace", "ctrl+backspace", "ctrl+h", "ctrl+w",
 		"ctrl+t":
 		m.pushUndo("")
 	case "backspace":
@@ -759,7 +759,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 		}
 		return m, nil
-	case "ctrl+d", "ctrl+shift+backspace":
+	case "ctrl+d", "alt+d", "ctrl+shift+backspace":
 		// delete the whole node (its subtree confirms inline first)
 		if cur := m.cursorItem(); cur != nil {
 			if len(cur.children) > 0 {
