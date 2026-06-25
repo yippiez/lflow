@@ -522,7 +522,7 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	rail := continuationPrefix(r, subtreeBelow)
 	var lines []string
 	shown := out
-	const capN = 8
+	const capN = 3
 	if len(shown) > capN {
 		lines = append(lines, clip(rail+cReset+cDim+fmt.Sprintf("  ⋯ %d more", len(shown)-capN)+cReset, maxLine))
 		shown = shown[len(shown)-capN:]
