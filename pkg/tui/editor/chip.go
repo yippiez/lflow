@@ -139,6 +139,14 @@ var chipKinds = map[string]chipKind{
 		display: func(v string) string { return v },
 		expand:  func(v string) string { return v },
 	},
+	// an artifact chip: ▣ + the page's label. The chip value is the label; the
+	// page bytes live in the artifacts table keyed by the chip id (see artifact.go).
+	chipKindArtifact: {
+		key:     chipKindArtifact,
+		color:   cCyan,
+		display: func(v string) string { return glyphArtifact + " " + v },
+		expand:  func(v string) string { return v },
+	},
 }
 
 func chipKindOf(kind string) (chipKind, bool) {

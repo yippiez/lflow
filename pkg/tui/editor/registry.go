@@ -101,6 +101,13 @@ var nodeTypes = []nodeType{
 		run:     runVoice,
 		expand:  playVoice,
 	},
+	// an artifact node embeds a web page (.html, or .md rendered to html) in the
+	// DB; ▣ glyph, the name is editable inline, alt+e opens it in the browser.
+	{
+		key: database.TypeArtifact, label: "Artifact", glyph: artifactGlyph,
+		inlineEditable: true,
+		expand:         openArtifactNode,
+	},
 }
 
 var byType = func() map[string]nodeType {
