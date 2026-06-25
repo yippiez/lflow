@@ -28,7 +28,7 @@ func ChipDisplay(c Chip) string {
 		if base == "" || base == "." || base == string(filepath.Separator) {
 			base = c.Value
 		}
-		return "#" + base
+		return "›" + base
 	case "tag":
 		return "#" + c.Value
 	default:

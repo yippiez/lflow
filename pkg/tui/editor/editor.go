@@ -54,6 +54,7 @@ var slashCommands = []slashCommand{
 	{"/bring", "Bring another node (or an agent) here"},
 	{"/complete", "Toggle done"},
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
+	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
 	{"/goto", "Jump the editor to another node"},
 	{"/link", "Link this node to another (→ target; alt+g jumps)"},
 	{"/lock", "Lock or unlock this node (read-only)"},
@@ -597,6 +598,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, c)
 		}
 		return m, tea.Batch(cmds...)
+	case fzfPickedMsg:
+		if msg.path != "" {
+			if it := m.tree.byUUID[msg.uuid]; it != nil {
+				m.insertPathChip(it, msg.caret, absolutizePath(msg.path))
+			}
+		}
+		return m, nil
 	case evalCondenseMsg:
 		if msg.collapse && strings.TrimSpace(msg.condensed) != "" {
 			if s := singleDeliverableJSON(msg.condensed); s != "" {
@@ -854,15 +862,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
-		// Tab on a "#…" path token (one that looks like a path) completes it into a
-		// chip instead of indenting; a bare #tag or anything else indents as usual
-		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" && typeOf(cur.typ).inlineEditable && !cur.readonly {
-			runes := []rune(cur.name)
-			if s, e, ok := chipTokenAt(runes, m.caret); ok && looksLikePath(string(runes[s+1:e])) {
-				m.completeChipUnderCaret(cur)
-				return m, nil
-			}
-		}
+		// path chips are inserted via the /file fuzzy picker now, not a "#…" token,
+		// so Tab just indents (# is tags-only again)
 		if m.tempActive {
 			return m, nil // no indenting in the Agent Domain
 		}
@@ -2161,6 +2162,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.unsaved = true
 		m.refreshRows()
 		m.cursor = m.findRow(clone, ctx)
+	case "/file":
+		// fuzzy-pick a file with fzf, then splice a path chip in at the caret
+		return m, m.openFilePicker(cur)
 	case "/note":
 		// a mirror is the same node everywhere: edit the original's note
 		cur = m.tree.resolve(cur)

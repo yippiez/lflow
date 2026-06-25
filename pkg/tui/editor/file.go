@@ -1,14 +1,60 @@
 package editor
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// fzfPickedMsg carries the file the fzf picker selected, to splice a path chip
+// into the node at the caret position captured when the picker opened.
+type fzfPickedMsg struct {
+	uuid  string
+	caret int
+	path  string
+}
+
+// openFilePicker runs fzf (suspending the inline UI, like the $EDITOR open) for a
+// fuzzy file pick under the working dir, then splices the chosen path in as a
+// chip. Returns nil (with a flash) when fzf isn't installed.
+func (m *Model) openFilePicker(cur *item) tea.Cmd {
+	if cur == nil {
+		return nil
+	}
+	if _, err := exec.LookPath("fzf"); err != nil {
+		m.flash = "fzf not found — install it to pick files"
+		return nil
+	}
+	uuid, caret := cur.uuid, m.caret
+	c := exec.Command("fzf", "--prompt", "file> ")
+	var out bytes.Buffer
+	c.Stdout = &out // fzf draws on /dev/tty and prints the selection to stdout
+	return tea.ExecProcess(c, func(error) tea.Msg {
+		return fzfPickedMsg{uuid: uuid, caret: caret, path: strings.TrimSpace(out.String())}
+	})
+}
+
+// insertPathChip splices a path chip for absPath into cur.name at caret.
+func (m *Model) insertPathChip(cur *item, caret int, absPath string) {
+	anchor := m.createChip(chipKindPath, absPath)
+	if anchor == "" {
+		return
+	}
+	runes := []rune(cur.name)
+	if caret > len(runes) {
+		caret = len(runes)
+	}
+	if caret < 0 {
+		caret = 0
+	}
+	cur.name = string(runes[:caret]) + anchor + string(runes[caret:])
+	m.caret = caret + len([]rune(anchor))
+	m.unsaved = true
+}
 
 // openPathChipCmd opens the cursor node's path chip in $EDITOR (nvim fallback),
 // restoring the old file-node ⌥e behavior for the chip model. The path chip the
@@ -53,9 +99,9 @@ func openPathInEditor(m *Model, path string) tea.Cmd {
 	return tea.ExecProcess(c, func(error) tea.Msg { return nil })
 }
 
-// Filesystem-path completion for the @path chip (see chip.go). Completion is
-// prefix-based on the basename so Tab can advance to the longest common prefix;
-// an ambiguous prefix cycles, a file commits to a chip, a directory keeps drilling.
+// Path helpers for the path chip (created by the /file fzf picker above; opened in
+// $EDITOR by ⌥e). expandHome/normalizeFilePath/absolutizePath resolve the picked
+// path to an absolute value before it is stored in the chip record.
 
 // expandHome turns a leading ~ into the user's home directory. Other paths are
 // returned unchanged.
@@ -88,76 +134,6 @@ func normalizeFilePath(p string) string {
 	return filepath.Clean(p)
 }
 
-// fileCandidates returns the path completions for the partial path `text`,
-// preserving the display prefix the user typed (~/, relative, or absolute) and
-// only completing the final path component. Directories get a trailing slash.
-func fileCandidates(text string) []string {
-	dir, base := filepath.Split(text) // dir keeps its trailing slash; "" for a bare name
-
-	fsDir := expandHome(dir)
-	if fsDir == "" {
-		fsDir = "."
-	}
-	entries, err := os.ReadDir(fsDir)
-	if err != nil {
-		return nil
-	}
-
-	lower := strings.ToLower(base)
-	var out []string
-	for _, e := range entries {
-		name := e.Name()
-		// hidden files only when the user has started typing a dot
-		if strings.HasPrefix(name, ".") && !strings.HasPrefix(base, ".") {
-			continue
-		}
-		if !strings.HasPrefix(strings.ToLower(name), lower) {
-			continue
-		}
-		disp := dir + name
-		if e.IsDir() {
-			disp += string(filepath.Separator)
-		}
-		out = append(out, disp)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// commonPrefix returns the longest common string prefix of the candidates.
-func commonPrefix(ss []string) string {
-	if len(ss) == 0 {
-		return ""
-	}
-	p := ss[0]
-	for _, s := range ss[1:] {
-		for !strings.HasPrefix(s, p) {
-			p = p[:len(p)-1]
-			if p == "" {
-				return ""
-			}
-		}
-	}
-	return p
-}
-
-// fileCompList renders the match basenames for the status bar, marking the
-// selected one with ›‹.
-func fileCompList(cands []string, sel int) string {
-	parts := make([]string, len(cands))
-	for i, c := range cands {
-		b := filepath.Base(strings.TrimRight(c, string(filepath.Separator)))
-		if strings.HasSuffix(c, string(filepath.Separator)) {
-			b += "/"
-		}
-		if i == sel {
-			b = "›" + b + "‹"
-		}
-		parts[i] = b
-	}
-	return strings.Join(parts, "  ")
-}
-
 // absolutizePath expands ~ and resolves a path to absolute, preserving a
 // trailing slash (so a completed directory keeps drilling).
 func absolutizePath(p string) string {
@@ -169,107 +145,3 @@ func absolutizePath(p string) string {
 	return abs
 }
 
-func pathExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
-}
-
-func isDir(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.IsDir()
-}
-
-// completeChipUnderCaret performs one Tab of path completion on the "@token"
-// under the caret (in any node). A file match commits to a path chip (the typed
-// text becomes an anchor); a directory or an ambiguous prefix stays plain text so
-// Tab can keep drilling/cycling. Returns false when there's no @token to complete.
-func (m *Model) completeChipUnderCaret(cur *item) bool {
-	runes := []rune(cur.name)
-	start, end, ok := chipTokenAt(runes, m.caret)
-	if !ok {
-		return false
-	}
-	partial := string(runes[start+1 : end]) // text after "#"
-	d := m.nodeStore(cur.uuid)
-
-	// sitting on a previously-offered candidate → cycle to the next one
-	if cands, ok := d["chipCands"].([]string); ok && len(cands) > 1 {
-		for i, c := range cands {
-			if c == partial {
-				ni := (i + 1) % len(cands)
-				m.setChipPartial(cur, start, end, cands[ni], cands, ni)
-				return true
-			}
-		}
-	}
-
-	// a completed directory path (trailing slash) commits as a folder chip — Tab
-	// once lands on "dir/", Tab again selects the folder; type a subpath to drill
-	if strings.HasSuffix(partial, string(filepath.Separator)) {
-		if abs := absolutizePath(partial); isDir(abs) {
-			m.commitPathChip(cur, start, end, abs)
-			delete(d, "chipCands")
-			return true
-		}
-	}
-
-	matches := fileCandidates(partial)
-	if len(matches) == 0 {
-		if abs := absolutizePath(partial); partial != "" && pathExists(abs) {
-			m.commitPathChip(cur, start, end, abs) // a fully-typed path → commit it
-		} else {
-			m.flash = "no path match"
-			delete(d, "chipCands")
-		}
-		return true
-	}
-	if len(matches) == 1 {
-		if strings.HasSuffix(matches[0], string(filepath.Separator)) {
-			m.setChipPartial(cur, start, end, matches[0], nil, 0) // directory: keep drilling
-		} else {
-			m.commitPathChip(cur, start, end, absolutizePath(matches[0])) // file: commit chip
-		}
-		delete(d, "chipCands")
-		return true
-	}
-	if lcp := commonPrefix(matches); len([]rune(lcp)) > len([]rune(partial)) {
-		m.setChipPartial(cur, start, end, lcp, matches, -1) // advance to shared prefix
-	} else {
-		m.setChipPartial(cur, start, end, matches[0], matches, 0) // begin cycling
-	}
-	return true
-}
-
-// setChipPartial replaces the @token with "@"+partial — still plain, editable
-// text (not yet a committed chip).
-func (m *Model) setChipPartial(cur *item, start, end int, partial string, cands []string, sel int) {
-	runes := []rune(cur.name)
-	tok := []rune("#" + partial)
-	cur.name = string(runes[:start]) + string(tok) + string(runes[end:])
-	m.caret = start + len(tok)
-	m.unsaved = true
-	d := m.nodeStore(cur.uuid)
-	if len(cands) > 1 {
-		d["chipCands"] = cands
-		d["chipIdx"] = sel
-		m.flash = fileCompList(cands, sel)
-	} else {
-		delete(d, "chipCands")
-		m.flash = ""
-	}
-}
-
-// commitPathChip replaces the @token [start,end) with a path-chip anchor whose
-// record holds the absolute path.
-func (m *Model) commitPathChip(cur *item, start, end int, absPath string) {
-	anchor := m.createChip(chipKindPath, absPath)
-	if anchor == "" {
-		return
-	}
-	runes := []rune(cur.name)
-	cur.name = string(runes[:start]) + anchor + string(runes[end:])
-	m.caret = start + len([]rune(anchor))
-	m.unsaved = true
-	m.flash = ""
-	delete(m.nodeStore(cur.uuid), "chipCands")
-}

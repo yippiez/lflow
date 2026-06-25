@@ -60,44 +60,8 @@ func hasAnchor(name string) bool {
 	return strings.ContainsRune(name, chipSentinel)
 }
 
-func isPathSpace(r rune) bool { return r == ' ' || r == '\t' }
-
-// chipMarker is the prefix that opens a path-completion token. It is the pound
-// sign, shared with #tags — a token is a path only when it looks like one (see
-// looksLikePath); a bare "#word" stays a tag.
-const chipMarker = '#'
-
-// chipTokenAt finds the in-progress "#..." completion token under the caret: a
-// "#" at a word boundary, running to the next whitespace (or anchor). It returns
-// the token's [start,end) rune range and whether one was found. This is the plain
-// text being typed before it becomes a committed chip anchor.
-func chipTokenAt(runes []rune, caret int) (int, int, bool) {
-	start := -1
-	for i := caret - 1; i >= 0; i-- {
-		if isPathSpace(runes[i]) || runes[i] == chipSentinel {
-			break
-		}
-		if runes[i] == chipMarker && (i == 0 || isPathSpace(runes[i-1]) || runes[i-1] == chipSentinel) {
-			start = i
-			break
-		}
-	}
-	if start < 0 {
-		return 0, 0, false
-	}
-	end := start + 1
-	for end < len(runes) && !isPathSpace(runes[end]) && runes[end] != chipSentinel {
-		end++
-	}
-	return start, end, true
-}
-
-// looksLikePath reports whether a "#..." token's body is a filesystem path (so
-// Tab completes it) rather than a tag word. Paths carry a separator or a ~/./ root.
-func looksLikePath(body string) bool {
-	return strings.ContainsRune(body, '/') ||
-		strings.HasPrefix(body, "~") || strings.HasPrefix(body, ".")
-}
+// Path chips are created by the /file fuzzy picker (see file.go), not by typing a
+// marker — so "#" stays tags-only. The chip's display marker is "›" (see chipKinds).
 
 // spanStartingAt returns the anchor beginning exactly at rune index i, or nil.
 func spanStartingAt(spans []anchorSpan, i int) *anchorSpan {
@@ -156,7 +120,7 @@ var chipKinds = map[string]chipKind{
 			if base == "" || base == "." || base == string(filepath.Separator) {
 				base = v
 			}
-			return "#" + base
+			return "›" + base
 		},
 		expand: func(v string) string { return v },
 	},
