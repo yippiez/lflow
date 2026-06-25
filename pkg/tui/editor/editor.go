@@ -161,6 +161,16 @@ type Model struct {
 	// and renders bands beneath it (replaces the per-feature full-screen modes).
 	focused     bool // is the cursor node's inline view capturing input
 	focusScroll int  // first visible line of the focused view's self-window
+
+	// Manual viewport scroll (pgup/pgdown): scrolling pins the body window at
+	// scrollTop instead of following the cursor — to read a long note/subtree that
+	// runs past the footer without moving the cursor. Any other key resets it to
+	// cursor-follow. viewTop/viewRows cache the last frame's window so a page step
+	// is relative to what is on screen.
+	scrolling bool
+	scrollTop int
+	viewTop   int
+	viewRows  int
 	// nodeData is a generic ephemeral per-node store (uuid → key → value), never
 	// persisted or synced — node views keep live/edit state here instead of
 	// growing the Model with one named map per type.
@@ -580,6 +590,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
 	m.flash = "" // one-shot: whatever this key does sets the next status
 
+	// page keys scroll the viewport in place; every other key returns the view to
+	// following the cursor.
+	if key != "pgup" && key != "pgdown" {
+		m.scrolling = false
+	}
+
 	// esc-esc quits from outline mode — but not while a focused inline view is up
 	// (there esc defocuses; handled in the focused block below)
 	if m.mode == modeOutline && key == "esc" && !m.focused {
@@ -641,6 +657,26 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.snapshotForKey(key, k)
 
 	switch key {
+	case "pgdown", "pgup":
+		// scroll the body a page at a time without moving the cursor — for reading a
+		// long note/subtree that runs past the footer. A small overlap keeps context.
+		step := m.viewRows - 2
+		if step < 1 {
+			step = 1
+		}
+		if !m.scrolling {
+			m.scrolling = true
+			m.scrollTop = m.viewTop // start from what is currently on screen
+		}
+		if key == "pgdown" {
+			m.scrollTop += step
+		} else {
+			m.scrollTop -= step
+			if m.scrollTop < 0 {
+				m.scrollTop = 0
+			}
+		}
+		return m, nil
 	case "ctrl+q", "ctrl+c":
 		return m.quit()
 	case "ctrl+s":
@@ -2755,12 +2791,27 @@ func (m *Model) viewOutline(maxLine int) []string {
 		flat = append(flat, bands[i]...)
 	}
 	start := 0
-	if cursorEnd >= maxRows {
-		start = cursorEnd - maxRows + 1
+	if m.scrolling {
+		// manual scroll (pgup/pgdown): pin the window at scrollTop, clamped to the
+		// content, independent of where the cursor is.
+		start = m.scrollTop
+		if maxStart := len(flat) - maxRows; start > maxStart {
+			start = maxStart
+		}
+		if start < 0 {
+			start = 0
+		}
+		m.scrollTop = start
+	} else {
+		// follow the cursor: keep its row (and band, while editing) on screen
+		if cursorEnd >= maxRows {
+			start = cursorEnd - maxRows + 1
+		}
+		if cursorStart < start {
+			start = cursorStart
+		}
 	}
-	if cursorStart < start {
-		start = cursorStart
-	}
+	m.viewTop, m.viewRows = start, maxRows // cache for pgup/pgdown stepping
 	end := start + maxRows
 	if end > len(flat) {
 		end = len(flat)
