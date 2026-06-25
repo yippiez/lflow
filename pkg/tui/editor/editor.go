@@ -31,6 +31,7 @@ const (
 	modeConfirm // inline delete confirmation for nodes with children
 	modeType    // the /type picker: choose one of the node types
 	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme   // the /theme picker: choose a color palette
 )
 
 type finderAction int
@@ -60,6 +61,7 @@ var slashCommands = []slashCommand{
 	{"/move", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
 	{"/style", "Set this node's text style or color"},
+	{"/theme", "Switch the color theme"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
 }
@@ -133,6 +135,9 @@ type Model struct {
 
 	// /style picker selection (index into stylePickerItems)
 	styleSel int
+
+	// /theme picker selection (index into the themes registry)
+	themeSel int
 
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure the
 	// runnable node types use (bash, query, voice). Ephemeral, in-memory only,
@@ -596,6 +601,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTypeKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
+	case modeTheme:
+		return m.handleThemeKey(k)
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
@@ -1822,6 +1829,33 @@ func (m *Model) handleStyleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) handleThemeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "up":
+		if m.themeSel > 0 {
+			m.themeSel--
+		}
+		return m, nil
+	case "down":
+		if m.themeSel < len(themes)-1 {
+			m.themeSel++
+		}
+		return m, nil
+	case "enter":
+		if m.themeSel >= 0 && m.themeSel < len(themes) {
+			applyTheme(themes[m.themeSel])
+			m.saveTheme(themes[m.themeSel].name)
+			m.flash = "theme · " + activeThemeName
+		}
+		m.mode = modeOutline
+		return m, nil
+	}
+	return m, nil
+}
+
 func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	cur := m.cursorItem()
@@ -1859,6 +1893,16 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 					m.styleSel = i
 					break
 				}
+			}
+		}
+	case "/theme":
+		// open the palette picker; pre-select the theme already in effect
+		m.mode = modeTheme
+		m.themeSel = 0
+		for i, t := range themes {
+			if t.name == activeThemeName {
+				m.themeSel = i
+				break
 			}
 		}
 	case "/lock":
@@ -2532,6 +2576,8 @@ func (m *Model) viewOutline(maxLine int) []string {
 	case modeType:
 		pickerItems = len(m.filteredTypes())
 		typePickerRows = 1 // the "type:" search header
+	case modeTheme:
+		pickerItems = len(themes)
 	}
 	pickerRows := 0
 	if pickerItems > 0 || typePickerRows > 0 {
@@ -2690,6 +2736,32 @@ func (m *Model) viewOutline(maxLine int) []string {
 				line := " " + mark + swatch + " " + styleColorCode[it.value] + stylePickerLabels[it.value] + cReset
 				lines = append(lines, clip(line, maxLine))
 			}
+		}
+	}
+
+	// the /theme picker: one row per theme, each previewing its own palette as a
+	// strip of swatches so the colors are visible before you commit.
+	if m.mode == modeTheme {
+		win := pickerMaxRows
+		s2 := scrollStart(m.themeSel, len(themes), win)
+		e2 := s2 + win
+		if e2 > len(themes) {
+			e2 = len(themes)
+		}
+		for i := s2; i < e2; i++ {
+			t := themes[i]
+			mark := "  "
+			if i == m.themeSel {
+				mark = cAccent + "▸ " + cReset
+			}
+			active := ""
+			if t.name == activeThemeName {
+				active = cDim + " (on)" + cReset
+			}
+			swatches := t.accent + "●" + t.red + "●" + t.yellow + "●" +
+				t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
+			line := " " + mark + cFG + fmt.Sprintf("%-9s", t.name) + active + "  " + swatches
+			lines = append(lines, clip(line, maxLine))
 		}
 	}
 
@@ -2895,6 +2967,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
 	}
+	m.loadTheme() // apply the persisted color theme before the first render
 	m.refreshAncestors()
 	m.refreshRows()
 	m.ensureTempTree()    // the panel is always visible, so it must always have >=1 node
