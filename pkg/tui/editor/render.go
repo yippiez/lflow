@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lflow/lflow/pkg/browser"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
@@ -1113,10 +1114,14 @@ func (m *Model) typeSuffix(it *item) string {
 	return suffix
 }
 
-// linkName resolves the display name of a node's link target.
+// linkName resolves the display name of a node's link target — the URL itself
+// for a website link, otherwise the target node's name.
 func (m *Model) linkName(it *item) string {
 	if it.linkTo == "" {
 		return ""
+	}
+	if browser.IsURL(it.linkTo) {
+		return it.linkTo
 	}
 	if t, ok := m.tree.byUUID[it.linkTo]; ok {
 		return m.tree.displayName(t)
