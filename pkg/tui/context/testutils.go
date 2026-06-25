@@ -1,11 +1,9 @@
 package context
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/lflow/lflow/pkg/shared/clock"
-	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/pkg/errors"
 )
@@ -47,34 +45,6 @@ func InitTestCtxWithDB(t *testing.T, db *database.DB) DnoteCtx {
 	if err := InitLflowDirs(paths); err != nil {
 		t.Fatal(errors.Wrap(err, "creating test directories"))
 	}
-
-	return DnoteCtx{
-		DB:    db,
-		Paths: paths,
-		Clock: clock.NewMock(), // Use a mock clock to test times
-	}
-}
-
-// InitTestCtxWithFileDB initializes a test context with a file-based database
-// at the expected path.
-func InitTestCtxWithFileDB(t *testing.T) DnoteCtx {
-	paths := getDefaultTestPaths(t)
-
-	if err := InitLflowDirs(paths); err != nil {
-		t.Fatal(errors.Wrap(err, "creating test directories"))
-	}
-
-	dbPath := filepath.Join(paths.Data, consts.LflowDirName, consts.LflowDBFileName)
-	db, err := database.Open(dbPath)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "opening database"))
-	}
-
-	if _, err := db.Exec(database.GetDefaultSchemaSQL()); err != nil {
-		t.Fatal(errors.Wrap(err, "running schema sql"))
-	}
-
-	t.Cleanup(func() { db.Close() })
 
 	return DnoteCtx{
 		DB:    db,

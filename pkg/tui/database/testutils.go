@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	"github.com/lflow/lflow/pkg/tui/consts"
@@ -14,11 +13,6 @@ import (
 
 //go:embed schema.sql
 var defaultSchemaSQL string
-
-// GetDefaultSchemaSQL returns the default schema SQL for tests
-func GetDefaultSchemaSQL() string {
-	return defaultSchemaSQL
-}
 
 // MustScan scans the given row and fails a test in case of any errors
 func MustScan(t *testing.T, message string, row *sql.Row, args ...interface{}) {
@@ -41,14 +35,6 @@ func MustExec(t *testing.T, message string, db *DB, query string, args ...interf
 // InitTestMemoryDB initializes an in-memory test database with the default schema.
 func InitTestMemoryDB(t *testing.T) *DB {
 	return InitTestMemoryDBRaw(t, "")
-}
-
-// InitTestFileDB initializes a file-based test database with the default schema.
-func InitTestFileDB(t *testing.T) (*DB, string) {
-	uuid := mustGenerateTestUUID(t)
-	dbPath := filepath.Join(t.TempDir(), fmt.Sprintf("lflow-%s.db", uuid))
-	db := InitTestFileDBRaw(t, dbPath)
-	return db, dbPath
 }
 
 // InitTestFileDBRaw initializes a file-based test database at the specified path with the default schema.

@@ -13,43 +13,18 @@ import (
 	"time"
 
 	"github.com/lflow/lflow/pkg/shared/assert"
-	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
-	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/utils"
 	"github.com/pkg/errors"
 )
 
 // Prompts for user input
 const (
-	PromptRemoveNote  = "remove this note?"
-	PromptDeleteBook  = "delete book"
 	PromptEmptyServer = "The server is empty but you have local data"
 )
 
 // Timeout for waiting for prompts in tests
 const promptTimeout = 10 * time.Second
-
-// LoginDB sets up login credentials in the database for tests
-func LoginDB(t *testing.T, db *database.DB) {
-	database.MustExec(t, "inserting sessionKey", db, "INSERT INTO system (key, value) VALUES (?, ?)", consts.SystemSessionKey, "someSessionKey")
-	database.MustExec(t, "inserting sessionKeyExpiry", db, "INSERT INTO system (key, value) VALUES (?, ?)", consts.SystemSessionKeyExpiry, time.Now().Add(24*time.Hour).Unix())
-}
-
-// Login simulates a logged in user by inserting credentials in the local database
-func Login(t *testing.T, ctx *context.DnoteCtx) {
-	LoginDB(t, ctx.DB)
-
-	ctx.SessionKey = "someSessionKey"
-	ctx.SessionKeyExpiry = time.Now().Add(24 * time.Hour).Unix()
-}
-
-// RemoveDir cleans up the test env represented by the given context
-func RemoveDir(t *testing.T, dir string) {
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(errors.Wrap(err, "removing the directory"))
-	}
-}
 
 // CopyFixture writes the content of the given fixture to the filename inside the lflow dir
 func CopyFixture(t *testing.T, ctx context.DnoteCtx, fixturePath string, filename string) {
@@ -66,18 +41,6 @@ func CopyFixture(t *testing.T, ctx context.DnoteCtx, fixturePath string, filenam
 	err = utils.CopyFile(fp, dp)
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "copying the file"))
-	}
-}
-
-// WriteFile writes a file with the given content and  filename inside the lflow dir
-func WriteFile(ctx context.DnoteCtx, content []byte, filename string) {
-	dp, err := filepath.Abs(filepath.Join(ctx.Paths.LegacyDnote, filename))
-	if err != nil {
-		panic(err)
-	}
-
-	if err := os.WriteFile(dp, content, 0644); err != nil {
-		panic(err)
 	}
 }
 
@@ -210,49 +173,9 @@ func MustWaitDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, runFunc func(io.Rea
 	return output
 }
 
-// MustWaitForPrompt waits for an expected prompt with a default timeout.
-// Fails the test if the prompt is not found or an error occurs.
-func MustWaitForPrompt(t *testing.T, stdout io.Reader, expectedPrompt string) {
-	if err := assert.WaitForPrompt(stdout, expectedPrompt, promptTimeout); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// ConfirmRemoveNote waits for prompt for removing a note and confirms.
-func ConfirmRemoveNote(stdout io.Reader, stdin io.WriteCloser) error {
-	return assert.RespondToPrompt(stdout, stdin, PromptRemoveNote, "y\n", promptTimeout)
-}
-
-// ConfirmRemoveBook waits for prompt for deleting a book confirms.
-func ConfirmRemoveBook(stdout io.Reader, stdin io.WriteCloser) error {
-	return assert.RespondToPrompt(stdout, stdin, PromptDeleteBook, "y\n", promptTimeout)
-}
-
 // UserConfirmEmptyServerSync waits for an empty server prompt and confirms.
 func UserConfirmEmptyServerSync(stdout io.Reader, stdin io.WriteCloser) error {
 	return assert.RespondToPrompt(stdout, stdin, PromptEmptyServer, "y\n", promptTimeout)
-}
-
-// UserCancelEmptyServerSync waits for an empty server prompt and cancels.
-func UserCancelEmptyServerSync(stdout io.Reader, stdin io.WriteCloser) error {
-	return assert.RespondToPrompt(stdout, stdin, PromptEmptyServer, "n\n", promptTimeout)
-}
-
-// UserContent simulates content from the user by writing to stdin.
-// This is used for piped input where no prompt is shown.
-func UserContent(stdout io.Reader, stdin io.WriteCloser) error {
-	longText := `Lorem ipsum dolor sit amet, consectetur adipiscing elit,
-	sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.`
-
-	if _, err := io.WriteString(stdin, longText); err != nil {
-		return errors.Wrap(err, "creating note from stdin")
-	}
-
-	// stdin needs to close so stdin reader knows to stop reading
-	// otherwise test case would wait until test timeout
-	stdin.Close()
-
-	return nil
 }
 
 // MustMarshalJSON marshalls the given interface into JSON.
@@ -283,13 +206,4 @@ func MustGenerateUUID(t *testing.T) string {
 	}
 
 	return ret
-}
-
-func MustOpenDatabase(t *testing.T, dbPath string) *database.DB {
-	db, err := database.Open(dbPath)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "opening database"))
-	}
-
-	return db
 }

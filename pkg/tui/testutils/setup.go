@@ -21,13 +21,6 @@ func SetupNodes1(t *testing.T, db *database.DB) {
 	insertNode(t, db, "root-2-uuid", "", 1, "reading list", "bullets", 0)
 }
 
-// SetupNodes2 seeds nodes that have already been synced (usn > 0).
-func SetupNodes2(t *testing.T, db *database.DB) {
-	insertNode(t, db, "root-1-uuid", "", 0, "experiment results", "h1", 11)
-	insertNode(t, db, "child-1-uuid", "root-1-uuid", 0, "baseline numbers", "bullets", 12)
-	insertNode(t, db, "root-2-uuid", "", 1, "reading list", "bullets", 13)
-}
-
 func insertNode(t *testing.T, db *database.DB, uuid, parentUUID string, rank int, name, nodeType string, usn int) {
 	database.MustExec(t, "setting up node "+name, db,
 		"INSERT INTO nodes (uuid, parent_uuid, rank, name, note, type, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty) VALUES (?, ?, ?, ?, '', ?, '', 0, ?, ?, ?, 0, ?)",
