@@ -101,6 +101,10 @@ var nodeTypes = []nodeType{
 		run:     runVoice,
 		expand:  playVoice,
 	},
+	{
+		key: database.TypeNapkin, label: "Napkin", glyph: napkinGlyph, inlineEditable: true,
+		view: napkinView{}, // alt+e: full-screen color drawing editor
+	},
 }
 
 var byType = func() map[string]nodeType {

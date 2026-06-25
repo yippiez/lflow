@@ -174,6 +174,7 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			if rm := typeOf(it.typ).renderM; rm != nil {
 				body = rm(m, it)
 			}
+			body = m.napkinBodySuffix(it, body)
 			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
 			if i == cursor {
 				cursorAt = len(flat)

@@ -20,3 +20,7 @@ pkg/e2e/sync/tmp/
 
 # local secrets
 .env
+
+# python bytecode cache (design tooling)
+__pycache__/
+*.pyc

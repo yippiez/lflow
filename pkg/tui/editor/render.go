@@ -55,6 +55,7 @@ const (
 	glyphTodoDone  = "■"
 	glyphQuoteBar  = "▎"
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
+	glyphNapkin    = "◼" // a napkin drawing node (dark-gray square)
 )
 
 // visibleWidth returns the display width of s ignoring SGR sequences. Runs of

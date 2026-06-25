@@ -2521,7 +2521,9 @@ func (m *Model) View() string {
 
 	var lines []string
 
-	if m.mode == modeFinder {
+	if m.napkinFocused() {
+		lines = m.viewDraw(maxLine) // full-screen drawing editor (alt+e)
+	} else if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)
@@ -2576,6 +2578,7 @@ func (m *Model) finalView(maxLine int) []string {
 		if rm := typeOf(r.it.typ).renderM; rm != nil {
 			body = rm(m, r.it)
 		}
+		body = m.napkinBodySuffix(r.it, body)
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r.it)
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
@@ -2631,6 +2634,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		if rm := typeOf(it.typ).renderM; rm != nil {
 			body = rm(m, it) // Model-aware override (voice waveform)
 		}
+		body = m.napkinBodySuffix(it, body) // little drawing thumbnail next to the text
 
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
 
