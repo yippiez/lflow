@@ -3,12 +3,10 @@ package testutils
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -184,15 +182,6 @@ func GetCookieByName(cookies []*http.Cookie, name string) *http.Cookie {
 	return ret
 }
 
-// MustRespondJSON responds with the JSON-encoding of the given interface. If the encoding
-// fails, the test fails. It is used by test servers.
-func MustRespondJSON(t *testing.T, w http.ResponseWriter, i interface{}, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(i); err != nil {
-		t.Fatal(message)
-	}
-}
-
 // MockEmail is a mock email data
 type MockEmail struct {
 	TemplateType string
@@ -251,45 +240,6 @@ func RunForWebAndAPI(t *testing.T, name string, runTest endpointTest) {
 	t.Run(fmt.Sprintf("%s-api", name), func(t *testing.T) {
 		runTest(t, EndpointAPI)
 	})
-}
-
-// PayloadWrapper is a wrapper for a payload that can be converted to
-// either URL form values or JSON
-type PayloadWrapper struct {
-	Data interface{}
-}
-
-func (p PayloadWrapper) ToURLValues() url.Values {
-	values := url.Values{}
-
-	el := reflect.ValueOf(p.Data)
-	if el.Kind() == reflect.Ptr {
-		el = el.Elem()
-	}
-	iVal := el
-	typ := iVal.Type()
-	for i := 0; i < iVal.NumField(); i++ {
-		fi := typ.Field(i)
-		name := fi.Tag.Get("schema")
-		if name == "" {
-			name = fi.Name
-		}
-
-		if !iVal.Field(i).IsNil() {
-			values.Set(name, fmt.Sprint(iVal.Field(i).Elem()))
-		}
-	}
-
-	return values
-}
-
-func (p PayloadWrapper) ToJSON(t *testing.T) string {
-	b, err := json.Marshal(p.Data)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return string(b)
 }
 
 // TrueVal is a true value

@@ -36,14 +36,6 @@ type Data struct {
 	Yield map[string]interface{}
 }
 
-func getErrMessage(err error) string {
-	if pErr, ok := err.(PublicError); ok {
-		return pErr.Public()
-	}
-
-	return AlertMsgGeneric
-}
-
 // PutAlert puts an alert in the given data.
 func (d *Data) PutAlert(alert Alert, alertInYield bool) {
 	if alertInYield {

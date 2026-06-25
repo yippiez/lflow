@@ -209,28 +209,6 @@ func doHTTPReq(t *testing.T, env testEnv, method, path, payload, message string,
 	return res
 }
 
-// setupFunc is a function that sets up test data and returns IDs for assertions
-type setupFunc func(t *testing.T, env testEnv, user database.User) map[string]string
-
-// assertFunc is a function that asserts the expected state after sync
-type assertFunc func(t *testing.T, env testEnv, user database.User, ids map[string]string)
-
-// testSyncCmd is a test helper that sets up a test environment, runs setup, syncs, and asserts
-func testSyncCmd(t *testing.T, fullSync bool, setup setupFunc, assert assertFunc) {
-	env := setupTestEnv(t)
-
-	user := setupUserAndLogin(t, env)
-	ids := setup(t, env, user)
-
-	if fullSync {
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync", "-f")
-	} else {
-		clitest.RunDnoteCmd(t, env.CmdOpts, cliBinaryName, "server", "sync")
-	}
-
-	assert(t, env, user, ids)
-}
-
 // systemState represents the expected state of the sync system
 type systemState struct {
 	clientNodeCount  int
