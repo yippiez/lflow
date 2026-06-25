@@ -128,6 +128,11 @@ func pathExists(p string) bool {
 	return err == nil
 }
 
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
 // completeChipUnderCaret performs one Tab of path completion on the "@token"
 // under the caret (in any node). A file match commits to a path chip (the typed
 // text becomes an anchor); a directory or an ambiguous prefix stays plain text so
@@ -138,7 +143,7 @@ func (m *Model) completeChipUnderCaret(cur *item) bool {
 	if !ok {
 		return false
 	}
-	partial := string(runes[start+1 : end]) // text after "@"
+	partial := string(runes[start+1 : end]) // text after "#"
 	d := m.nodeStore(cur.uuid)
 
 	// sitting on a previously-offered candidate → cycle to the next one
@@ -149,6 +154,16 @@ func (m *Model) completeChipUnderCaret(cur *item) bool {
 				m.setChipPartial(cur, start, end, cands[ni], cands, ni)
 				return true
 			}
+		}
+	}
+
+	// a completed directory path (trailing slash) commits as a folder chip — Tab
+	// once lands on "dir/", Tab again selects the folder; type a subpath to drill
+	if strings.HasSuffix(partial, string(filepath.Separator)) {
+		if abs := absolutizePath(partial); isDir(abs) {
+			m.commitPathChip(cur, start, end, abs)
+			delete(d, "chipCands")
+			return true
 		}
 	}
 
