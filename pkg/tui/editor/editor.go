@@ -253,7 +253,7 @@ func (m *Model) refreshAncestors() {
 		if err != nil {
 			break
 		}
-		name := n.Name
+		name := displayAnchors(n.Name, m.chips) // resolve chip anchors for the breadcrumb
 		if name == "" {
 			name = "untitled"
 		}
@@ -2985,7 +2985,7 @@ func (m *Model) bottomBar(maxLine int) string {
 	// breadcrumb: the forest path down to the current view root
 	parts := append([]string(nil), m.ancestors...)
 	for _, v := range m.viewStack {
-		name := m.tree.displayName(v)
+		name := displayAnchors(m.tree.displayName(v), m.chips) // resolve chip anchors
 		if name == "" {
 			name = "untitled"
 		}
@@ -3074,10 +3074,10 @@ func (m *Model) viewFinder(maxLine int) []string {
 		if err != nil {
 			count = 1
 		}
-		name := finderRowName(h, func(uuid string) (database.Node, bool) {
+		name := displayAnchors(finderRowName(h, func(uuid string) (database.Node, bool) {
 			n, err := database.GetNode(m.db, uuid)
 			return n, err == nil
-		})
+		}), m.chips)
 		line := mark + cFG + fmt.Sprintf("%-28s", name) + cDim + fmt.Sprintf(" %d nodes", count) + cReset
 		lines = append(lines, clip(line, maxLine))
 	}
