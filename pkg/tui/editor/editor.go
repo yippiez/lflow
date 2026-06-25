@@ -1194,6 +1194,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// ">" opens the file picker to splice a path chip at the caret — the chip
+		// renders as "›name", so ">" is its natural trigger. Skipped where ">" is
+		// real syntax (bash redirects, code, queries), and after a "-" so the "->"
+		// log gesture can form instead of grabbing the picker.
+		if string(k.Runes) == ">" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			pathChipTrigger(cur.typ) && !runeBeforeCaretIs(cur, m.caret, '-') {
+			return m, m.openFilePicker(cur)
+		}
+
 		if cur.mirrorOf != "" {
 			return m, nil // a mirror reference is edited at its original — see mirrorContext
 		}
@@ -1216,8 +1225,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// reseeding the compose) — slicing runes[:m.caret] would otherwise panic
 		m.boundCaret(len([]rune(cur.name)))
 
-		// typing a space commits a #tag or date token before it into a chip
+		// typing a space commits a sign prefix ("$ "→bash, "-> "/"→ "→log) into the
+		// node's type, or a #tag / date token before it into a chip.
 		if text == " " && !k.Paste {
+			if m.convertBySign(cur) {
+				return m, nil // the sign became the type; the space is consumed
+			}
 			m.chipifyBeforeCaret(cur)
 		}
 
@@ -1232,6 +1245,57 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// pathChipTrigger reports whether ">" should open the file picker on this type.
+// Text-ish nodes get it; types where ">" is real syntax (bash redirect, code,
+// query, quote, json) keep ">" literal.
+func pathChipTrigger(typ string) bool {
+	switch typ {
+	case database.TypeBash, database.TypeCode, database.TypeQuery, database.TypeQuote, database.TypeJSON:
+		return false
+	}
+	return typeOf(typ).inlineEditable
+}
+
+// runeBeforeCaretIs reports whether the rune just left of caret is r.
+func runeBeforeCaretIs(cur *item, caret int, r rune) bool {
+	runes := []rune(cur.name)
+	return caret > 0 && caret <= len(runes) && runes[caret-1] == r
+}
+
+// convertBySign turns a sign typed at the very start of a node into that node's
+// type — the keyboard-only counterpart to /type. It fires on the space after the
+// sign (so the whole pre-caret text IS the sign), converts, and strips the sign
+// (a bash node renders its own "$ " prefix; a log node its own "→"), leaving the
+// caret at the start of the remaining text. Works from any type, so it doubles as
+// the reverse conversion (type "$ " on a log node to make it bash, and vice versa).
+func (m *Model) convertBySign(cur *item) bool {
+	if cur == nil || cur.mirrorOf != "" || cur.readonly {
+		return false
+	}
+	runes := []rune(cur.name)
+	if m.caret > len(runes) {
+		return false
+	}
+	var newType string
+	switch string(runes[:m.caret]) {
+	case "$":
+		newType = database.TypeBash
+	case "->", "→":
+		newType = database.TypeLog
+	default:
+		return false
+	}
+	if cur.typ == newType {
+		return false // already that type — let the space type normally
+	}
+	m.pushUndo("")
+	cur.typ = newType
+	cur.name = string(runes[m.caret:]) // drop the sign; the type renders its own
+	m.caret = 0
+	m.unsaved = true
+	return true
 }
 
 // pasteLines normalizes pasted text into one line per logical row. tmux ONLCR
