@@ -970,7 +970,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "alt+g":
 		// follow this node's link (→ target): a URL opens in the browser, a node
-		// uuid reveals that node with the cursor on it.
+		// uuid reveals that node with the cursor on it. With no link to follow,
+		// alt+g opens the /goto finder instead.
 		if cur := m.cursorItem(); cur != nil && cur.linkTo != "" && !m.tempActive {
 			if browser.IsURL(cur.linkTo) {
 				if err := browser.Open(cur.linkTo); err != nil {
@@ -981,6 +982,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m.revealNode(cur.linkTo)
+		}
+		// no link to follow: alt+g opens the /goto finder to jump to any node
+		if !m.tempActive {
+			m.openFinder(actGoto)
 		}
 		return m, nil
 	case "alt+e":
