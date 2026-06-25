@@ -52,8 +52,8 @@ func TestDividerLineCentered(t *testing.T) {
 
 	const prefixW = 1 // " " before the (empty) depth-0 connector
 	avail := maxLine - prefixW
-	if want := avail * 9 / 10; dashes != want {
-		t.Errorf("rule width = %d, want %d (~90%% of %d)", dashes, want, avail)
+	if want := avail * 24 / 25; dashes != want {
+		t.Errorf("rule width = %d, want %d (~96%% of %d)", dashes, want, avail)
 	}
 	leftGap := leading - prefixW
 	rightGap := maxLine - leading - dashes

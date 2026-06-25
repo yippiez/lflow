@@ -433,7 +433,7 @@ func dividerLine(r row, maxLine int, selected bool) string {
 		col = cRed
 	}
 	avail := maxLine - visibleWidth(prefix) // content width after the indent/rail
-	ruleW := avail * 9 / 10
+	ruleW := avail * 24 / 25                // ~96%, a small centered gap each side
 	if ruleW < 1 {
 		ruleW = 1
 	}
