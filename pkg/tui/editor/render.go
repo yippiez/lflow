@@ -474,17 +474,6 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 	return cDim + string(cells)
 }
 
-// padBgToWidth extends a rendered line's background to the full display width by
-// appending bg-tinted spaces — used to make a bash row read as a terminal line
-// rather than floating text. A line already at/over width is returned unchanged.
-func padBgToWidth(line string, width int, bg string) string {
-	w := visibleWidth(line)
-	if w >= width {
-		return line
-	}
-	return line + bg + strings.Repeat(" ", width-w) + cReset
-}
-
 // styleOutLine renders one captured output line. If the program emitted its own
 // ANSI color (a SGR escape is present), it is passed through faithfully so the
 // command's colors survive; an uncolored line falls back to muted gray, stderr
