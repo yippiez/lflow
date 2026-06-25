@@ -1110,29 +1110,29 @@ func TestSlashBackspaceDismissKeepsStatusBar(t *testing.T) {
 // menu types a "/" into the editable node text, so escaping the menu must strip
 // that triggering slash and leave the node name exactly as it was before. A
 // literal slash word is only committed when Enter runs an unknown command.
-func TestSlashEscapeRemovesTriggeringSlash(t *testing.T) {
+func TestSlashEscapeKeepsTypedText(t *testing.T) {
 	m := newTestModel(80, "hello")
 	m.cursor = 0
 	m.caret = len([]rune("hello"))
 
-	// open the slash menu: this inserts the triggering "/"
+	// open the slash menu (inserts "/") and type a query
 	m.press("/")
 	if m.mode != modeSlash {
 		t.Fatalf("pressing / should open the slash menu, mode=%v", m.mode)
 	}
+	m.press("p")
+	m.press("a")
 
-	// escape cancels the command and must remove the triggering slash
+	// escape closes the menu but LEAVES the typed "/pa" as literal text, so you can
+	// write things like "/pa" without the menu swallowing them.
 	mm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	*m = *mm.(*Model)
 
 	if m.mode != modeOutline {
 		t.Fatalf("escape should return to outline mode, mode=%v", m.mode)
 	}
-	if got := m.cursorItem().name; got != "hello" {
-		t.Fatalf("escape must restore the name, got %q", got)
-	}
-	if strings.Contains(m.cursorItem().name, "/") {
-		t.Fatalf("escape left a stray slash in the name: %q", m.cursorItem().name)
+	if got := m.cursorItem().name; got != "hello/pa" {
+		t.Fatalf("escape must keep the typed text, got %q", got)
 	}
 }
 

@@ -1852,13 +1852,9 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch k.String() {
 	case "esc":
-		// escape cancels the command: strip the triggering "/" and any
-		// in-progress query so the node name returns to what it was before
-		// the menu opened. A literal slash is only committed when Enter runs
-		// an unknown command, never on escape.
-		if m.slashInline && cur != nil {
-			m.stripSlashText()
-		}
+		// escape just closes the menu and LEAVES the typed "/query" as literal text,
+		// so you can write "/pa" without the menu swallowing it. (The slash menu only
+		// strips its text when a command actually runs.)
 		m.mode = modeOutline
 		return m, nil
 	case "up":
