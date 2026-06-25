@@ -34,4 +34,7 @@ var (
 	SystemSessionKey = "session_token"
 	// SystemSessionKeyExpiry is the timestamp at which the session key will expire
 	SystemSessionKeyExpiry = "session_token_expiry"
+	// SystemColabAuth holds the Google OAuth token (JSON) for the Colab compute
+	// runtime, written by `lflow auth colab`.
+	SystemColabAuth = "colab_auth"
 )
