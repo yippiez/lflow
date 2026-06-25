@@ -842,6 +842,25 @@ var lm24 = migration{
 	},
 }
 
+// lm25 adds the artifacts table — a node/chip's embedded web page (an .html file,
+// or a .md file rendered to html), keyed by the artifact node's uuid or the
+// artifact chip's id. Local only, never synced: the content is machine-rendered
+// and can be large, like node_output and chips.
+var lm25 = migration{
+	name: "add-artifacts-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS artifacts (
+			id text PRIMARY KEY,
+			name text NOT NULL DEFAULT '',
+			kind text NOT NULL DEFAULT '',
+			content text NOT NULL DEFAULT ''
+		);`); err != nil {
+			return errors.Wrap(err, "creating artifacts table")
+		}
+		return nil
+	},
+}
+
 var rm1 = migration{
 	name: "sync-book-uuids-from-server",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {

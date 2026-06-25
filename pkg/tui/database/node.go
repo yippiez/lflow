@@ -9,36 +9,38 @@ import (
 
 // Type values for a node.
 const (
-	TypeBullets = "bullets"
-	TypeTodo    = "todo"
-	TypeH1      = "h1"
-	TypeH2      = "h2"
-	TypeH3      = "h3"
-	TypeCode    = "code"
-	TypeQuote   = "quote"
-	TypeJSON    = "json"
-	TypeBash    = "bash"
-	TypeQuery   = "query"
-	TypeVoice   = "voice"
-	TypeDivider = "divider"
-	TypeLog     = "log"
+	TypeBullets  = "bullets"
+	TypeTodo     = "todo"
+	TypeH1       = "h1"
+	TypeH2       = "h2"
+	TypeH3       = "h3"
+	TypeCode     = "code"
+	TypeQuote    = "quote"
+	TypeJSON     = "json"
+	TypeBash     = "bash"
+	TypeQuery    = "query"
+	TypeVoice    = "voice"
+	TypeDivider  = "divider"
+	TypeLog      = "log"
+	TypeArtifact = "artifact"
 )
 
 // ValidTypes is the set of accepted type values.
 var ValidTypes = map[string]bool{
-	TypeBullets: true,
-	TypeTodo:    true,
-	TypeH1:      true,
-	TypeH2:      true,
-	TypeH3:      true,
-	TypeCode:    true,
-	TypeQuote:   true,
-	TypeJSON:    true,
-	TypeBash:    true,
-	TypeQuery:   true,
-	TypeVoice:   true,
-	TypeDivider: true,
-	TypeLog:     true,
+	TypeBullets:  true,
+	TypeTodo:     true,
+	TypeH1:       true,
+	TypeH2:       true,
+	TypeH3:       true,
+	TypeCode:     true,
+	TypeQuote:    true,
+	TypeJSON:     true,
+	TypeBash:     true,
+	TypeQuery:    true,
+	TypeVoice:    true,
+	TypeDivider:  true,
+	TypeLog:      true,
+	TypeArtifact: true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror
@@ -355,7 +357,7 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 	// and FTS passes, which see only the opaque anchor. Resolve anchors for the
 	// anchor-bearing nodes and match the display + full value. char(65532) is the
 	// anchor sentinel U+FFFC, so this stays off chipless nodes.
-	if rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE deleted = 0 AND instr(name, char(65532)) > 0 LIMIT 200"); err == nil {
+	if rows, err := db.Query("SELECT " + nodeColumns + " FROM nodes WHERE deleted = 0 AND instr(name, char(65532)) > 0 LIMIT 200"); err == nil {
 		chips, _ := LoadChips(db)
 		lq := strings.ToLower(q)
 		for rows.Next() {

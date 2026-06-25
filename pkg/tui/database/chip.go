@@ -31,6 +31,8 @@ func ChipDisplay(c Chip) string {
 		return "›" + base
 	case "tag":
 		return "#" + c.Value
+	case "artifact":
+		return "▣ " + c.Value
 	default:
 		return c.Value
 	}

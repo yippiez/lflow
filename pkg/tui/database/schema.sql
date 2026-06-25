@@ -44,7 +44,13 @@ CREATE TABLE chips (
 			kind text NOT NULL DEFAULT '',
 			value text NOT NULL DEFAULT ''
 		);
+CREATE TABLE artifacts (
+			id text PRIMARY KEY,
+			name text NOT NULL DEFAULT '',
+			kind text NOT NULL DEFAULT '',
+			content text NOT NULL DEFAULT ''
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 24);
+INSERT INTO system (key, value) VALUES ('schema', 25);
 INSERT INTO system (key, value) VALUES ('remote_schema', 1);
