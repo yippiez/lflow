@@ -133,6 +133,14 @@ func buildDate(year, month, day, hour, min int, loc *time.Location) (time.Time, 
 // This keeps the bottom-bar hint and the ctrl+t conversion acting where the
 // user is editing instead of always grabbing the leftmost match.
 func detectDate(name string, caret int, now time.Time) *dateMatch {
+	return pickByCaret(detectAllDates(name, now), caret)
+}
+
+// detectAllDates returns every time phrase in name — relative words and the
+// three absolute formats — each with its resolved time.Time. It is the shared
+// scanner behind ctrl+t (which picks the one nearest the caret) and the time
+// query filter (which considers them all).
+func detectAllDates(name string, now time.Time) []*dateMatch {
 	var matches []*dateMatch
 	matches = append(matches, detectRelative(name, now)...)
 	matches = append(matches, detectPattern(name, reNamed, func(g []string) (time.Time, bool, bool) {
@@ -154,8 +162,7 @@ func detectDate(name string, caret int, now time.Time) *dateMatch {
 		t, ok := buildDate(atoi(g[3]), atoi(g[2]), atoi(g[1]), atoi(g[4]), atoi(g[5]), now.Location())
 		return t, hasTime, ok
 	})...)
-
-	return pickByCaret(matches, caret)
+	return matches
 }
 
 // pickByCaret chooses the phrase containing caret, else the one whose span is

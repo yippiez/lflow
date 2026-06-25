@@ -375,6 +375,33 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 	return ret, nil
 }
 
+// AllLiveNodes returns every non-deleted node outside the Temporary Domain — the
+// candidate set for a pure time-filtered query, which carries no text for the
+// FTS/LIKE passes to use. Bounded so a huge forest can't stall the editor.
+func AllLiveNodes(db *DB) ([]Node, error) {
+	tempUUIDs, err := TempSubtreeUUIDs(db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query("SELECT " + nodeColumns + " FROM nodes WHERE deleted = 0 ORDER BY added_on DESC LIMIT 500")
+	if err != nil {
+		return nil, errors.Wrap(err, "listing live nodes")
+	}
+	defer rows.Close()
+	var ret []Node
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, errors.Wrap(err, "scanning node")
+		}
+		if tempUUIDs[n.UUID] || n.Name == "" {
+			continue
+		}
+		ret = append(ret, n)
+	}
+	return ret, nil
+}
+
 // buildFTSQuery turns free text into a safe FTS5 prefix query.
 func buildFTSQuery(q string) string {
 	fields := strings.Fields(q)

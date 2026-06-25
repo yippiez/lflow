@@ -38,8 +38,17 @@ func (m *Model) queryUpdatedAt(uuid string) int64 {
 // nodes outside the loaded subtree are found too). In-memory wins on conflict so
 // the freshest name is used. Results are sorted by name for a stable order.
 func (m *Model) queryMatches(q *item) []database.Node {
-	query := strings.TrimSpace(q.name)
-	if query == "" {
+	now := time.Now()
+	// resolve the query node's own chips/dates to plain text before parsing, so a
+	// ":before:2026-06-01" the editor chipified still reads as text here.
+	raw := strings.TrimSpace(database.ExpandAnchors(q.name, m.chips))
+	if raw == "" {
+		return nil
+	}
+	tq := parseTimeQuery(raw, now)
+	query := strings.TrimSpace(tq.text)
+	hasText := query != ""
+	if !hasText && !tq.hasFilter() {
 		return nil
 	}
 	lc := strings.ToLower(query)
@@ -47,10 +56,19 @@ func (m *Model) queryMatches(q *item) []database.Node {
 	// would otherwise prefix-match "log" into "logic", so we filter strictly.
 	tag, isTag := tagQuery(query)
 	matches := func(name, note string) bool {
+		if !hasText {
+			return true // pure time query: every node is a text match, time filters
+		}
 		if isTag {
 			return nodeHasTag(name, tag) || nodeHasTag(note, tag)
 		}
 		return strings.Contains(strings.ToLower(name), lc) || strings.Contains(strings.ToLower(note), lc)
+	}
+	timeOK := func(name string, addedOn int64) bool {
+		if !tq.hasFilter() {
+			return true
+		}
+		return tq.matchDates(m.nodeDates(name, addedOn, now))
 	}
 	seen := map[string]bool{}
 	var out []database.Node
@@ -60,20 +78,33 @@ func (m *Model) queryMatches(q *item) []database.Node {
 		if it == q || it.mirrorOf != "" || it.name == "" {
 			continue // skip self, mirror rows, and empty/derived names
 		}
-		if matches(it.name, it.note) {
+		if matches(it.name, it.note) && timeOK(it.name, it.addedOn) {
 			out = append(out, database.Node{UUID: uuid, Name: it.name})
 			seen[uuid] = true
 		}
 	}
 
-	// saved nodes from the DB (may live outside the loaded subtree). For a tag
-	// query the DB returns a loose superset; nodeHasTag tightens it to whole tags.
-	if dbm, err := database.SearchNodes(m.db, query, true); err == nil {
+	// saved nodes from the DB (may live outside the loaded subtree). With text we
+	// search; a pure time query has nothing for FTS, so we scan the live forest.
+	// For a tag query the DB returns a loose superset; nodeHasTag tightens it.
+	var dbm []database.Node
+	var err error
+	switch {
+	case m.db == nil: // a detached/in-memory tree (tests, scratch): no DB reach
+	case hasText:
+		dbm, err = database.SearchNodes(m.db, query, true)
+	default:
+		dbm, err = database.AllLiveNodes(m.db)
+	}
+	if err == nil {
 		for _, mn := range dbm {
 			if seen[mn.UUID] || mn.Deleted || mn.Name == "" || mn.UUID == q.uuid {
 				continue
 			}
 			if isTag && !nodeHasTag(mn.Name, tag) && !nodeHasTag(mn.Note, tag) {
+				continue
+			}
+			if !timeOK(mn.Name, mn.AddedOn) {
 				continue
 			}
 			out = append(out, mn)
