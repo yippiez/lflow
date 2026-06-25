@@ -32,10 +32,13 @@ func TestParseSingleNode(t *testing.T) {
 
 func TestModelFor(t *testing.T) {
 	t.Setenv("LFLOW_EVAL_MODEL", "")
-	if got := ModelFor("anthropic/claude-opus"); got != "anthropic/claude-haiku-4-5" {
-		t.Errorf("claude → cheap haiku, got %q", got)
+	if got := ModelFor("anthropic/claude-opus"); got != "anthropic/claude-haiku-4.5" {
+		t.Errorf("claude → cheap haiku on same upstream, got %q", got)
 	}
-	if got := ModelFor("anthropic/claude-haiku-4-5"); got != "anthropic/claude-haiku-4-5" {
+	if got := ModelFor("github-copilot/claude-opus-4.8"); got != "github-copilot/claude-haiku-4.5" {
+		t.Errorf("copilot claude → copilot haiku, got %q", got)
+	}
+	if got := ModelFor("github-copilot/claude-haiku-4.5"); got != "github-copilot/claude-haiku-4.5" {
 		t.Errorf("haiku judges with itself, got %q", got)
 	}
 	if got := ModelFor("grok:grok-build"); got != "" {

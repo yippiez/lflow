@@ -24,12 +24,12 @@ func ModelFor(workerModel string) string {
 	m := agent.ParseModel(workerModel)
 	n := strings.ToLower(m.Name)
 	switch {
-	case strings.Contains(n, "haiku"):
-		return workerModel // already cheap — judge with itself
+	case strings.Contains(n, "haiku"), strings.Contains(n, "flash"), strings.Contains(n, "mini"):
+		return workerModel // already a cheap tier — judge with itself
 	case strings.Contains(n, "claude") || strings.Contains(n, "opus") || strings.Contains(n, "sonnet"):
-		// cheap Claude tier on the same backend; a wrong id just fails the eval,
-		// which degrades to "keep the original deliverable".
-		m.Upstream, m.Name = "anthropic", "claude-haiku-4-5"
+		// cheap Claude tier on the SAME upstream/backend (github-copilot, anthropic,
+		// …); a wrong id just fails the eval, which degrades to keeping the original.
+		m.Name = "claude-haiku-4.5"
 		return m.String()
 	}
 	return ""

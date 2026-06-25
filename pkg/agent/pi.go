@@ -194,7 +194,18 @@ func piPump(c *exec.Cmd, stdout io.Reader, stderrCh <-chan string, ctx context.C
 			}
 			s.events <- Event{Kind: EventToolUpdate, Tool: ev.ToolName, Detail: detail}
 		case "message_end":
-			if ev.Message == nil || ev.Message.Usage == nil {
+			if ev.Message == nil {
+				break
+			}
+			// surface the ASSISTANT's text so headless callers (the eval harness) can
+			// read a no-tool answer; the worker ignores it post-finish_worker (gotFinish).
+			// Only assistant messages — never echo the user turn back into the stream.
+			if r := ev.Message.Role; r == "" || r == "assistant" {
+				if txt := ev.Message.text(); txt != "" {
+					s.events <- Event{Kind: EventAgentText, Text: txt}
+				}
+			}
+			if ev.Message.Usage == nil {
 				break
 			}
 			u := ev.Message.Usage
