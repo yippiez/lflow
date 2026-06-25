@@ -17,7 +17,7 @@ type Backend interface {
 }
 
 // backends is the compiled-in registry, in picker order.
-var backends = []Backend{piBackend{}, opencodeBackend{}, grokBackend{}}
+var backends = []Backend{piBackend{}}
 
 // Backends returns the registered backends.
 func Backends() []Backend { return backends }

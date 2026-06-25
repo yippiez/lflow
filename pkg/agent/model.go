@@ -23,44 +23,24 @@ func (m Model) ID() string {
 // Empty reports whether the model is unset.
 func (m Model) Empty() bool { return m.Name == "" }
 
-// FlagValue is the value to pass to the backend's --model flag. pi and opencode
-// take "upstream/model"; grok takes the bare model id.
-func (m Model) FlagValue() string {
-	if m.CLI == ProviderGrok {
-		return m.Name
-	}
-	return m.ID()
-}
+// FlagValue is the value to pass to pi's --model flag ("upstream/model").
+func (m Model) FlagValue() string { return m.ID() }
 
-// String is the canonical, round-trippable form used in the model picker and in
-// persisted config. The default pi backend keeps the bare "upstream/model" form
-// (so existing config and the status bar read unchanged); other backends are
-// prefixed with "<cli>:". The ":" vs "/" split disambiguates a CLI prefix from an
-// upstream provider, so a pi model whose upstream is literally "opencode-go" never
-// collides with the opencode backend.
+// String is the canonical "upstream/model" form (pi is the only backend now).
 func (m Model) String() string {
 	if m.Empty() {
 		return ""
 	}
-	if m.CLI == ProviderPi || m.CLI == "" {
-		return m.ID()
-	}
-	return string(m.CLI) + ":" + m.ID()
+	return m.ID()
 }
 
-// ParseModel is the inverse of Model.String. A missing CLI prefix defaults to pi.
+// ParseModel is the inverse of Model.String. pi is the only backend; a leading
+// "pi:" prefix is tolerated for backward compatibility.
 func ParseModel(s string) Model {
-	cli := ProviderPi
-	if i := strings.IndexByte(s, ':'); i >= 0 {
-		switch p := Provider(s[:i]); p {
-		case ProviderPi, ProviderOpencode, ProviderGrok:
-			cli = p
-			s = s[i+1:]
-		}
-	}
+	s = strings.TrimPrefix(s, "pi:")
 	up, name := "", s
 	if i := strings.IndexByte(s, '/'); i >= 0 {
 		up, name = s[:i], s[i+1:]
 	}
-	return Model{CLI: cli, Upstream: up, Name: name}
+	return Model{CLI: ProviderPi, Upstream: up, Name: name}
 }

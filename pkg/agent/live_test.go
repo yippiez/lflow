@@ -18,7 +18,7 @@ func TestLiveAllBackends(t *testing.T) {
 	if os.Getenv("LFLOW_LIVE") != "1" {
 		t.Skip("set LFLOW_LIVE=1 to run live backend tests")
 	}
-	for _, p := range []Provider{ProviderPi, ProviderOpencode, ProviderGrok} {
+	for _, p := range []Provider{ProviderPi} {
 		p := p
 		t.Run(string(p), func(t *testing.T) {
 			b, ok := Get(p)
