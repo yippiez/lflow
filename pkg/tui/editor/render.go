@@ -562,7 +562,7 @@ func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool, caret int) 
 	if textW < 8 {
 		textW = 8
 	}
-	style := bgNote + cDim + cItalic
+	style := cDim + cItalic
 
 	if !editing {
 		segs := wrapPlain(note, textW)

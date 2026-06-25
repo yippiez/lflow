@@ -248,8 +248,11 @@ func TestNoteBandLines(t *testing.T) {
 		t.Fatal("expected band lines for a noted node")
 	}
 	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, bgNote) {
-		t.Errorf("band should carry the tint background: %q", joined)
+	if strings.Contains(joined, "\x1b[48") {
+		t.Errorf("note band must carry no background fill: %q", joined)
+	}
+	if !strings.Contains(joined, cItalic) {
+		t.Errorf("band should render the note in italic: %q", joined)
 	}
 	if got := stripSGR(joined); !strings.Contains(got, "hello world note") {
 		t.Errorf("band should show the note text: %q", got)
