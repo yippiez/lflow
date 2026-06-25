@@ -15,7 +15,6 @@ import (
 
 	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/pkg/agent"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/mattn/go-runewidth"
@@ -30,9 +29,8 @@ const (
 	modeFinder
 	modeNote
 	modeConfirm // inline delete confirmation for nodes with children
-	modeType    // the /type picker: choose one of seven node types
+	modeType    // the /type picker: choose one of the node types
 	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeModel   // the ctrl+p model picker: choose the agent model
 )
 
 type finderAction int
@@ -59,7 +57,6 @@ var slashCommands = []slashCommand{
 	{"/link", "Link this node to another (→ target; alt+g jumps)"},
 	{"/lock", "Lock or unlock this node (read-only)"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
-	{"/model", "Set the model for new agents (pi / opencode / grok)"},
 	{"/move", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
 	{"/style", "Set this node's text style or color"},
@@ -137,75 +134,18 @@ type Model struct {
 	// /style picker selection (index into stylePickerItems)
 	styleSel int
 
-	// ctrl+p model picker + session model/thinking overrides (ctrl+p / ctrl+t).
-	// Overrides apply to NEW agents only (each captures its model at launch).
-	modelSel   int
-	modelQuery string
-	piModel    string
-	piThinking string
+	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure the
+	// runnable node types use (bash, query, voice). Ephemeral, in-memory only,
+	// keyed by node uuid. Run output is NEVER in the DB or synced.
+	runOut       map[string][]outLine
+	runCancel    map[string]func()       // cancel a running command
+	runCh        map[string]chan tea.Msg // stream channel for a running command
+	runOutLoaded map[string]bool         // uuids whose run band is hydrated (see runout.go)
 
-	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure every
-	// runnable node type uses (bash, query, voice, worker). Not per-type: kept
-	// central on purpose. Ephemeral, in-memory only, keyed by node uuid.
-	// WARNING (invariant): run output is NEVER in the DB or synced — it is not
-	// notebook content. It lives in these maps and is also mirrored to a local JSON
-	// file so it survives a restart: a bash node's run band via runout.go, a
-	// worker's run state (status/usage/tool-calls/deliverable) via workersess.go.
-	// A worker's live CONVERSATION resumes separately, from the agent backend's own
-	// on-disk session (pi --session-id, keyed by the node uuid) — never our DB.
-	// (Per-type state — voice waveform, query timestamp, agent runtime — lives in
-	// the generic nodeStore, not on the Model struct.)
-	runOut    map[string][]outLine
-	runCancel map[string]func()       // cancel a running command
-	runCh     map[string]chan tea.Msg // stream channel for a running command
-	// runOutLoaded marks uuids whose run band has been hydrated from (or is
-	// authoritative over) the on-disk cache — see runout.go. The band itself is
-	// mirrored to a local file so a bash node's output survives a restart; the
-	// file is never in the DB or sync.
-	runOutLoaded map[string]bool
-	// workerSessLoaded marks uuids whose run state has been hydrated from (or is
-	// authoritative over) the on-disk snapshot — see workersess.go. A worker's
-	// status/result is mirrored to a local file so a reopened worker shows its
-	// prior run; the live conversation resumes via the backend's own session.
-	workerSessLoaded map[string]bool
-	// workerTranscript is the worker's persisted conversation — each user turn and
-	// the answer it produced — so a reopened worker shows full scrollback, not just
-	// the last deliverable. Captured at the model layer (CLI-agnostic) and mirrored
-	// to the snapshot (workersess.go); never in the DB or sync.
-	workerTranscript map[string][]xline
-
-	// Temporary Domain — an ephemeral scratch tree, never persisted
+	// Temporary Domain — a scratch outline region (a second root, 7-day retention)
 	tempActive bool
 	tempTree   *tree
 	mainStash  tempStash
-
-	// worker (Pi agent) token/cost usage, keyed by node uuid
-	workerUsage map[string]workerUsage
-	// lastAgent is the most-recently interacted worker (sent-to or opened); alt+r
-	// on a notebook node delegates to it, creating one if it no longer exists
-	lastAgent string
-	// workerDeliverable holds each finished worker's finish_worker markdown — the
-	// harvestable result Enter materializes into the notebook
-	workerDeliverable map[string]string
-	// worker live activity: the single line currently shown next to a worker
-	// ("Read foo.go", "Bash …"), replaced on each pi event — pchain's currentAction
-	workerAction map[string]workerActivity
-	// workerActions is the worker's tool-call history (one per tool_execution_start),
-	// shown as the "Tool calls" list in the agent UI
-	workerActions map[string][]workerActivity
-	// workerStatus is the worker's lifecycle word: running / idle / done / error
-	workerStatus map[string]string
-	// workerSess holds each live worker's agent.Session, so steering (the 's' box,
-	// alt+r, ultraloop) and stop go through Session.Steer / Session.Stop.
-	workerSess map[string]agent.Session
-	// per-agent timing + model (model captured at launch so switching the global
-	// model only affects NEW agents): start time, last-activity time, model id
-	workerStart      map[string]time.Time
-	workerLastActive map[string]time.Time
-	workerModel      map[string]string
-	// ultraloop: per-agent recurring schedules (re-prompt every interval forever)
-	loops       map[string]*loopState
-	loopTicking bool
 
 	// inline expanded view: when focused, the cursor node's nodeView captures keys
 	// and renders bands beneath it (replaces the per-feature full-screen modes).
@@ -523,14 +463,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a keyword may have just been typed (or scrolled into view) — kick the
 		// animation tick if it isn't already running.
 		return m, m.startAnim(cmd)
-	case loopTickMsg:
-		cmds := m.advanceLoops()
-		if len(m.loops) > 0 {
-			cmds = append(cmds, loopTick())
-		} else {
-			m.loopTicking = false
-		}
-		return m, tea.Batch(cmds...)
 	case animTickMsg:
 		animFrame++
 		if m.hasMagicKeyword() {
@@ -548,67 +480,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(m.runCancel, msg.uuid)
 		delete(m.runCh, msg.uuid)
 		m.persistRunOut(msg.uuid) // cache the finished band so it survives a restart
-		if m.workerSess != nil {
-			delete(m.workerSess, msg.uuid)
-		}
-		// a worker's pi process has exited: mark it done unless it errored
-		if m.workerStatus != nil {
-			if s := m.workerStatus[msg.uuid]; s != "error" {
-				m.workerStatus[msg.uuid] = "done"
-			}
-			if _, isWorker := m.workerStatus[msg.uuid]; isWorker {
-				m.persistWorkerSess(msg.uuid) // snapshot the finished run for resume
-			}
-		}
 		return m, nil
-	case workerUsageMsg:
-		if m.workerUsage == nil {
-			m.workerUsage = map[string]workerUsage{}
-		}
-		m.workerUsage[msg.uuid] = msg.usage
-		m.persistWorkerSess(msg.uuid)
-		return m, waitBashCmd(m.runCh[msg.uuid])
-	case workerActivityMsg:
-		if m.workerAction == nil {
-			m.workerAction = map[string]workerActivity{}
-			m.workerStatus = map[string]string{}
-			m.workerActions = map[string][]workerActivity{}
-		}
-		m.workerAction[msg.uuid] = msg.act
-		if msg.status != "" {
-			m.workerStatus[msg.uuid] = msg.status
-		}
-		if m.workerLastActive != nil {
-			m.workerLastActive[msg.uuid] = time.Now()
-		}
-		if msg.start && msg.act.tool != "" {
-			m.workerActions[msg.uuid] = append(m.workerActions[msg.uuid], msg.act)
-		}
-		m.persistWorkerSess(msg.uuid)
-		return m, waitBashCmd(m.runCh[msg.uuid])
-	case workerDeliverableMsg:
-		if m.workerDeliverable == nil {
-			m.workerDeliverable = map[string]string{}
-		}
-		m.workerDeliverable[msg.uuid] = msg.nodes
-		m.appendXcript(msg.uuid, "agent", deliverableToText(msg.nodes)) // record the turn's answer (persists)
-		cmds := []tea.Cmd{waitBashCmd(m.runCh[msg.uuid])}
-		// a cheap eval may condense an over-structured deliverable to a single node
-		if c := m.condenseDeliverableCmd(msg.uuid, msg.nodes); c != nil {
-			cmds = append(cmds, c)
-		}
-		return m, tea.Batch(cmds...)
 	case fzfPickedMsg:
 		if msg.path != "" {
 			if it := m.tree.byUUID[msg.uuid]; it != nil {
 				m.insertPathChip(it, msg.caret, absolutizePath(msg.path))
-			}
-		}
-		return m, nil
-	case evalCondenseMsg:
-		if msg.collapse && strings.TrimSpace(msg.condensed) != "" {
-			if s := singleDeliverableJSON(msg.condensed); s != "" {
-				m.workerDeliverable[msg.uuid] = s
 			}
 		}
 		return m, nil
@@ -720,8 +596,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTypeKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
-	case modeModel:
-		return m.handleModelKey(k)
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
@@ -761,9 +635,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = err
 			return m.quit()
 		}
-		if m.piThinking != "" {
-			m.persistDefaultThinking(m.piThinking) // make the ctrl+t change stick
-		}
 		m.saved.written += written
 		m.unsaved = false
 		return m, nil
@@ -773,26 +644,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		cur := m.cursorItem()
-		// In the Agent Domain, Enter on a worker is launch/harvest, not a new node:
-		//   finished → harvest its result into notes; running → no-op;
-		//   compose line with text → launch (run) it + keep a fresh compose.
-		if m.tempActive && cur != nil && cur.typ == database.TypeWorker {
-			if m.harvestWorker(cur) {
-				return m, nil
-			}
-			if m.workerRan(cur) {
-				return m, nil // already launched; nothing to do on Enter
-			}
-			if strings.TrimSpace(cur.name) != "" {
-				cmd := runWorker(m, cur)
-				m.ensureComposeLine() // re-seed the empty compose at the top
-				m.refreshRows()
-				m.cursor = 0 // land on the fresh empty compose…
-				m.caret = 0  // …with the caret reset, so the next keystroke is safe
-				return m, cmd
-			}
-			return m, nil // empty compose — type first, then Enter launches
-		}
 		// commit a #tag or date token under the caret into a chip before splitting
 		if cur != nil {
 			m.chipifyBeforeCaret(cur)
@@ -949,8 +800,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.unsaved = true
 		return m, nil
 	case "ctrl+t":
-		// If a time phrase sits under the cursor, convert it to canonical date text
-		// (the renderer then chips it). Otherwise cycle the agent thinking level.
+		// convert a time phrase under the cursor to canonical date text (the renderer
+		// then chips it)
 		if cur := m.cursorItem(); cur != nil && m.mirrorContext().editable {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
 				runes := []rune(cur.name)
@@ -958,16 +809,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				cur.name = string(runes[:d.start]) + date + string(runes[d.end:])
 				m.caret = d.start + len([]rune(date))
 				m.unsaved = true
-				return m, nil
 			}
 		}
-		m.cycleThinking()
-		return m, nil
-	case "ctrl+p":
-		// open the agent model picker
-		m.mode = modeModel
-		m.modelSel = 0
-		m.modelQuery = ""
 		return m, nil
 	// every alt+arrow chord has a ctrl twin: terminals like windows
 	// terminal grab alt+arrows for pane focus and never deliver them
@@ -1107,15 +950,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if run := typeOf(cur.typ).run; run != nil {
 				return m, run(m, cur)
 			}
-		}
-		return m, nil
-	case "alt+shift+s", "alt+S":
-		// launch an agent on the focused note and REMOVE the note: its text is the
-		// query, its children are context. Runs immediately. Pull the agent back
-		// into the notes later with /bring.
-		if cur := m.cursorItem(); cur != nil && !m.tempActive {
-			m.pushUndo("") // alt+shift+s destroys the note — undo must restore it
-			return m, m.launchAgentFromNote(cur)
 		}
 		return m, nil
 	case "alt+up", "ctrl+up":
@@ -1353,26 +1187,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// A launched worker's title is locked (its task is fixed once it runs) — like
-		// pchain, 's' focuses its inline view straight into the steer composer; other
-		// keys no-op.
-		if m.workerRan(cur) {
-			switch {
-			case string(k.Runes) == "s" && !k.Paste:
-				if v := nodeViewOf(cur); v != nil && v.Enter(m, cur) {
-					m.focused = true
-					m.focusScroll = 0
-					d := m.nodeStore(cur.uuid)
-					d["agentSub"] = subSteer
-					d["steerBuf"] = ""
-					d["steerCaret"] = 0
-				}
-			case string(k.Runes) == "x" && !k.Paste:
-				m.stopAgent(cur) // stop a running/idle agent
-			}
-			return m, nil
-		}
-
 		if cur.mirrorOf != "" {
 			return m, nil // a mirror reference is edited at its original — see mirrorContext
 		}
@@ -1555,7 +1369,6 @@ func (m *Model) deleteNode(it *item) {
 	var dropRunOut func(x *item)
 	dropRunOut = func(x *item) {
 		m.deleteRunOut(x.uuid)
-		m.deleteWorkerSess(x.uuid) // and its worker run-state snapshot
 		for _, c := range x.children {
 			dropRunOut(c)
 		}
@@ -1914,82 +1727,6 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleModelKey drives the ctrl+p model picker: search, scroll, enter to set the
-// session model (applies to new agents only), esc to cancel.
-func (m *Model) handleModelKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
-	case "esc":
-		m.mode = modeOutline
-		return m, nil
-	case "up":
-		if m.modelSel > 0 {
-			m.modelSel--
-		}
-		return m, nil
-	case "down":
-		if m.modelSel < len(m.filteredModels())-1 {
-			m.modelSel++
-		}
-		return m, nil
-	case "backspace":
-		if qr := []rune(m.modelQuery); len(qr) > 0 {
-			m.modelQuery = string(qr[:len(qr)-1])
-			m.modelSel = 0
-		} else {
-			m.mode = modeOutline
-		}
-		return m, nil
-	case "enter":
-		filt := m.filteredModels()
-		if m.modelSel < len(filt) {
-			m.piModel = filt[m.modelSel] // session override for new agents
-			m.persistDefaultModel(filt[m.modelSel]) // and persist as the default
-			m.flash = "model: " + filt[m.modelSel]
-		}
-		m.mode = modeOutline
-		return m, nil
-	}
-	if k.Type == tea.KeySpace && !k.Alt {
-		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
-	}
-	if k.Type == tea.KeyRunes && !k.Alt {
-		m.modelQuery += string(k.Runes)
-		m.modelSel = 0
-	}
-	return m, nil
-}
-
-// filteredModels returns the canonical model strings (across all available CLI
-// backends — pi / opencode / grok) matching the picker's search query.
-// agent.ListModels caches, so per-keystroke filtering doesn't re-shell the CLIs.
-func (m *Model) filteredModels() []string {
-	q := strings.ToLower(m.modelQuery)
-	var out []string
-	for _, md := range agent.ListModels() {
-		s := md.String()
-		if q == "" || strings.Contains(strings.ToLower(s), q) {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// cycleThinking steps the session thinking level (ctrl+t when no date is under
-// the cursor): off → low → medium → high → off, applied to new agents.
-func (m *Model) cycleThinking() {
-	_, cur := m.curModel()
-	idx := -1
-	for i, l := range agent.ThinkingLevels {
-		if l == cur {
-			idx = i
-		}
-	}
-	m.piThinking = agent.ThinkingLevels[(idx+1)%len(agent.ThinkingLevels)]
-	// the status bar already shows the live level (· <thinking>); flag the change
-	// as unsaved instead of a transient flash, and persist it on the next save.
-	m.unsaved = true
-}
-
 // filteredTypes returns the node-type keys matching the picker's search query
 // (case-insensitive substring over the label), in registry order.
 func (m *Model) filteredTypes() []string {
@@ -2124,12 +1861,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	case "/model":
-		// open the model picker (same picker as ctrl+p); choosing persists the
-		// model as the default for new agents across all CLI backends.
-		m.mode = modeModel
-		m.modelSel = 0
-		m.modelQuery = ""
 	case "/lock":
 		// toggle the read-only lock: locked nodes ignore inline text edits (a file
 		// node locks itself on Enter); unlock to edit, Enter re-locks a file node.
@@ -2502,7 +2233,6 @@ func (m *Model) bringFromTemp(src, cur *item) {
 		}
 	}
 	migrate(src)
-	m.ensureComposeLine()
 	m.placeBrought(src, cur)
 }
 
@@ -2733,7 +2463,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		// the focused bash node shows its full scrollable viewer (the nodeView band
 		// below) instead of this capped inline band, so don't render both
 		focusedView := m.focused && i == m.cursor && nodeViewOf(it) != nil
-		if it.typ != database.TypeWorker && !focusedView {
+		if !focusedView {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
 		}
 	}
@@ -2802,9 +2532,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 	case modeType:
 		pickerItems = len(m.filteredTypes())
 		typePickerRows = 1 // the "type:" search header
-	case modeModel:
-		pickerItems = len(m.filteredModels())
-		typePickerRows = 1 // the "model:" search header
 	}
 	pickerRows := 0
 	if pickerItems > 0 || typePickerRows > 0 {
@@ -2936,38 +2663,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// the ctrl+p model picker: a search header plus a scrolling, bounded list
-	if m.mode == modeModel {
-		filt := m.filteredModels()
-		if m.modelSel >= len(filt) {
-			m.modelSel = len(filt) - 1
-		}
-		if m.modelSel < 0 {
-			m.modelSel = 0
-		}
-		query := m.modelQuery
-		if query == "" {
-			query = cDim + "type to search" + cReset
-		} else {
-			query = cFG + query + cReset
-		}
-		lines = append(lines, clip(" "+cDim+"model: "+cReset+query, maxLine))
-
-		win := pickerMaxRows
-		s2 := scrollStart(m.modelSel, len(filt), win)
-		e2 := s2 + win
-		if e2 > len(filt) {
-			e2 = len(filt)
-		}
-		for i := s2; i < e2; i++ {
-			mark := "  "
-			if i == m.modelSel {
-				mark = cAccent + "▸ " + cReset
-			}
-			lines = append(lines, clip(" "+mark+cFG+filt[i]+cReset, maxLine))
-		}
-	}
-
 	// the /style picker lists text style toggles and color swatches above the status line
 	if m.mode == modeStyle {
 		cur := m.cursorItem()
@@ -3077,21 +2772,15 @@ func (m *Model) bottomBar(maxLine int) string {
 		}
 		parts = append(parts, name)
 	}
-	// the bottom space is the Agent Domain — relabel its root in the breadcrumb
+	// the bottom space is the Temp region — relabel its root in the breadcrumb
 	if m.tempActive && len(parts) > 0 {
-		parts[0] = "Agent Domain"
+		parts[0] = "Temp"
 	}
 	title := strings.Join(parts, " › ")
 	if title == "" {
 		title = "untitled"
 	}
 	bar := fmt.Sprintf(" %s · %d/%d", title, pos, total)
-	if model, thinking := m.curModel(); model != "" {
-		bar += " · " + model
-		if thinking != "" {
-			bar += " · " + thinking
-		}
-	}
 	bar += state
 	return clip(cDim+bar+cReset, maxLine)
 }
@@ -3192,7 +2881,6 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	if err != nil {
 		return errors.Wrap(err, "loading temp tree")
 	}
-	tempTree.defaultType = database.TypeWorker // temp is the agent surface
 
 	chips, err := database.LoadChips(ctx.DB)
 	if err != nil {

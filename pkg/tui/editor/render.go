@@ -13,24 +13,24 @@ import (
 
 // the locked palette (design v4)
 const (
-	cReset  = "\x1b[0m"
-	cFG     = "\x1b[38;2;212;212;212m" // #d4d4d4
-	cDim    = "\x1b[38;2;122;122;122m" // #7a7a7a
-	cAccent = "\x1b[38;2;86;156;214m"  // #569cd6
-	cRed    = "\x1b[38;2;244;71;71m"   // #f44747
-	cYellow = "\x1b[38;2;220;220;170m" // #dcdcaa
-	cGreen   = "\x1b[38;2;106;153;85m"  // #6a9955 — worker write/edit tools
-	cMagenta = "\x1b[38;2;197;134;192m" // #c586c0 — worker bash tool
-	cCyan    = "\x1b[38;2;78;201;176m"  // #4ec9b0 — worker search tools
+	cReset     = "\x1b[0m"
+	cFG        = "\x1b[38;2;212;212;212m" // #d4d4d4
+	cDim       = "\x1b[38;2;122;122;122m" // #7a7a7a
+	cAccent    = "\x1b[38;2;86;156;214m"  // #569cd6
+	cRed       = "\x1b[38;2;244;71;71m"   // #f44747
+	cYellow    = "\x1b[38;2;220;220;170m" // #dcdcaa
+	cGreen     = "\x1b[38;2;106;153;85m"  // #6a9955 — worker write/edit tools
+	cMagenta   = "\x1b[38;2;197;134;192m" // #c586c0 — worker bash tool
+	cCyan      = "\x1b[38;2;78;201;176m"  // #4ec9b0 — worker search tools
 	cBold      = "\x1b[1m"
 	cItalic    = "\x1b[3m"
 	cUnderline = "\x1b[4m"
 	cStrike    = "\x1b[9m"
-	bgCode  = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
-	bgTerm  = "\x1b[48;2;30;34;48m"  // #1e2230 terminal block behind bash rows
-	bgPill  = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
-	bgNote  = "\x1b[48;2;34;40;49m"  // #222831 subtle band behind a node's note
-	cInvert = "\x1b[7m"              // the block cursor: inverts the cell beneath it
+	bgCode     = "\x1b[48;2;31;31;31m"  // #1f1f1f block behind code rows
+	bgTerm     = "\x1b[48;2;30;34;48m"  // #1e2230 terminal block behind bash rows
+	bgPill     = "\x1b[48;2;38;79;120m" // #264f78 behind date pills
+	bgNote     = "\x1b[48;2;34;40;49m"  // #222831 subtle band behind a node's note
+	cInvert    = "\x1b[7m"              // the block cursor: inverts the cell beneath it
 	// cClearEOL erases from the cursor to the end of the line. Prefixed to every
 	// emitted View line so a frame fully overwrites the previous one: the inline
 	// renderer rewrites lines in place without clearing, so a grow after a shrink
@@ -160,6 +160,18 @@ func elideMiddle(s string, width int) string {
 		tr[i], tr[j] = tr[j], tr[i]
 	}
 	return h.String() + marker + string(tr)
+}
+
+// clipStr truncates s to at most n runes, adding an ellipsis when it cuts.
+func clipStr(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n <= 1 {
+		return string(r[:n])
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // tabWidth is the terminal's hard tab stop: tabs advance to the next multiple.
@@ -1091,9 +1103,6 @@ func (m *Model) typeSuffix(it *item) string {
 	}
 	if it.linkTo != "" { // → linked node, muted gray, on the right (alt+g jumps)
 		suffix += cDim + "  → " + clipStr(m.linkName(it), 28) + cReset
-	}
-	if it.typ == database.TypeWorker {
-		suffix += m.workerSuffix(it) // ┊ model · ↑in ↓out $cost
 	}
 	return suffix
 }

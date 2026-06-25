@@ -20,7 +20,6 @@ const (
 	TypeBash    = "bash"
 	TypeQuery   = "query"
 	TypeVoice   = "voice"
-	TypeWorker  = "worker"
 	TypeDivider = "divider"
 	TypeLog     = "log"
 )
@@ -38,7 +37,6 @@ var ValidTypes = map[string]bool{
 	TypeBash:    true,
 	TypeQuery:   true,
 	TypeVoice:   true,
-	TypeWorker:  true,
 	TypeDivider: true,
 	TypeLog:     true,
 }

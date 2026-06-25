@@ -20,11 +20,11 @@ import (
 type nodeType struct {
 	key, label     string
 	sign           string                             // inline prefix sign, e.g. "$ "; "" = none
-	glyph          func(it *item) (string, string)     // per-type glyph+color; nil → default ○/●
-	render         func(it *item, name string) string  // stateless inline-body override; nil → default
-	renderM        func(m *Model, it *item) string     // Model-aware inline-body override (voice waveform)
-	inlineEditable bool                                // false → typing/backspace/enter is a no-op
-	tempOnly       bool                                // only offered/allowed in the Temporary Domain
+	glyph          func(it *item) (string, string)    // per-type glyph+color; nil → default ○/●
+	render         func(it *item, name string) string // stateless inline-body override; nil → default
+	renderM        func(m *Model, it *item) string    // Model-aware inline-body override (voice waveform)
+	inlineEditable bool                               // false → typing/backspace/enter is a no-op
+	tempOnly       bool                               // only offered/allowed in the Temporary Domain
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
@@ -100,11 +100,6 @@ var nodeTypes = []nodeType{
 		renderM: func(m *Model, it *item) string { return m.voiceRender(it) },
 		run:     runVoice,
 		expand:  playVoice,
-	},
-	{
-		key: database.TypeWorker, label: "Worker", sign: "✦ ", inlineEditable: true, tempOnly: true,
-		run:  func(m *Model, it *item) tea.Cmd { return m.runAgentAction(it) }, // alt+r re-runs
-		view: agentView{}, // alt+e: inline observe + steer (steer is a sub-state)
 	},
 }
 

@@ -1,8 +1,6 @@
 package editor
 
 import (
-	"strings"
-
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
@@ -31,32 +29,8 @@ func (m *Model) ensureTempTree() {
 			snapshots:     map[string]snapshot{},
 			externalNames: map[string]string{},
 			byUUID:        map[string]*item{root.uuid: root},
-			defaultType:   database.TypeWorker, // Agent Domain nodes are agents
 		} // db is nil → save() is a no-op, so it never persists or syncs
 	}
-	m.ensureComposeLine()
-}
-
-// ensureComposeLine guarantees the Agent Domain's first node is an empty, never-run
-// worker — the compose line. Type into it and Enter launches an agent; it is "not
-// really a node yet" until launched. Prepends one only when the first node is taken.
-func (m *Model) ensureComposeLine() {
-	if m.tempTree == nil {
-		return
-	}
-	r := m.tempTree.root
-	if len(r.children) > 0 {
-		first := r.children[0]
-		if first.typ == database.TypeWorker && strings.TrimSpace(first.name) == "" && !m.workerRan(first) {
-			return // already have an empty compose line first
-		}
-	}
-	nc, err := m.tempTree.newItem() // typ defaults to worker
-	if err != nil {
-		return
-	}
-	nc.parent = r
-	r.children = append([]*item{nc}, r.children...)
 }
 
 // enterTemp moves focus into the Temporary Domain panel. It is reached by pressing
@@ -129,20 +103,10 @@ func (m *Model) exitTemp() {
 	m.clampCursor()
 }
 
-// atTopOfTempList reports whether Up should cross from the Agent Domain back into
-// the main outline. The empty compose worker is a structural first row; when it is
-// blank and never run, the first real worker just below it is also considered the
-// top of the worker list.
+// atTopOfTempList reports whether Up should cross from the temp space back into
+// the main outline — true at the first temp row.
 func (m *Model) atTopOfTempList() bool {
-	if !m.tempActive || m.cursor <= 0 {
-		return m.tempActive && m.cursor == 0
-	}
-	if m.cursor != 1 || len(m.rows) == 0 {
-		return false
-	}
-	first := m.rows[0].it
-	return first != nil && first.parent == m.tempTree.root && first.typ == database.TypeWorker &&
-		strings.TrimSpace(first.name) == "" && !m.workerRan(first)
+	return m.tempActive && m.cursor == 0
 }
 
 // tempRowCount is how many visible rows the scratch outline currently has.
@@ -187,11 +151,6 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 		rows := tr.visibleRows(viewRoot)
 		for i, r := range rows {
 			it := r.it
-			// the always-present empty compose line is invisible unless focused here
-			if hideCompose && it.parent == tr.root && it.typ == database.TypeWorker &&
-				strings.TrimSpace(it.name) == "" && !m.workerRan(it) {
-				continue
-			}
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
 			// a divider is a full-width rule, not a glyph+body node; render it as the
 			// rule here too so the read-only region keeps it (never the cursor color)
@@ -221,11 +180,8 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			}
 			flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 			flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
-			// a bash/query node's run output hangs beneath it in the live view; keep it
-			// in the read-only region too so it doesn't vanish when the Agent Domain opens
-			if it.typ != database.TypeWorker {
-				flat = append(flat, m.runBandLines(r, below, maxLine)...)
-			}
+			// a bash/query node's run output hangs beneath it in the read-only region too
+			flat = append(flat, m.runBandLines(r, below, maxLine)...)
 		}
 	}
 
