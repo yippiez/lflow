@@ -356,7 +356,7 @@ func (m *Model) snapshotForKey(key string, k tea.KeyMsg) {
 	case "enter", "tab", "shift+tab",
 		"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 		"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
-		"ctrl+d", "ctrl+shift+backspace", "ctrl+backspace", "ctrl+h",
+		"ctrl+d", "ctrl+shift+backspace", "ctrl+backspace", "ctrl+h", "ctrl+w",
 		"ctrl+t":
 		m.pushUndo("")
 	case "backspace":
@@ -899,9 +899,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	// ctrl+backspace arrives as ctrl+h in most terminals: delete the word to the
-	// left (or the whole chip just before the caret), mirroring ctrl+left
-	case "ctrl+backspace", "ctrl+h":
+	// Delete the word to the left (or the whole chip just before the caret),
+	// mirroring ctrl+left. ctrl+backspace arrives as ctrl+h in most terminals;
+	// ctrl+w is the reliable readline alias (ctrl+shift+backspace is NOT a separable
+	// key — the terminal sends the same byte as ctrl+backspace, so node-delete is
+	// ctrl+d, not a backspace combo).
+	case "ctrl+backspace", "ctrl+h", "ctrl+w":
 		cur := m.cursorItem()
 		if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly {
 			return m, nil
