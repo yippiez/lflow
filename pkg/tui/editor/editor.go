@@ -1094,6 +1094,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			} else if e := typeOf(cur.typ).expand; e != nil {
 				return m, e(m, cur)
+			} else if cmd := m.openPathChipCmd(cur); cmd != nil {
+				return m, cmd // ⌥e on a node with a path chip opens the file in $EDITOR
 			}
 		}
 		return m, nil

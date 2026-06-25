@@ -2,10 +2,56 @@ package editor
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+// openPathChipCmd opens the cursor node's path chip in $EDITOR (nvim fallback),
+// restoring the old file-node ⌥e behavior for the chip model. The path chip the
+// caret sits on (or just after) wins; otherwise the node's first path chip.
+// Returns nil when the node has no path chip.
+func (m *Model) openPathChipCmd(cur *item) tea.Cmd {
+	if cur == nil {
+		return nil
+	}
+	spans := anchorSpans([]rune(cur.name))
+	var order []*anchorSpan
+	if sp := spanStartingAt(spans, m.caret); sp != nil {
+		order = append(order, sp)
+	}
+	if sp := spanEndingAt(spans, m.caret); sp != nil {
+		order = append(order, sp)
+	}
+	for k := range spans {
+		order = append(order, &spans[k])
+	}
+	for _, sp := range order {
+		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindPath {
+			return openPathInEditor(m, c.Value)
+		}
+	}
+	return nil
+}
+
+// openPathInEditor launches $EDITOR (or nvim) on path, suspending the inline UI
+// while it runs and resuming after it exits.
+func openPathInEditor(m *Model, path string) tea.Cmd {
+	if strings.TrimSpace(path) == "" {
+		m.flash = "empty path"
+		return nil
+	}
+	ed := os.Getenv("EDITOR")
+	if ed == "" {
+		ed = "nvim"
+	}
+	parts := strings.Fields(ed)
+	c := exec.Command(parts[0], append(parts[1:], path)...)
+	return tea.ExecProcess(c, func(error) tea.Msg { return nil })
+}
 
 // Filesystem-path completion for the @path chip (see chip.go). Completion is
 // prefix-based on the basename so Tab can advance to the longest common prefix;
