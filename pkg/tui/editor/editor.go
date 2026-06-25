@@ -591,7 +591,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.workerDeliverable[msg.uuid] = msg.nodes
 		m.appendXcript(msg.uuid, "agent", deliverableToText(msg.nodes)) // record the turn's answer (persists)
-		return m, waitBashCmd(m.runCh[msg.uuid])
+		cmds := []tea.Cmd{waitBashCmd(m.runCh[msg.uuid])}
+		// a cheap eval may condense an over-structured deliverable to a single node
+		if c := m.condenseDeliverableCmd(msg.uuid, msg.nodes); c != nil {
+			cmds = append(cmds, c)
+		}
+		return m, tea.Batch(cmds...)
+	case evalCondenseMsg:
+		if msg.collapse && strings.TrimSpace(msg.condensed) != "" {
+			if s := singleDeliverableJSON(msg.condensed); s != "" {
+				m.workerDeliverable[msg.uuid] = s
+			}
+		}
+		return m, nil
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
 		return m, nil

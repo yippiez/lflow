@@ -43,6 +43,16 @@ func deliverType(s string) string {
 	return database.TypeBullets
 }
 
+// singleDeliverableJSON marshals one plain-text node as a deliverable — used when
+// a condense eval collapses an over-structured deliverable to a single node.
+func singleDeliverableJSON(text string) string {
+	b, err := json.Marshal([]deliverNode{{Text: text}})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 // parseDeliverNodes decodes finish_worker nodes JSON into deliverNode structs
 // (tolerating a single bare object). Used by both harvest and the Final preview.
 func parseDeliverNodes(nodesJSON string) []deliverNode {

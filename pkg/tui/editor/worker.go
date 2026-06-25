@@ -13,9 +13,51 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/pkg/agent"
+	"github.com/lflow/lflow/pkg/agent/eval"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/outline"
 )
+
+// evalCondenseMsg carries a cheap-eval verdict on a worker deliverable: collapse
+// the over-structured nodes into the single condensed node, or keep the original.
+type evalCondenseMsg struct {
+	uuid      string
+	condensed string
+	collapse  bool
+}
+
+// overStructuredDeliverable reports whether a deliverable is more than one flat
+// node — the only case worth spending a condense eval on.
+func overStructuredDeliverable(nodes []deliverNode) bool {
+	if len(nodes) > 1 {
+		return true
+	}
+	return len(nodes) == 1 && len(nodes[0].Children) > 0
+}
+
+// condenseDeliverableCmd runs a cheap single-node eval on an over-structured
+// deliverable, off the UI goroutine. It returns nil when there is nothing to do:
+// no eval model resolves for the worker's backend, or the deliverable is already
+// a single flat node. On the eval's verdict the editor swaps in the single node.
+func (m *Model) condenseDeliverableCmd(uuid, nodesJSON string) tea.Cmd {
+	model := m.workerModel[uuid]
+	if eval.ModelFor(model) == "" {
+		return nil
+	}
+	nodes := parseDeliverNodes(nodesJSON)
+	if !overStructuredDeliverable(nodes) {
+		return nil
+	}
+	task := ""
+	if it := m.tempTree.byUUID[uuid]; it != nil {
+		task = ultraloopStrip(it.name)
+	}
+	deliverable := deliverableToText(nodesJSON)
+	return func() tea.Msg {
+		cond, col := eval.SingleNode(context.Background(), model, task, deliverable)
+		return evalCondenseMsg{uuid: uuid, condensed: cond, collapse: col}
+	}
+}
 
 //go:embed pi/worker_finish.ts
 var workerFinishTS string
@@ -52,18 +94,22 @@ func workerExtensionPath() string {
 const workerSystemPrompt = "You are a worker doing a task for an outline. Do the work " +
 	"with your tools, then call finish_worker exactly once with the deliverable as " +
 	"outline nodes (the answer itself, not a recap of steps). The parent already sees " +
-	"your tool calls — never narrate your process. Return a SINGLE node unless the user " +
-	"explicitly asks for a list, steps, or an outline. Plain text only — never markdown, " +
-	"bullets, or headings; express nesting with child nodes. After finish_worker, your " +
-	"assistant text must be exactly: WORKER_DONE."
+	"your tool calls — never narrate your process. " +
+	"DEFAULT TO ONE node. An explanation — even a long, multi-part one with several " +
+	"findings — is still ONE node; put the elaboration in that node's `note`, never in " +
+	"child nodes. Use more than one node ONLY when the user literally asked for a list, " +
+	"steps, or an outline, or the answer IS an enumeration of distinct items. When in " +
+	"doubt, return one node. Plain text only — never markdown, bullets, or headings. " +
+	"After finish_worker, your assistant text must be exactly: WORKER_DONE."
 
 // workerTextInstruction frames the task for backends without the finish_worker
 // extension (opencode / grok): they answer in plain assistant text, which the
 // editor harvests verbatim as the deliverable. Kept terse and prepended to the task.
 const workerTextInstruction = "You are a worker doing a task for an outline. Do the work with " +
 	"your tools, then reply with ONLY the deliverable — the answer itself, not a recap of your " +
-	"steps. Plain text, no markdown, bullets, or headings. Keep it concise unless the task asks " +
-	"for a list. Task:"
+	"steps. Plain text, no markdown, bullets, or headings. Answer in ONE short paragraph; even a " +
+	"multi-part explanation stays as one block. Only produce a list when the task literally asks " +
+	"for one. Task:"
 
 // workerUsage is the running token/cost total shown next to a worker node.
 type workerUsage struct {
