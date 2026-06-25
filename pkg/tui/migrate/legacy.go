@@ -49,19 +49,6 @@ type schema struct {
 	CurrentVersion int `yaml:"current_version"`
 }
 
-func makeSchema(complete bool) schema {
-	s := schema{}
-
-	var CurrentVersion int
-	if complete {
-		CurrentVersion = len(migrationSequence)
-	}
-
-	s.CurrentVersion = CurrentVersion
-
-	return s
-}
-
 func genUUID() (string, error) {
 	res, err := uuid.NewRandom()
 	if err != nil {

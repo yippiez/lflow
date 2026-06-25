@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"time"
 
 	"github.com/pkg/errors"
@@ -60,18 +59,6 @@ func EnsureTemp(db *DB) error {
 		}
 	}
 	return nil
-}
-
-// RootNode returns the root node, creating it if necessary.
-func RootNode(db *DB) (Node, error) {
-	if err := EnsureRoot(db); err != nil {
-		return Node{}, err
-	}
-	n, err := GetNode(db, RootUUID)
-	if err == sql.ErrNoRows {
-		return n, errors.New("root node missing after EnsureRoot")
-	}
-	return n, err
 }
 
 // TempSubtreeUUIDs returns the set of uuids in the temp subtree (the temp root

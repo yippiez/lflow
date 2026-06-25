@@ -379,26 +379,6 @@ func DeleteNode(ctx context.DnoteCtx, uuid string) (DeleteNodeResp, error) {
 	return resp, nil
 }
 
-// PresigninResponse is a reponse from /v3/presignin endpoint
-type PresigninResponse struct {
-	Iteration int `json:"iteration"`
-}
-
-// GetPresignin gets presignin credentials
-func GetPresignin(ctx context.DnoteCtx, email string) (PresigninResponse, error) {
-	res, err := doReq(ctx, "GET", fmt.Sprintf("/v3/presignin?email=%s", email), "", nil)
-	if err != nil {
-		return PresigninResponse{}, errors.Wrap(err, "making http request")
-	}
-
-	var resp PresigninResponse
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return PresigninResponse{}, errors.Wrap(err, "decoding payload")
-	}
-
-	return resp, nil
-}
-
 // SigninPayload is a payload for /v3/signin
 type SigninPayload struct {
 	Email    string `json:"email"`
