@@ -767,6 +767,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				cmd := runWorker(m, cur)
 				m.ensureComposeLine() // re-seed the empty compose at the top
 				m.refreshRows()
+				m.cursor = 0 // land on the fresh empty compose…
+				m.caret = 0  // …with the caret reset, so the next keystroke is safe
 				return m, cmd
 			}
 			return m, nil // empty compose — type first, then Enter launches
@@ -901,10 +903,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// left (or the whole chip just before the caret), mirroring ctrl+left
 	case "ctrl+backspace", "ctrl+h":
 		cur := m.cursorItem()
-		if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly || m.caret == 0 {
+		if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly {
 			return m, nil
 		}
 		runes := []rune(cur.name)
+		if m.boundCaret(len(runes)) == 0 {
+			return m, nil
+		}
 		spans := anchorSpans(runes)
 		// caret right after a chip → delete just that chip
 		if sp := spanEndingAt(spans, m.caret); sp != nil {
@@ -1224,8 +1229,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !typeOf(cur.typ).inlineEditable || cur.readonly {
 			return m, nil // e.g. json — edited only in the alt+e editor; or a locked node
 		}
-		if m.caret > 0 {
-			runes := []rune(cur.name)
+		if runes := []rune(cur.name); m.boundCaret(len(runes)) > 0 {
 			// backspace at a chip anchor's end deletes the whole chip (anchor + record)
 			if sp := spanEndingAt(anchorSpans(runes), m.caret); sp != nil {
 				m.deleteChipID(sp.id)
@@ -1314,6 +1318,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.slashInline = cur.mirrorOf == "" && !cur.readonly
 			if m.slashInline {
 				runes := []rune(cur.name)
+				m.boundCaret(len(runes))
 				cur.name = string(runes[:m.caret]) + "/" + string(runes[m.caret:])
 				m.slashStart = m.caret
 				m.caret++
@@ -1360,12 +1365,17 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// guard against a caret left stale by a cursor move (e.g. a worker run
+		// reseeding the compose) — slicing runes[:m.caret] would otherwise panic
+		m.boundCaret(len([]rune(cur.name)))
+
 		// typing a space commits a #tag or date token before it into a chip
 		if text == " " && !k.Paste {
 			m.chipifyBeforeCaret(cur)
 		}
 
 		runes := []rune(cur.name)
+		m.boundCaret(len(runes)) // chipify may have changed the name/caret
 		ins := []rune(text)
 		cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
 		m.caret += len(ins)
@@ -1427,6 +1437,7 @@ func sanitizeName(text string) string {
 // leaves a ghost empty-named node between two real lines.
 func (m *Model) pasteFanOut(cur *item, lines []string) (tea.Model, tea.Cmd) {
 	runes := []rune(cur.name)
+	m.boundCaret(len(runes))
 	cur.name = string(runes[:m.caret]) + lines[0] + string(runes[m.caret:])
 
 	last := cur
@@ -1708,6 +1719,19 @@ func (m *Model) clampCaret() {
 			m.caret = sp.end
 		}
 	}
+}
+
+// boundCaret clamps the caret into [0, n] and returns it — a guard for every name
+// edit against a caret left stale by a cursor move (e.g. a worker run reseeding
+// the compose line), which would otherwise panic slicing runes[:m.caret].
+func (m *Model) boundCaret(n int) int {
+	if m.caret > n {
+		m.caret = n
+	}
+	if m.caret < 0 {
+		m.caret = 0
+	}
+	return m.caret
 }
 
 // nextWordBoundary returns the caret index at the start of the next word: it
