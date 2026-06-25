@@ -17,3 +17,6 @@ pkg/e2e/sync/tmp/
 
 # pi agent session data (transient)
 /.pi/
+
+# local secrets
+.env
