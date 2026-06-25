@@ -21,7 +21,8 @@ type item struct {
 	children    []*item
 	parent      *item
 	collapsed   bool
-	readonly    bool // node lock: inline edits are no-ops (see canEdit)
+	readonly    bool  // node lock: inline edits are no-ops (see canEdit)
+	addedOn     int64 // creation time (UnixNano); shown by the log node's time chip
 	isNew       bool
 }
 
@@ -71,6 +72,7 @@ func cloneItem(src, parent *item) *item {
 		completedAt: src.completedAt,
 		collapsed:   src.collapsed,
 		readonly:    src.readonly,
+		addedOn:     src.addedOn,
 		isNew:       src.isNew,
 		parent:      parent,
 	}
@@ -122,6 +124,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			completedAt: n.CompletedAt,
 			collapsed:   n.Collapsed,
 			readonly:    n.Readonly,
+			addedOn:     n.AddedOn,
 		}
 		t.snapshots[n.UUID] = snapshot{
 			parentUUID:  n.ParentUUID,
@@ -364,7 +367,7 @@ func (t *tree) newItem() (*item, error) {
 	if t.defaultType != "" {
 		typ = t.defaultType // the temp tree defaults new nodes to worker
 	}
-	it := &item{uuid: uuid, typ: typ, isNew: true}
+	it := &item{uuid: uuid, typ: typ, addedOn: time.Now().UnixNano(), isNew: true}
 	t.byUUID[uuid] = it
 	return it, nil
 }

@@ -73,6 +73,9 @@ var nodeTypes = []nodeType{
 	// rule (see dividerLine), hiding the glyph. It is otherwise a normal node: it
 	// nests, moves, takes a /note, and is removed with ctrl+d.
 	{key: database.TypeDivider, label: "Divider", inlineEditable: false},
+	// a log line: → glyph, a muted "(time)" chip, the label (colored by /color),
+	// then a muted "· description" tail. Rendered in renderBody (TypeLog cases).
+	{key: database.TypeLog, label: "Log", glyph: logGlyph, inlineEditable: true},
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},
@@ -138,6 +141,16 @@ var typeLabels = func() map[string]string {
 	}
 	return m
 }()
+
+// logGlyph is the → arrow, tinted by the node's /color (muted gray by default) so
+// the arrow and label share a color while the description stays muted.
+func logGlyph(it *item) (string, string) {
+	col := cDim
+	if c := styleBaseColor(it.style); c != "" {
+		col = c
+	}
+	return "→", col
+}
 
 func todoGlyph(it *item) (string, string) {
 	if it.completedAt > 0 {
