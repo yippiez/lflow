@@ -30,8 +30,9 @@ const (
 	modeNote
 	modeConfirm // inline delete confirmation for nodes with children
 	modeType    // the /type picker: choose one of the node types
-	modeStyle   // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme   // the /theme picker: choose a color palette
+	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme    // the /theme picker: choose a color palette
+	modeComplete // the inline completer: "#" tags, ":" query commands
 )
 
 type finderAction int
@@ -138,6 +139,9 @@ type Model struct {
 
 	// /theme picker selection (index into the themes registry)
 	themeSel int
+
+	// inline completer state ("#" tags, ":" query commands)
+	compl complState
 
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure the
 	// runnable node types use (bash, query, voice). Ephemeral, in-memory only,
@@ -603,6 +607,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleStyleKey(k)
 	case modeTheme:
 		return m.handleThemeKey(k)
+	case modeComplete:
+		return m.handleCompleteKey(k)
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
@@ -1203,6 +1209,18 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openFilePicker(cur)
 		}
 
+		// "#" opens the tag completer at a word boundary; ":" opens the query-command
+		// completer in a query node. Both stay literal mid-word so "C#"/"a:b" type
+		// normally; tags skip bash/code where "#" is a comment.
+		if string(k.Runes) == "#" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
+			return m.openCompleter(cur, complTag, "#")
+		}
+		if string(k.Runes) == ":" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			cur.typ == database.TypeQuery && atWordStart(cur, m.caret) {
+			return m.openCompleter(cur, complQueryCmd, ":")
+		}
+
 		if cur.mirrorOf != "" {
 			return m, nil // a mirror reference is edited at its original — see mirrorContext
 		}
@@ -1262,6 +1280,28 @@ func pathChipTrigger(typ string) bool {
 func runeBeforeCaretIs(cur *item, caret int, r rune) bool {
 	runes := []rune(cur.name)
 	return caret > 0 && caret <= len(runes) && runes[caret-1] == r
+}
+
+// atWordStart reports whether the caret sits at the start of a word — at the
+// node start or just after whitespace — so "#"/":" only open a completer there,
+// keeping "C#" and "a:b" as literal mid-word text.
+func atWordStart(cur *item, caret int) bool {
+	if caret <= 0 {
+		return true
+	}
+	runes := []rune(cur.name)
+	return caret <= len(runes) && runes[caret-1] == ' '
+}
+
+// tagPickerTrigger reports whether "#" should open the tag completer on this
+// type. Text-ish nodes (incl. query) get it; bash and code keep "#" literal
+// since it is a comment there.
+func tagPickerTrigger(typ string) bool {
+	switch typ {
+	case database.TypeBash, database.TypeCode:
+		return false
+	}
+	return typeOf(typ).inlineEditable
 }
 
 // convertBySign turns a sign typed at the very start of a node into that node's
@@ -2642,6 +2682,8 @@ func (m *Model) viewOutline(maxLine int) []string {
 		typePickerRows = 1 // the "type:" search header
 	case modeTheme:
 		pickerItems = len(themes)
+	case modeComplete:
+		pickerItems = len(m.complItems())
 	}
 	pickerRows := 0
 	if pickerItems > 0 || typePickerRows > 0 {
@@ -2825,6 +2867,35 @@ func (m *Model) viewOutline(maxLine int) []string {
 			swatches := t.accent + "●" + t.red + "●" + t.yellow + "●" +
 				t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
 			line := " " + mark + cFG + fmt.Sprintf("%-9s", t.name) + active + "  " + swatches
+			lines = append(lines, clip(line, maxLine))
+		}
+	}
+
+	// the inline completer popup ("#" tags, ":" query commands): a scrolling list
+	// of matches, each label plus an optional dim hint.
+	if m.mode == modeComplete {
+		items := m.complItems()
+		if m.compl.sel >= len(items) {
+			m.compl.sel = len(items) - 1
+		}
+		if m.compl.sel < 0 {
+			m.compl.sel = 0
+		}
+		win := pickerMaxRows
+		s2 := scrollStart(m.compl.sel, len(items), win)
+		e2 := s2 + win
+		if e2 > len(items) {
+			e2 = len(items)
+		}
+		for i := s2; i < e2; i++ {
+			mark := "  "
+			if i == m.compl.sel {
+				mark = cAccent + "▸ " + cReset
+			}
+			line := " " + mark + cFG + items[i].label + cReset
+			if items[i].desc != "" {
+				line += cDim + "  " + items[i].desc + cReset
+			}
 			lines = append(lines, clip(line, maxLine))
 		}
 	}
