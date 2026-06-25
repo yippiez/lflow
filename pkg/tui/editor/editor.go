@@ -886,8 +886,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 		}
 		return m, nil
-	// ctrl+backspace arrives as ctrl+h in most terminals
-	case "ctrl+d", "ctrl+shift+backspace", "ctrl+backspace", "ctrl+h":
+	case "ctrl+d", "ctrl+shift+backspace":
+		// delete the whole node (its subtree confirms inline first)
 		if cur := m.cursorItem(); cur != nil {
 			if len(cur.children) > 0 {
 				// children go with the node: confirm inline first
@@ -896,6 +896,36 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.deleteNode(cur)
 			}
 		}
+		return m, nil
+	// ctrl+backspace arrives as ctrl+h in most terminals: delete the word to the
+	// left (or the whole chip just before the caret), mirroring ctrl+left
+	case "ctrl+backspace", "ctrl+h":
+		cur := m.cursorItem()
+		if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly || m.caret == 0 {
+			return m, nil
+		}
+		runes := []rune(cur.name)
+		spans := anchorSpans(runes)
+		// caret right after a chip → delete just that chip
+		if sp := spanEndingAt(spans, m.caret); sp != nil {
+			m.deleteChipID(sp.id)
+			cur.name = string(runes[:sp.start]) + string(runes[sp.end:])
+			m.caret = sp.start
+			m.unsaved = true
+			return m, nil
+		}
+		target := prevWordBoundary(runes, m.caret)
+		if sp := spanContaining(spans, target); sp != nil {
+			target = sp.start // don't cut into a chip — take the whole thing
+		}
+		for _, sp := range spans { // drop chip records the deletion removes
+			if sp.start >= target && sp.end <= m.caret {
+				m.deleteChipID(sp.id)
+			}
+		}
+		cur.name = string(runes[:target]) + string(runes[m.caret:])
+		m.caret = target
+		m.unsaved = true
 		return m, nil
 	case "ctrl+t":
 		// If a time phrase sits under the cursor, convert it to canonical date text
@@ -964,6 +994,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.caret = nextWordBoundary(runes, m.caret)
+		if sp := spanContaining(anchorSpans(runes), m.caret); sp != nil {
+			m.caret = sp.end // a chip is atomic
+		}
 		return m, nil
 	case "ctrl+left":
 		// jump back one word; at the start, cross to the previous node's end
@@ -980,7 +1013,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.caret = prevWordBoundary([]rune(cur.name), m.caret)
+		runes := []rune(cur.name)
+		m.caret = prevWordBoundary(runes, m.caret)
+		if sp := spanContaining(anchorSpans(runes), m.caret); sp != nil {
+			m.caret = sp.start // a chip is atomic
+		}
 		return m, nil
 	case "alt+right":
 		// zoom into the cursor node — leaves too: the view starts empty
