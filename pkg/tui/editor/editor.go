@@ -1260,6 +1260,14 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.unsaved = true
 			return m, nil
 		}
+		// backspace on an empty non-bullet node demotes its type to a plain bullet
+		// first (e.g. Bash → bullet → delete), so a special node isn't blown away in
+		// one keypress — the next backspace then merges/removes the bullet.
+		if cur.name == "" && cur.mirrorOf == "" && typeOf(cur.typ).key != database.TypeBullets {
+			cur.typ = database.TypeBullets
+			m.unsaved = true
+			return m, nil
+		}
 		// caret at the start: merge this node into the one above. Its text appends
 		// to the previous node and its children move under that node.
 		if m.cursor > 0 {
