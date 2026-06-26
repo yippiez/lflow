@@ -7,7 +7,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { colors, mono } from "../theme";
+import { colors, font, size } from "../theme";
 import { buildTree, type Op, type Snapshot, type TreeNode } from "../protocol";
 import NodeRow from "./NodeRow";
 
@@ -59,7 +59,7 @@ export default function Outline({
   const renderRow = ({ item }: { item: TreeNode }) => {
     if (item.uuid === editingUuid) {
       return (
-        <View style={[styles.editRow, { paddingLeft: 6 + item.depth * 18 }]}>
+        <View style={[styles.editRow, { paddingLeft: 6 + item.depth * 16 }]}>
           <TextInput
             style={styles.editInput}
             value={editText}
@@ -153,13 +153,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#2c3140",
+    borderBottomColor: colors.border,
   },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  headerTitle: { color: colors.fg, fontFamily: mono, fontSize: 15, fontWeight: "700" },
-  headerCount: { color: colors.dim, fontFamily: mono, fontSize: 12 },
-  headerBtn: { color: colors.accent, fontFamily: mono, fontSize: 13 },
+  headerTitle: { color: colors.fg, fontFamily: font.bold, fontSize: 15 },
+  headerCount: { color: colors.dim, fontFamily: font.regular, fontSize: 12 },
+  headerBtn: { color: colors.accent, fontFamily: font.regular, fontSize: 13 },
   list: { flex: 1 },
   editRow: {
     flexDirection: "row",
@@ -172,9 +172,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bgCode,
     color: colors.fg,
-    fontFamily: mono,
-    fontSize: 14,
-    lineHeight: 21,
+    fontFamily: font.regular,
+    fontSize: size.base,
+    lineHeight: size.line,
     borderRadius: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -182,5 +182,5 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   miniBtn: { paddingHorizontal: 4 },
-  miniBtnText: { color: colors.accent, fontFamily: mono, fontSize: 12 },
+  miniBtnText: { color: colors.accent, fontFamily: font.regular, fontSize: 12 },
 });

@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { colors, mono } from "../theme";
+import { colors, font } from "../theme";
 import type { Config, Status } from "../connection";
 
 interface Props {
@@ -82,11 +82,11 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   card: { maxWidth: 420, width: "100%", alignSelf: "center" },
-  title: { color: colors.fg, fontFamily: mono, fontSize: 28, fontWeight: "700" },
-  subtitle: { color: colors.dim, fontFamily: mono, fontSize: 13, marginBottom: 24 },
+  title: { color: colors.fg, fontFamily: font.bold, fontSize: 28 },
+  subtitle: { color: colors.dim, fontFamily: font.regular, fontSize: 13, marginBottom: 24 },
   label: {
     color: colors.dim,
-    fontFamily: mono,
+    fontFamily: font.regular,
     fontSize: 12,
     marginTop: 14,
     marginBottom: 6,
@@ -94,13 +94,13 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: colors.bgCode,
     color: colors.fg,
-    fontFamily: mono,
+    fontFamily: font.regular,
     fontSize: 15,
     borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: "#2c3140",
+    borderColor: colors.border,
   },
   button: {
     marginTop: 24,
@@ -110,6 +110,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   buttonDisabled: { opacity: 0.4 },
-  buttonText: { color: "#fff", fontFamily: mono, fontSize: 15, fontWeight: "700" },
-  error: { color: colors.red, fontFamily: mono, fontSize: 13, marginTop: 14 },
+  buttonText: { color: "#fff", fontFamily: font.bold, fontSize: 15 },
+  error: { color: colors.red, fontFamily: font.regular, fontSize: 13, marginTop: 14 },
 });
