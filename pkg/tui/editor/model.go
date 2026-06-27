@@ -660,7 +660,6 @@ func (t *tree) save() (int, error) {
 				CompletedAt: it.completedAt,
 				AddedOn:     now,
 				EditedOn:    now,
-				Dirty:       true,
 				Collapsed:   it.collapsed,
 				Readonly:    it.readonly,
 			}
@@ -670,15 +669,15 @@ func (t *tree) save() (int, error) {
 			written++
 		} else if t.changed(it) || structChanged {
 			if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
-				style = ?, mirror_of = ?, link_to = ?, readonly = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
+				style = ?, mirror_of = ?, link_to = ?, readonly = ?, completed_at = ?, edited_on = ? WHERE uuid = ?`,
 				parentUUID, rank, it.name, it.note, it.typ, it.style, it.mirrorOf, it.linkTo, it.readonly, it.completedAt, now, it.uuid); err != nil {
 				return errors.Wrapf(err, "updating node %s", it.uuid)
 			}
 			written++
 		}
 
-		// collapse is local view-state: persist it on save without dirty/sync, as a
-		// backstop to the immediate SetCollapsed write (new nodes carry it via Insert).
+		// collapse is local view-state: persist it on save as a backstop to the
+		// immediate SetCollapsed write (new nodes carry it via Insert).
 		if existed && s.collapsed != it.collapsed {
 			if _, err := tx.Exec("UPDATE nodes SET collapsed = ? WHERE uuid = ?", it.collapsed, it.uuid); err != nil {
 				return errors.Wrapf(err, "persisting collapsed for %s", it.uuid)
@@ -695,7 +694,7 @@ func (t *tree) save() (int, error) {
 
 	// the root's own parent/rank are not managed by this editor
 	if t.changed(t.root) {
-		if _, err := tx.Exec(`UPDATE nodes SET name = ?, note = ?, type = ?, style = ?, completed_at = ?, edited_on = ?, dirty = 1 WHERE uuid = ?`,
+		if _, err := tx.Exec(`UPDATE nodes SET name = ?, note = ?, type = ?, style = ?, completed_at = ?, edited_on = ? WHERE uuid = ?`,
 			t.root.name, t.root.note, t.root.typ, t.root.style, t.root.completedAt, now, t.root.uuid); err != nil {
 			tx.Rollback()
 			return 0, errors.Wrap(err, "updating root node")
@@ -710,7 +709,7 @@ func (t *tree) save() (int, error) {
 	}
 
 	for _, uuid := range t.deleted {
-		if _, err := tx.Exec("UPDATE nodes SET deleted = 1, dirty = 1 WHERE uuid = ?", uuid); err != nil {
+		if _, err := tx.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = ?", uuid); err != nil {
 			tx.Rollback()
 			return 0, errors.Wrapf(err, "tombstoning node %s", uuid)
 		}

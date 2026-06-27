@@ -829,3 +829,27 @@ var lm24 = migration{
 		return nil
 	},
 }
+
+// lm25 removes the dnote sync bookkeeping. The usn/dirty node columns and the
+// sync-only system keys tracked state for the (now removed) cross-device sync;
+// the deleted tombstone column stays, as it drives local soft-delete.
+var lm25 = migration{
+	name: "drop-dnote-sync-state",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		// the dirty index must go before its column can be dropped
+		if _, err := tx.Exec("DROP INDEX IF EXISTS idx_nodes_dirty"); err != nil {
+			return errors.Wrap(err, "dropping idx_nodes_dirty")
+		}
+		if _, err := tx.Exec("ALTER TABLE nodes DROP COLUMN dirty"); err != nil {
+			return errors.Wrap(err, "dropping nodes.dirty")
+		}
+		if _, err := tx.Exec("ALTER TABLE nodes DROP COLUMN usn"); err != nil {
+			return errors.Wrap(err, "dropping nodes.usn")
+		}
+		if _, err := tx.Exec(`DELETE FROM system WHERE key IN
+			('remote_schema', 'last_max_usn', 'last_sync_time', 'session_token', 'session_token_expiry')`); err != nil {
+			return errors.Wrap(err, "deleting sync system keys")
+		}
+		return nil
+	},
+}

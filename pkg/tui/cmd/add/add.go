@@ -102,7 +102,6 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, typ stri
 			Type:     typ,
 			AddedOn:    now,
 			EditedOn:   now,
-			Dirty:      true,
 		}
 		if err := n.Insert(db); err != nil {
 			return count, err
@@ -164,7 +163,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			}
 			note += text
 			now := time.Now().UnixNano()
-			if _, err := db.Exec("UPDATE nodes SET note = ?, edited_on = ?, dirty = 1 WHERE uuid = ?", note, now, r.Node.UUID); err != nil {
+			if _, err := db.Exec("UPDATE nodes SET note = ?, edited_on = ? WHERE uuid = ?", note, now, r.Node.UUID); err != nil {
 				return errors.Wrap(err, "updating note")
 			}
 			log.Successf("noted on %q\n", r.Node.Name)

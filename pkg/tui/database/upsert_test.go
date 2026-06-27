@@ -9,7 +9,7 @@ import "testing"
 func TestUpsertRevivesTombstonedNode(t *testing.T) {
 	db := InitTestMemoryDB(t)
 
-	n := Node{UUID: "v1", Name: "voice memo", Type: "voice", AddedOn: 1, EditedOn: 1, Dirty: true}
+	n := Node{UUID: "v1", Name: "voice memo", Type: "voice", AddedOn: 1, EditedOn: 1}
 	if err := n.Insert(db); err != nil {
 		t.Fatalf("initial insert: %v", err)
 	}
@@ -17,7 +17,7 @@ func TestUpsertRevivesTombstonedNode(t *testing.T) {
 	MustExec(t, "tombstone", db, "UPDATE nodes SET deleted = 1 WHERE uuid = ?", "v1")
 
 	// undo restores it; the editor believes it is new and Upserts — must not crash
-	revived := Node{UUID: "v1", Name: "voice memo back", Type: "voice", AddedOn: 99, EditedOn: 2, Dirty: true}
+	revived := Node{UUID: "v1", Name: "voice memo back", Type: "voice", AddedOn: 99, EditedOn: 2}
 	if err := revived.Upsert(db); err != nil {
 		t.Fatalf("upsert of a revived node must not crash: %v", err)
 	}

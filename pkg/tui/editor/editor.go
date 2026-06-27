@@ -2394,7 +2394,7 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 	if err != nil {
 		return err
 	}
-	if _, err := m.db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ?, dirty = 1 WHERE uuid = ?",
+	if _, err := m.db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ? WHERE uuid = ?",
 		target.UUID, rank, cur.uuid); err != nil {
 		return errors.Wrap(err, "moving node")
 	}
@@ -2494,7 +2494,7 @@ func (m *Model) bringFromDB(target database.Node, cur *item) error {
 	if err != nil {
 		return err
 	}
-	if _, err := m.db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ?, dirty = 1 WHERE uuid = ?",
+	if _, err := m.db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ? WHERE uuid = ?",
 		parentUUID, rank, target.UUID); err != nil {
 		return errors.Wrap(err, "bringing node")
 	}

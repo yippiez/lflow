@@ -104,11 +104,11 @@ func TestAddRootAndChild(t *testing.T) {
 		db.QueryRow("SELECT name FROM nodes WHERE parent_uuid = ? ORDER BY rank LIMIT 1", rootUUID), &firstChild)
 	assert.Equal(t, firstChild, "baseline numbers", "first child mismatch")
 
-	// everything new must be dirty for sync
-	var dirtyCount int
-	database.MustScan(t, "counting dirty",
-		db.QueryRow("SELECT count(*) FROM nodes WHERE dirty"), &dirtyCount)
-	assert.Equal(t, dirtyCount, 3, "dirty count mismatch")
+	// all three nodes were added under root
+	var addedCount int
+	database.MustScan(t, "counting added",
+		db.QueryRow("SELECT count(*) FROM nodes WHERE uuid NOT IN (?, ?)", database.RootUUID, database.TempUUID), &addedCount)
+	assert.Equal(t, addedCount, 3, "added count mismatch")
 }
 
 func TestAppendStdin(t *testing.T) {
@@ -227,10 +227,10 @@ func TestRemove(t *testing.T) {
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
 
-	// the node and its child are tombstoned, not expunged (so the delete syncs)
+	// the node and its child are tombstoned, not expunged
 	var deletedCount int
 	database.MustScan(t, "counting deleted",
-		db.QueryRow("SELECT count(*) FROM nodes WHERE deleted = 1 AND dirty = 1"), &deletedCount)
+		db.QueryRow("SELECT count(*) FROM nodes WHERE deleted = 1"), &deletedCount)
 	assert.Equal(t, deletedCount, 2, "subtree should be tombstoned")
 }
 

@@ -29,7 +29,7 @@ func TestNodeCRUD(t *testing.T) {
 	db := InitTestMemoryDB(t)
 	defer db.Close()
 
-	n := Node{UUID: "n1", Name: "hello", Note: "world", Type: TypeTodo, AddedOn: 1, EditedOn: 2, Dirty: true}
+	n := Node{UUID: "n1", Name: "hello", Note: "world", Type: TypeTodo, AddedOn: 1, EditedOn: 2}
 	mustInsert(t, db, n)
 
 	got, err := GetNode(db, "n1")
@@ -39,7 +39,6 @@ func TestNodeCRUD(t *testing.T) {
 	assert.Equal(t, got.Name, "hello", "name mismatch")
 	assert.Equal(t, got.Note, "world", "note mismatch")
 	assert.Equal(t, got.Type, TypeTodo, "type mismatch")
-	assert.Equal(t, got.Dirty, true, "dirty mismatch")
 
 	got.Name = "updated"
 	got.CompletedAt = 99
@@ -125,10 +124,9 @@ func TestMarkSubtreeDeleted(t *testing.T) {
 	}
 	assert.Equal(t, count, 2, "deleted count mismatch")
 
-	var deleted, dirty bool
-	MustScan(t, "checking g1", db.QueryRow("SELECT deleted, dirty FROM nodes WHERE uuid = 'g1'"), &deleted, &dirty)
+	var deleted bool
+	MustScan(t, "checking g1", db.QueryRow("SELECT deleted FROM nodes WHERE uuid = 'g1'"), &deleted)
 	assert.Equal(t, deleted, true, "descendant should be tombstoned")
-	assert.Equal(t, dirty, true, "tombstone should be dirty")
 
 	// deleted nodes disappear from subtree walks
 	subtree, err := GetSubtree(db, "r1")

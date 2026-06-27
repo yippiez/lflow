@@ -60,28 +60,26 @@ type Node struct {
 	CompletedAt int64  `json:"completed_at"` // 0 = not completed
 	AddedOn     int64  `json:"added_on"`
 	EditedOn    int64  `json:"edited_on"`
-	USN         int    `json:"usn"`
 	Deleted     bool   `json:"deleted"`
-	Dirty       bool   `json:"dirty"`
-	Collapsed   bool   `json:"collapsed"` // local view-state, never synced
+	Collapsed   bool   `json:"collapsed"` // local view-state
 	LinkTo      string `json:"link_to"`   // single directed link to another node's uuid
 	Readonly    bool   `json:"readonly"`  // node lock; persisted, never synced (like style/link_to)
 }
 
-const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, usn, deleted, dirty, collapsed, link_to, readonly"
+const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, link_to, readonly"
 
 func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 	var n Node
 	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Type,
-		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.USN, &n.Deleted, &n.Dirty, &n.Collapsed, &n.LinkTo, &n.Readonly)
+		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.Deleted, &n.Collapsed, &n.LinkTo, &n.Readonly)
 	return n, err
 }
 
 // Insert inserts the node.
 func (n Node) Insert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty, n.Collapsed, n.LinkTo, n.Readonly)
+		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.LinkTo, n.Readonly)
 	if err != nil {
 		return errors.Wrapf(err, "inserting node %s", n.UUID)
 	}
@@ -92,18 +90,18 @@ func (n Node) Insert(db *DB) error {
 // and overwrites it (deleted = 0). A delete that was saved (tombstoning the row and
 // dropping its in-memory snapshot) and then undone leaves the editor believing the
 // restored node is brand new; a plain INSERT would then crash on UNIQUE(uuid). The
-// original added_on and usn are preserved. FTS stays consistent via the AFTER UPDATE
+// original added_on is preserved. FTS stays consistent via the AFTER UPDATE
 // trigger (which fires on the conflict branch).
 func (n Node) Upsert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
 		`ON CONFLICT(uuid) DO UPDATE SET
 			parent_uuid = excluded.parent_uuid, rank = excluded.rank, name = excluded.name,
 			note = excluded.note, type = excluded.type, style = excluded.style,
 			mirror_of = excluded.mirror_of, completed_at = excluded.completed_at,
 			edited_on = excluded.edited_on, collapsed = excluded.collapsed,
-			link_to = excluded.link_to, readonly = excluded.readonly, deleted = 0, dirty = 1`,
+			link_to = excluded.link_to, readonly = excluded.readonly, deleted = 0`,
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.USN, n.Deleted, n.Dirty, n.Collapsed, n.LinkTo, n.Readonly)
+		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.LinkTo, n.Readonly)
 	if err != nil {
 		return errors.Wrapf(err, "upserting node %s", n.UUID)
 	}
@@ -111,7 +109,7 @@ func (n Node) Upsert(db *DB) error {
 }
 
 // SetCollapsed persists a node's collapsed flag. It is local view-state, so it
-// leaves dirty/usn/edited_on untouched and never syncs to the server.
+// leaves edited_on untouched.
 func SetCollapsed(db *DB, uuid string, collapsed bool) error {
 	if _, err := db.Exec("UPDATE nodes SET collapsed = ? WHERE uuid = ?", collapsed, uuid); err != nil {
 		return errors.Wrapf(err, "setting collapsed for %s", uuid)
@@ -122,9 +120,9 @@ func SetCollapsed(db *DB, uuid string, collapsed bool) error {
 // Update persists all mutable fields of the node.
 func (n Node) Update(db *DB) error {
 	_, err := db.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
-		style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, usn = ?, deleted = ?, dirty = ?, link_to = ?, readonly = ? WHERE uuid = ?`,
+		style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, deleted = ?, link_to = ?, readonly = ? WHERE uuid = ?`,
 		n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.EditedOn, n.USN, n.Deleted, n.Dirty, n.LinkTo, n.Readonly, n.UUID)
+		n.EditedOn, n.Deleted, n.LinkTo, n.Readonly, n.UUID)
 	if err != nil {
 		return errors.Wrapf(err, "updating node %s", n.UUID)
 	}
@@ -227,15 +225,14 @@ func NextRank(db *DB, parentUUID string) (int, error) {
 	return int(maxRank.Int64) + 1, nil
 }
 
-// MarkSubtreeDeleted tombstones the node and all descendants (dirty so the
-// deletion is pushed on the next sync).
+// MarkSubtreeDeleted tombstones the node and all descendants.
 func MarkSubtreeDeleted(db *DB, rootUUID string) (int, error) {
 	subtree, err := GetSubtree(db, rootUUID)
 	if err != nil {
 		return 0, err
 	}
 	for _, n := range subtree {
-		if _, err := db.Exec("UPDATE nodes SET deleted = 1, dirty = 1 WHERE uuid = ?", n.UUID); err != nil {
+		if _, err := db.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = ?", n.UUID); err != nil {
 			return 0, errors.Wrapf(err, "tombstoning node %s", n.UUID)
 		}
 	}

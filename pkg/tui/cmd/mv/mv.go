@@ -120,7 +120,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		}
 
 		now := time.Now().UnixNano()
-		if _, err := db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ?, edited_on = ?, dirty = 1 WHERE uuid = ?",
+		if _, err := db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ?, edited_on = ? WHERE uuid = ?",
 			parentRes.Node.UUID, rank, now, nodeRes.Node.UUID); err != nil {
 			return errors.Wrap(err, "moving node")
 		}

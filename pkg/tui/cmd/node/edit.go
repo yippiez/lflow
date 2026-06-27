@@ -68,7 +68,7 @@ func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command
 			os.Exit(1)
 		}
 
-		sets := []string{"edited_on = ?", "dirty = 1"}
+		sets := []string{"edited_on = ?"}
 		vals := []interface{}{time.Now().UnixNano()}
 
 		if flags.Changed("state") {

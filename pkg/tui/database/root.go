@@ -13,7 +13,7 @@ const RootUUID = "root"
 
 // TempUUID is the uuid of the always-present Temporary Domain root — a second
 // top-level root, sibling to RootUUID. Its subtree is the temp/agent space:
-// persisted and synced like the rest, but swept on startup (7-day retention).
+// persisted like the rest, but swept on startup (7-day retention).
 const TempUUID = "temp"
 
 // TempRetention is how long a temp entry survives unchanged before the startup
@@ -22,15 +22,15 @@ const TempRetention = 7 * 24 * time.Hour
 
 // EnsureRoot guarantees the root node exists and that every orphan top-level
 // node (parent_uuid = "" other than root/temp) is adopted under it. The root is
-// local-only and never synced (it is not marked dirty).
+// a local-only structural node.
 func EnsureRoot(db *DB) error {
 	var exists int
 	if err := db.QueryRow("SELECT count(*) FROM nodes WHERE uuid = ?", RootUUID).Scan(&exists); err != nil {
 		return errors.Wrap(err, "checking for root node")
 	}
 	if exists == 0 {
-		if _, err := db.Exec(`INSERT INTO nodes (uuid, parent_uuid, rank, name, type, dirty)
-			VALUES (?, '', 0, 'Root', 'bullets', 0)`, RootUUID); err != nil {
+		if _, err := db.Exec(`INSERT INTO nodes (uuid, parent_uuid, rank, name, type)
+			VALUES (?, '', 0, 'Root', 'bullets')`, RootUUID); err != nil {
 			return errors.Wrap(err, "creating root node")
 		}
 	}
@@ -46,16 +46,15 @@ func EnsureRoot(db *DB) error {
 }
 
 // EnsureTemp guarantees the Temporary Domain root exists. Like the root it is a
-// local-only structural node (dirty = 0, never synced); its children are normal
-// nodes that do sync.
+// local-only structural node.
 func EnsureTemp(db *DB) error {
 	var exists int
 	if err := db.QueryRow("SELECT count(*) FROM nodes WHERE uuid = ?", TempUUID).Scan(&exists); err != nil {
 		return errors.Wrap(err, "checking for temp root")
 	}
 	if exists == 0 {
-		if _, err := db.Exec(`INSERT INTO nodes (uuid, parent_uuid, rank, name, type, dirty)
-			VALUES (?, '', 1, 'temp', 'root', 0)`, TempUUID); err != nil {
+		if _, err := db.Exec(`INSERT INTO nodes (uuid, parent_uuid, rank, name, type)
+			VALUES (?, '', 1, 'temp', 'root')`, TempUUID); err != nil {
 			return errors.Wrap(err, "creating temp root")
 		}
 	}
