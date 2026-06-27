@@ -444,7 +444,7 @@ func (m *Model) cursorItem() *item {
 }
 
 // persistCollapsed writes an item's fold state to the DB. Collapse is local
-// view-state, so this never marks the node dirty or syncs it.
+// view-state.
 func (m *Model) persistCollapsed(it *item) {
 	if it == nil {
 		return

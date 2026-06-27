@@ -76,7 +76,7 @@ func TestInitSystemKV_existing(t *testing.T) {
 	assert.Equal(t, val, "testVal", "system value should not have been updated")
 }
 
-func TestInit_APIEndpoint(t *testing.T) {
+func TestInit_CreatesDefaultConfig(t *testing.T) {
 	// Create a temporary directory for test
 	tmpDir, err := os.MkdirTemp("", "lflow-init-test-*")
 	if err != nil {
@@ -92,8 +92,8 @@ func TestInit_APIEndpoint(t *testing.T) {
 	// Force dirs package to reload with new environment
 	dirs.Reload()
 
-	// Initialize - should create config with default apiEndpoint
-	ctx, err := Init("test-version", "")
+	// Initialize - should create a config with sensible defaults
+	ctx, err := Init("test-version")
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "initializing"))
 	}
@@ -105,7 +105,7 @@ func TestInit_APIEndpoint(t *testing.T) {
 		t.Fatal(errors.Wrap(err, "reading config"))
 	}
 
-	// Context should use the apiEndpoint from config
-	assert.Equal(t, ctx.APIEndpoint, DefaultAPIEndpoint, "context should use apiEndpoint from config")
-	assert.Equal(t, cf.APIEndpoint, DefaultAPIEndpoint, "context should use apiEndpoint from config")
+	assert.Equal(t, cf.EnableUpgradeCheck, true, "upgrade check should default on")
+	assert.NotEqual(t, cf.Editor, "", "editor should be populated")
+	assert.Equal(t, ctx.EnableUpgradeCheck, true, "context should carry the config value")
 }

@@ -3,7 +3,6 @@
 package infra
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/lflow/lflow/pkg/shared/clock"
 	"github.com/lflow/lflow/pkg/shared/dirs"
-	"github.com/lflow/lflow/pkg/tui/client"
 	"github.com/lflow/lflow/pkg/tui/config"
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
@@ -21,11 +19,6 @@ import (
 	"github.com/lflow/lflow/pkg/tui/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-)
-
-const (
-	// DefaultAPIEndpoint is the default API endpoint used when none is configured
-	DefaultAPIEndpoint = "http://localhost:3001/api"
 )
 
 // RunEFunc is a function type of lflow commands
@@ -96,15 +89,13 @@ func newBaseCtx(versionTag string) (context.DnoteCtx, error) {
 }
 
 // Init initializes the Lflow environment and returns a new lflow context.
-// apiEndpoint is used when creating a new config file, e.g. from ldflags
-// during tests.
-func Init(versionTag, apiEndpoint string) (*context.DnoteCtx, error) {
+func Init(versionTag string) (*context.DnoteCtx, error) {
 	ctx, err := newBaseCtx(versionTag)
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing a context")
 	}
 
-	if err := initFiles(ctx, apiEndpoint); err != nil {
+	if err := initFiles(ctx); err != nil {
 		return nil, errors.Wrap(err, "initializing files")
 	}
 
@@ -118,7 +109,7 @@ func Init(versionTag, apiEndpoint string) (*context.DnoteCtx, error) {
 	if err := migrate.Legacy(ctx); err != nil {
 		return nil, errors.Wrap(err, "running legacy migration")
 	}
-	if err := migrate.Run(ctx, migrate.LocalSequence, migrate.LocalMode); err != nil {
+	if err := migrate.Run(ctx, migrate.LocalSequence); err != nil {
 		return nil, errors.Wrap(err, "running migration")
 	}
 
@@ -127,7 +118,7 @@ func Init(versionTag, apiEndpoint string) (*context.DnoteCtx, error) {
 		return nil, errors.Wrap(err, "setting up the context")
 	}
 
-	log.Debug("context: %+v\n", context.Redact(ctx))
+	log.Debug("context: %+v\n", ctx)
 
 	return &ctx, nil
 }
@@ -135,20 +126,6 @@ func Init(versionTag, apiEndpoint string) (*context.DnoteCtx, error) {
 // setupCtx enriches the base context with values from config file and database.
 // This is called after files and database have been initialized.
 func setupCtx(ctx context.DnoteCtx) (context.DnoteCtx, error) {
-	db := ctx.DB
-
-	var sessionKey string
-	var sessionKeyExpiry int64
-
-	err := db.QueryRow("SELECT value FROM system WHERE key = ?", consts.SystemSessionKey).Scan(&sessionKey)
-	if err != nil && err != sql.ErrNoRows {
-		return ctx, errors.Wrap(err, "finding sesison key")
-	}
-	err = db.QueryRow("SELECT value FROM system WHERE key = ?", consts.SystemSessionKeyExpiry).Scan(&sessionKeyExpiry)
-	if err != nil && err != sql.ErrNoRows {
-		return ctx, errors.Wrap(err, "finding sesison key expiry")
-	}
-
 	cf, err := config.Read(ctx)
 	if err != nil {
 		return ctx, errors.Wrap(err, "reading config")
@@ -158,13 +135,9 @@ func setupCtx(ctx context.DnoteCtx) (context.DnoteCtx, error) {
 		Paths:              ctx.Paths,
 		Version:            ctx.Version,
 		DB:                 ctx.DB,
-		SessionKey:         sessionKey,
-		SessionKeyExpiry:   sessionKeyExpiry,
-		APIEndpoint:        cf.APIEndpoint,
 		Editor:             cf.Editor,
 		Clock:              clock.New(),
 		EnableUpgradeCheck: cf.EnableUpgradeCheck,
-		HTTPClient:         client.NewRateLimitedHTTPClient(),
 	}
 
 	return ret, nil
@@ -286,12 +259,6 @@ func InitSystem(ctx context.DnoteCtx) error {
 	if err := initSystemKV(tx, consts.SystemLastUpgrade, nowStr); err != nil {
 		return errors.Wrapf(err, "initializing system config for %s", consts.SystemLastUpgrade)
 	}
-	if err := initSystemKV(tx, consts.SystemLastMaxUSN, "0"); err != nil {
-		return errors.Wrapf(err, "initializing system config for %s", consts.SystemLastMaxUSN)
-	}
-	if err := initSystemKV(tx, consts.SystemLastSyncAt, "0"); err != nil {
-		return errors.Wrapf(err, "initializing system config for %s", consts.SystemLastSyncAt)
-	}
 
 	if err := tx.Commit(); err != nil {
 		return errors.Wrap(err, "committing transaction")
@@ -332,7 +299,7 @@ func getEditorCommand() string {
 }
 
 // initConfigFile populates a new config file if it does not exist yet
-func initConfigFile(ctx context.DnoteCtx, apiEndpoint string) error {
+func initConfigFile(ctx context.DnoteCtx) error {
 	path := config.GetPath(ctx)
 	ok, err := utils.FileExists(path)
 	if err != nil {
@@ -342,17 +309,8 @@ func initConfigFile(ctx context.DnoteCtx, apiEndpoint string) error {
 		return nil
 	}
 
-	editor := getEditorCommand()
-
-	// Use default API endpoint if none provided
-	endpoint := apiEndpoint
-	if endpoint == "" {
-		endpoint = DefaultAPIEndpoint
-	}
-
 	cf := config.Config{
-		Editor:             editor,
-		APIEndpoint:        endpoint,
+		Editor:             getEditorCommand(),
 		EnableUpgradeCheck: true,
 	}
 
@@ -364,11 +322,11 @@ func initConfigFile(ctx context.DnoteCtx, apiEndpoint string) error {
 }
 
 // initFiles creates, if necessary, the lflow directory and files inside
-func initFiles(ctx context.DnoteCtx, apiEndpoint string) error {
+func initFiles(ctx context.DnoteCtx) error {
 	if err := context.InitLflowDirs(ctx.Paths); err != nil {
 		return errors.Wrap(err, "creating the lflow dir")
 	}
-	if err := initConfigFile(ctx, apiEndpoint); err != nil {
+	if err := initConfigFile(ctx); err != nil {
 		return errors.Wrap(err, "generating the config file")
 	}
 

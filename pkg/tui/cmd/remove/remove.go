@@ -1,4 +1,4 @@
-// Package remove tombstones a node subtree (pushed as a delete on sync).
+// Package remove tombstones a node subtree.
 package remove
 
 import (

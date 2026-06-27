@@ -9,13 +9,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	// LocalMode is a local migration mode
-	LocalMode = iota
-	// RemoteMode is a remote migration mode
-	RemoteMode
-)
-
 // LocalSequence is a list of local migrations to be run
 var LocalSequence = []migration{
 	lm1,
@@ -44,11 +37,6 @@ var LocalSequence = []migration{
 	lm24,
 }
 
-// RemoteSequence is a list of remote migrations to be run
-var RemoteSequence = []migration{
-	rm1,
-}
-
 func initSchema(ctx context.DnoteCtx, schemaKey string) (int, error) {
 	// schemaVersion is the index of the latest run migration in the sequence
 	schemaVersion := 0
@@ -60,18 +48,6 @@ func initSchema(ctx context.DnoteCtx, schemaKey string) (int, error) {
 	}
 
 	return schemaVersion, nil
-}
-
-func getSchemaKey(mode int) (string, error) {
-	if mode == LocalMode {
-		return consts.SystemSchema, nil
-	}
-
-	if mode == RemoteMode {
-		return consts.SystemRemoteSchema, nil
-	}
-
-	return "", errors.Errorf("unsupported migration type '%d'", mode)
 }
 
 func getSchema(ctx context.DnoteCtx, schemaKey string) (int, error) {
@@ -125,11 +101,8 @@ func execute(ctx context.DnoteCtx, m migration, schemaKey string) error {
 }
 
 // Run performs unrun migrations
-func Run(ctx context.DnoteCtx, migrations []migration, mode int) error {
-	schemaKey, err := getSchemaKey(mode)
-	if err != nil {
-		return errors.Wrap(err, "getting schema key")
-	}
+func Run(ctx context.DnoteCtx, migrations []migration) error {
+	schemaKey := consts.SystemSchema
 
 	schema, err := getSchema(ctx, schemaKey)
 	if err != nil {

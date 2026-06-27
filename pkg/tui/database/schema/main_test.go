@@ -59,7 +59,4 @@ func TestRun(t *testing.T) {
 	// Verify system key-value pairs for schema versions are present
 	expectedSchemaKey := fmt.Sprintf("INSERT INTO system (key, value) VALUES ('%s',", consts.SystemSchema)
 	assert.Equal(t, strings.Contains(schema, expectedSchemaKey), true, "schema should contain schema version INSERT statement")
-
-	expectedRemoteSchemaKey := fmt.Sprintf("INSERT INTO system (key, value) VALUES ('%s',", consts.SystemRemoteSchema)
-	assert.Equal(t, strings.Contains(schema, expectedRemoteSchemaKey), true, "schema should contain remote_schema version INSERT statement")
 }

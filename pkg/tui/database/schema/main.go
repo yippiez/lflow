@@ -91,7 +91,7 @@ func generateSchema(tmpDir string) (string, error) {
 	}
 
 	// Run all local migrations
-	if err := migrate.Run(ctx, migrate.LocalSequence, migrate.LocalMode); err != nil {
+	if err := migrate.Run(ctx, migrate.LocalSequence); err != nil {
 		return "", fmt.Errorf("running migrations: %w", err)
 	}
 
@@ -104,7 +104,6 @@ func generateSchema(tmpDir string) (string, error) {
 	// Add INSERT statements for migration versions.
 	systemData := "\n-- Migration version data.\n"
 	systemData += fmt.Sprintf("INSERT INTO system (key, value) VALUES ('%s', %d);\n", consts.SystemSchema, len(migrate.LocalSequence))
-	systemData += fmt.Sprintf("INSERT INTO system (key, value) VALUES ('%s', %d);\n", consts.SystemRemoteSchema, len(migrate.RemoteSequence))
 
 	return schema + systemData, nil
 }

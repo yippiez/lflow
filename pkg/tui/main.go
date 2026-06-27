@@ -16,14 +16,13 @@ import (
 	"github.com/lflow/lflow/pkg/tui/cmd/version"
 )
 
-// apiEndpoint and versionTag are populated during link time
-var apiEndpoint string
+// versionTag is populated during link time
 var versionTag = "master"
 
 func main() {
 	// the database location comes from the config file alone; there is no
 	// flag for it
-	ctx, err := infra.Init(versionTag, apiEndpoint)
+	ctx, err := infra.Init(versionTag)
 	if err != nil {
 		panic(errors.Wrap(err, "initializing context"))
 	}

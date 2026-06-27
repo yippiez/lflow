@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/lflow/lflow/pkg/shared/assert"
-	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/utils"
@@ -22,27 +21,12 @@ import (
 
 // Prompts for user input
 const (
-	PromptRemoveNote  = "remove this note?"
-	PromptDeleteBook  = "delete book"
-	PromptEmptyServer = "The server is empty but you have local data"
+	PromptRemoveNote = "remove this note?"
+	PromptDeleteBook = "delete book"
 )
 
 // Timeout for waiting for prompts in tests
 const promptTimeout = 10 * time.Second
-
-// LoginDB sets up login credentials in the database for tests
-func LoginDB(t *testing.T, db *database.DB) {
-	database.MustExec(t, "inserting sessionKey", db, "INSERT INTO system (key, value) VALUES (?, ?)", consts.SystemSessionKey, "someSessionKey")
-	database.MustExec(t, "inserting sessionKeyExpiry", db, "INSERT INTO system (key, value) VALUES (?, ?)", consts.SystemSessionKeyExpiry, time.Now().Add(24*time.Hour).Unix())
-}
-
-// Login simulates a logged in user by inserting credentials in the local database
-func Login(t *testing.T, ctx *context.DnoteCtx) {
-	LoginDB(t, ctx.DB)
-
-	ctx.SessionKey = "someSessionKey"
-	ctx.SessionKeyExpiry = time.Now().Add(24 * time.Hour).Unix()
-}
 
 // RemoveDir cleans up the test env represented by the given context
 func RemoveDir(t *testing.T, dir string) {
@@ -226,16 +210,6 @@ func ConfirmRemoveNote(stdout io.Reader, stdin io.WriteCloser) error {
 // ConfirmRemoveBook waits for prompt for deleting a book confirms.
 func ConfirmRemoveBook(stdout io.Reader, stdin io.WriteCloser) error {
 	return assert.RespondToPrompt(stdout, stdin, PromptDeleteBook, "y\n", promptTimeout)
-}
-
-// UserConfirmEmptyServerSync waits for an empty server prompt and confirms.
-func UserConfirmEmptyServerSync(stdout io.Reader, stdin io.WriteCloser) error {
-	return assert.RespondToPrompt(stdout, stdin, PromptEmptyServer, "y\n", promptTimeout)
-}
-
-// UserCancelEmptyServerSync waits for an empty server prompt and cancels.
-func UserCancelEmptyServerSync(stdout io.Reader, stdin io.WriteCloser) error {
-	return assert.RespondToPrompt(stdout, stdin, PromptEmptyServer, "n\n", promptTimeout)
 }
 
 // UserContent simulates content from the user by writing to stdin.

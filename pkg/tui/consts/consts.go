@@ -22,18 +22,8 @@ var (
 
 	// SystemSchema is the key for schema in the system table
 	SystemSchema = "schema"
-	// SystemRemoteSchema is the key for remote schema in the system table
-	SystemRemoteSchema = "remote_schema"
-	// SystemLastSyncAt is the timestamp of the server at the last sync
-	SystemLastSyncAt = "last_sync_time"
-	// SystemLastMaxUSN is the user's max_usn from the server at the alst sync
-	SystemLastMaxUSN = "last_max_usn"
 	// SystemLastUpgrade is the timestamp at which the system more recently checked for an upgrade
 	SystemLastUpgrade = "last_upgrade"
-	// SystemSessionKey is the session key
-	SystemSessionKey = "session_token"
-	// SystemSessionKeyExpiry is the timestamp at which the session key will expire
-	SystemSessionKeyExpiry = "session_token_expiry"
 	// SystemColabAuth holds the Google OAuth token (JSON) for the Colab compute
 	// runtime, written by `lflow auth colab`.
 	SystemColabAuth = "colab_auth"

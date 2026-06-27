@@ -20,7 +20,7 @@ import (
 func initTestDBNoMigration(t *testing.T) *database.DB {
 	db := database.InitTestMemoryDBRaw(t, "")
 	// Remove migration versions from schema.sql so tests can set their own
-	database.MustExec(t, "clearing schema versions", db, "DELETE FROM system WHERE key IN (?, ?)", consts.SystemSchema, consts.SystemRemoteSchema)
+	database.MustExec(t, "clearing schema versions", db, "DELETE FROM system WHERE key = ?", consts.SystemSchema)
 	return db
 }
 
@@ -30,9 +30,6 @@ func TestExecute_bump_schema(t *testing.T) {
 	}{
 		{
 			schemaKey: consts.SystemSchema,
-		},
-		{
-			schemaKey: consts.SystemRemoteSchema,
 		},
 	}
 
@@ -77,16 +74,10 @@ func TestExecute_bump_schema(t *testing.T) {
 
 func TestRun_nonfresh(t *testing.T) {
 	testCases := []struct {
-		mode      int
 		schemaKey string
 	}{
 		{
-			mode:      LocalMode,
 			schemaKey: consts.SystemSchema,
-		},
-		{
-			mode:      RemoteMode,
-			schemaKey: consts.SystemRemoteSchema,
 		},
 	}
 
@@ -131,7 +122,7 @@ func TestRun_nonfresh(t *testing.T) {
 			}
 
 			// execute
-			err := Run(ctx, sequence, tc.mode)
+			err := Run(ctx, sequence)
 			if err != nil {
 				t.Fatal(errors.Wrap(err, "failed to run"))
 			}
@@ -154,16 +145,10 @@ func TestRun_nonfresh(t *testing.T) {
 
 func TestRun_fresh(t *testing.T) {
 	testCases := []struct {
-		mode      int
 		schemaKey string
 	}{
 		{
-			mode:      LocalMode,
 			schemaKey: consts.SystemSchema,
-		},
-		{
-			mode:      RemoteMode,
-			schemaKey: consts.SystemRemoteSchema,
 		},
 	}
 
@@ -201,7 +186,7 @@ func TestRun_fresh(t *testing.T) {
 			}
 
 			// execute
-			err := Run(ctx, sequence, tc.mode)
+			err := Run(ctx, sequence)
 			if err != nil {
 				t.Fatal(errors.Wrap(err, "failed to run"))
 			}
@@ -225,16 +210,10 @@ func TestRun_fresh(t *testing.T) {
 
 func TestRun_up_to_date(t *testing.T) {
 	testCases := []struct {
-		mode      int
 		schemaKey string
 	}{
 		{
-			mode:      LocalMode,
 			schemaKey: consts.SystemSchema,
-		},
-		{
-			mode:      RemoteMode,
-			schemaKey: consts.SystemRemoteSchema,
 		},
 	}
 
@@ -274,7 +253,7 @@ func TestRun_up_to_date(t *testing.T) {
 			}
 
 			// execute
-			err := Run(ctx, sequence, tc.mode)
+			err := Run(ctx, sequence)
 			if err != nil {
 				t.Fatal(errors.Wrap(err, "failed to run"))
 			}
@@ -1000,7 +979,8 @@ func TestLocalMigration11(t *testing.T) {
 }
 
 func TestLocalMigration12(t *testing.T) {
-	// set up
+	// lm12 is now a no-op (the apiEndpoint config field was removed with sync);
+	// it must run cleanly and leave the existing config untouched.
 	db := database.InitTestMemoryDBRaw(t, "./fixtures/local-12-pre-schema.sql")
 	ctx := context.InitTestCtxWithDB(t, db)
 
@@ -1018,7 +998,7 @@ func TestLocalMigration12(t *testing.T) {
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "reading settings"))
 	}
-	assert.NotEqual(t, cf.APIEndpoint, "", "apiEndpoint was not populated")
+	assert.Equal(t, cf.Editor, "vim", "editor mismatch")
 }
 
 func TestLocalMigration13(t *testing.T) {
@@ -1026,7 +1006,7 @@ func TestLocalMigration13(t *testing.T) {
 	db := database.InitTestMemoryDBRaw(t, "./fixtures/local-12-pre-schema.sql")
 	ctx := context.InitTestCtxWithDB(t, db)
 
-	if err := config.Write(ctx, config.Config{Editor: "vim", APIEndpoint: "https://test.com/api"}); err != nil {
+	if err := config.Write(ctx, config.Config{Editor: "vim"}); err != nil {
 		t.Fatal(errors.Wrap(err, "writing settings"))
 	}
 
@@ -1041,7 +1021,6 @@ func TestLocalMigration13(t *testing.T) {
 		t.Fatal(errors.Wrap(err, "reading settings"))
 	}
 	assert.Equal(t, cf.Editor, "vim", "editor mismatch")
-	assert.Equal(t, cf.APIEndpoint, "https://test.com/api", "apiEndpoint mismatch")
 	assert.Equal(t, cf.EnableUpgradeCheck, true, "enableUpgradeCheck mismatch")
 }
 
@@ -1092,20 +1071,3 @@ func TestLocalMigration14(t *testing.T) {
 	}
 }
 
-func TestRemoteMigration1(t *testing.T) {
-	// rm1 is a no-op since the node model replaced books/notes.
-	db := database.InitTestMemoryDB(t)
-	ctx := context.InitTestCtxWithDB(t, db)
-
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "beginning a transaction"))
-	}
-
-	if err := rm1.run(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(errors.Wrap(err, "failed to run"))
-	}
-
-	tx.Commit()
-}

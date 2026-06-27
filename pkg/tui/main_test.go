@@ -73,17 +73,11 @@ func TestInit(t *testing.T) {
 	assert.Equal(t, booksTableCount, 0, "books table should have been dropped")
 	assert.Equal(t, systemTableCount, 1, "system table count mismatch")
 
-	var lastUpgrade, lastMaxUSN, lastSyncAt string
+	var lastUpgrade string
 	database.MustScan(t, "scanning last upgrade",
 		db.QueryRow("SELECT value FROM system WHERE key = ?", consts.SystemLastUpgrade), &lastUpgrade)
-	database.MustScan(t, "scanning last max usn",
-		db.QueryRow("SELECT value FROM system WHERE key = ?", consts.SystemLastMaxUSN), &lastMaxUSN)
-	database.MustScan(t, "scanning last sync at",
-		db.QueryRow("SELECT value FROM system WHERE key = ?", consts.SystemLastSyncAt), &lastSyncAt)
 
 	assert.NotEqual(t, lastUpgrade, "", "last upgrade should not be empty")
-	assert.NotEqual(t, lastMaxUSN, "", "last max usn should not be empty")
-	assert.NotEqual(t, lastSyncAt, "", "last sync at should not be empty")
 }
 
 func TestAddRootAndChild(t *testing.T) {
@@ -315,7 +309,7 @@ func TestDBPathConfig(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatal(errors.Wrap(err, "creating config dir"))
 	}
-	configBody := fmt.Sprintf("{\n  \"editor\": \"vi\",\n  \"apiEndpoint\": \"http://localhost:3001/api\",\n  \"dbPath\": %q\n}\n", customDBPath)
+	configBody := fmt.Sprintf("{\n  \"editor\": \"vi\",\n  \"dbPath\": %q\n}\n", customDBPath)
 	if err := os.WriteFile(fmt.Sprintf("%s/%s", configDir, consts.SettingsFilename), []byte(configBody), 0644); err != nil {
 		t.Fatal(errors.Wrap(err, "writing settings"))
 	}

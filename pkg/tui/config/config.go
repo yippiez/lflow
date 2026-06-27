@@ -13,7 +13,6 @@ import (
 // Config holds lflow configuration, stored as JSON at ~/.lflow/settings.json.
 type Config struct {
 	Editor             string `json:"editor"`
-	APIEndpoint        string `json:"apiEndpoint"`
 	EnableUpgradeCheck bool   `json:"enableUpgradeCheck"`
 	// DBPath relocates the SQLite database. The settings file is the only
 	// place to set it; there is no flag.

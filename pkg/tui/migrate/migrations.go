@@ -515,21 +515,9 @@ var lm11 = migration{
 var lm12 = migration{
 	name: "add apiEndpoint to the configuration file",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {
-		cf, err := config.Read(ctx)
-		if err != nil {
-			return errors.Wrap(err, "reading config")
-		}
-
-		// Only set if not already configured
-		if cf.APIEndpoint == "" {
-			cf.APIEndpoint = "https://api.lflow.app"
-		}
-
-		err = config.Write(ctx, cf)
-		if err != nil {
-			return errors.Wrap(err, "writing config")
-		}
-
+		// Obsolete: lflow no longer syncs, so the config has no apiEndpoint.
+		// Kept as a no-op to preserve the schema version sequence of
+		// already-migrated databases.
 		return nil
 	},
 }
@@ -838,16 +826,6 @@ var lm24 = migration{
 		);`); err != nil {
 			return errors.Wrap(err, "creating chips table")
 		}
-		return nil
-	},
-}
-
-var rm1 = migration{
-	name: "sync-book-uuids-from-server",
-	run: func(ctx context.DnoteCtx, tx *database.DB) error {
-		// Obsolete: this migration synchronized dnote book uuids by label.
-		// The node model has no books; kept as a no-op to preserve the
-		// remote_schema version sequence of already-migrated databases.
 		return nil
 	},
 }

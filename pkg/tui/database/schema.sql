@@ -47,4 +47,3 @@ CREATE TABLE chips (
 
 -- Migration version data.
 INSERT INTO system (key, value) VALUES ('schema', 24);
-INSERT INTO system (key, value) VALUES ('remote_schema', 1);
