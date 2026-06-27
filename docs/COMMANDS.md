@@ -8,7 +8,6 @@ you typed is a reference you meant.
 ```
 lflow node open|list|add|move|remove|edit
 lflow export                      dump the whole forest
-lflow server login|logout|sync    self-hosted lflow-server
 lflow version
 ```
 
@@ -98,7 +97,7 @@ Moving a node into itself or into its own subtree is rejected.
 lflow node remove <node>
 ```
 
-Delete a node and its subtree. The delete is tombstoned, so it is pushed on sync.
+Delete a node and its subtree. The delete is tombstoned.
 
 | Flag | Default | Description |
 | --- | --- | --- |
@@ -137,46 +136,6 @@ Export the whole local forest, completed nodes included, to stdout.
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--format` | `json` | output format: `json` or `md` |
-
-## lflow server
-
-The self-hosted `lflow-server` commands.
-
-### lflow server login
-
-```
-lflow server login
-```
-
-Log in to the lflow server. Prompts for email and password if not provided.
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `-u`, `--username <email>` | "" | email address for authentication |
-| `-p`, `--password <pw>` | "" | password for authentication |
-| `--apiEndpoint <url>` | "" | API endpoint to connect to, defaults to the config value |
-
-### lflow server logout
-
-```
-lflow server logout
-```
-
-Log out from the server.
-
-### lflow server sync
-
-```
-lflow server sync
-```
-
-Sync nodes with the lflow server, requires `lflow server login`.
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `-f`, `--full` | false | perform a full sync instead of an incremental one |
-| `--dry-run` | false | show what would be synced without making changes |
-| `--apiEndpoint <url>` | "" | API endpoint to connect to, defaults to the config value |
 
 ## lflow version
 
