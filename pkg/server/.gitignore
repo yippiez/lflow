@@ -1,9 +1,0 @@
-main
-*.swo
-tmp/
-/vendor
-test-dnote
-/dist
-/build
-server
-/static

@@ -1,7 +1,0 @@
-# Ignore CSS and JS files in static directory because
-# those files are built from the sources
-
-/static/*.css
-/static/*.css.map
-/static/*.js
-/static/*.js.map
