@@ -13,8 +13,6 @@ import (
 	"github.com/lflow/lflow/pkg/tui/cmd/export"
 	"github.com/lflow/lflow/pkg/tui/cmd/node"
 	"github.com/lflow/lflow/pkg/tui/cmd/root"
-	"github.com/lflow/lflow/pkg/tui/cmd/serve"
-	"github.com/lflow/lflow/pkg/tui/cmd/server"
 	"github.com/lflow/lflow/pkg/tui/cmd/version"
 )
 
@@ -34,8 +32,6 @@ func main() {
 	root.Register(node.NewCmd(*ctx))
 	root.Register(auth.NewCmd(*ctx))
 	root.Register(export.NewCmd(*ctx))
-	root.Register(server.NewCmd(*ctx))
-	root.Register(serve.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
 
 	if err := root.Execute(); err != nil {
