@@ -866,3 +866,16 @@ var lm26 = migration{
 		return nil
 	},
 }
+
+// lm27 adds the chips.label column. Path/date/tag chips leave it empty — their
+// display derives from the value. A link chip uses it for the arbitrary display
+// name, with the value holding the target (a URL or lflow://node/<uuid>).
+var lm27 = migration{
+	name: "add-chip-label",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec("ALTER TABLE chips ADD COLUMN label text NOT NULL DEFAULT ''"); err != nil {
+			return errors.Wrap(err, "adding chips.label")
+		}
+		return nil
+	},
+}

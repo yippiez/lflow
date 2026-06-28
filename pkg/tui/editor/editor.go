@@ -2440,6 +2440,11 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 			m.err = err
 		} else {
 			m.saved.written += written
+			// drop chip rows no surviving node references (anchors deleted by
+			// edits, or nodes tombstoned this session)
+			if m.ctx.DB != nil {
+				_ = database.GCChips(m.ctx.DB)
+			}
 		}
 	}
 	m.quitting = true

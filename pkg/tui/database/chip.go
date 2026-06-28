@@ -31,15 +31,31 @@ func ChipDisplay(c Chip) string {
 		return "›" + base
 	case "tag":
 		return "#" + c.Value
+	case "link":
+		return linkLabel(c)
 	default:
 		return c.Value
 	}
 }
 
-// ChipExpand is a chip's full underlying value (e.g. the absolute path).
+// ChipExpand is a chip's full underlying value (e.g. the absolute path). A link
+// expands to a markdown-style "[name](target)" so both halves survive export.
 func ChipExpand(c Chip) string {
-	if c.Kind == "tag" {
+	switch c.Kind {
+	case "tag":
 		return "#" + c.Value
+	case "link":
+		return "[" + linkLabel(c) + "](" + c.Value + ")"
+	default:
+		return c.Value
+	}
+}
+
+// linkLabel is a link chip's display name, falling back to the target when the
+// name is empty so a link is never blank.
+func linkLabel(c Chip) string {
+	if c.Label != "" {
+		return c.Label
 	}
 	return c.Value
 }
@@ -96,13 +112,14 @@ func ExpandAnchors(name string, chips map[string]Chip) string {
 // for now — a path chip's value is a machine-specific absolute path.
 type Chip struct {
 	ID    string `json:"id"`
-	Kind  string `json:"kind"`  // path, date, tag, …
-	Value string `json:"value"` // the full underlying data (e.g. the absolute path)
+	Kind  string `json:"kind"`  // path, date, tag, link, …
+	Value string `json:"value"` // the full underlying data (e.g. the absolute path, or a link target)
+	Label string `json:"label"` // display name; used by link chips, empty for path/date/tag
 }
 
 // LoadChips returns every chip keyed by id.
 func LoadChips(db *DB) (map[string]Chip, error) {
-	rows, err := db.Query("SELECT id, kind, value FROM chips")
+	rows, err := db.Query("SELECT id, kind, value, label FROM chips")
 	if err != nil {
 		return nil, errors.Wrap(err, "loading chips")
 	}
@@ -110,7 +127,7 @@ func LoadChips(db *DB) (map[string]Chip, error) {
 	out := map[string]Chip{}
 	for rows.Next() {
 		var c Chip
-		if err := rows.Scan(&c.ID, &c.Kind, &c.Value); err != nil {
+		if err := rows.Scan(&c.ID, &c.Kind, &c.Value, &c.Label); err != nil {
 			return nil, errors.Wrap(err, "scanning chip")
 		}
 		out[c.ID] = c
@@ -121,15 +138,15 @@ func LoadChips(db *DB) (map[string]Chip, error) {
 // GetChip returns one chip by id.
 func GetChip(db *DB, id string) (Chip, error) {
 	var c Chip
-	err := db.QueryRow("SELECT id, kind, value FROM chips WHERE id = ?", id).Scan(&c.ID, &c.Kind, &c.Value)
+	err := db.QueryRow("SELECT id, kind, value, label FROM chips WHERE id = ?", id).Scan(&c.ID, &c.Kind, &c.Value, &c.Label)
 	return c, errors.Wrapf(err, "getting chip %s", id)
 }
 
 // UpsertChip inserts or overwrites a chip.
 func UpsertChip(db *DB, c Chip) error {
 	_, err := db.Exec(
-		"INSERT INTO chips (id, kind, value) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, value = excluded.value",
-		c.ID, c.Kind, c.Value)
+		"INSERT INTO chips (id, kind, value, label) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, value = excluded.value, label = excluded.label",
+		c.ID, c.Kind, c.Value, c.Label)
 	return errors.Wrapf(err, "upserting chip %s", c.ID)
 }
 

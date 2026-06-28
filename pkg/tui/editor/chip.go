@@ -109,6 +109,7 @@ const (
 	chipKindPath = "path"
 	chipKindTag  = "tag"
 	chipKindDate = "date"
+	chipKindLink = "link"
 )
 
 var chipKinds = map[string]chipKind{
@@ -139,6 +140,15 @@ var chipKinds = map[string]chipKind{
 		display: func(v string) string { return v },
 		expand:  func(v string) string { return v },
 	},
+	// link chips carry a name (label) and a target (value: a URL or
+	// lflow://node/<uuid>). display/expand below are fallbacks on value only —
+	// chipDisplay/chipExpand special-case links to use the label.
+	chipKindLink: {
+		key:     chipKindLink,
+		color:   cAccent + cUnderline,
+		display: func(v string) string { return "→" + v },
+		expand:  func(v string) string { return v },
+	},
 }
 
 func chipKindOf(kind string) (chipKind, bool) {
@@ -146,18 +156,35 @@ func chipKindOf(kind string) (chipKind, bool) {
 	return k, ok
 }
 
-// chipDisplay returns the compact display string for a chip record.
+// chipDisplay returns the compact display string for a chip record. A link uses
+// its label (the arbitrary name), not its target.
 func chipDisplay(c database.Chip) string {
+	if c.Kind == chipKindLink {
+		return "→" + linkChipLabel(c)
+	}
 	if k, ok := chipKindOf(c.Kind); ok && k.display != nil {
 		return k.display(c.Value)
 	}
 	return c.Value
 }
 
-// chipExpand returns the full underlying value for a chip record.
+// chipExpand returns the full underlying value for a chip record. A link expands
+// to "[name](target)" so both halves survive bash/script/export surfaces.
 func chipExpand(c database.Chip) string {
+	if c.Kind == chipKindLink {
+		return "[" + linkChipLabel(c) + "](" + c.Value + ")"
+	}
 	if k, ok := chipKindOf(c.Kind); ok && k.expand != nil {
 		return k.expand(c.Value)
+	}
+	return c.Value
+}
+
+// linkChipLabel is a link's display name, falling back to its target so a link
+// is never blank.
+func linkChipLabel(c database.Chip) string {
+	if c.Label != "" {
+		return c.Label
 	}
 	return c.Value
 }
@@ -273,11 +300,17 @@ func (m *Model) backfillName(it *item) int {
 // splice into a node name. The record is written through to the DB at once so it
 // survives even before the node is saved (the anchor in the name pins it).
 func (m *Model) createChip(kind, value string) string {
+	return m.createLabeledChip(kind, value, "")
+}
+
+// createLabeledChip is createChip with an explicit display label — used by link
+// chips, whose name is separate from their target value.
+func (m *Model) createLabeledChip(kind, value, label string) string {
 	id, err := utils.GenerateUUID()
 	if err != nil {
 		return ""
 	}
-	c := database.Chip{ID: id, Kind: kind, Value: value}
+	c := database.Chip{ID: id, Kind: kind, Value: value, Label: label}
 	if m.chips == nil {
 		m.chips = map[string]database.Chip{}
 	}
