@@ -134,6 +134,53 @@ func TestLinkCreateURLViaBrackets(t *testing.T) {
 	}
 }
 
+// TestLinkFollowNodeJumps: alt+g on a node-link chip jumps the editor to the target.
+func TestLinkFollowNodeJumps(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "here", Name: "from", Rank: 0},
+		database.Node{UUID: "dest", Name: "Destination", Rank: 1},
+	)
+	cursorOn(m, "here")
+	m.caret = 0
+	m.insertLinkChip(nodeLinkURI("dest"), "Destination") // caret lands at chip end
+
+	if _, ok := m.linkChipAtCaret(m.cursorItem()); !ok {
+		t.Fatal("link chip not detected at caret")
+	}
+	m.feed(altRune('g'))
+
+	if m.tree.root.uuid != "dest" {
+		t.Fatalf("alt+g did not jump: tree root = %q, want dest", m.tree.root.uuid)
+	}
+}
+
+// TestLinkFollowMissingTarget: a node link to a gone node flashes, does not jump.
+func TestLinkFollowMissingTarget(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "here", Name: "from"})
+	cursorOn(m, "here")
+	m.caret = 0
+	m.insertLinkChip(nodeLinkURI("ghost"), "Ghost")
+
+	m.feed(altRune('g'))
+	if m.tree.root.uuid != database.RootUUID {
+		t.Fatalf("jumped to a missing target: root = %q", m.tree.root.uuid)
+	}
+	if m.flash != "link target missing" {
+		t.Errorf("flash = %q, want link target missing", m.flash)
+	}
+}
+
+// TestNodeLinkURIRoundTrip is a small unit guard on the target encoding.
+func TestNodeLinkURIRoundTrip(t *testing.T) {
+	uuid, ok := nodeLinkUUID(nodeLinkURI("abc-123"))
+	if !ok || uuid != "abc-123" {
+		t.Fatalf("round trip failed: %q %v", uuid, ok)
+	}
+	if _, ok := nodeLinkUUID("https://example.com"); ok {
+		t.Fatal("a URL must not parse as a node link")
+	}
+}
+
 // TestLinkExpandForExport guards the machine-readable form used by export/grep.
 func TestLinkExpandForExport(t *testing.T) {
 	c := database.Chip{Kind: chipKindLink, Value: "https://x.com", Label: "X"}

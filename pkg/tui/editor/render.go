@@ -995,17 +995,32 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		// atomic. The caret only ever sits at its boundaries (see snapCaret).
 		if sp := spanStartingAt(chipsp, i); sp != nil {
 			col := cCyan
+			osc8 := "" // URL link target for an OSC 8 hyperlink, "" = none
 			if c, ok := chips[sp.id]; ok {
 				if k, ok := chipKindOf(c.Kind); ok {
 					col = k.color
 				}
+				// a URL link chip emits an OSC 8 hyperlink so terminals that support
+				// it make the chip Ctrl+clickable. Node links can't — the terminal
+				// can't jump inside the app — so they get no OSC 8.
+				if c.Kind == chipKindLink {
+					if _, isNode := nodeLinkUUID(c.Value); !isNode {
+						osc8 = c.Value
+					}
+				}
 			}
 			b.WriteString(cReset + col)
+			if osc8 != "" {
+				b.WriteString("\x1b]8;;" + osc8 + "\x1b\\")
+			}
 			if caret == sp.start {
 				b.WriteString(cInvert) // cursor sits on the whole chip
 			}
 			b.WriteString(dispByID(sp.id, chips))
 			b.WriteString(cReset)
+			if osc8 != "" {
+				b.WriteString("\x1b]8;;\x1b\\")
+			}
 			cur = ""
 			i = sp.end
 			continue

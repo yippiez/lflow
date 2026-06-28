@@ -969,7 +969,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+g":
-		// alt+g opens the /goto finder to jump to any node
+		// on a link chip, alt+g follows it (a node jumps, a URL opens in the
+		// browser); off a chip it opens the /goto finder to jump to any node
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.linkChipAtCaret(cur); ok {
+				return m.followLink(c)
+			}
+		}
 		if !m.tempActive {
 			m.openFinder(actGoto)
 		}
