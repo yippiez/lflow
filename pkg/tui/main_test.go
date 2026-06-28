@@ -137,18 +137,58 @@ func TestAppendStdin(t *testing.T) {
 	assert.Equal(t, childCount, 3, "each stdin line should become a child node")
 }
 
-func TestAppendNoteFlag(t *testing.T) {
+func TestAddNoteFlag(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "target")
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "target", "some context", "--note")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "target", "child item", "--note", "some context")
 
 	db := database.OpenTestDB(t, testDir)
 
-	var note string
-	database.MustScan(t, "getting note",
-		db.QueryRow("SELECT note FROM nodes WHERE name = ?", "target"), &note)
-	assert.Equal(t, note, "some context", "note content mismatch")
+	// --note sets the note on the added node, leaving the parent untouched
+	var parentNote string
+	database.MustScan(t, "getting parent note",
+		db.QueryRow("SELECT note FROM nodes WHERE name = ?", "target"), &parentNote)
+	assert.Equal(t, parentNote, "", "parent note should be untouched")
+
+	var childNote string
+	database.MustScan(t, "getting child note",
+		db.QueryRow("SELECT note FROM nodes WHERE name = ?", "child item"), &childNote)
+	assert.Equal(t, childNote, "some context", "note should land on the added node")
+}
+
+func TestAddStyleFlags(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "styled item", "--bold", "--color", "blue")
+
+	db := database.OpenTestDB(t, testDir)
+
+	var style string
+	database.MustScan(t, "getting style",
+		db.QueryRow("SELECT style FROM nodes WHERE name = ?", "styled item"), &style)
+	assert.Equal(t, style, "bold,color:blue", "style tokens mismatch")
+}
+
+func TestEditStyleAndType(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "edit me")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "edit me", "--type", "h2", "--underline", "--color", "red")
+
+	db := database.OpenTestDB(t, testDir)
+
+	var typ, style string
+	database.MustScan(t, "getting type and style",
+		db.QueryRow("SELECT type, style FROM nodes WHERE name = ?", "edit me"), &typ, &style)
+	assert.Equal(t, typ, "h2", "type mismatch")
+	assert.Equal(t, style, "underline,color:red", "style tokens mismatch")
+
+	// editing again preserves untouched style aspects and unsets bold/color via flags
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "edit me", "--color", "")
+	database.MustScan(t, "getting style after color clear",
+		db.QueryRow("SELECT style FROM nodes WHERE name = ?", "edit me"), &style)
+	assert.Equal(t, style, "underline", "clearing color should preserve other tokens")
 }
 
 func TestList(t *testing.T) {
