@@ -15,6 +15,7 @@ import (
 
 	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/pkg/browser"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/mattn/go-runewidth"
@@ -42,6 +43,7 @@ const (
 	actMoveTo
 	actGoto
 	actBringHere
+	actLinkInsert // [[ — insert an inline link chip at the caret (node or URL)
 )
 
 type slashCommand struct {
@@ -55,6 +57,7 @@ var slashCommands = []slashCommand{
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
 	{"/goto", "Jump the editor to another node"},
+	{"/link", "Insert an inline link to a node or URL ([[)"},
 	{"/lock", "Lock or unlock this node (read-only)"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/move", "Move this node under another node"},
@@ -1243,6 +1246,20 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openFilePicker(cur)
 		}
 
+		// "[[" opens the link picker: the second "[" drops the first and opens the
+		// finder where you pick a node or type/paste a URL. Same type guard as the
+		// path chip ("[" stays literal in code/bash/query/quote/json).
+		if string(k.Runes) == "[" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			pathChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
+			runes := []rune(cur.name)
+			m.boundCaret(len(runes))
+			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			m.caret--
+			m.unsaved = true
+			m.openFinder(actLinkInsert)
+			return m, nil
+		}
+
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command
 		// completer in a query node. Both stay literal mid-word so "C#"/"a:b" type
 		// normally; tags skip bash/code where "#" is a comment.
@@ -2050,6 +2067,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.openFinder(actBringHere)
 	case "/mirror":
 		m.openFinder(actMirrorHere)
+	case "/link":
+		// splice an inline link chip at the caret (same as the [[ trigger)
+		m.openFinder(actLinkInsert)
 	case "/move":
 		m.openFinder(actMoveTo)
 	case "/goto":
@@ -2200,6 +2220,11 @@ func (m *Model) handleFinderKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter":
+		// [[ accepts a URL typed/pasted straight into the query — link to the
+		// website instead of a node
+		if m.finderAct == actLinkInsert && browser.IsURL(m.finderQuery) {
+			return m.insertURLLink(m.finderQuery)
+		}
 		if m.finderSel < len(m.finderHits) {
 			return m.runFinder(m.finderHits[m.finderSel])
 		}
@@ -2277,6 +2302,12 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.caret = 0
 		m.unsaved = false
+	case actLinkInsert:
+		// insert an inline link chip pointing at the picked node (the original,
+		// never a mirror), its name defaulting to the node's name
+		dst := m.resolveSourceNode(target)
+		m.insertLinkChip(nodeLinkURI(dst.UUID), dst.Name)
+		m.flash = "linked → " + clipStr(dst.Name, 24)
 	case actBringHere:
 		// move the picked node (and its subtree) to the cursor location.
 		m.pushUndo("")
@@ -3025,16 +3056,23 @@ func (m *Model) viewFinder(maxLine int) []string {
 		actMoveTo:     "/move",
 		actGoto:       "/goto",
 		actBringHere:  "/bring",
+		actLinkInsert: "[[ link",
 	}
 	hints := map[finderAction]string{
 		actMirrorHere: "Enter mirror at cursor",
 		actMoveTo:     "Enter move this node there",
 		actGoto:       "Enter open node",
 		actBringHere:  "Enter bring this node here",
+		actLinkInsert: "Enter link to node, or type a URL",
 	}
 
 	query := cDim + " " + labels[m.finderAct] + " " + cFG + withCaret(m.finderQuery, len([]rune(m.finderQuery))) + cReset
 	lines = append(lines, clip(query, maxLine))
+
+	// [[ doubles as a URL field: when the query is a URL, Enter links to the site
+	if m.finderAct == actLinkInsert && browser.IsURL(m.finderQuery) {
+		lines = append(lines, clip(cAccent+" ↵ "+cReset+cDim+"link to "+cFG+browser.Normalize(m.finderQuery)+cReset, maxLine))
+	}
 
 	maxResults := m.height - 4
 	if maxResults < 3 {
