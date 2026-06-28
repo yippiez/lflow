@@ -15,7 +15,6 @@ import (
 
 	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/pkg/browser"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/mattn/go-runewidth"
@@ -42,7 +41,6 @@ const (
 	actMirrorHere finderAction = iota
 	actMoveTo
 	actGoto
-	actLinkTo
 	actBringHere
 )
 
@@ -57,7 +55,6 @@ var slashCommands = []slashCommand{
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
 	{"/goto", "Jump the editor to another node"},
-	{"/link", "Link this node to another node or a URL (→ target; alt+g follows)"},
 	{"/lock", "Lock or unlock this node (read-only)"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/move", "Move this node under another node"},
@@ -969,21 +966,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+g":
-		// follow this node's link (→ target): a URL opens in the browser, a node
-		// uuid reveals that node with the cursor on it. With no link to follow,
-		// alt+g opens the /goto finder instead.
-		if cur := m.cursorItem(); cur != nil && cur.linkTo != "" && !m.tempActive {
-			if browser.IsURL(cur.linkTo) {
-				if err := browser.Open(cur.linkTo); err != nil {
-					m.flash = "open failed: " + err.Error()
-				} else {
-					m.flash = "opened → " + clipStr(cur.linkTo, 32)
-				}
-				return m, nil
-			}
-			return m.revealNode(cur.linkTo)
-		}
-		// no link to follow: alt+g opens the /goto finder to jump to any node
+		// alt+g opens the /goto finder to jump to any node
 		if !m.tempActive {
 			m.openFinder(actGoto)
 		}
@@ -1557,45 +1540,6 @@ func (m *Model) nodeStore(uuid string) map[string]any {
 	return d
 }
 
-// revealNode opens the editor on a node's PARENT and puts the cursor on the node
-// itself (so you see it in context), used by the alt+g link jump. Falls back to a
-// flash if the target is gone.
-func (m *Model) revealNode(uuid string) (tea.Model, tea.Cmd) {
-	n, err := database.GetNode(m.db, uuid)
-	if err != nil {
-		m.flash = "link target missing"
-		return m, nil
-	}
-	root := n.ParentUUID
-	if root == "" {
-		root = database.RootUUID
-	}
-	if _, err := m.saveAll(); err != nil {
-		m.err = err
-		return m.quit()
-	}
-	t, err := loadTree(m.db, root)
-	if err != nil {
-		m.err = err
-		return m.quit()
-	}
-	m.tree = t
-	m.viewStack = []*item{t.root}
-	m.undoStack = nil
-	m.refreshAncestors()
-	m.caret = 0
-	m.unsaved = false
-	m.refreshRows()
-	if target, ok := t.byUUID[uuid]; ok {
-		m.cursor = m.rowIndexOf(target)
-	} else {
-		m.cursor = 0
-	}
-	m.clampCursor()
-	m.flash = "→ " + clipStr(n.Name, 24)
-	return m, nil
-}
-
 // ensureViewNonEmpty keeps the current section from going empty: if the view root
 // has no children left (e.g. the last node was deleted), insert a fresh empty one
 // so there is always a node to type into.
@@ -2106,9 +2050,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.openFinder(actBringHere)
 	case "/mirror":
 		m.openFinder(actMirrorHere)
-	case "/link":
-		// pick a node to link this one to (→ target, jump with alt+g)
-		m.openFinder(actLinkTo)
 	case "/move":
 		m.openFinder(actMoveTo)
 	case "/goto":
@@ -2259,11 +2200,6 @@ func (m *Model) handleFinderKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter":
-		// /link accepts a URL typed straight into the query — link to the website
-		// instead of a node (alt+g then opens it in the browser).
-		if m.finderAct == actLinkTo && browser.IsURL(m.finderQuery) {
-			return m.linkToURL(m.finderQuery)
-		}
 		if m.finderSel < len(m.finderHits) {
 			return m.runFinder(m.finderHits[m.finderSel])
 		}
@@ -2277,22 +2213,6 @@ func (m *Model) handleFinderKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.finderQuery += string(k.Runes)
 		m.refreshFinder()
 	}
-	return m, nil
-}
-
-// linkToURL points the current node's link at a website (stored in linkTo like a
-// node link, told apart by browser.IsURL). alt+g opens it in the browser.
-func (m *Model) linkToURL(raw string) (tea.Model, tea.Cmd) {
-	m.mode = modeOutline
-	cur := m.cursorItem()
-	if cur == nil {
-		return m, nil
-	}
-	url := browser.Normalize(raw)
-	m.pushUndo("")
-	cur.linkTo = url
-	m.unsaved = true
-	m.flash = "linked → " + clipStr(url, 32)
 	return m, nil
 }
 
@@ -2357,16 +2277,6 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.caret = 0
 		m.unsaved = false
-	case actLinkTo:
-		// link the current node to the picked target (a single → reference)
-		dst := m.resolveSourceNode(target) // link to the original, not a mirror
-		m.pushUndo("")
-		cur.linkTo = dst.UUID
-		if _, inTree := m.tree.byUUID[dst.UUID]; !inTree {
-			m.tree.externalNames[dst.UUID] = dst.Name
-		}
-		m.unsaved = true
-		m.flash = "linked → " + clipStr(dst.Name, 24)
 	case actBringHere:
 		// move the picked node (and its subtree) to the cursor location.
 		m.pushUndo("")
@@ -3109,25 +3019,17 @@ func (m *Model) viewFinder(maxLine int) []string {
 		actMirrorHere: "/mirror",
 		actMoveTo:     "/move",
 		actGoto:       "/goto",
-		actLinkTo:     "/link",
 		actBringHere:  "/bring",
 	}
 	hints := map[finderAction]string{
 		actMirrorHere: "Enter mirror at cursor",
 		actMoveTo:     "Enter move this node there",
 		actGoto:       "Enter open node",
-		actLinkTo:     "Enter link to this node",
 		actBringHere:  "Enter bring this node here",
 	}
 
 	query := cDim + " " + labels[m.finderAct] + " " + cFG + withCaret(m.finderQuery, len([]rune(m.finderQuery))) + cReset
 	lines = append(lines, clip(query, maxLine))
-
-	// /link doubles as a URL field: when the query is a URL, Enter links to the
-	// website instead of a node — surface that so the empty node list isn't confusing.
-	if m.finderAct == actLinkTo && browser.IsURL(m.finderQuery) {
-		lines = append(lines, clip(cAccent+" ↵ "+cReset+cDim+"link to "+cFG+browser.Normalize(m.finderQuery)+cReset, maxLine))
-	}
 
 	maxResults := m.height - 4
 	if maxResults < 3 {
