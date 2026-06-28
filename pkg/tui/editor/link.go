@@ -110,3 +110,92 @@ func (m *Model) insertURLLink(raw string) (tea.Model, tea.Cmd) {
 	m.refreshRows()
 	return m, nil
 }
+
+// ── alt+e link editor (modeLinkEdit) ───────────────────────────────────────
+
+// openLinkEdit enters the two-field editor for a link chip's name and target.
+func (m *Model) openLinkEdit(c database.Chip) {
+	m.mode = modeLinkEdit
+	m.linkEditID = c.ID
+	m.linkEditName = c.Label
+	m.linkEditTarget = c.Value
+	m.linkEditField = 0
+}
+
+// saveLinkEdit writes the edited name/target back to the chip store.
+func (m *Model) saveLinkEdit() {
+	c, ok := m.chips[m.linkEditID]
+	if !ok {
+		return
+	}
+	c.Label = m.linkEditName
+	c.Value = strings.TrimSpace(m.linkEditTarget)
+	// canonicalize a bare URL target ("www.x" → "https://www.x"); leave node links
+	// and already-schemed URLs alone
+	if _, isNode := nodeLinkUUID(c.Value); !isNode && browser.IsURL(c.Value) {
+		c.Value = browser.Normalize(c.Value)
+	}
+	m.chips[c.ID] = c
+	if m.ctx.DB != nil {
+		_ = database.UpsertChip(m.ctx.DB, c)
+	}
+	m.unsaved = true
+}
+
+func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "tab", "shift+tab", "up", "down":
+		m.linkEditField = 1 - m.linkEditField
+		return m, nil
+	case "enter":
+		m.saveLinkEdit()
+		m.mode = modeOutline
+		m.refreshRows()
+		return m, nil
+	case "backspace":
+		if m.linkEditField == 0 {
+			if r := []rune(m.linkEditName); len(r) > 0 {
+				m.linkEditName = string(r[:len(r)-1])
+			}
+		} else {
+			if r := []rune(m.linkEditTarget); len(r) > 0 {
+				m.linkEditTarget = string(r[:len(r)-1])
+			}
+		}
+		return m, nil
+	}
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && !k.Alt {
+		if m.linkEditField == 0 {
+			m.linkEditName += string(k.Runes)
+		} else {
+			m.linkEditTarget += string(k.Runes)
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) viewLinkEdit(maxLine int) []string {
+	name := m.linkEditName
+	target := m.linkEditTarget
+	nameLbl, targetLbl := cDim, cDim
+	if m.linkEditField == 0 {
+		name = withCaret(name, len([]rune(name)))
+		nameLbl = cAccent
+	} else {
+		target = withCaret(target, len([]rune(target)))
+		targetLbl = cAccent
+	}
+	var lines []string
+	lines = append(lines, clip(cDim+" edit link"+cReset, maxLine))
+	lines = append(lines, clip(nameLbl+" name   "+cReset+cFG+name+cReset, maxLine))
+	lines = append(lines, clip(targetLbl+" target "+cReset+cFG+target+cReset, maxLine))
+	lines = append(lines, "")
+	lines = append(lines, clip(cDim+" tab switch field · enter save · esc cancel"+cReset, maxLine))
+	return lines
+}

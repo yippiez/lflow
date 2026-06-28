@@ -170,6 +170,47 @@ func TestLinkFollowMissingTarget(t *testing.T) {
 	}
 }
 
+// TestLinkEditViaAltE: alt+e on a link chip opens the editor; saving writes the
+// new name and target back (normalizing a bare URL).
+func TestLinkEditViaAltE(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "here", Name: "x"})
+	cursorOn(m, "here")
+	m.caret = 0
+	m.insertLinkChip("https://old.com", "Old")
+
+	m.feed(altRune('e'))
+	if m.mode != modeLinkEdit {
+		t.Fatalf("alt+e did not open the link editor: mode=%v", m.mode)
+	}
+	if m.linkEditName != "Old" || m.linkEditTarget != "https://old.com" {
+		t.Fatalf("editor seeded wrong: name=%q target=%q", m.linkEditName, m.linkEditTarget)
+	}
+
+	// append "!" to the name, switch to target, retype a bare URL, save
+	m.feed(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
+	m.feed(tea.KeyMsg{Type: tea.KeyTab})
+	for range []rune(m.linkEditTarget) {
+		m.feed(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	m.feed(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("www.new.com")})
+	m.feed(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.mode != modeOutline {
+		t.Fatalf("enter did not close the editor: mode=%v", m.mode)
+	}
+	c, _ := linkChipOf(m)
+	if c.Label != "Old!" {
+		t.Errorf("name = %q, want Old!", c.Label)
+	}
+	if c.Value != "https://www.new.com" {
+		t.Errorf("target = %q, want https://www.new.com (normalized)", c.Value)
+	}
+	got, _ := database.GetChip(m.db, c.ID)
+	if got.Label != "Old!" || got.Value != "https://www.new.com" {
+		t.Errorf("edit not persisted: %+v", got)
+	}
+}
+
 // TestNodeLinkURIRoundTrip is a small unit guard on the target encoding.
 func TestNodeLinkURIRoundTrip(t *testing.T) {
 	uuid, ok := nodeLinkUUID(nodeLinkURI("abc-123"))

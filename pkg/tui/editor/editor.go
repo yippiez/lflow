@@ -34,6 +34,7 @@ const (
 	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
 	modeTheme    // the /theme picker: choose a color palette
 	modeComplete // the inline completer: "#" tags, ":" query commands
+	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
 )
 
 type finderAction int
@@ -130,6 +131,12 @@ type Model struct {
 	finderHits  []database.Node
 	finderAct   finderAction
 	notePrev    string // note backup for esc in note mode
+
+	// alt+e link-chip editor (modeLinkEdit)
+	linkEditID     string // chip id being edited
+	linkEditName   string // working copy of the link's display name
+	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
+	linkEditField  int    // 0 = name field, 1 = target field
 
 	// /type picker selection (index into the filtered list) and search query
 	typeSel   int
@@ -614,6 +621,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSlashKey(k)
 	case modeFinder:
 		return m.handleFinderKey(k)
+	case modeLinkEdit:
+		return m.handleLinkEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:
@@ -992,6 +1001,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.focused = true
 					m.focusScroll = 0
 				}
+			} else if c, ok := m.linkChipAtCaret(cur); ok {
+				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
+				return m, nil
 			} else if e := typeOf(cur.typ).expand; e != nil {
 				return m, e(m, cur)
 			} else if cmd := m.openPathChipCmd(cur); cmd != nil {
@@ -2511,6 +2523,8 @@ func (m *Model) View() string {
 
 	if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
+	} else if m.mode == modeLinkEdit {
+		lines = m.viewLinkEdit(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
