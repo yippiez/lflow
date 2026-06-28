@@ -19,6 +19,7 @@ var dim = color.New(color.FgHiBlack)
 
 type options struct {
 	all bool
+	typ string
 }
 
 // NewCmd returns the grep command.
@@ -26,13 +27,14 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
-		Use:   "grep <text>",
+		Use:   "grep [text]",
 		Short: "Search nodes by text and print their ids in a table",
 		RunE:  newRun(ctx, opts),
 	}
 
 	f := cmd.Flags()
 	f.BoolVar(&opts.all, "all", false, "include completed nodes")
+	f.StringVar(&opts.typ, "type", "", "only nodes of this type: "+database.TypeList())
 
 	return cmd
 }
@@ -48,18 +50,42 @@ func childCount(db *database.DB, uuid string) int {
 
 func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("missing search text")
-		}
 		query := strings.Join(args, " ")
 		db := ctx.DB
 
-		matches, err := database.SearchNodes(db, query, opts.all)
+		if opts.typ != "" && !database.ValidTypes[opts.typ] {
+			return errors.Errorf("unknown type %q: %s", opts.typ, database.TypeList())
+		}
+		if query == "" && opts.typ == "" {
+			return errors.New("missing search text (or pass --type to list a type)")
+		}
+
+		var matches []database.Node
+		var err error
+		if query == "" {
+			// --type with no text: list every live node of that type
+			matches, err = database.AllLiveNodes(db)
+		} else {
+			matches, err = database.SearchNodes(db, query, opts.all)
+		}
 		if err != nil {
 			return errors.Wrap(err, "searching nodes")
 		}
+		if opts.typ != "" {
+			filtered := matches[:0]
+			for _, n := range matches {
+				if n.Type == opts.typ {
+					filtered = append(filtered, n)
+				}
+			}
+			matches = filtered
+		}
 		if len(matches) == 0 {
-			fmt.Println(dim.Sprintf("→ no node matching %q", query))
+			if query == "" {
+				fmt.Println(dim.Sprintf("→ no %s node", opts.typ))
+			} else {
+				fmt.Println(dim.Sprintf("→ no node matching %q", query))
+			}
 			os.Exit(1)
 		}
 
