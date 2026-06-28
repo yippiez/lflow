@@ -19,7 +19,7 @@ CREATE TABLE nodes
 				added_on integer NOT NULL DEFAULT 0,
 				edited_on integer NOT NULL DEFAULT 0,
 				deleted bool NOT NULL DEFAULT false,
-				style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false, link_to text NOT NULL DEFAULT '', readonly bool NOT NULL DEFAULT false);
+				style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false, readonly bool NOT NULL DEFAULT false);
 CREATE INDEX idx_nodes_parent ON nodes(parent_uuid, rank);
 CREATE VIRTUAL TABLE node_fts USING fts5(content=nodes, name, note, tokenize="porter unicode61 categories 'L* N* Co Ps Pe'");
 CREATE TRIGGER nodes_after_insert AFTER INSERT ON nodes BEGIN
@@ -43,4 +43,4 @@ CREATE TABLE chips (
 		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 25);
+INSERT INTO system (key, value) VALUES ('schema', 26);

@@ -16,7 +16,6 @@ type item struct {
 	typ         string
 	style       string // comma-separated style tokens, e.g. "bold,color:blue"
 	mirrorOf    string
-	linkTo      string // single directed link to another node's uuid (→ / alt+g)
 	completedAt int64
 	children    []*item
 	parent      *item
@@ -35,7 +34,6 @@ type snapshot struct {
 	typ         string
 	style       string
 	mirrorOf    string
-	linkTo      string
 	completedAt int64
 	collapsed   bool
 	readonly    bool
@@ -68,7 +66,6 @@ func cloneItem(src, parent *item) *item {
 		typ:         src.typ,
 		style:       src.style,
 		mirrorOf:    src.mirrorOf,
-		linkTo:      src.linkTo,
 		completedAt: src.completedAt,
 		collapsed:   src.collapsed,
 		readonly:    src.readonly,
@@ -120,7 +117,6 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			typ:         n.Type,
 			style:       n.Style,
 			mirrorOf:    n.MirrorOf,
-			linkTo:      n.LinkTo,
 			completedAt: n.CompletedAt,
 			collapsed:   n.Collapsed,
 			readonly:    n.Readonly,
@@ -134,7 +130,6 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			typ:         n.Type,
 			style:       n.Style,
 			mirrorOf:    n.MirrorOf,
-			linkTo:      n.LinkTo,
 			completedAt: n.CompletedAt,
 			collapsed:   n.Collapsed,
 			readonly:    n.Readonly,
@@ -434,8 +429,8 @@ func (t *tree) duplicate(it *item) (*item, error) {
 }
 
 // cloneSubtree deep-copies an item subtree, handing out fresh uuids and marking
-// the copy as new so it persists on the next save. mirrorOf and linkTo are
-// preserved so duplicated mirrors/links keep resolving to their originals.
+// the copy as new so it persists on the next save. mirrorOf is preserved so
+// duplicated mirrors keep resolving to their originals.
 func (t *tree) cloneSubtree(src *item) (*item, error) {
 	uuid, err := utils.GenerateUUID()
 	if err != nil {
@@ -448,7 +443,6 @@ func (t *tree) cloneSubtree(src *item) (*item, error) {
 		typ:         src.typ,
 		style:       src.style,
 		mirrorOf:    src.mirrorOf,
-		linkTo:      src.linkTo,
 		completedAt: src.completedAt,
 		collapsed:   src.collapsed,
 		isNew:       true,
@@ -620,7 +614,7 @@ func (t *tree) changed(it *item) bool {
 		return true
 	}
 	return s.name != it.name || s.note != it.note || s.typ != it.typ ||
-		s.style != it.style || s.mirrorOf != it.mirrorOf || s.linkTo != it.linkTo ||
+		s.style != it.style || s.mirrorOf != it.mirrorOf ||
 		s.completedAt != it.completedAt || s.readonly != it.readonly
 }
 
@@ -656,7 +650,6 @@ func (t *tree) save() (int, error) {
 				Type:        it.typ,
 				Style:       it.style,
 				MirrorOf:    it.mirrorOf,
-				LinkTo:      it.linkTo,
 				CompletedAt: it.completedAt,
 				AddedOn:     now,
 				EditedOn:    now,
@@ -669,8 +662,8 @@ func (t *tree) save() (int, error) {
 			written++
 		} else if t.changed(it) || structChanged {
 			if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
-				style = ?, mirror_of = ?, link_to = ?, readonly = ?, completed_at = ?, edited_on = ? WHERE uuid = ?`,
-				parentUUID, rank, it.name, it.note, it.typ, it.style, it.mirrorOf, it.linkTo, it.readonly, it.completedAt, now, it.uuid); err != nil {
+				style = ?, mirror_of = ?, readonly = ?, completed_at = ?, edited_on = ? WHERE uuid = ?`,
+				parentUUID, rank, it.name, it.note, it.typ, it.style, it.mirrorOf, it.readonly, it.completedAt, now, it.uuid); err != nil {
 				return errors.Wrapf(err, "updating node %s", it.uuid)
 			}
 			written++
@@ -740,7 +733,6 @@ func (t *tree) refreshSnapshots() {
 			typ:         it.typ,
 			style:       it.style,
 			mirrorOf:    it.mirrorOf,
-			linkTo:      it.linkTo,
 			completedAt: it.completedAt,
 			collapsed:   it.collapsed,
 			readonly:    it.readonly,

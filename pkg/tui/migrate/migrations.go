@@ -853,3 +853,16 @@ var lm25 = migration{
 		return nil
 	},
 }
+
+// lm26 removes the node→node/URL link feature: the link_to column held a single
+// directed reference (rendered → target, followed with alt+g). The mirror
+// feature (mirror_of) is unrelated and stays.
+var lm26 = migration{
+	name: "drop-link-to",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec("ALTER TABLE nodes DROP COLUMN link_to"); err != nil {
+			return errors.Wrap(err, "dropping nodes.link_to")
+		}
+		return nil
+	},
+}
