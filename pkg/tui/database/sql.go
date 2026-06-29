@@ -102,9 +102,10 @@ func (d *DB) Close() error {
 }
 
 // Open initializes a new connection to the sqlite database.
-// A busy timeout is set because the editor's background mirror sync writes
-// from a separate goroutine; without it concurrent writers fail immediately
-// with SQLITE_BUSY instead of waiting.
+// A busy timeout is set because lflow's one-shot CLI commands can run
+// concurrently with an open inline editor, all sharing the single SQLite
+// file; without it a concurrent writer fails immediately with SQLITE_BUSY
+// instead of waiting.
 func Open(dbPath string) (*DB, error) {
 	dsn := dbPath
 	if strings.Contains(dsn, "?") {
