@@ -79,7 +79,7 @@ Your near-term list and what each demands the core *not yet have*:
   core primitive, plus `→` render. Today only `mirror_of` exists.
 - **Molecule (SMILES → 2D/3D), CAD (OpenSCAD, LLM-editable), drawings, images:**
   per-node **typed payload** (SMILES string, SCAD source, drawing/image data) and
-  an **expanded viewer that can launch on web/mobile**, not just inline Go. Today
+  an **expanded viewer that can launch out-of-process**, not just inline Go. Today
   `expand` is inline-only and there's nowhere to store the payload.
 - **Python / compute sessions, live/streaming nodes:** a shared **job/stream
   runtime** (spawn, stream, cancel, status, output) — exactly what
@@ -87,9 +87,10 @@ Your near-term list and what each demands the core *not yet have*:
 - **ultraloop/ultracode modifiers, skills on agents:** per-node **config/modifier
   data** layered on a base type — again needs typed per-node data + a way to
   compose behavior.
-- **Mobile app + server sync:** rich per-node data must have a **defined synced vs
-  ephemeral boundary** (SMILES/SCAD/drawing = synced; run output/viewer cache =
-  ephemeral). Today the boundary is implicit (whatever is/ isn't a column).
+- **Cross-device sync (deferred, to be re-added later):** rich per-node data must
+  have a **defined synced vs ephemeral boundary** (SMILES/SCAD/drawing = synced;
+  run output/viewer cache = ephemeral). Today the boundary is implicit (whatever
+  is/ isn't a column).
 
 Every one of these wants the same four missing capabilities: **typed per-node
 data**, **a registry-contributed view**, **a shared runtime**, and a **reference
@@ -126,9 +127,9 @@ maps into one runtime.*
 with `→ <target name>` render and `alt+g` jump, as a core feature usable by any
 node. Mirror stays "embed live subtree"; link stays "point at, jump to."
 
-**P5 — External/web viewer kind.** A view capability variant that opens a node's
-payload in a web/mobile viewer (for molecule/CAD/drawing), wired to the planned
-server/sync. Keeps the TUI thin; rich rendering happens where it can.
+**P5 — External viewer kind.** A view capability variant that opens a node's
+payload in an out-of-process viewer (for molecule/CAD/drawing). Keeps the TUI
+thin; rich rendering happens where it can.
 
 **P6 — Agent node, refit + UX.** Once P1–P3 exist, the worker becomes: a type with
 `run` (alt+r, never auto), a contributed `view` (observe+steer), and its state in
