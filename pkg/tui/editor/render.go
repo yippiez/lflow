@@ -1001,10 +1001,12 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				if caret == sp.start {
 					b.WriteString(cInvert + chipDisplay(c) + cReset) // cursor on the chip
 				} else {
-					b.WriteString(bgTerm + cDim + "$ " + cFG + c.Value + cReset)
+					// the whole chip sits on the terminal tint; "$" red, preview muted.
+					b.WriteString(bgTerm + cRed + "$ " + cFG + c.Value)
 					if c.Label != "" {
-						b.WriteString(cDim + " → " + c.Label + cReset)
+						b.WriteString(cDim + " → " + c.Label)
 					}
+					b.WriteString(cReset)
 				}
 				cur = ""
 				i = sp.end
