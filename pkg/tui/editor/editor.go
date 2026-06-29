@@ -2322,10 +2322,15 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		m.unsaved = false
 	case actLinkInsert:
 		// insert an inline link chip pointing at the picked node (the original,
-		// never a mirror), its name defaulting to the node's name
+		// never a mirror), its name defaulting to the node's name. Resolve the
+		// target's chip anchors to display text first: a node whose title carries
+		// a chip (e.g. a #tag) stores a raw "￼id￼" anchor in its name, and that
+		// must never become a link label — it leaks the chip id and corrupts the
+		// editor's anchor invariant (see createLabeledChip's sentinel guard).
 		dst := m.resolveSourceNode(target)
-		m.insertLinkChip(nodeLinkURI(dst.UUID), dst.Name)
-		m.flash = "linked → " + clipStr(dst.Name, 24)
+		label := displayAnchors(dst.Name, m.chips)
+		m.insertLinkChip(nodeLinkURI(dst.UUID), label)
+		m.flash = "linked → " + clipStr(label, 24)
 	case actBringHere:
 		// move the picked node (and its subtree) to the cursor location.
 		m.pushUndo("")

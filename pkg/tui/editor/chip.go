@@ -310,6 +310,11 @@ func (m *Model) createLabeledChip(kind, value, label string) string {
 	if err != nil {
 		return ""
 	}
+	// WARNING (invariant): a chip label is plain display text and must never hold
+	// a chip sentinel — an anchor inside a label corrupts anchorSpans (the sentinel
+	// reads as an anchor delimiter) and leaks the inner chip id. Callers resolve
+	// anchors first; this strip is the last-resort guard at the single chokepoint.
+	label = strings.ReplaceAll(label, string(chipSentinel), "")
 	c := database.Chip{ID: id, Kind: kind, Value: value, Label: label}
 	if m.chips == nil {
 		m.chips = map[string]database.Chip{}

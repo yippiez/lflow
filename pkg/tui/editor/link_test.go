@@ -105,6 +105,44 @@ func TestLinkCreateNodeViaBrackets(t *testing.T) {
 	}
 }
 
+// TestLinkToChippedNode: linking to a node whose title carries a chip (e.g. a
+// #tag) must resolve the target's anchor to display text. A raw "￼id￼" anchor
+// in the label leaked the inner chip id and corrupted the editor (froze the TUI),
+// so the label must be the resolved display text with no sentinel.
+func TestLinkToChippedNode(t *testing.T) {
+	m, db := dbModel(t,
+		database.Node{UUID: "edit", Name: "", Rank: 0},
+		database.Node{UUID: "tgt", Name: "FID " + chipAnchor("tag1"), Rank: 1},
+	)
+	tag := database.Chip{ID: "tag1", Kind: chipKindTag, Value: "zky"}
+	if err := database.UpsertChip(db, tag); err != nil {
+		t.Fatal(err)
+	}
+	m.chips["tag1"] = tag
+
+	cursorOn(m, "edit")
+	m.caret = 0
+	m.press("[")
+	m.press("[")
+	m.press("FID") // narrow the picker to the chipped target
+	m.press("enter")
+
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip created")
+	}
+	if strings.ContainsRune(c.Label, chipSentinel) {
+		t.Fatalf("link label leaks a chip sentinel: %q", c.Label)
+	}
+	if c.Label != "FID #zky" {
+		t.Errorf("link label = %q, want %q", c.Label, "FID #zky")
+	}
+	edit := m.tree.byUUID["edit"]
+	if got := displayAnchors(edit.name, m.chips); got != "→FID #zky" {
+		t.Errorf("rendered link = %q, want →FID #zky", got)
+	}
+}
+
 // TestLinkCreateURLViaBrackets: "[[" then a typed URL makes a URL link chip whose
 // name defaults to the host.
 func TestLinkCreateURLViaBrackets(t *testing.T) {
