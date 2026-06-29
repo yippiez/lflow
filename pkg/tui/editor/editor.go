@@ -3123,7 +3123,14 @@ func (m *Model) viewFinder(maxLine int) []string {
 			n, err := database.GetNode(m.db, uuid)
 			return n, err == nil
 		}), m.chips)
-		line := mark + cFG + fmt.Sprintf("%-28s", name) + cDim + fmt.Sprintf(" %d nodes", count) + cReset
+		// carry the node's own /color and /bold-/italic-/underline into the
+		// picker so a styled node reads the same here as in the outline
+		base := cFG
+		if c := styleBaseColor(h.Style); c != "" {
+			base = c
+		}
+		label := base + styleAttrs(h.Style) + fmt.Sprintf("%-28s", name) + cReset
+		line := mark + label + cDim + fmt.Sprintf(" %d nodes", count) + cReset
 		lines = append(lines, clip(line, maxLine))
 	}
 	if overflow > 0 {
