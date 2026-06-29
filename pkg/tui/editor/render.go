@@ -994,6 +994,22 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		// a chip anchor renders collapsed: the chip kind's color + compact display,
 		// atomic. The caret only ever sits at its boundaries (see snapCaret).
 		if sp := spanStartingAt(chipsp, i); sp != nil {
+			// a cmd chip renders like a bash node: "$ cmd" on the dark terminal
+			// tint (a code cell), and the run-output preview muted gray after the →.
+			if c, ok := chips[sp.id]; ok && c.Kind == chipKindCmd {
+				b.WriteString(cReset)
+				if caret == sp.start {
+					b.WriteString(cInvert + chipDisplay(c) + cReset) // cursor on the chip
+				} else {
+					b.WriteString(bgTerm + cDim + "$ " + cFG + c.Value + cReset)
+					if c.Label != "" {
+						b.WriteString(cDim + " → " + c.Label + cReset)
+					}
+				}
+				cur = ""
+				i = sp.end
+				continue
+			}
 			col := cCyan
 			osc8 := "" // URL link target for an OSC 8 hyperlink, "" = none
 			if c, ok := chips[sp.id]; ok {

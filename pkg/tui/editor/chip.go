@@ -156,7 +156,7 @@ var chipKinds = map[string]chipKind{
 	chipKindCmd: {
 		key:     chipKindCmd,
 		color:   cYellow,
-		display: func(v string) string { return "$" + v },
+		display: func(v string) string { return "$ " + v },
 		expand:  func(v string) string { return v },
 	},
 }
@@ -174,8 +174,9 @@ func chipDisplay(c database.Chip) string {
 	}
 	if c.Kind == chipKindCmd {
 		// the label holds the session-local run preview (set by setCmdPreview,
-		// never persisted); show "$cmd → preview" once it has run this session.
-		s := "$" + c.Value
+		// never persisted); show "$ cmd → preview" once it has run this session.
+		// "$ " mirrors the bash node's prompt — renderBody paints it as a code cell.
+		s := "$ " + c.Value
 		if c.Label != "" {
 			s += " → " + c.Label
 		}

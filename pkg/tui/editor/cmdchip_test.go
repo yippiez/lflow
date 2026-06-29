@@ -40,8 +40,8 @@ func TestCmdChipCreateViaDoubleSpace(t *testing.T) {
 	if !hasAnchor(edit.name) {
 		t.Fatalf("node has no chip anchor: %q", edit.name)
 	}
-	if got := displayAnchors(edit.name, m.chips); got != "$ls -la " {
-		t.Errorf("rendered = %q, want %q", got, "$ls -la ")
+	if got := displayAnchors(edit.name, m.chips); got != "$ ls -la " {
+		t.Errorf("rendered = %q, want %q", got, "$ ls -la ")
 	}
 }
 
@@ -63,8 +63,8 @@ func TestCmdChipMidSentence(t *testing.T) {
 	if c.Value != "echo hi" {
 		t.Errorf("cmd value = %q, want %q", c.Value, "echo hi")
 	}
-	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "run $echo hi " {
-		t.Errorf("rendered = %q, want %q", got, "run $echo hi ")
+	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "run $ echo hi " {
+		t.Errorf("rendered = %q, want %q", got, "run $ echo hi ")
 	}
 }
 
@@ -86,8 +86,8 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 	m.runOut = map[string][]outLine{c.ID: {{text: "file-a"}, {text: "file-b"}}}
 	m.setCmdPreview(c.ID)
 
-	if got := chipDisplay(m.chips[c.ID]); got != "$ls → file-a" {
-		t.Errorf("chip display = %q, want %q", got, "$ls → file-a")
+	if got := chipDisplay(m.chips[c.ID]); got != "$ ls → file-a" {
+		t.Errorf("chip display = %q, want %q", got, "$ ls → file-a")
 	}
 	// the persisted chip row must keep an empty label (output never persisted)
 	stored, err := database.GetChip(db, c.ID)
