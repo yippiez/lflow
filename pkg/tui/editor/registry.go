@@ -103,7 +103,7 @@ var nodeTypes = []nodeType{
 	},
 	{
 		key: database.TypeNapkin, label: "Napkin", glyph: napkinGlyph, inlineEditable: true,
-		view: napkinView{}, // alt+e: full-screen color drawing editor
+		expand: func(m *Model, it *item) tea.Cmd { return m.launchNapkin(it) }, // alt+e: browser drawing app
 	},
 }
 

@@ -518,6 +518,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
 		return m, nil
+	case napkinSavedMsg:
+		// the browser app returned: drop the cached thumbnail so the new PNG is
+		// picked up on the next render.
+		d := m.nodeStore(msg.uuid)
+		delete(d, "napkinThumb")
+		delete(d, "napkinThumbMod")
+		if msg.ok {
+			m.flash = "drawing saved"
+		} else {
+			m.flash = "drawing canceled"
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -2521,9 +2533,7 @@ func (m *Model) View() string {
 
 	var lines []string
 
-	if m.napkinFocused() {
-		lines = m.viewDraw(maxLine) // full-screen drawing editor (alt+e)
-	} else if m.mode == modeFinder {
+	if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)
