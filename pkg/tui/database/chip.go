@@ -33,6 +33,8 @@ func ChipDisplay(c Chip) string {
 		return "#" + c.Value
 	case "link":
 		return linkLabel(c)
+	case "cmd":
+		return "$" + c.Value
 	default:
 		return c.Value
 	}

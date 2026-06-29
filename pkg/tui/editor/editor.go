@@ -29,12 +29,13 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm // inline delete confirmation for nodes with children
-	modeType    // the /type picker: choose one of the node types
+	modeConfirm  // inline delete confirmation for nodes with children
+	modeType     // the /type picker: choose one of the node types
 	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
 	modeTheme    // the /theme picker: choose a color palette
 	modeComplete // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
+	modeCmdView  // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
 )
 
 type finderAction int
@@ -137,6 +138,9 @@ type Model struct {
 	linkEditName   string // working copy of the link's display name
 	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
 	linkEditField  int    // 0 = name field, 1 = target field
+
+	cmdViewID  string // cmd chip id whose output the alt+e viewer is showing
+	cmdViewCmd string // that chip's command, for the viewer header
 
 	// /type picker selection (index into the filtered list) and search query
 	typeSel   int
@@ -507,6 +511,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(m.runCancel, msg.uuid)
 		delete(m.runCh, msg.uuid)
 		m.persistRunOut(msg.uuid) // cache the finished band so it survives a restart
+		m.setCmdPreview(msg.uuid) // a cmd chip: refresh its inline "→ preview"
 		return m, nil
 	case fzfPickedMsg:
 		if msg.path != "" {
@@ -623,6 +628,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFinderKey(k)
 	case modeLinkEdit:
 		return m.handleLinkEditKey(k)
+	case modeCmdView:
+		return m.handleCmdViewKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:
@@ -1001,6 +1008,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.focused = true
 					m.focusScroll = 0
 				}
+			} else if c, ok := m.cmdChipAtCaret(cur); ok {
+				m.openCmdView(c) // ⌥e on a cmd chip shows its full run output
+				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
 				return m, nil
@@ -1015,6 +1025,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// run / re-run a runnable node's own action (bash/query/worker). Never
 		// auto-runs; on an agent it re-runs the turn.
 		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.cmdChipAtCaret(cur); ok {
+				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
+			}
 			if run := typeOf(cur.typ).run; run != nil {
 				return m, run(m, cur)
 			}
@@ -1317,6 +1330,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if text == " " && !k.Paste {
 			if m.convertBySign(cur) {
 				return m, nil // the sign became the type; the space is consumed
+			}
+			if m.bashCmdBeforeCaret(cur) {
+				return m, nil // a "$cmd" + double space committed a cmd chip
 			}
 			m.chipifyBeforeCaret(cur)
 		}
@@ -2530,6 +2546,8 @@ func (m *Model) View() string {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)
+	} else if m.mode == modeCmdView {
+		lines = m.viewCmdView(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}

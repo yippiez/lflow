@@ -110,6 +110,7 @@ const (
 	chipKindTag  = "tag"
 	chipKindDate = "date"
 	chipKindLink = "link"
+	chipKindCmd  = "cmd"
 )
 
 var chipKinds = map[string]chipKind{
@@ -149,6 +150,15 @@ var chipKinds = map[string]chipKind{
 		display: func(v string) string { return "→" + v },
 		expand:  func(v string) string { return v },
 	},
+	// a cmd chip is inline runnable shell: value is the command, run on alt+r.
+	// display/expand below are value-only fallbacks — chipDisplay special-cases
+	// cmd to append the session-local output preview held in the chip label.
+	chipKindCmd: {
+		key:     chipKindCmd,
+		color:   cYellow,
+		display: func(v string) string { return "$" + v },
+		expand:  func(v string) string { return v },
+	},
 }
 
 func chipKindOf(kind string) (chipKind, bool) {
@@ -161,6 +171,15 @@ func chipKindOf(kind string) (chipKind, bool) {
 func chipDisplay(c database.Chip) string {
 	if c.Kind == chipKindLink {
 		return "→" + linkChipLabel(c)
+	}
+	if c.Kind == chipKindCmd {
+		// the label holds the session-local run preview (set by setCmdPreview,
+		// never persisted); show "$cmd → preview" once it has run this session.
+		s := "$" + c.Value
+		if c.Label != "" {
+			s += " → " + c.Label
+		}
+		return s
 	}
 	if k, ok := chipKindOf(c.Kind); ok && k.display != nil {
 		return k.display(c.Value)
