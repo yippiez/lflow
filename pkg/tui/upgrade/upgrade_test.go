@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/go-github/github"
-	"github.com/lflow/lflow/pkg/shared/assert"
+	"github.com/lflow/lflow/pkg/utils/assert"
 	"github.com/pkg/errors"
 )
 

@@ -10,10 +10,10 @@ import (
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/infra"
-	"github.com/lflow/lflow/pkg/tui/log"
 	"github.com/lflow/lflow/pkg/tui/resolve"
 	"github.com/lflow/lflow/pkg/tui/ui"
-	"github.com/lflow/lflow/pkg/tui/utils"
+	"github.com/lflow/lflow/pkg/utils"
+	"github.com/lflow/lflow/pkg/utils/log"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -99,7 +99,7 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, typ stri
 			ParentUUID: parentUUID,
 			Rank:       rank + i,
 			Name:       line,
-			Type:     typ,
+			Type:       typ,
 			AddedOn:    now,
 			EditedOn:   now,
 		}

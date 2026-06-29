@@ -15,9 +15,9 @@ import (
 
 	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/pkg/browser"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/utils/browser"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )
@@ -29,8 +29,8 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm // inline delete confirmation for nodes with children
-	modeType    // the /type picker: choose one of the node types
+	modeConfirm  // inline delete confirmation for nodes with children
+	modeType     // the /type picker: choose one of the node types
 	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
 	modeTheme    // the /theme picker: choose a color palette
 	modeComplete // the inline completer: "#" tags, ":" query commands

@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/shared/assert"
 	"github.com/lflow/lflow/pkg/tui/context"
+	"github.com/lflow/lflow/pkg/utils/assert"
 	"github.com/pkg/errors"
 )
 

@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lflow/lflow/pkg/tui/context"
-	"github.com/lflow/lflow/pkg/tui/log"
-	"github.com/lflow/lflow/pkg/tui/utils"
+	"github.com/lflow/lflow/pkg/utils"
+	"github.com/lflow/lflow/pkg/utils/log"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 )

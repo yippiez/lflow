@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/lflow/lflow/pkg/tui/infra"
-	"github.com/lflow/lflow/pkg/tui/log"
+	"github.com/lflow/lflow/pkg/utils/log"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 

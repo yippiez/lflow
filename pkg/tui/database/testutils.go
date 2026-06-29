@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/lflow/lflow/pkg/tui/consts"
-	"github.com/lflow/lflow/pkg/tui/utils"
+	"github.com/lflow/lflow/pkg/utils"
 	"github.com/pkg/errors"
 )
 

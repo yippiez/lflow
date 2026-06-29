@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/tui/utils"
+	"github.com/lflow/lflow/pkg/utils"
 	"github.com/mattn/go-runewidth"
 )
 
