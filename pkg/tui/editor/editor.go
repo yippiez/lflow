@@ -2567,6 +2567,10 @@ func (m *Model) finalView(maxLine int) []string {
 			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 			continue
 		}
+		if bandFn := typeOf(r.it.typ).band; bandFn != nil && !r.mirrored {
+			lines = append(lines, bandFn(m, r, maxLine, -1, false)...)
+			continue
+		}
 		glyph, glyphColor := glyphFor(r.it)
 		if r.mirrored {
 			glyph, glyphColor = glyphMirror, cDim
@@ -2608,6 +2612,19 @@ func (m *Model) viewOutline(maxLine int) []string {
 				noteCaret = m.caret
 			}
 			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+			continue
+		}
+
+		// a band-rendered type (coding-agent session) fully owns its row: a
+		// full-width colored bar instead of glyph + body. The note holds the
+		// session metadata, so no note band hangs beneath it.
+		if bandFn := typeOf(it.typ).band; bandFn != nil && !r.mirrored {
+			caret := -1
+			if selected && m.mode != modeNote && it.mirrorOf == "" {
+				caret = m.caret
+			}
+			groups[i] = bandFn(m, r, maxLine, caret, selected)
+			bands[i] = nil
 			continue
 		}
 
