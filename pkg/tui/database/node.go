@@ -22,6 +22,13 @@ const (
 	TypeVoice   = "voice"
 	TypeDivider = "divider"
 	TypeLog     = "log"
+	// Coding-agent session nodes: a saved CLI session you re-enter from the
+	// outline. The type names the provider; the node's name is the session label
+	// and its note carries the session metadata (id, cwd, byte size). One type
+	// per agent — adding another is a new constant here + a registry entry, no
+	// migration (see the free-string-type invariant above).
+	TypeAgentClaude = "agent_claude"
+	TypeAgentPi     = "agent_pi"
 )
 
 // ValidTypes is the set of accepted type values.
@@ -39,6 +46,8 @@ var ValidTypes = map[string]bool{
 	TypeVoice:   true,
 	TypeDivider: true,
 	TypeLog:     true,
+	TypeAgentClaude: true,
+	TypeAgentPi:     true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror
