@@ -63,7 +63,6 @@ var (
 		return
 	}()
 	napkinCursorFG   = sgrFG(napkinCursorRGB)
-	napkinCursorBG   = sgrBG(napkinCursorRGB)
 	napkinBottomRule = cDim + strings.Repeat("─", napkinW) + cReset
 )
 
@@ -129,23 +128,30 @@ func (c *napkinCanvas) line(x0, y0, x1, y1 int, v byte) {
 	}
 }
 
-// hbRow renders cell-row cr (pixel rows 2*cr and 2*cr+1) as half-blocks: fg = top
-// pixel, bg = bottom pixel, glyph ▀. Empty pixels show the panel color; the cursor
-// pixel shows white.
+// hbRow renders cell-row cr (pixel rows 2*cr and 2*cr+1) with a dithered look:
+// painted cells are stippled in their color over the panel — ▓ where both
+// sub-pixels are painted, ▒ where one is — so fills read as textured shading
+// rather than flat blocks. Empty cells are the solid panel; the cursor is white.
 func (c *napkinCanvas) hbRow(cr int) string {
 	top, bot := cr*2, cr*2+1
+	panel := napkinBGCode[0]
 	var b strings.Builder
 	for x := 0; x < napkinW; x++ {
-		fg, bg := napkinFGCode[c.at(x, top)], napkinBGCode[c.at(x, bot)]
-		if c.cx == x && c.cy == top {
-			fg = napkinCursorFG
+		if c.cx == x && (c.cy == top || c.cy == bot) {
+			b.WriteString(napkinCursorFG + panel + "█") // cursor cell
+			continue
 		}
-		if c.cx == x && c.cy == bot {
-			bg = napkinCursorBG
+		t, bt := c.at(x, top), c.at(x, bot)
+		switch {
+		case t == 0 && bt == 0:
+			b.WriteString(panel + " ")
+		case t != 0 && bt != 0:
+			b.WriteString(napkinFGCode[t] + panel + "▓")
+		case t != 0:
+			b.WriteString(napkinFGCode[t] + panel + "▒")
+		default:
+			b.WriteString(napkinFGCode[bt] + panel + "▒")
 		}
-		b.WriteString(fg)
-		b.WriteString(bg)
-		b.WriteString("▀")
 	}
 	b.WriteString(cReset)
 	return b.String()
@@ -244,12 +250,12 @@ func (m *Model) napkinThumb(it *item) string {
 		switch {
 		case t == 0 && bt == 0:
 			b.WriteString(" ")
-		case t != 0 && bt == 0:
-			b.WriteString(napkinFGCode[t] + "▀" + cReset)
-		case t == 0 && bt != 0:
-			b.WriteString(napkinFGCode[bt] + "▄" + cReset)
+		case t != 0 && bt != 0:
+			b.WriteString(napkinFGCode[t] + "▓" + cReset)
+		case t != 0:
+			b.WriteString(napkinFGCode[t] + "▒" + cReset)
 		default:
-			b.WriteString(napkinFGCode[t] + napkinBGCode[bt] + "▀" + cReset)
+			b.WriteString(napkinFGCode[bt] + "▒" + cReset)
 		}
 	}
 	return b.String()
