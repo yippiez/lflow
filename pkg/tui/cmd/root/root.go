@@ -21,11 +21,6 @@ func init() {
 	root.SetUsageFunc(renderUsageFunc)
 }
 
-// GetRoot returns the root command
-func GetRoot() *cobra.Command {
-	return root
-}
-
 // Register adds a new command
 func Register(cmd *cobra.Command) {
 	root.AddCommand(cmd)

@@ -13,15 +13,6 @@ func GetSystem(db *DB, key string, dest interface{}) error {
 	return nil
 }
 
-// InsertSystem inserets a system configuration
-func InsertSystem(db *DB, key, val string) error {
-	if _, err := db.Exec("INSERT INTO system (key, value) VALUES (? , ?);", key, val); err != nil {
-		return errors.Wrap(err, "saving system config")
-	}
-
-	return nil
-}
-
 // UpsertSystem inserts or updates a system configuration
 func UpsertSystem(db *DB, key, val string) error {
 	var count int
