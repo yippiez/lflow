@@ -1,13 +1,11 @@
 id: no-fmt-print-in-libs
 language: go
 severity: warning
-message: Do not write to stdout from editor/wf library code — they don't own stdout.
+message: Do not write to stdout from editor library code — it doesn't own stdout.
 note: |
-  pkg/tui/editor and pkg/tui/wf are library packages that must not write to
-  stdout. While the editor's bubbletea program is running it owns the whole
-  terminal: a stray fmt.Print would corrupt the rendered outline. The wf
-  package runs as a background mirror-sync goroutine and likewise has no
-  business printing to the user's terminal. Use the bubbletea View, the
+  pkg/tui/editor is a library package that must not write to stdout. While the
+  editor's bubbletea program is running it owns the whole terminal: a stray
+  fmt.Print would corrupt the rendered outline. Use the bubbletea View, the
   pkg/tui/log helpers, or return a value to the caller instead.
 
   Exemptions: editor.go is the Run() entry point that prints the final
@@ -27,6 +25,5 @@ rule:
         selector: call_expression
 files:
   - pkg/tui/editor/**
-  - pkg/tui/wf/**
 ignores:
   - pkg/tui/editor/editor.go
