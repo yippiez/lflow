@@ -26,23 +26,29 @@ import (
 // CLI binary to launch, and the bar's tint (accent text, background, selected
 // background, muted size color). Colors are precomputed SGR strings.
 type agentProvider struct {
-	label  string // "claude code"
-	glyph  string // bar glyph, e.g. "✳"
+	label  string // "claude code" (long form, for the /type picker tooltip)
+	code   string // 2-letter chip code, e.g. "CC" / "PI"
+	glyph  string // optional bar glyph, e.g. "✳"
 	bin    string // CLI binary to exec on launch
-	accent string // glyph + label color on the bar
+	accent string // provider fg accent
 	bg     string // bar background (unselected)
 	bgSel  string // bar background (selected/cursor row)
-	size   string // muted color for the size readout
+	pillBg string // code-chip background (the accent as a bg block)
+	ink    string // code-chip foreground (dark, reads on the bright pill)
+	boxBg  string // size-chip background (a raised box on the bar)
+	size   string // size-chip foreground
 }
 
 var agentProviders = map[string]agentProvider{
 	database.TypeAgentClaude: {
-		label: "claude code", glyph: "✳", bin: "claude",
-		accent: fg(224, 158, 123), bg: bg(58, 42, 34), bgSel: bg(88, 62, 48), size: fg(178, 142, 120),
+		label: "claude code", code: "CC", glyph: "✳", bin: "claude",
+		accent: fg(224, 158, 123), bg: bg(58, 42, 34), bgSel: bg(88, 62, 48),
+		pillBg: bg(224, 158, 123), ink: fg(40, 26, 18), boxBg: bg(82, 58, 46), size: fg(232, 200, 178),
 	},
 	database.TypeAgentPi: {
-		label: "pi", glyph: "π", bin: "pi",
-		accent: fg(120, 210, 190), bg: bg(22, 52, 48), bgSel: bg(34, 76, 70), size: fg(120, 172, 162),
+		label: "pi", code: "PI", glyph: "π", bin: "pi",
+		accent: fg(120, 210, 190), bg: bg(22, 52, 48), bgSel: bg(34, 76, 70),
+		pillBg: bg(120, 210, 190), ink: fg(10, 34, 30), boxBg: bg(32, 70, 64), size: fg(160, 216, 204),
 	},
 }
 
@@ -153,14 +159,20 @@ func agentBand(m *Model, r row, width, caret int, selected bool) []string {
 		barBg = prov.bgSel
 	}
 
+	// the bar carries two chips — a 2-letter provider chip on the left and a
+	// boxed size chip on the right — with the session name between them. Each
+	// chip is a padded pill (one space each side), so its width is text+2.
 	glyph := prov.glyph
-	leadW := 1 // bare leading pad when the glyph is hidden
+	codeW := runewidth.StringWidth(prov.code) + 2
+	sizeW := runewidth.StringWidth(size) + 2
+	const gap = 2 // code chip → name
+
+	leadW := 1 // leading pad inside the bar
 	if agentShowGlyph {
-		leadW = 1 + runewidth.StringWidth(glyph) + 2 // " <glyph>  "
+		leadW += runewidth.StringWidth(glyph) + 1
 	}
-	labelW := runewidth.StringWidth(prov.label)
-	const gap = 2                                                  // label → name
-	rightW := 1 + runewidth.StringWidth(size) + 1                 // " <size> "
+	leftW := leadW + codeW + gap   // up to where the name starts
+	rightW := 1 + sizeW + 1        // gap before the size chip + chip + trailing pad
 
 	name := r.it.name
 	if strings.TrimSpace(name) == "" {
@@ -172,7 +184,7 @@ func agentBand(m *Model, r row, width, caret int, selected bool) []string {
 		caretExtra = 1 // the block cursor parks one cell past the end
 	}
 
-	nameBudget := inner - leadW - labelW - gap - rightW - caretExtra
+	nameBudget := inner - leftW - rightW - caretExtra
 	if nameBudget < 4 {
 		nameBudget = 4
 	}
@@ -183,7 +195,7 @@ func agentBand(m *Model, r row, width, caret int, selected bool) []string {
 		caretExtra = 0
 	}
 	nameW := runewidth.StringWidth(name)
-	pad := inner - leadW - labelW - gap - nameW - caretExtra - rightW
+	pad := inner - leftW - nameW - caretExtra - rightW
 	if pad < 0 {
 		pad = 0
 	}
@@ -195,17 +207,20 @@ func agentBand(m *Model, r row, width, caret int, selected bool) []string {
 		nameSeg = cFG + name
 	}
 
+	codeChip := prov.pillBg + prov.ink + cBold + " " + prov.code + " " + cReset + barBg
+	sizeChip := prov.boxBg + prov.size + " " + size + " " + cReset + barBg
+
 	var b strings.Builder
 	b.WriteString(cDim + rail)          // rail (no bar bg)
 	b.WriteString(cReset + barBg + " ") // open the bar
 	if agentShowGlyph {
-		b.WriteString(prov.accent + cBold + glyph + cReset + barBg + "  ")
+		b.WriteString(prov.accent + cBold + glyph + cReset + barBg + " ")
 	}
-	b.WriteString(prov.accent + prov.label + cReset + barBg)
+	b.WriteString(codeChip)
 	b.WriteString(strings.Repeat(" ", gap))
 	b.WriteString(nameSeg + cReset + barBg)
 	b.WriteString(strings.Repeat(" ", pad))
-	b.WriteString(" " + prov.size + size + cReset + barBg + " ")
+	b.WriteString(" " + sizeChip + " ")
 	b.WriteString(cReset)
 	return []string{b.String()}
 }
