@@ -3,6 +3,7 @@ package editor
 import (
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -18,6 +19,8 @@ type complKind int
 const (
 	complTag      complKind = iota // "#": pick an existing tag
 	complQueryCmd                  // ":": pick a query time command (query nodes only)
+	complChipMenu                  // "@": pick a chip kind to insert (file/link/tag/date/cmd)
+	complDate                      // date entry, reached via @date: type a phrase, insert a date chip
 )
 
 // complState is the live completer: where its trigger sits in the name, the
@@ -76,6 +79,12 @@ func (m *Model) existingTags() []string {
 
 // complItems is the filtered list for the live completer.
 func (m *Model) complItems() []complItem {
+	switch m.compl.kind {
+	case complChipMenu:
+		return m.chipMenuItems()
+	case complDate:
+		return m.dateComplItems()
+	}
 	q := strings.ToLower(m.compl.query)
 	var src []complItem
 	if m.compl.kind == complQueryCmd {
@@ -95,6 +104,57 @@ func (m *Model) complItems() []complItem {
 		}
 	}
 	return ret
+}
+
+// chipMenuItems is the "@" picker: every chip kind that has a creator and is
+// allowed on the cursor node's type, filtered by what's typed after the "@".
+func (m *Model) chipMenuItems() []complItem {
+	typ := ""
+	if cur := m.cursorItem(); cur != nil {
+		typ = cur.typ
+	}
+	q := strings.ToLower(strings.TrimSpace(m.compl.query))
+	var out []complItem
+	for _, s := range chipSpecs {
+		if s.create == nil || (s.allowOn != nil && !s.allowOn(typ)) {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(s.menu), q) {
+			continue
+		}
+		out = append(out, complItem{label: s.marker + " @" + s.menu, value: s.kind, desc: s.desc})
+	}
+	return out
+}
+
+// dateComplItems suggests dates for the @date entry: the canonical form of
+// whatever phrase is typed (if it parses), plus the relative-day shortcuts.
+func (m *Model) dateComplItems() []complItem {
+	q := strings.TrimSpace(m.compl.query)
+	now := time.Now()
+	var out []complItem
+	seen := map[string]bool{}
+	add := func(label, canon, desc string) {
+		if canon == "" || seen[canon] {
+			return
+		}
+		seen[canon] = true
+		out = append(out, complItem{label: label, value: canon, desc: desc})
+	}
+	if q != "" {
+		if d := pickByCaret(detectAllDates(q, now), len([]rune(q))); d != nil {
+			add(d.canonical(), d.canonical(), "parsed")
+		}
+	}
+	for _, w := range []string{"today", "tomorrow", "yesterday", "now"} {
+		if q != "" && !strings.Contains(w, strings.ToLower(q)) {
+			continue
+		}
+		if d := pickByCaret(detectRelative(w, now), 0); d != nil {
+			add(w, d.canonical(), d.canonical())
+		}
+	}
+	return out
 }
 
 // openCompleter types the trigger into the node and switches to the completer.
@@ -131,6 +191,13 @@ func (m *Model) applyCompletion(cur *item, items []complItem) {
 		m.unsaved = true
 		return
 	}
+	if m.compl.kind == complDate {
+		if len(items) == 0 || m.compl.sel >= len(items) {
+			return // nothing parsed: leave the typed text literal
+		}
+		m.replaceRangeWithChip(cur, m.compl.start, end, chipKindDate, items[m.compl.sel].value)
+		return
+	}
 	// tag: the highlighted tag, else the typed word (new tag)
 	tag := strings.TrimSpace(m.compl.query)
 	if len(items) > 0 && m.compl.sel < len(items) {
@@ -146,6 +213,30 @@ func (m *Model) applyCompletion(cur *item, items []complItem) {
 	cur.name = string(runes[:m.compl.start]) + anchor + string(runes[end:])
 	m.caret = m.compl.start + len([]rune(anchor))
 	m.unsaved = true
+}
+
+// applyChipMenu commits an "@" picker choice: it strips the typed "@query" and
+// then runs the chosen chip kind's creator (which opens its picker/completer/input
+// and sets the next mode itself). With nothing highlighted it just drops the text.
+func (m *Model) applyChipMenu(cur *item, items []complItem) (tea.Model, tea.Cmd) {
+	m.mode = modeOutline
+	if cur != nil {
+		runes := []rune(cur.name)
+		end := m.caret
+		if end > len(runes) {
+			end = len(runes)
+		}
+		cur.name = string(runes[:m.compl.start]) + string(runes[end:])
+		m.caret = m.compl.start
+		m.unsaved = true
+	}
+	if cur == nil || len(items) == 0 || m.compl.sel >= len(items) {
+		return m, nil
+	}
+	if s, ok := chipSpecByKind[items[m.compl.sel].value]; ok && s.create != nil {
+		return s.create(m, cur)
+	}
+	return m, nil
 }
 
 // delCharBeforeCaret removes one rune left of the caret (the completer's
@@ -181,6 +272,9 @@ func (m *Model) handleCompleteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter", "tab":
+		if m.compl.kind == complChipMenu {
+			return m.applyChipMenu(cur, items) // the creator sets the next mode
+		}
 		m.applyCompletion(cur, items)
 		m.mode = modeOutline
 		return m, nil
@@ -190,12 +284,28 @@ func (m *Model) handleCompleteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.compl.sel = 0
 			m.delCharBeforeCaret(cur)
 		} else {
-			m.delCharBeforeCaret(cur) // remove the trigger itself
+			if m.caret > m.compl.start {
+				m.delCharBeforeCaret(cur) // remove the trigger char (none for @date)
+			}
 			m.mode = modeOutline
 		}
 		return m, nil
 	}
 
+	if k.Type == tea.KeySpace && !k.Alt && m.compl.kind == complDate {
+		// a date phrase carries spaces ("11 february 2025 saat 15:20"); keep the
+		// completer open and treat the space as a query character.
+		m.compl.query += " "
+		m.compl.sel = 0
+		if cur != nil {
+			runes := []rune(cur.name)
+			m.boundCaret(len(runes))
+			cur.name = string(runes[:m.caret]) + " " + string(runes[m.caret:])
+			m.caret++
+			m.unsaved = true
+		}
+		return m, nil
+	}
 	if k.Type == tea.KeySpace && !k.Alt {
 		// space ends the completer. A tag commits the typed "#word" into a chip
 		// (the long-standing fast path); a query command just leaves "·query"

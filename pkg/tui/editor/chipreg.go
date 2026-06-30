@@ -68,14 +68,24 @@ var chipSpecs = []chipSpec{
 		create:  func(m *Model, cur *item) (tea.Model, tea.Cmd) { return m.openCompleter(cur, complTag, "#") },
 	},
 	{
-		kind: chipKindDate, menu: "date", desc: "insert a date", marker: "◷",
+		kind: chipKindDate, menu: "date", desc: "insert a date (type a phrase)", marker: "◷",
 		allowOn: notCodeChip,
-		// create wired in Stage 3 (the @date input); ctrl+t still converts a phrase.
+		// opens the date entry completer; ctrl+t still converts an in-text phrase.
+		create: func(m *Model, cur *item) (tea.Model, tea.Cmd) { return m.openCompleter(cur, complDate, "") },
 	},
 	{
 		kind: chipKindCmd, menu: "cmd", desc: "inline shell command (alt+r runs)", marker: "$",
 		allowOn: func(typ string) bool { return typ != database.TypeBash && typeOf(typ).inlineEditable },
-		// create wired in Stage 3; "$cmd" + double-space still works.
+		// drop a "$" at the caret; the user types the command and commits it with a
+		// double-space, exactly like the bare "$cmd  " fast path (see cmdchip.go).
+		create: func(m *Model, cur *item) (tea.Model, tea.Cmd) {
+			runes := []rune(cur.name)
+			m.boundCaret(len(runes))
+			cur.name = string(runes[:m.caret]) + "$" + string(runes[m.caret:])
+			m.caret++
+			m.unsaved = true
+			return m, nil
+		},
 	},
 }
 
@@ -92,6 +102,17 @@ var chipSpecByKind = func() map[string]chipSpec {
 func chipAllowedOn(kind, typ string) bool {
 	if s, ok := chipSpecByKind[kind]; ok && s.allowOn != nil {
 		return s.allowOn(typ)
+	}
+	return false
+}
+
+// anyChipAllowed reports whether any creatable chip kind is offered on a node
+// type — the guard that decides whether "@" opens the chip menu there.
+func anyChipAllowed(typ string) bool {
+	for _, s := range chipSpecs {
+		if s.create != nil && (s.allowOn == nil || s.allowOn(typ)) {
+			return true
+		}
 	}
 	return false
 }

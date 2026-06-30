@@ -1303,6 +1303,14 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.openCompleter(cur, complQueryCmd, ":")
 		}
 
+		// "@" opens the unified chip menu — the one discoverable way to insert any
+		// chip (file/link/tag/date/cmd). The per-kind fast triggers (">", "[[", "#",
+		// "$…  ", ctrl+t) still work; this is the single entry point that lists them.
+		if string(k.Runes) == "@" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			atWordStart(cur, m.caret) && anyChipAllowed(cur.typ) {
+			return m.openCompleter(cur, complChipMenu, "@")
+		}
+
 		if cur.mirrorOf != "" {
 			return m, nil // a mirror reference is edited at its original — see mirrorContext
 		}
