@@ -24,6 +24,7 @@ type options struct {
 	note   string
 	top    bool
 	strict bool
+	raw    bool
 	style  infra.StyleFlags
 }
 
@@ -43,6 +44,7 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	f.StringVar(&opts.note, "note", "", "set the note on the added node(s)")
 	f.BoolVar(&opts.top, "top", false, "prepend instead of append")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
+	f.BoolVar(&opts.raw, "raw", false, "store text verbatim, without turning #tags, dates or [label](url) links into chips")
 	opts.style.Register(f)
 
 	return cmd
@@ -72,7 +74,7 @@ func readLines(args []string) ([]string, error) {
 	return nil, errors.New("no content: pass text or pipe stdin")
 }
 
-func insertChildren(db *database.DB, parentUUID string, lines []string, typ, note, styleStr string, top bool) (int, error) {
+func insertChildren(db *database.DB, parentUUID string, lines []string, typ, note, styleStr string, top, raw bool) (int, error) {
 	now := time.Now().UnixNano()
 
 	var rank int
@@ -96,11 +98,18 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, typ, not
 		if err != nil {
 			return count, errors.Wrap(err, "generating uuid")
 		}
+		name := line
+		if !raw {
+			name, err = database.ChipifyName(db, line)
+			if err != nil {
+				return count, errors.Wrap(err, "creating chips")
+			}
+		}
 		n := database.Node{
 			UUID:       uuid,
 			ParentUUID: parentUUID,
 			Rank:       rank + i,
-			Name:       line,
+			Name:       name,
 			Note:       note,
 			Type:       typ,
 			Style:      styleStr,
@@ -161,7 +170,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			return err
 		}
 
-		count, err := insertChildren(db, parentUUID, lines, opts.typ, opts.note, styleStr, opts.top)
+		count, err := insertChildren(db, parentUUID, lines, opts.typ, opts.note, styleStr, opts.top, opts.raw)
 		if err != nil {
 			return errors.Wrap(err, "inserting nodes")
 		}

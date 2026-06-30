@@ -21,6 +21,7 @@ type editOptions struct {
 	typ      string
 	readonly bool
 	strict   bool
+	raw      bool
 	style    infra.StyleFlags
 }
 
@@ -42,6 +43,7 @@ func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
 	f.StringVar(&opts.typ, "type", "", "node type: "+database.TypeList())
 	f.BoolVar(&opts.readonly, "readonly", false, "lock the node against editing (--readonly=false unlocks)")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
+	f.BoolVar(&opts.raw, "raw", false, "with --name, store text verbatim instead of turning #tags, dates or [label](url) links into chips")
 	opts.style.Register(f)
 
 	return cmd
@@ -90,8 +92,15 @@ func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command
 			}
 		}
 		if flags.Changed("name") {
+			name := opts.name
+			if !opts.raw {
+				name, err = database.ChipifyName(db, opts.name)
+				if err != nil {
+					return errors.Wrap(err, "creating chips")
+				}
+			}
 			sets = append(sets, "name = ?")
-			vals = append(vals, opts.name)
+			vals = append(vals, name)
 		}
 		if flags.Changed("note") {
 			sets = append(sets, "note = ?")

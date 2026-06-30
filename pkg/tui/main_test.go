@@ -157,6 +157,50 @@ func TestAddNoteFlag(t *testing.T) {
 	assert.Equal(t, childNote, "some context", "note should land on the added node")
 }
 
+func TestAddChipifiesText(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "ship #project by 2026-07-01 see [docs](https://x.com)")
+
+	db := database.OpenTestDB(t, testDir)
+
+	// three chips recorded: the tag, the date and the link
+	var chipCount int
+	database.MustScan(t, "counting chips", db.QueryRow("SELECT count(*) FROM chips"), &chipCount)
+	assert.Equal(t, chipCount, 3, "tag, date and link should each become a chip")
+
+	// the stored name carries anchors, not the literal inline forms
+	var name string
+	database.MustScan(t, "getting name",
+		db.QueryRow("SELECT name FROM nodes WHERE name LIKE 'ship%'"), &name)
+	if strings.Contains(name, "#project") || strings.Contains(name, "[docs]") {
+		t.Errorf("inline forms should be replaced by anchors, got %q", name)
+	}
+
+	// list resolves the anchors back to their display forms
+	out := testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	if !strings.Contains(out, "#project") {
+		t.Errorf("list should resolve the tag chip, got %q", out)
+	}
+}
+
+func TestAddRawSkipsChipify(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--raw", "literal #notatag text")
+
+	db := database.OpenTestDB(t, testDir)
+
+	var chipCount int
+	database.MustScan(t, "counting chips", db.QueryRow("SELECT count(*) FROM chips"), &chipCount)
+	assert.Equal(t, chipCount, 0, "--raw should create no chips")
+
+	var name string
+	database.MustScan(t, "getting name",
+		db.QueryRow("SELECT name FROM nodes WHERE name LIKE 'literal%'"), &name)
+	assert.Equal(t, name, "literal #notatag text", "--raw should store text verbatim")
+}
+
 func TestAddStyleFlags(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
