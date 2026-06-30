@@ -40,20 +40,12 @@ func (m *Model) openFilePicker(cur *item) tea.Cmd {
 
 // insertPathChip splices a path chip for absPath into cur.name at caret.
 func (m *Model) insertPathChip(cur *item, caret int, absPath string) {
-	anchor := m.createChip(chipKindPath, absPath)
-	if anchor == "" {
+	if cur == nil {
 		return
 	}
-	runes := []rune(cur.name)
-	if caret > len(runes) {
-		caret = len(runes)
-	}
-	if caret < 0 {
-		caret = 0
-	}
-	cur.name = string(runes[:caret]) + anchor + string(runes[caret:])
-	m.caret = caret + len([]rune(anchor))
-	m.unsaved = true
+	m.caret = caret
+	m.boundCaret(len([]rune(cur.name)))
+	m.insertChipAtCaret(cur, chipKindPath, absPath, "")
 }
 
 // openPathChipCmd opens the cursor node's path chip in $EDITOR (nvim fallback),

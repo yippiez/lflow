@@ -346,6 +346,46 @@ func (m *Model) createLabeledChip(kind, value, label string) string {
 	return chipAnchor(id)
 }
 
+// insertChipAtCaret creates a chip of the given kind/value/label and splices its
+// anchor into cur.name at the caret, parking the caret just after it. It is the
+// one splice path shared by every chip creator (path, link, …); range-replacing
+// creators (tag/date chipify) use replaceRangeWithChip instead. Returns false if
+// the node is missing or the chip could not be created.
+func (m *Model) insertChipAtCaret(cur *item, kind, value, label string) bool {
+	if cur == nil {
+		return false
+	}
+	anchor := m.createLabeledChip(kind, value, label)
+	if anchor == "" {
+		return false
+	}
+	runes := []rune(cur.name)
+	m.boundCaret(len(runes))
+	cur.name = string(runes[:m.caret]) + anchor + string(runes[m.caret:])
+	m.caret += len([]rune(anchor))
+	m.unsaved = true
+	return true
+}
+
+// chipAtCaret returns the chip of the given kind whose anchor begins at the caret
+// or ends exactly at it, or ok=false. It is the one scan shared by the per-kind
+// caret lookups (link follow, cmd run/view, …).
+func (m *Model) chipAtCaret(cur *item, kind string) (database.Chip, bool) {
+	if cur == nil {
+		return database.Chip{}, false
+	}
+	spans := anchorSpans([]rune(cur.name))
+	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
+		if sp == nil {
+			continue
+		}
+		if c, ok := m.chips[sp.id]; ok && c.Kind == kind {
+			return c, true
+		}
+	}
+	return database.Chip{}, false
+}
+
 // deleteChipID drops a chip record (in-memory and on disk). The caller removes
 // its anchor from the node name.
 func (m *Model) deleteChipID(id string) {

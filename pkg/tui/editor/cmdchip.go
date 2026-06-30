@@ -68,19 +68,7 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 // cmdChipAtCaret returns the cmd chip the caret sits on (its anchor begins at the
 // caret, or ends exactly at it), or ok=false.
 func (m *Model) cmdChipAtCaret(cur *item) (database.Chip, bool) {
-	if cur == nil {
-		return database.Chip{}, false
-	}
-	spans := anchorSpans([]rune(cur.name))
-	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
-		if sp == nil {
-			continue
-		}
-		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindCmd {
-			return c, true
-		}
-	}
-	return database.Chip{}, false
+	return m.chipAtCaret(cur, chipKindCmd)
 }
 
 // runCmdChip runs (or cancels a running) cmd chip. Output streams into the run
