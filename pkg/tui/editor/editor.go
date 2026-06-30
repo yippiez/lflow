@@ -2534,10 +2534,21 @@ func (m *Model) View() string {
 			return ""
 		}
 		// the final frame is what the terminal scrollback keeps: the whole
-		// outline, fully expanded, styled exactly like the live editor. The
-		// trailing newline matters: the renderer erases the last line of the
+		// outline, fully expanded, styled exactly like the live editor. Isolate
+		// every line with a leading reset+erase and a trailing reset — the same
+		// per-line treatment the live frame gets below, plus a reset up front.
+		// Without it the dump inherits whatever SGR the last live frame left in
+		// the pen: a blue UI element (a focused json node's keys, the finder's
+		// ▸ mark, a row whose trailing reset was truncated away) would bleed its
+		// color onto the first dumped rows, so plain log/bullet nodes show up
+		// blue in the scrollback even though the live editor renders them gray.
+		// The trailing newline matters: the renderer erases the last line of the
 		// final frame on shutdown, so give it an empty one to eat.
-		return strings.Join(m.finalView(maxLine), "\n") + "\n"
+		lines := m.finalView(maxLine)
+		for i, l := range lines {
+			lines[i] = cReset + cClearEOL + l + cReset
+		}
+		return strings.Join(lines, "\n") + "\n"
 	}
 
 	var lines []string
