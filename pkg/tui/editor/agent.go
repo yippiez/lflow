@@ -27,17 +27,30 @@ const (
 )
 
 // agentChipProvider is the per-agent descriptor: the 2-letter chip code, the CLI
-// binary to launch, and the pill color (a tint background + an accent fg).
+// binary, and the "inset box" pill palette — a mid-tint pill body holding the
+// code + name, with a recessed darker box at the right end holding the size.
 type agentChipProvider struct {
-	code  string // "CC" / "PI"
-	label string // "claude code" (edit-panel heading)
-	bin   string // CLI binary to exec on launch
-	color string // chip pill color (bg tint + fg accent)
+	code   string // "CC" / "PI"
+	label  string // "claude code" (edit-panel heading)
+	bin    string // CLI binary to exec on launch
+	accent string // bright fg for the code badge
+	nameFg string // softer fg for the session name
+	sizeFg string // fg for the size readout
+	pillBg string // pill body background (mid tint)
+	boxBg  string // recessed size-box background (dark)
 }
 
 var agentChipProviders = map[string]agentChipProvider{
-	chipKindAgentClaude: {code: "CC", label: "claude code", bin: "claude", color: bg(58, 42, 34) + fg(224, 158, 123)},
-	chipKindAgentPi:     {code: "PI", label: "pi", bin: "pi", color: bg(22, 52, 48) + fg(120, 210, 190)},
+	chipKindAgentClaude: {
+		code: "CC", label: "claude code", bin: "claude",
+		accent: fg(230, 168, 132), nameFg: fg(220, 193, 177), sizeFg: fg(232, 169, 136),
+		pillBg: bg(70, 51, 42), boxBg: bg(34, 21, 14),
+	},
+	chipKindAgentPi: {
+		code: "PI", label: "pi", bin: "pi",
+		accent: fg(143, 220, 200), nameFg: fg(194, 230, 220), sizeFg: fg(134, 216, 195),
+		pillBg: bg(33, 75, 68), boxBg: bg(12, 31, 27),
+	},
 }
 
 // isAgentChipKind reports whether a chip kind is a coding-agent session chip.
@@ -54,8 +67,10 @@ func init() {
 		p := p
 		k := kind
 		chipKinds[k] = chipKind{
-			key:     k,
-			color:   p.color,
+			key: k,
+			// fallback single color for surfaces that don't special-case agent
+			// chips; the editor paints the multi-shade segments (agentChipRender).
+			color:   p.pillBg + p.accent,
 			display: func(v string) string { return agentChipDisplay(p, v) },
 			expand:  func(v string) string { return agentChipExpand(p, v) },
 		}
@@ -121,9 +136,19 @@ func humanSize(n int64) string {
 
 // ── chip display / expand ───────────────────────────────────────────────────
 
-// agentChipDisplay is the compact pill text: "CC <name> · <size>". An unnamed
-// session falls back to its short session id, then to "session".
-func agentChipDisplay(p agentChipProvider, value string) string {
+// agentSeg is one painted slice of the chip: its text and the bg/fg (and weight)
+// it renders with. The "inset box" design has up to three: a bold code badge and
+// the name on the pill body, then the size in a recessed darker box.
+type agentSeg struct {
+	text string
+	bg   string
+	fg   string
+	bold bool
+}
+
+// agentChipSegs builds the chip's painted segments. An unnamed session falls
+// back to its short session id, then to "session".
+func agentChipSegs(p agentChipProvider, value string) []agentSeg {
 	a := parseAgentMeta(value)
 	name := a.name
 	if name == "" {
@@ -133,11 +158,45 @@ func agentChipDisplay(p agentChipProvider, value string) string {
 			name = "session"
 		}
 	}
-	s := p.code + " " + name
-	if sz := a.sizeLabel(); sz != "" {
-		s += " · " + sz
+	segs := []agentSeg{
+		{text: " " + p.code + " ", bg: p.pillBg, fg: p.accent, bold: true},
+		{text: name + " ", bg: p.pillBg, fg: p.nameFg},
 	}
-	return " " + s + " " // pad so the pill background breathes around the text
+	if sz := a.sizeLabel(); sz != "" {
+		segs = append(segs, agentSeg{text: " " + sz + " ", bg: p.boxBg, fg: p.sizeFg})
+	}
+	return segs
+}
+
+// agentChipDisplay is the PLAIN pill text — the concatenated segment text, used
+// for width math and machine-readable surfaces (CLI list/grep). The editor
+// paints the colored segments via agentChipRender; both derive from the same
+// segments, so their visible width is identical.
+func agentChipDisplay(p agentChipProvider, value string) string {
+	var b strings.Builder
+	for _, s := range agentChipSegs(p, value) {
+		b.WriteString(s.text)
+	}
+	return b.String()
+}
+
+// agentChipRender is the editor-only colored form: each segment painted with its
+// own bg/fg shade, ending in a reset. Visible width equals agentChipDisplay's.
+func agentChipRender(c database.Chip) string {
+	p, ok := agentChipProviders[c.Kind]
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	for _, s := range agentChipSegs(p, c.Value) {
+		b.WriteString(cReset + s.bg + s.fg)
+		if s.bold {
+			b.WriteString(cBold)
+		}
+		b.WriteString(s.text)
+	}
+	b.WriteString(cReset)
+	return b.String()
 }
 
 // agentChipExpand is the machine-readable form for bash/search/export.

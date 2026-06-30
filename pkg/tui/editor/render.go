@@ -994,6 +994,18 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		// a chip anchor renders collapsed: the chip kind's color + compact display,
 		// atomic. The caret only ever sits at its boundaries (see snapCaret).
 		if sp := spanStartingAt(chipsp, i); sp != nil {
+			// an agent-session chip paints its own multi-shade segments (the
+			// "inset box" design); its visible width still equals dispByID's.
+			if c, ok := chips[sp.id]; ok && isAgentChipKind(c.Kind) {
+				if caret == sp.start {
+					b.WriteString(cInvert)
+				}
+				b.WriteString(agentChipRender(c))
+				b.WriteString(cReset + attrs)
+				cur = ""
+				i = sp.end
+				continue
+			}
 			col := cCyan
 			osc8 := "" // URL link target for an OSC 8 hyperlink, "" = none
 			if c, ok := chips[sp.id]; ok {
