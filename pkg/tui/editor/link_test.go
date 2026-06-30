@@ -68,9 +68,9 @@ func cursorOn(m *Model, uuid string) {
 	}
 }
 
-// TestLinkCreateNodeViaBrackets: "[[" opens the picker, picking a node splices an
+// TestLinkCreateNodeViaAtMenu: @link opens the picker; picking a node splices an
 // inline link chip whose target is the node and whose name defaults to its name.
-func TestLinkCreateNodeViaBrackets(t *testing.T) {
+func TestLinkCreateNodeViaAtMenu(t *testing.T) {
 	m, _ := dbModel(t,
 		database.Node{UUID: "edit", Name: "", Rank: 0},
 		database.Node{UUID: "tgt", Name: "Target Node", Rank: 1},
@@ -78,10 +78,9 @@ func TestLinkCreateNodeViaBrackets(t *testing.T) {
 	cursorOn(m, "edit")
 	m.caret = 0
 
-	m.press("[")
-	m.press("[")
+	chooseChipMenu(m, chipKindLink)
 	if m.mode != modeFinder || m.finderAct != actLinkInsert {
-		t.Fatalf("[[ did not open the link finder: mode=%v act=%v", m.mode, m.finderAct)
+		t.Fatalf("@link did not open the link finder: mode=%v act=%v", m.mode, m.finderAct)
 	}
 	m.press("Target") // narrow the picker to the target
 	m.press("enter")
@@ -122,8 +121,7 @@ func TestLinkToChippedNode(t *testing.T) {
 
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("[")
-	m.press("[")
+	chooseChipMenu(m, chipKindLink)
 	m.press("FID") // narrow the picker to the chipped target
 	m.press("enter")
 
@@ -143,15 +141,14 @@ func TestLinkToChippedNode(t *testing.T) {
 	}
 }
 
-// TestLinkCreateURLViaBrackets: "[[" then a typed URL makes a URL link chip whose
+// TestLinkCreateURLViaAtMenu: @link then a typed URL makes a URL link chip whose
 // name defaults to the host.
-func TestLinkCreateURLViaBrackets(t *testing.T) {
+func TestLinkCreateURLViaAtMenu(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "see "})
 	cursorOn(m, "edit")
 	m.caret = len([]rune("see "))
 
-	m.press("[")
-	m.press("[")
+	chooseChipMenu(m, chipKindLink)
 	m.press("https://example.com/docs")
 	m.press("enter")
 

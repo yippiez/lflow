@@ -10,7 +10,7 @@ import (
 
 // A link chip points at a node or a website. Its target is stored in the chip
 // value — "lflow://node/<uuid>" for a node, a URL otherwise — and its arbitrary
-// display name in the chip label. Create one with "[[" (or /link), follow it with
+// display name in the chip label. Create one with @link (or /link), follow it with
 // alt+g.
 
 const nodeLinkScheme = "lflow://node/"

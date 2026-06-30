@@ -9,61 +9,12 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// A cmd chip is inline runnable shell: type "$<command>" inside any text node and
-// commit it with a DOUBLE space (single spaces stay part of the command, so
-// "$ls -la" keeps typing). The command lives in the chip value (persisted); its
-// run output is ephemeral (node_output, keyed by chip id — local-only, never
-// synced, exactly like a bash node). alt+r runs the chip the caret sits on, and
-// the chip then renders "$cmd → <first line>"; alt+e opens the full output.
-
-// bashCmdBeforeCaret converts a "$<command>" token terminated by a double space
-// into a cmd chip. It is called from the space-typed path only when the rune
-// before the caret is already a space (so this is the second space). Returns true
-// if it converted, in which case the committing space is consumed by the caller.
-func (m *Model) bashCmdBeforeCaret(cur *item) bool {
-	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly {
-		return false
-	}
-	// inside a bash node the whole node already IS the command; "$" stays literal.
-	if cur.typ == database.TypeBash {
-		return false
-	}
-	runes := []rune(cur.name)
-	// the caret sits just after the first of the two spaces.
-	if m.caret < 2 || m.caret > len(runes) || runes[m.caret-1] != ' ' {
-		return false
-	}
-	end := m.caret - 1 // command ends just before the trailing space
-	// walk back to the "$" that opens the command: it must be at the node start or
-	// follow a space (a standalone token). Bail on an anchor so we never swallow a
-	// neighbouring chip.
-	start := -1
-	for i := end - 1; i >= 0; i-- {
-		if runes[i] == chipSentinel {
-			return false
-		}
-		if runes[i] == '$' && (i == 0 || runes[i-1] == ' ') {
-			start = i
-			break
-		}
-	}
-	if start < 0 {
-		return false
-	}
-	cmd := strings.TrimSpace(string(runes[start+1 : end]))
-	if cmd == "" {
-		return false
-	}
-	if !m.replaceRangeWithChip(cur, start, end, chipKindCmd, cmd) {
-		return false
-	}
-	// park the caret after the single space that remains past the new chip.
-	r := []rune(cur.name)
-	if m.caret < len(r) && r[m.caret] == ' ' {
-		m.caret++
-	}
-	return true
-}
+// A cmd chip is inline runnable shell: insert one with @cmd (type the command,
+// Enter splices the chip — see complCmd in complete.go). The command lives in the
+// chip value (persisted); its run output is ephemeral (node_output, keyed by chip
+// id — local-only, never synced, exactly like a bash node). alt+r runs the chip
+// the caret sits on, and the chip then renders "$cmd → <first line>"; alt+e opens
+// the full output.
 
 // cmdChipAtCaret returns the cmd chip the caret sits on (its anchor begins at the
 // caret, or ends exactly at it), or ok=false.

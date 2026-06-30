@@ -136,4 +136,3 @@ func absolutizePath(p string) string {
 	}
 	return abs
 }
-

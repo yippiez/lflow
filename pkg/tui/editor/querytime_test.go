@@ -127,4 +127,3 @@ func TestQueryMatchesTimeFilter(t *testing.T) {
 		t.Errorf("non-matching text should yield no hits, got %v", got)
 	}
 }
-

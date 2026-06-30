@@ -26,11 +26,11 @@ func TestNodeHasTagWholeWord(t *testing.T) {
 		want bool
 	}{
 		{"daily #log entry", "log", true},
-		{"some logic here", "log", false},  // plain word never matches
-		{"a #logic note", "log", false},    // longer tag is not the tag
-		{"trailing #log", "log", true},     // end of string boundary
-		{"#login note", "log", false},      // longer word is a different tag
-		{"CAPS #Log here", "log", true},    // case-insensitive
+		{"some logic here", "log", false},      // plain word never matches
+		{"a #logic note", "log", false},        // longer tag is not the tag
+		{"trailing #log", "log", true},         // end of string boundary
+		{"#login note", "log", false},          // longer word is a different tag
+		{"CAPS #Log here", "log", true},        // case-insensitive
 		{"email me a#log thing", "log", false}, // no left boundary, not a tag
 	}
 	for _, c := range cases {

@@ -21,11 +21,37 @@ func menuModel(typ, q string) (*Model, *item) {
 	return m, it
 }
 
-func TestChipMenuItemsBulletsListsAll(t *testing.T) {
+// creatableOn counts the chip kinds the @ menu should offer on a node type.
+func creatableOn(typ string) int {
+	n := 0
+	for _, s := range chipSpecs {
+		if s.create != nil && (s.allowOn == nil || s.allowOn(typ)) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestChipMenuExcludesDate(t *testing.T) {
+	// date has no creator: it is recognised from a typed phrase / ctrl+t, never the
+	// @ menu. It must never appear as a creatable kind.
+	for _, s := range chipSpecs {
+		if s.kind == chipKindDate && s.create != nil {
+			t.Fatal("date must have no @ creator (it is keyword-recognised, kept outside)")
+		}
+	}
+}
+
+func TestChipMenuItemsBulletsListsCreatable(t *testing.T) {
 	m, _ := menuModel(database.TypeBullets, "")
 	items := m.complItems()
-	if len(items) != len(chipSpecs) {
-		t.Fatalf("@ menu on bullets = %d items, want %d (every kind)", len(items), len(chipSpecs))
+	if want := creatableOn(database.TypeBullets); len(items) != want {
+		t.Fatalf("@ menu on bullets = %d items, want %d (file/link/tag/cmd)", len(items), want)
+	}
+	for _, it := range items {
+		if it.value == chipKindDate {
+			t.Fatal("@ menu must not offer date")
+		}
 	}
 }
 
@@ -48,8 +74,8 @@ func TestChipMenuItemsBashEmpty(t *testing.T) {
 }
 
 func TestChipMenuItemsCodeOnlyCmd(t *testing.T) {
-	// code keeps ">"/"[["/"#" literal (file/link/tag/date gated out), but a cmd chip
-	// works on code just as the "$cmd  " fast path always has — so @ offers only cmd.
+	// code keeps ">"/"[["/"#" out (file/link/tag gated), but a cmd chip works on
+	// code — so @ offers only cmd there.
 	m, _ := menuModel(database.TypeCode, "")
 	items := m.complItems()
 	if len(items) != 1 || items[0].value != chipKindCmd {
@@ -58,22 +84,21 @@ func TestChipMenuItemsCodeOnlyCmd(t *testing.T) {
 }
 
 func TestChipMenuItemsQueryNode(t *testing.T) {
-	// a query node keeps "#"/":" but not ">"/"[[": @ offers tag/date/cmd, not file/link.
+	// a query node offers tag/cmd via @, but not file/link (">"/"[[") nor date.
 	m, _ := menuModel(database.TypeQuery, "")
-	items := m.complItems()
 	got := map[string]bool{}
-	for _, it := range items {
+	for _, it := range m.complItems() {
 		got[it.value] = true
 	}
-	if got[chipKindPath] || got[chipKindLink] {
-		t.Errorf("@ menu on query offered file/link, want neither: %v", items)
+	if got[chipKindPath] || got[chipKindLink] || got[chipKindDate] {
+		t.Errorf("@ menu on query offered file/link/date, want none of them: %v", got)
 	}
-	if !got[chipKindTag] || !got[chipKindDate] || !got[chipKindCmd] {
-		t.Errorf("@ menu on query missing tag/date/cmd: %v", items)
+	if !got[chipKindTag] || !got[chipKindCmd] {
+		t.Errorf("@ menu on query missing tag/cmd: %v", got)
 	}
 }
 
-func TestApplyChipMenuStripsAndCreatesCmd(t *testing.T) {
+func TestApplyChipMenuCmdOpensInput(t *testing.T) {
 	m, it := menuModel(database.TypeBullets, "cm")
 	it.name = "note @cm"
 	m.caret = len([]rune("note @cm"))
@@ -82,66 +107,55 @@ func TestApplyChipMenuStripsAndCreatesCmd(t *testing.T) {
 		t.Fatalf("setup: items = %v, want [cmd]", items)
 	}
 	m.applyChipMenu(it, items)
-	// the "@cm" is stripped and the cmd creator drops a "$" at the caret
+	// "@cm" is stripped and the cmd creator opens the command input ("$" trigger)
 	if it.name != "note $" {
 		t.Fatalf("name = %q, want %q", it.name, "note $")
 	}
-	if m.mode != modeComplete && m.mode != modeOutline {
-		t.Errorf("unexpected mode %v after cmd create", m.mode)
+	if m.mode != modeComplete || m.compl.kind != complCmd {
+		t.Fatalf("after @cmd, mode=%v kind=%v, want modeComplete/complCmd", m.mode, m.compl.kind)
 	}
 }
 
-func TestApplyChipMenuDateOpensCompleter(t *testing.T) {
-	m, it := menuModel(database.TypeBullets, "date")
-	it.name = "note @date"
-	m.caret = len([]rune("note @date"))
-	items := m.complItems() // [date]
-	if len(items) != 1 || items[0].value != chipKindDate {
-		t.Fatalf("setup: items = %v, want [date]", items)
-	}
-	m.applyChipMenu(it, items)
-	if it.name != "note " {
-		t.Fatalf("name = %q, want %q (@date stripped)", it.name, "note ")
-	}
-	if m.mode != modeComplete || m.compl.kind != complDate {
-		t.Fatalf("after @date, mode=%v kind=%v, want modeComplete/complDate", m.mode, m.compl.kind)
+func TestApplyChipMenuTagOpensCompleter(t *testing.T) {
+	m, it := menuModel(database.TypeBullets, "tag")
+	it.name = "note @tag"
+	m.caret = len([]rune("note @tag"))
+	m.applyChipMenu(it, m.complItems())
+	if m.mode != modeComplete || m.compl.kind != complTag {
+		t.Fatalf("after @tag, mode=%v kind=%v, want modeComplete/complTag", m.mode, m.compl.kind)
 	}
 }
 
-func TestDateComplItemsParse(t *testing.T) {
-	m := &Model{compl: complState{kind: complDate, query: "2025-02-11"}}
-	items := m.dateComplItems()
-	if len(items) == 0 || items[0].value != "2025-02-11" {
-		t.Fatalf("date parse '2025-02-11' = %v, want canonical first", items)
+func TestCmdComplItemsPreview(t *testing.T) {
+	m := &Model{compl: complState{kind: complCmd, query: "ls -la"}}
+	items := m.complItems()
+	if len(items) != 1 || items[0].value != "ls -la" {
+		t.Fatalf("cmd input 'ls -la' = %v, want one preview row valued 'ls -la'", items)
+	}
+	m.compl.query = "  "
+	if items := m.complItems(); len(items) != 0 {
+		t.Fatalf("empty cmd input = %v, want no row", items)
 	}
 }
 
-func TestDateComplItemsRelative(t *testing.T) {
-	m := &Model{compl: complState{kind: complDate, query: "tomor"}}
-	items := m.dateComplItems()
-	if len(items) != 1 || items[0].label != "tomorrow" {
-		t.Fatalf("date relative 'tomor' = %v, want [tomorrow]", items)
-	}
-}
-
-func TestApplyCompletionDateInsertsChip(t *testing.T) {
-	it := &item{uuid: "n", typ: database.TypeBullets, name: "due tomorrow"}
+func TestApplyCompletionCmdInsertsChip(t *testing.T) {
+	it := &item{uuid: "n", typ: database.TypeBullets, name: "run $echo hi"}
 	tr := &tree{byUUID: map[string]*item{"n": it}}
 	m := &Model{
 		tree:   tr,
 		rows:   []row{{it: it}},
 		cursor: 0,
-		caret:  len([]rune("due tomorrow")),
+		caret:  len([]rune("run $echo hi")),
 		chips:  map[string]database.Chip{},
 	}
-	m.compl = complState{kind: complDate, start: len([]rune("due ")), query: "tomorrow"}
+	m.compl = complState{kind: complCmd, start: len([]rune("run ")), query: "echo hi"}
 	m.applyCompletion(it, m.complItems())
 	if !hasAnchor(it.name) {
-		t.Fatalf("@date completion should splice a chip anchor, got %q", it.name)
+		t.Fatalf("@cmd completion should splice a chip anchor, got %q", it.name)
 	}
 	for _, c := range m.chips {
-		if c.Kind != chipKindDate {
-			t.Errorf("created chip kind = %q, want date", c.Kind)
+		if c.Kind != chipKindCmd || c.Value != "echo hi" {
+			t.Errorf("created chip = %+v, want cmd 'echo hi'", c)
 		}
 	}
 }

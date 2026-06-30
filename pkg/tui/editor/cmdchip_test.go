@@ -15,23 +15,36 @@ func cmdChipOf(m *Model) (database.Chip, bool) {
 	return database.Chip{}, false
 }
 
-// TestCmdChipCreateViaDoubleSpace: typing "$ls -la" then a DOUBLE space commits an
-// inline cmd chip whose value is the command (single spaces stay in the command).
-func TestCmdChipCreateViaDoubleSpace(t *testing.T) {
+// chooseChipMenu opens the @ menu, filters to one kind, and selects it — the
+// shared front half of every @-driven chip insertion in tests.
+func chooseChipMenu(m *Model, kind string) {
+	m.press("@")
+	for _, s := range chipSpecs {
+		if s.kind == kind {
+			m.compl.query = s.menu
+			break
+		}
+	}
+	m.applyChipMenu(m.cursorItem(), m.complItems())
+}
+
+// TestCmdChipCreateViaAtMenu: @cmd opens the command input; spaces stay in the
+// command and Enter splices an inline cmd chip whose value is the command.
+func TestCmdChipCreateViaAtMenu(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
 	m.caret = 0
 
-	m.press("$ls -la")
-	m.press(" ") // first space: stays part of the command
+	chooseChipMenu(m, chipKindCmd)
+	m.press("ls -la") // a space stays part of the command, completer stays open
 	if _, ok := cmdChipOf(m); ok {
-		t.Fatal("a single space must not commit the cmd chip")
+		t.Fatal("the chip must not commit before Enter")
 	}
-	m.press(" ") // second space: commits the chip
+	m.press("enter")
 
 	c, ok := cmdChipOf(m)
 	if !ok {
-		t.Fatal("double space did not create a cmd chip")
+		t.Fatal("@cmd + enter did not create a cmd chip")
 	}
 	if c.Value != "ls -la" {
 		t.Errorf("cmd value = %q, want %q", c.Value, "ls -la")
@@ -40,21 +53,20 @@ func TestCmdChipCreateViaDoubleSpace(t *testing.T) {
 	if !hasAnchor(edit.name) {
 		t.Fatalf("node has no chip anchor: %q", edit.name)
 	}
-	if got := displayAnchors(edit.name, m.chips); got != "$ ls -la " {
-		t.Errorf("rendered = %q, want %q", got, "$ ls -la ")
+	if got := displayAnchors(edit.name, m.chips); got != "$ ls -la" {
+		t.Errorf("rendered = %q, want %q", got, "$ ls -la")
 	}
 }
 
-// TestCmdChipMidSentence: a "$cmd" token dropped mid-text (preceded by a space)
-// converts, leaving the surrounding prose intact.
+// TestCmdChipMidSentence: @cmd dropped mid-text leaves the surrounding prose intact.
 func TestCmdChipMidSentence(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "run "})
 	cursorOn(m, "edit")
 	m.caret = len([]rune("run "))
 
-	m.press("$echo hi")
-	m.press(" ")
-	m.press(" ")
+	chooseChipMenu(m, chipKindCmd)
+	m.press("echo hi")
+	m.press("enter")
 
 	c, ok := cmdChipOf(m)
 	if !ok {
@@ -63,8 +75,8 @@ func TestCmdChipMidSentence(t *testing.T) {
 	if c.Value != "echo hi" {
 		t.Errorf("cmd value = %q, want %q", c.Value, "echo hi")
 	}
-	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "run $ echo hi " {
-		t.Errorf("rendered = %q, want %q", got, "run $ echo hi ")
+	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "run $ echo hi" {
+		t.Errorf("rendered = %q, want %q", got, "run $ echo hi")
 	}
 }
 
@@ -75,9 +87,9 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 	m, db := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("$ls")
-	m.press(" ")
-	m.press(" ")
+	chooseChipMenu(m, chipKindCmd)
+	m.press("ls")
+	m.press("enter")
 
 	c, ok := cmdChipOf(m)
 	if !ok {
@@ -100,14 +112,15 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 }
 
 // TestCmdChipNotInBashNode: inside a bash node the whole node is the command, so
-// "$" stays literal and no inline cmd chip forms.
+// the @ menu offers no cmd kind and "@" stays literal — no inline cmd chip forms.
 func TestCmdChipNotInBashNode(t *testing.T) {
+	if anyChipAllowed(database.TypeBash) {
+		t.Fatal("the @ menu must offer nothing on a bash node")
+	}
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "", Type: database.TypeBash})
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("$ls -la")
-	m.press(" ")
-	m.press(" ")
+	m.press("@cmd")
 	if _, ok := cmdChipOf(m); ok {
 		t.Fatal("a bash node must not form an inline cmd chip")
 	}

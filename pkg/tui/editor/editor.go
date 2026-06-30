@@ -57,9 +57,9 @@ var slashCommands = []slashCommand{
 	{"/bring", "Bring another node (or an agent) here"},
 	{"/complete", "Toggle done"},
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
-	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
+	{"/file", "Insert a file path chip (fuzzy fzf picker; or @file)"},
 	{"/goto", "Jump the editor to another node"},
-	{"/link", "Insert an inline link to a node or URL ([[)"},
+	{"/link", "Insert an inline link to a node or URL (or @link)"},
 	{"/lock", "Lock or unlock this node (read-only)"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/move", "Move this node under another node"},
@@ -1268,47 +1268,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// ">" opens the file picker to splice a path chip at the caret — the chip
-		// renders as "›name", so ">" is its natural trigger. Skipped where ">" is
-		// real syntax (bash redirects, code, queries), and after a "-" so the "->"
-		// log gesture can form instead of grabbing the picker.
-		if string(k.Runes) == ">" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			pathChipTrigger(cur.typ) && !runeBeforeCaretIs(cur, m.caret, '-') {
-			return m, m.openFilePicker(cur)
-		}
-
-		// "[[" opens the link picker: the second "[" drops the first and opens the
-		// finder where you pick a node or type/paste a URL. Same type guard as the
-		// path chip ("[" stays literal in code/bash/query/quote/json).
-		if string(k.Runes) == "[" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			pathChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
-			runes := []rune(cur.name)
-			m.boundCaret(len(runes))
-			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
-			m.caret--
-			m.unsaved = true
-			m.openFinder(actLinkInsert)
-			return m, nil
-		}
-
-		// "#" opens the tag completer at a word boundary; ":" opens the query-command
-		// completer in a query node. Both stay literal mid-word so "C#"/"a:b" type
-		// normally; tags skip bash/code where "#" is a comment.
-		if string(k.Runes) == "#" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
-			return m.openCompleter(cur, complTag, "#")
-		}
-		if string(k.Runes) == ":" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			cur.typ == database.TypeQuery && atWordStart(cur, m.caret) {
-			return m.openCompleter(cur, complQueryCmd, ":")
-		}
-
-		// "@" opens the unified chip menu — the one discoverable way to insert any
-		// chip (file/link/tag/date/cmd). The per-kind fast triggers (">", "[[", "#",
-		// "$…  ", ctrl+t) still work; this is the single entry point that lists them.
+		// "@" is the one trigger for inserting a chip: at a word boundary it opens
+		// the chip menu (file/link/tag/cmd — see chipreg.go), which runs the chosen
+		// kind's creator. There are no per-kind trigger chars (">", "[[", "#", "$…  ");
+		// "@" replaced them. A date is the exception — it has no trigger, it is
+		// recognised from a typed phrase / ctrl+t (see date.go), so it is not offered
+		// here.
 		if string(k.Runes) == "@" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			atWordStart(cur, m.caret) && anyChipAllowed(cur.typ) {
 			return m.openCompleter(cur, complChipMenu, "@")
+		}
+
+		// ":" opens the query-command completer in a query node (query syntax, not a
+		// chip trigger). It stays literal mid-word so "a:b" types normally.
+		if string(k.Runes) == ":" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			cur.typ == database.TypeQuery && atWordStart(cur, m.caret) {
+			return m.openCompleter(cur, complQueryCmd, ":")
 		}
 
 		if cur.mirrorOf != "" {
@@ -1334,13 +1309,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.boundCaret(len([]rune(cur.name)))
 
 		// typing a space commits a sign prefix ("$ "→bash, "-> "/"→ "→log) into the
-		// node's type, or a #tag / date token before it into a chip.
+		// node's type, or recognises a #tag / date token before it and chips it.
 		if text == " " && !k.Paste {
 			if m.convertBySign(cur) {
 				return m, nil // the sign became the type; the space is consumed
-			}
-			if m.bashCmdBeforeCaret(cur) {
-				return m, nil // a "$cmd" + double space committed a cmd chip
 			}
 			m.chipifyBeforeCaret(cur)
 		}
@@ -1358,35 +1330,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// pathChipTrigger reports whether ">" (and "[[") should open the file/link picker
-// on this type. Gating lives in the chip creation registry (chipreg.go) — path
-// and link share it — so this is a thin alias over chipAllowedOn.
-func pathChipTrigger(typ string) bool {
-	return chipAllowedOn(chipKindPath, typ)
-}
-
-// runeBeforeCaretIs reports whether the rune just left of caret is r.
-func runeBeforeCaretIs(cur *item, caret int, r rune) bool {
-	runes := []rune(cur.name)
-	return caret > 0 && caret <= len(runes) && runes[caret-1] == r
-}
-
 // atWordStart reports whether the caret sits at the start of a word — at the
-// node start or just after whitespace — so "#"/":" only open a completer there,
-// keeping "C#" and "a:b" as literal mid-word text.
+// node start or just after whitespace — so "@"/":" only open a completer there,
+// keeping "a@b" and "a:b" as literal mid-word text.
 func atWordStart(cur *item, caret int) bool {
 	if caret <= 0 {
 		return true
 	}
 	runes := []rune(cur.name)
 	return caret <= len(runes) && runes[caret-1] == ' '
-}
-
-// tagPickerTrigger reports whether "#" should open the tag completer on this
-// type. Gating lives in the chip creation registry (chipreg.go); this is a thin
-// alias over chipAllowedOn for the tag kind.
-func tagPickerTrigger(typ string) bool {
-	return chipAllowedOn(chipKindTag, typ)
 }
 
 // convertBySign turns a sign typed at the very start of a node into that node's

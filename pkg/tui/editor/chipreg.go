@@ -67,25 +67,18 @@ var chipSpecs = []chipSpec{
 		allowOn: notCodeChip,
 		create:  func(m *Model, cur *item) (tea.Model, tea.Cmd) { return m.openCompleter(cur, complTag, "#") },
 	},
+	// A date chip has NO "@" entry and no trigger char: it is recognised from a
+	// typed phrase / ctrl+t (see date.go) and is intentionally left out of this
+	// menu. The entry stays here (create nil) only to document that exclusion.
 	{
-		kind: chipKindDate, menu: "date", desc: "insert a date (type a phrase)", marker: "◷",
+		kind: chipKindDate, menu: "date", desc: "(typed phrase / ctrl+t)", marker: "◷",
 		allowOn: notCodeChip,
-		// opens the date entry completer; ctrl+t still converts an in-text phrase.
-		create: func(m *Model, cur *item) (tea.Model, tea.Cmd) { return m.openCompleter(cur, complDate, "") },
 	},
 	{
 		kind: chipKindCmd, menu: "cmd", desc: "inline shell command (alt+r runs)", marker: "$",
 		allowOn: func(typ string) bool { return typ != database.TypeBash && typeOf(typ).inlineEditable },
-		// drop a "$" at the caret; the user types the command and commits it with a
-		// double-space, exactly like the bare "$cmd  " fast path (see cmdchip.go).
-		create: func(m *Model, cur *item) (tea.Model, tea.Cmd) {
-			runes := []rune(cur.name)
-			m.boundCaret(len(runes))
-			cur.name = string(runes[:m.caret]) + "$" + string(runes[m.caret:])
-			m.caret++
-			m.unsaved = true
-			return m, nil
-		},
+		// opens the command input; Enter splices a cmd chip (see complCmd).
+		create: func(m *Model, cur *item) (tea.Model, tea.Cmd) { return m.openCompleter(cur, complCmd, "$") },
 	},
 }
 
@@ -96,15 +89,6 @@ var chipSpecByKind = func() map[string]chipSpec {
 	}
 	return m
 }()
-
-// chipAllowedOn reports whether a chip kind may be inserted on a node type,
-// consulting the registry (the single source of truth for gating).
-func chipAllowedOn(kind, typ string) bool {
-	if s, ok := chipSpecByKind[kind]; ok && s.allowOn != nil {
-		return s.allowOn(typ)
-	}
-	return false
-}
 
 // anyChipAllowed reports whether any creatable chip kind is offered on a node
 // type — the guard that decides whether "@" opens the chip menu there.

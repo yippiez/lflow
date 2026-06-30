@@ -3,24 +3,24 @@ package editor
 import (
 	"sort"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// An inline completer is the popup behind "#" (tags) and ":" (query commands).
-// Like the slash menu it types its trigger + query into the node text and shows
-// a filtered list above the status bar; Enter completes, Esc leaves the typed
-// text literal. The two kinds differ only in their item source and what Enter
-// inserts — a tag chip, or a query-command token — so they share this one mode.
+// An inline completer is the popup behind the "@" chip menu and its sub-entries
+// (@tag picks a tag, @cmd types a command) and behind ":" query commands. Like the
+// slash menu it types its trigger + query into the node text and shows a filtered
+// list above the status bar; Enter completes, Esc leaves the typed text literal.
+// The kinds differ only in their item source and what Enter does, so they share
+// this one mode.
 
 type complKind int
 
 const (
-	complTag      complKind = iota // "#": pick an existing tag
+	complTag      complKind = iota // tag: pick an existing tag (reached via @tag)
 	complQueryCmd                  // ":": pick a query time command (query nodes only)
-	complChipMenu                  // "@": pick a chip kind to insert (file/link/tag/date/cmd)
-	complDate                      // date entry, reached via @date: type a phrase, insert a date chip
+	complChipMenu                  // "@": pick a chip kind to insert (file/link/tag/cmd)
+	complCmd                       // command entry, reached via @cmd: type a command, insert a cmd chip
 )
 
 // complState is the live completer: where its trigger sits in the name, the
@@ -82,8 +82,8 @@ func (m *Model) complItems() []complItem {
 	switch m.compl.kind {
 	case complChipMenu:
 		return m.chipMenuItems()
-	case complDate:
-		return m.dateComplItems()
+	case complCmd:
+		return m.cmdComplItems()
 	}
 	q := strings.ToLower(m.compl.query)
 	var src []complItem
@@ -127,34 +127,14 @@ func (m *Model) chipMenuItems() []complItem {
 	return out
 }
 
-// dateComplItems suggests dates for the @date entry: the canonical form of
-// whatever phrase is typed (if it parses), plus the relative-day shortcuts.
-func (m *Model) dateComplItems() []complItem {
-	q := strings.TrimSpace(m.compl.query)
-	now := time.Now()
-	var out []complItem
-	seen := map[string]bool{}
-	add := func(label, canon, desc string) {
-		if canon == "" || seen[canon] {
-			return
-		}
-		seen[canon] = true
-		out = append(out, complItem{label: label, value: canon, desc: desc})
+// cmdComplItems is the @cmd input's single live row: a preview of the command
+// typed so far. Enter on it splices the cmd chip; an empty input offers nothing.
+func (m *Model) cmdComplItems() []complItem {
+	cmd := strings.TrimSpace(m.compl.query)
+	if cmd == "" {
+		return nil
 	}
-	if q != "" {
-		if d := pickByCaret(detectAllDates(q, now), len([]rune(q))); d != nil {
-			add(d.canonical(), d.canonical(), "parsed")
-		}
-	}
-	for _, w := range []string{"today", "tomorrow", "yesterday", "now"} {
-		if q != "" && !strings.Contains(w, strings.ToLower(q)) {
-			continue
-		}
-		if d := pickByCaret(detectRelative(w, now), 0); d != nil {
-			add(w, d.canonical(), d.canonical())
-		}
-	}
-	return out
+	return []complItem{{label: "$ " + cmd, value: cmd, desc: "enter to insert · alt+r runs it"}}
 }
 
 // openCompleter types the trigger into the node and switches to the completer.
@@ -191,11 +171,12 @@ func (m *Model) applyCompletion(cur *item, items []complItem) {
 		m.unsaved = true
 		return
 	}
-	if m.compl.kind == complDate {
-		if len(items) == 0 || m.compl.sel >= len(items) {
-			return // nothing parsed: leave the typed text literal
+	if m.compl.kind == complCmd {
+		cmd := strings.TrimSpace(m.compl.query)
+		if cmd == "" {
+			return // empty input: leave the "$" literal
 		}
-		m.replaceRangeWithChip(cur, m.compl.start, end, chipKindDate, items[m.compl.sel].value)
+		m.replaceRangeWithChip(cur, m.compl.start, end, chipKindCmd, cmd)
 		return
 	}
 	// tag: the highlighted tag, else the typed word (new tag)
@@ -292,9 +273,9 @@ func (m *Model) handleCompleteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if k.Type == tea.KeySpace && !k.Alt && m.compl.kind == complDate {
-		// a date phrase carries spaces ("11 february 2025 saat 15:20"); keep the
-		// completer open and treat the space as a query character.
+	if k.Type == tea.KeySpace && !k.Alt && m.compl.kind == complCmd {
+		// a shell command carries spaces ("ls -la"); keep the completer open and
+		// treat the space as a query character.
 		m.compl.query += " "
 		m.compl.sel = 0
 		if cur != nil {

@@ -60,8 +60,8 @@ func hasAnchor(name string) bool {
 	return strings.ContainsRune(name, chipSentinel)
 }
 
-// Path chips are created by the /file fuzzy picker (see file.go), not by typing a
-// marker — so "#" stays tags-only. The chip's display marker is "›" (see chipKinds).
+// Path chips are created by the @file fuzzy picker (see file.go). The chip's
+// display marker is "›" (see chipKinds).
 
 // spanStartingAt returns the anchor beginning exactly at rune index i, or nil.
 func spanStartingAt(spans []anchorSpan, i int) *anchorSpan {
