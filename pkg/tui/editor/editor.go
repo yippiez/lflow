@@ -36,6 +36,7 @@ const (
 	modeComplete // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
 	modeCmdView  // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
+	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
 )
 
 type finderAction int
@@ -141,6 +142,12 @@ type Model struct {
 
 	cmdViewID  string // cmd chip id whose output the alt+e viewer is showing
 	cmdViewCmd string // that chip's command, for the viewer header
+
+	// flash mode (modeFlash): each visible row's actions carry a typed label;
+	// typing a label narrows (matched prefix grays, the rest stays lit) until one
+	// completes and fires. flashInput is the prefix typed so far. See flash.go.
+	flashTargets []flashTarget
+	flashInput   string
 
 	// /type picker selection (index into the filtered list) and search query
 	typeSel   int
@@ -642,6 +649,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleThemeKey(k)
 	case modeComplete:
 		return m.handleCompleteKey(k)
+	case modeFlash:
+		return m.handleFlashKey(k)
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
@@ -1032,6 +1041,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, run(m, cur)
 			}
 		}
+		return m, nil
+	case "alt+s":
+		// flash: label every visible row's actions (jump / run / expand / fold) and
+		// hand off to modeFlash so the next keystrokes pick one — act on a node
+		// elsewhere on screen without moving the cursor there. See flash.go.
+		m.enterFlash()
 		return m, nil
 	case "alt+up", "ctrl+up":
 		// collapse the cursor node
@@ -2647,7 +2662,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		name := m.tree.displayName(it)
 
 		caret := -1
-		if selected && m.mode != modeNote && it.mirrorOf == "" {
+		if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
 			caret = m.caret
 		}
 		body := renderBody(it, name, caret, selected, m.chips)
@@ -2656,6 +2671,10 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
+		// flash mode hangs each row's action labels off the end of the line
+		if m.mode == modeFlash {
+			line += m.flashRowSuffix(i)
+		}
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
@@ -3034,6 +3053,13 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	if m.flash != "" {
 		state += " · " + m.flash
+	}
+	if m.mode == modeFlash {
+		hint := cFG + "flash" + cReset + cDim
+		if m.flashInput != "" {
+			hint += " " + cFG + m.flashInput + cReset + cDim
+		}
+		state += " · " + hint + " · esc cancel"
 	}
 	// offer the date conversion while a non-canonical time phrase sits under the
 	// cursor; an already-canonical date needs no conversion and is chipped as-is
