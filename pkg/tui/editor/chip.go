@@ -139,14 +139,6 @@ var chipKinds = map[string]chipKind{
 		display: func(v string) string { return v },
 		expand:  func(v string) string { return v },
 	},
-	// an artifact chip: ▣ + the page's label. The chip value is the label; the
-	// page bytes live in the artifacts table keyed by the chip id (see artifact.go).
-	chipKindArtifact: {
-		key:     chipKindArtifact,
-		color:   cCyan,
-		display: func(v string) string { return glyphArtifact + " " + v },
-		expand:  func(v string) string { return v },
-	},
 }
 
 func chipKindOf(kind string) (chipKind, bool) {
@@ -281,9 +273,17 @@ func (m *Model) backfillName(it *item) int {
 // splice into a node name. The record is written through to the DB at once so it
 // survives even before the node is saved (the anchor in the name pins it).
 func (m *Model) createChip(kind, value string) string {
+	anchor, _ := m.createChipID(kind, value)
+	return anchor
+}
+
+// createChipID is createChip but also returns the new chip's id, for callers that
+// attach side data keyed by it (a path chip's embedded .html/.md snapshot, see
+// file.go).
+func (m *Model) createChipID(kind, value string) (anchor, id string) {
 	id, err := utils.GenerateUUID()
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	c := database.Chip{ID: id, Kind: kind, Value: value}
 	if m.chips == nil {
@@ -293,7 +293,7 @@ func (m *Model) createChip(kind, value string) string {
 	if m.ctx.DB != nil {
 		_ = database.UpsertChip(m.ctx.DB, c)
 	}
-	return chipAnchor(id)
+	return chipAnchor(id), id
 }
 
 // deleteChipID drops a chip record (in-memory and on disk). The caller removes

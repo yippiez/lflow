@@ -842,10 +842,10 @@ var lm24 = migration{
 	},
 }
 
-// lm25 adds the artifacts table — a node/chip's embedded web page (an .html file,
-// or a .md file rendered to html), keyed by the artifact node's uuid or the
-// artifact chip's id. Local only, never synced: the content is machine-rendered
-// and can be large, like node_output and chips.
+// lm25 adds the artifacts table — the embedded content snapshot of an .html/.md
+// file chip (the file's bytes captured when the chip is created), keyed by the
+// chip id. Local only, never synced: the content can be large and is
+// machine-specific, like node_output and chips.
 var lm25 = migration{
 	name: "add-artifacts-table",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {

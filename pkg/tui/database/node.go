@@ -9,38 +9,36 @@ import (
 
 // Type values for a node.
 const (
-	TypeBullets  = "bullets"
-	TypeTodo     = "todo"
-	TypeH1       = "h1"
-	TypeH2       = "h2"
-	TypeH3       = "h3"
-	TypeCode     = "code"
-	TypeQuote    = "quote"
-	TypeJSON     = "json"
-	TypeBash     = "bash"
-	TypeQuery    = "query"
-	TypeVoice    = "voice"
-	TypeDivider  = "divider"
-	TypeLog      = "log"
-	TypeArtifact = "artifact"
+	TypeBullets = "bullets"
+	TypeTodo    = "todo"
+	TypeH1      = "h1"
+	TypeH2      = "h2"
+	TypeH3      = "h3"
+	TypeCode    = "code"
+	TypeQuote   = "quote"
+	TypeJSON    = "json"
+	TypeBash    = "bash"
+	TypeQuery   = "query"
+	TypeVoice   = "voice"
+	TypeDivider = "divider"
+	TypeLog     = "log"
 )
 
 // ValidTypes is the set of accepted type values.
 var ValidTypes = map[string]bool{
-	TypeBullets:  true,
-	TypeTodo:     true,
-	TypeH1:       true,
-	TypeH2:       true,
-	TypeH3:       true,
-	TypeCode:     true,
-	TypeQuote:    true,
-	TypeJSON:     true,
-	TypeBash:     true,
-	TypeQuery:    true,
-	TypeVoice:    true,
-	TypeDivider:  true,
-	TypeLog:      true,
-	TypeArtifact: true,
+	TypeBullets: true,
+	TypeTodo:    true,
+	TypeH1:      true,
+	TypeH2:      true,
+	TypeH3:      true,
+	TypeCode:    true,
+	TypeQuote:   true,
+	TypeJSON:    true,
+	TypeBash:    true,
+	TypeQuery:   true,
+	TypeVoice:   true,
+	TypeDivider: true,
+	TypeLog:     true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror

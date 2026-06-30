@@ -41,21 +41,12 @@ func TestArtifactCRUD(t *testing.T) {
 func TestGCArtifacts(t *testing.T) {
 	db := InitTestMemoryDB(t)
 
-	// keyed by a live artifact node's uuid → kept
-	node := Node{UUID: "n1", Name: "page.html", Type: TypeArtifact}
-	if err := node.Insert(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := UpsertArtifact(db, Artifact{ID: "n1", Name: "page.html", Kind: "html"}); err != nil {
-		t.Fatal(err)
-	}
-
-	// referenced by a chip anchor in a live node name → kept
-	chipNode := Node{UUID: "n2", Name: "see " + ChipAnchor("c1") + " here", Type: TypeBullets}
+	// referenced by a path-chip anchor in a live node name → kept
+	chipNode := Node{UUID: "n1", Name: "see " + ChipAnchor("c1") + " here", Type: TypeBullets}
 	if err := chipNode.Insert(db); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpsertArtifact(db, Artifact{ID: "c1", Name: "doc.md", Kind: "md"}); err != nil {
+	if err := UpsertArtifact(db, Artifact{ID: "c1", Name: "page.html", Kind: "html"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -68,10 +59,8 @@ func TestGCArtifacts(t *testing.T) {
 		t.Fatalf("gc: %v", err)
 	}
 
-	for _, id := range []string{"n1", "c1"} {
-		if _, err := GetArtifact(db, id); err != nil {
-			t.Errorf("artifact %s was gc'd but should be kept: %v", id, err)
-		}
+	if _, err := GetArtifact(db, "c1"); err != nil {
+		t.Errorf("artifact c1 was gc'd but should be kept: %v", err)
 	}
 	if _, err := GetArtifact(db, "orphan"); err == nil {
 		t.Error("orphan artifact should have been gc'd")

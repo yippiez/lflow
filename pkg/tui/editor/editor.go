@@ -508,9 +508,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case artifactPickedMsg:
-		m.applyArtifactPick(msg)
-		return m, nil
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
 		return m, nil
@@ -1005,10 +1002,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			} else if e := typeOf(cur.typ).expand; e != nil {
 				return m, e(m, cur)
-			} else if cmd := m.openArtifactChipCmd(cur); cmd != nil {
-				return m, cmd // ⌥e on a node with an artifact chip opens it in the browser
 			} else if cmd := m.openPathChipCmd(cur); cmd != nil {
-				return m, cmd // ⌥e on a node with a path chip opens the file in $EDITOR
+				return m, cmd // ⌥e on a node with a path chip: .html opens in the browser, else $EDITOR
 			}
 		}
 		return m, nil
@@ -1263,15 +1258,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if string(k.Runes) == ">" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			pathChipTrigger(cur.typ) && !runeBeforeCaretIs(cur, m.caret, '-') {
 			return m, m.openFilePicker(cur)
-		}
-
-		// "?" at a word boundary opens the artifact picker (a .md/.html fuzzy find):
-		// on an empty node it makes an artifact node, mid-text it splices a chip.
-		// Skipped where ">" is real syntax (same text-ish types as the file picker)
-		// so "?" stays literal in prose ("done?") — it only triggers after a space.
-		if string(k.Runes) == "?" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			pathChipTrigger(cur.typ) && atWordStart(cur, m.caret) {
-			return m, m.openArtifactPicker(cur)
 		}
 
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command

@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/browser"
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // fzfPickedMsg carries the file the fzf picker selected, to splice a path chip
@@ -38,12 +41,15 @@ func (m *Model) openFilePicker(cur *item) tea.Cmd {
 	})
 }
 
-// insertPathChip splices a path chip for absPath into cur.name at caret.
+// insertPathChip splices a path chip for absPath into cur.name at caret. For the
+// embeddable file types (.html / .md) it also snapshots the file's content into
+// the chip's data at pick time (see fileEmbeds).
 func (m *Model) insertPathChip(cur *item, caret int, absPath string) {
-	anchor := m.createChip(chipKindPath, absPath)
+	anchor, id := m.createChipID(chipKindPath, absPath)
 	if anchor == "" {
 		return
 	}
+	m.embedFileChip(id, absPath)
 	runes := []rune(cur.name)
 	if caret > len(runes) {
 		caret = len(runes)
@@ -56,10 +62,88 @@ func (m *Model) insertPathChip(cur *item, caret int, absPath string) {
 	m.unsaved = true
 }
 
-// openPathChipCmd opens the cursor node's path chip in $EDITOR (nvim fallback),
-// restoring the old file-node ⌥e behavior for the chip model. The path chip the
-// caret sits on (or just after) wins; otherwise the node's first path chip.
-// Returns nil when the node has no path chip.
+// ── per-extension file-chip behavior ───────────────────────────────────────
+//
+// A path chip is normally just a reference opened in $EDITOR on ⌥e. Some file
+// types get special handling, declared once here: an .html/.md chip snapshots
+// the file's bytes into the chip's data (the artifacts table, keyed by chip id)
+// when it is picked, and an .html chip opens that saved page in the browser on
+// ⌥e instead of $EDITOR. A .md chip is embedded too but still opens in $EDITOR.
+type fileEmbed struct {
+	kind          string                                  // stored content kind ("html"/"md")
+	embedOnCreate bool                                    // snapshot bytes into chip data at pick time
+	open          func(m *Model, id, path string) tea.Cmd // ⌥e override; nil → default ($EDITOR)
+}
+
+var fileEmbeds = map[string]fileEmbed{
+	".html": {kind: "html", embedOnCreate: true, open: openFileChipInBrowser},
+	".htm":  {kind: "html", embedOnCreate: true, open: openFileChipInBrowser},
+	".md":   {kind: "md", embedOnCreate: true, open: nil}, // embedded, but ⌥e edits the file
+}
+
+// fileEmbedOf returns the embed descriptor for a path's extension, if any.
+func fileEmbedOf(path string) (fileEmbed, bool) {
+	e, ok := fileEmbeds[strings.ToLower(filepath.Ext(path))]
+	return e, ok
+}
+
+// embedFileChip snapshots an embeddable file's bytes into the chip's data so the
+// content lives in the DB independent of the on-disk file. Non-embeddable types
+// are a no-op (the chip stays a plain path reference).
+func (m *Model) embedFileChip(id, absPath string) {
+	e, ok := fileEmbedOf(absPath)
+	if !ok || !e.embedOnCreate {
+		return
+	}
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		m.flash = "embed failed: " + err.Error()
+		return
+	}
+	if m.ctx.DB != nil {
+		_ = database.UpsertArtifact(m.ctx.DB, database.Artifact{
+			ID: id, Name: filepath.Base(absPath), Kind: e.kind, Content: string(data),
+		})
+	}
+}
+
+// openFileChipInBrowser renders an .html chip's saved snapshot to a cache file
+// and opens it in the browser (fire-and-forget). It falls back to the live file
+// when no snapshot is stored (e.g. a chip from before the embed existed).
+func openFileChipInBrowser(m *Model, id, path string) tea.Cmd {
+	content := ""
+	if m.ctx.DB != nil {
+		if a, err := database.GetArtifact(m.ctx.DB, id); err == nil {
+			content = a.Content
+		}
+	}
+	target := path // live file fallback
+	if content != "" {
+		dir := filepath.Join(m.ctx.Paths.Cache, "lflow", "embeds")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			m.flash = "open failed: " + err.Error()
+			return nil
+		}
+		cacheFile := filepath.Join(dir, id+".html")
+		if err := os.WriteFile(cacheFile, []byte(content), 0o644); err != nil {
+			m.flash = "open failed: " + err.Error()
+			return nil
+		}
+		target = cacheFile
+	}
+	if err := browser.Open("file://" + target); err != nil {
+		m.flash = "open failed: " + err.Error()
+		return nil
+	}
+	m.flash = "opened ▣ " + clipStr(filepath.Base(path), 32)
+	return nil
+}
+
+// openPathChipCmd opens the cursor node's path chip on ⌥e. The path chip the
+// caret sits on (or just after) wins; otherwise the node's first path chip. The
+// file type decides the action: an .html chip opens its saved page in the
+// browser, everything else opens the file in $EDITOR (nvim fallback). Returns
+// nil when the node has no path chip (or the action is fire-and-forget).
 func (m *Model) openPathChipCmd(cur *item) tea.Cmd {
 	if cur == nil {
 		return nil
@@ -77,6 +161,9 @@ func (m *Model) openPathChipCmd(cur *item) tea.Cmd {
 	}
 	for _, sp := range order {
 		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindPath {
+			if e, ok := fileEmbedOf(c.Value); ok && e.open != nil {
+				return e.open(m, c.ID, c.Value)
+			}
 			return openPathInEditor(m, c.Value)
 		}
 	}
@@ -144,4 +231,3 @@ func absolutizePath(p string) string {
 	}
 	return abs
 }
-
