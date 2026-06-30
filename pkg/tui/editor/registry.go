@@ -103,7 +103,7 @@ var nodeTypes = []nodeType{
 	},
 	{
 		key: database.TypeNapkin, label: "Napkin", glyph: napkinGlyph, inlineEditable: true,
-		expand: func(m *Model, it *item) tea.Cmd { return m.launchNapkin(it) }, // alt+e: browser drawing app
+		view: napkinView{}, // alt+e: 3D scene view (orbit a wireframe cube)
 	},
 }
 

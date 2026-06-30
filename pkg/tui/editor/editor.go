@@ -518,18 +518,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
 		return m, nil
-	case napkinSavedMsg:
-		// the browser app returned: drop the cached thumbnail so the new PNG is
-		// picked up on the next render.
-		d := m.nodeStore(msg.uuid)
-		delete(d, "napkinThumb")
-		delete(d, "napkinThumbMod")
-		if msg.ok {
-			m.flash = "drawing saved"
-		} else {
-			m.flash = "drawing canceled"
-		}
-		return m, nil
 	}
 	return m, nil
 }
