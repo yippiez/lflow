@@ -1350,15 +1350,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// pathChipTrigger reports whether ">" should open the file picker on this type.
-// Text-ish nodes get it; types where ">" is real syntax (bash redirect, code,
-// query, quote, json) keep ">" literal.
+// pathChipTrigger reports whether ">" (and "[[") should open the file/link picker
+// on this type. Gating lives in the chip creation registry (chipreg.go) — path
+// and link share it — so this is a thin alias over chipAllowedOn.
 func pathChipTrigger(typ string) bool {
-	switch typ {
-	case database.TypeBash, database.TypeCode, database.TypeQuery, database.TypeQuote, database.TypeJSON:
-		return false
-	}
-	return typeOf(typ).inlineEditable
+	return chipAllowedOn(chipKindPath, typ)
 }
 
 // runeBeforeCaretIs reports whether the rune just left of caret is r.
@@ -1379,14 +1375,10 @@ func atWordStart(cur *item, caret int) bool {
 }
 
 // tagPickerTrigger reports whether "#" should open the tag completer on this
-// type. Text-ish nodes (incl. query) get it; bash and code keep "#" literal
-// since it is a comment there.
+// type. Gating lives in the chip creation registry (chipreg.go); this is a thin
+// alias over chipAllowedOn for the tag kind.
 func tagPickerTrigger(typ string) bool {
-	switch typ {
-	case database.TypeBash, database.TypeCode:
-		return false
-	}
-	return typeOf(typ).inlineEditable
+	return chipAllowedOn(chipKindTag, typ)
 }
 
 // convertBySign turns a sign typed at the very start of a node into that node's
