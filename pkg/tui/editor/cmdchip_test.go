@@ -99,6 +99,44 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 	}
 }
 
+// TestCmdChipFoldsInPathChip: a path chip spliced into a "$…" command (e.g. via
+// the ">" picker) is folded into the cmd chip's value as its full path when the
+// double space commits, and the now-orphaned path chip record is dropped.
+func TestCmdChipFoldsInPathChip(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
+	cursorOn(m, "edit")
+	m.caret = 0
+	m.press("$cat ")
+	// splice a path chip at the caret, as the ">" fuzzy picker would.
+	m.insertPathChip(m.tree.byUUID["edit"], m.caret, "/etc/hosts")
+	pathID := ""
+	for id, c := range m.chips {
+		if c.Kind == chipKindPath {
+			pathID = id
+		}
+	}
+	if pathID == "" {
+		t.Fatal("path chip was not inserted")
+	}
+	m.press(" ") // first space
+	m.press(" ") // second space commits the cmd chip
+
+	c, ok := cmdChipOf(m)
+	if !ok {
+		t.Fatal("a path chip inside the command blocked cmd chip creation")
+	}
+	if c.Value != "cat /etc/hosts" {
+		t.Errorf("cmd value = %q, want %q", c.Value, "cat /etc/hosts")
+	}
+	if _, ok := m.chips[pathID]; ok {
+		t.Errorf("folded path chip %q should have been deleted", pathID)
+	}
+	// only the cmd chip's anchor remains in the name.
+	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "$ cat /etc/hosts " {
+		t.Errorf("rendered = %q, want %q", got, "$ cat /etc/hosts ")
+	}
+}
+
 // TestCmdChipNotInBashNode: inside a bash node the whole node is the command, so
 // "$" stays literal and no inline cmd chip forms.
 func TestCmdChipNotInBashNode(t *testing.T) {
