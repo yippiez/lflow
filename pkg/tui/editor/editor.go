@@ -780,10 +780,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "tab":
 		// path chips are inserted via the /file fuzzy picker now, not a "#…" token,
-		// so Tab just indents (# is tags-only again)
-		if m.tempActive {
-			return m, nil // no indenting in the Agent Domain
-		}
+		// so Tab just indents (# is tags-only again). The Temporary Domain edits
+		// exactly like the main outline, so indenting works there too.
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.indent(cur) {
@@ -799,9 +797,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "shift+tab":
-		if m.tempActive {
-			return m, nil // no outdenting in the Agent Domain
-		}
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.outdent(cur, mc.localRoot) {
@@ -2370,7 +2365,8 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 	}
 	m.unsaved = false
 
-	rank, err := database.NextRank(m.db, target.UUID)
+	// /move drops the node at the top of the target's children, not the bottom
+	rank, err := database.FirstRank(m.db, target.UUID)
 	if err != nil {
 		return err
 	}
