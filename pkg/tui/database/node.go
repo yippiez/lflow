@@ -22,13 +22,6 @@ const (
 	TypeVoice   = "voice"
 	TypeDivider = "divider"
 	TypeLog     = "log"
-	// Coding-agent session nodes: a saved CLI session you re-enter from the
-	// outline. The type names the provider; the node's name is the session label
-	// and its note carries the session metadata (id, cwd, byte size). One type
-	// per agent — adding another is a new constant here + a registry entry, no
-	// migration (see the free-string-type invariant above).
-	TypeAgentClaude = "agent_claude"
-	TypeAgentPi     = "agent_pi"
 )
 
 // ValidTypes is the set of accepted type values.
@@ -46,8 +39,6 @@ var ValidTypes = map[string]bool{
 	TypeVoice:   true,
 	TypeDivider: true,
 	TypeLog:     true,
-	TypeAgentClaude: true,
-	TypeAgentPi:     true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror
@@ -360,7 +351,7 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 	// and FTS passes, which see only the opaque anchor. Resolve anchors for the
 	// anchor-bearing nodes and match the display + full value. char(65532) is the
 	// anchor sentinel U+FFFC, so this stays off chipless nodes.
-	if rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE deleted = 0 AND instr(name, char(65532)) > 0 LIMIT 200"); err == nil {
+	if rows, err := db.Query("SELECT " + nodeColumns + " FROM nodes WHERE deleted = 0 AND instr(name, char(65532)) > 0 LIMIT 200"); err == nil {
 		chips, _ := LoadChips(db)
 		lq := strings.ToLower(q)
 		for rows.Next() {

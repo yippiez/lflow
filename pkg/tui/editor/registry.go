@@ -23,12 +23,6 @@ type nodeType struct {
 	glyph          func(it *item) (string, string)    // per-type glyph+color; nil → default ○/●
 	render         func(it *item, name string) string // stateless inline-body override; nil → default
 	renderM        func(m *Model, it *item) string    // Model-aware inline-body override (voice waveform)
-	// band fully owns the row's rendered lines, bypassing the glyph + body
-	// assembly (like the divider's full-width rule). When set, viewOutline/
-	// finalView call it instead of building the standard line — used by the
-	// coding-agent session nodes, which render as a 100%-width colored bar.
-	// caret is the edit caret on the selected row, or -1.
-	band           func(m *Model, r row, width, caret int, selected bool) []string
 	inlineEditable bool                               // false → typing/backspace/enter is a no-op
 	tempOnly       bool                               // only offered/allowed in the Temporary Domain
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
@@ -106,20 +100,6 @@ var nodeTypes = []nodeType{
 		renderM: func(m *Model, it *item) string { return m.voiceRender(it) },
 		run:     runVoice,
 		expand:  playVoice,
-	},
-	// Coding-agent session nodes render as a full-width colored bar (band) showing
-	// provider · session name · size; alt+r re-enters the live session (suspends
-	// the TUI, execs the agent in the saved cwd, restores on exit). The name is
-	// inline-editable (the session label); the session id/cwd/size live in note.
-	{
-		key: database.TypeAgentClaude, label: "Claude Code session", inlineEditable: true,
-		glyph: agentGlyph(database.TypeAgentClaude),
-		band:  agentBand, run: launchAgent,
-	},
-	{
-		key: database.TypeAgentPi, label: "Pi session", inlineEditable: true,
-		glyph: agentGlyph(database.TypeAgentPi),
-		band:  agentBand, run: launchAgent,
 	},
 }
 

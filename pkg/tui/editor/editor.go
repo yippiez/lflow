@@ -29,12 +29,13 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm // inline delete confirmation for nodes with children
-	modeType    // the /type picker: choose one of the node types
-	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme    // the /theme picker: choose a color palette
-	modeComplete // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
+	modeConfirm   // inline delete confirmation for nodes with children
+	modeType      // the /type picker: choose one of the node types
+	modeStyle     // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme     // the /theme picker: choose a color palette
+	modeComplete  // the inline completer: "#" tags, ":" query commands
+	modeLinkEdit  // the alt+e link-chip editor: edit a link's name and target
+	modeAgentEdit // the alt+e agent-session-chip editor: name / session id / cwd
 )
 
 type finderAction int
@@ -54,6 +55,7 @@ type slashCommand struct {
 
 var slashCommands = []slashCommand{
 	{"/bring", "Bring another node (or an agent) here"},
+	{"/claude", "Insert a Claude Code session chip"},
 	{"/complete", "Toggle done"},
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
@@ -63,6 +65,7 @@ var slashCommands = []slashCommand{
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/move", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
+	{"/pi", "Insert a Pi session chip"},
 	{"/style", "Set this node's text style or color"},
 	{"/theme", "Switch the color theme"},
 	{"/type", "Set this node's type"},
@@ -137,6 +140,14 @@ type Model struct {
 	linkEditName   string // working copy of the link's display name
 	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
 	linkEditField  int    // 0 = name field, 1 = target field
+
+	// alt+e agent-session-chip editor (modeAgentEdit)
+	agentEditID    string // chip id being edited
+	agentEditKind  string // provider chip kind (agent_claude / agent_pi)
+	agentEditName  string // working copy of the session name
+	agentEditSid   string // working copy of the resumable session id
+	agentEditCwd   string // working copy of the session working dir
+	agentEditField int    // 0 = name, 1 = session id, 2 = cwd
 
 	// /type picker selection (index into the filtered list) and search query
 	typeSel   int
@@ -623,6 +634,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFinderKey(k)
 	case modeLinkEdit:
 		return m.handleLinkEditKey(k)
+	case modeAgentEdit:
+		return m.handleAgentEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:
@@ -981,6 +994,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// on a link chip, alt+g follows it (a node jumps, a URL opens in the
 		// browser); off a chip it opens the /goto finder to jump to any node
 		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipAtCaret(cur); ok {
+				return m.launchAgentChip(c) // ⌥g on a session chip re-enters it
+			}
 			if c, ok := m.linkChipAtCaret(cur); ok {
 				return m.followLink(c)
 			}
@@ -1001,6 +1017,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.focused = true
 					m.focusScroll = 0
 				}
+			} else if c, ok := m.agentChipAtCaret(cur); ok {
+				m.openAgentEdit(c) // ⌥e on a session chip edits name/session/cwd
+				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
 				return m, nil
@@ -2074,6 +2093,14 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/file":
 		// fuzzy-pick a file with fzf, then splice a path chip in at the caret
 		return m, m.openFilePicker(cur)
+	case "/claude":
+		// splice an inline Claude Code session chip and open its editor
+		m.insertAgentChip(chipKindAgentClaude)
+		m.refreshRows()
+	case "/pi":
+		// splice an inline Pi session chip and open its editor
+		m.insertAgentChip(chipKindAgentPi)
+		m.refreshRows()
 	case "/note":
 		// a mirror is the same node everywhere: edit the original's note
 		cur = m.tree.resolve(cur)
@@ -2525,6 +2552,8 @@ func (m *Model) View() string {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)
+	} else if m.mode == modeAgentEdit {
+		lines = m.viewAgentEdit(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
@@ -2565,10 +2594,6 @@ func (m *Model) finalView(maxLine int) []string {
 		if r.it.typ == database.TypeDivider {
 			lines = append(lines, dividerLine(r, maxLine, false))
 			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
-			continue
-		}
-		if bandFn := typeOf(r.it.typ).band; bandFn != nil && !r.mirrored {
-			lines = append(lines, bandFn(m, r, maxLine, -1, false)...)
 			continue
 		}
 		glyph, glyphColor := glyphFor(r.it)
@@ -2612,19 +2637,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 				noteCaret = m.caret
 			}
 			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-			continue
-		}
-
-		// a band-rendered type (coding-agent session) fully owns its row: a
-		// full-width colored bar instead of glyph + body. The note holds the
-		// session metadata, so no note band hangs beneath it.
-		if bandFn := typeOf(it.typ).band; bandFn != nil && !r.mirrored {
-			caret := -1
-			if selected && m.mode != modeNote && it.mirrorOf == "" {
-				caret = m.caret
-			}
-			groups[i] = bandFn(m, r, maxLine, caret, selected)
-			bands[i] = nil
 			continue
 		}
 
