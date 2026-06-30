@@ -2,11 +2,12 @@ package editor
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/lflow/lflow/pkg/tui/chiptext"
 )
 
 // dateMatch is a natural-language time phrase found in a row: "now",
@@ -34,27 +35,8 @@ func (d dateMatch) canonical() string {
 // detectDateSpans returns the rune ranges [start,end) of every canonical date in
 // the name — a valid YYYY-MM-DD optionally followed by HH:MM, standing on its
 // own word boundary. The renderer chips these regardless of the node's color.
-func detectDateSpans(name string) [][2]int {
-	var spans [][2]int
-	for _, loc := range reISO.FindAllStringSubmatchIndex(name, -1) {
-		if !wordBound(name, loc[0], loc[1]) {
-			continue
-		}
-		group := func(i int) string {
-			if loc[2*i] >= 0 {
-				return name[loc[2*i]:loc[2*i+1]]
-			}
-			return ""
-		}
-		if _, ok := buildDate(atoi(group(1)), atoi(group(2)), atoi(group(3)), atoi(group(4)), atoi(group(5)), time.UTC); !ok {
-			continue
-		}
-		start := utf8.RuneCountInString(name[:loc[0]])
-		end := utf8.RuneCountInString(name[:loc[1]])
-		spans = append(spans, [2]int{start, end})
-	}
-	return spans
-}
+// The detection lives in pkg/tui/chiptext, shared with the CLI's chipify.
+func detectDateSpans(name string) [][2]int { return chiptext.DateSpans(name) }
 
 var monthsByName = map[string]time.Month{
 	"ocak": time.January, "şubat": time.February, "mart": time.March,
@@ -85,47 +67,22 @@ func monthLookup(s string) (time.Month, bool) {
 // optional clock suffix: "saat 15:20", "at 15:20", "15.20"
 const clockSuffix = `(?:\s+(?:saat\s+|at\s+)?(\d{1,2})[:.](\d{2}))?`
 
+// reISO lives in pkg/tui/chiptext (shared with chipify); the relative and named
+// formats stay here since only the editor's ctrl+t resolves natural language.
+var reISO = chiptext.ReISO
+
 var (
 	reRelative = regexp.MustCompile(`(?i)(now|şimdi|today|bugün|tomorrow|yarın|yesterday|dün)`)
 	reNamed    = regexp.MustCompile(`(?i)(\d{1,2})\s+(` + monthAlternation + `)\s+(\d{4})` + clockSuffix)
-	reISO      = regexp.MustCompile(`(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?`)
 	reNumeric  = regexp.MustCompile(`(\d{1,2})[./](\d{1,2})[./](\d{4})` + clockSuffix)
 )
 
-// wordBound reports whether the byte range [start,end) sits on its own:
-// not glued to a letter or digit on either side.
-func wordBound(s string, start, end int) bool {
-	if start > 0 {
-		r, _ := utf8.DecodeLastRuneInString(s[:start])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return false
-		}
-	}
-	if end < len(s) {
-		r, _ := utf8.DecodeRuneInString(s[end:])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return false
-		}
-	}
-	return true
-}
-
-func atoi(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
-}
-
-// buildDate validates the parts and returns the time, or false on nonsense
-// like month 13 or february 30.
+// wordBound, atoi and buildDate live in pkg/tui/chiptext; these aliases keep the
+// editor's date engine readable.
+func wordBound(s string, start, end int) bool { return chiptext.WordBound(s, start, end) }
+func atoi(s string) int                       { return chiptext.Atoi(s) }
 func buildDate(year, month, day, hour, min int, loc *time.Location) (time.Time, bool) {
-	if month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || min > 59 {
-		return time.Time{}, false
-	}
-	t := time.Date(year, time.Month(month), day, hour, min, 0, 0, loc)
-	if t.Day() != day || t.Month() != time.Month(month) {
-		return time.Time{}, false
-	}
-	return t, true
+	return chiptext.BuildDate(year, month, day, hour, min, loc)
 }
 
 // detectDate finds the convertible time phrase to act on: the one whose
