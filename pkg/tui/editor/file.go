@@ -66,19 +66,18 @@ func (m *Model) insertPathChip(cur *item, caret int, absPath string) {
 //
 // A path chip is normally just a reference opened in $EDITOR on ⌥e. Some file
 // types get special handling, declared once here: an .html/.md chip snapshots
-// the file's bytes into the chip's data (the artifacts table, keyed by chip id)
-// when it is picked, and an .html chip opens that saved page in the browser on
-// ⌥e instead of $EDITOR. A .md chip is embedded too but still opens in $EDITOR.
+// the file's bytes into the chip's own content (chips.content) when it is
+// picked, and an .html chip opens that saved page in the browser on ⌥e instead
+// of $EDITOR. A .md chip is embedded too but still opens in $EDITOR.
 type fileEmbed struct {
-	kind          string                                  // stored content kind ("html"/"md")
-	embedOnCreate bool                                    // snapshot bytes into chip data at pick time
-	open          func(m *Model, id, path string) tea.Cmd // ⌥e override; nil → default ($EDITOR)
+	embedOnCreate bool                                    // snapshot bytes into chip content at pick time
+	open          func(m *Model, c database.Chip) tea.Cmd // ⌥e override; nil → default ($EDITOR)
 }
 
 var fileEmbeds = map[string]fileEmbed{
-	".html": {kind: "html", embedOnCreate: true, open: openFileChipInBrowser},
-	".htm":  {kind: "html", embedOnCreate: true, open: openFileChipInBrowser},
-	".md":   {kind: "md", embedOnCreate: true, open: nil}, // embedded, but ⌥e edits the file
+	".html": {embedOnCreate: true, open: openFileChipInBrowser},
+	".htm":  {embedOnCreate: true, open: openFileChipInBrowser},
+	".md":   {embedOnCreate: true, open: nil}, // embedded, but ⌥e edits the file
 }
 
 // fileEmbedOf returns the embed descriptor for a path's extension, if any.
@@ -87,8 +86,8 @@ func fileEmbedOf(path string) (fileEmbed, bool) {
 	return e, ok
 }
 
-// embedFileChip snapshots an embeddable file's bytes into the chip's data so the
-// content lives in the DB independent of the on-disk file. Non-embeddable types
+// embedFileChip snapshots an embeddable file's bytes into the chip's own content
+// so it lives in the DB independent of the on-disk file. Non-embeddable types
 // are a no-op (the chip stays a plain path reference).
 func (m *Model) embedFileChip(id, absPath string) {
 	e, ok := fileEmbedOf(absPath)
@@ -100,32 +99,30 @@ func (m *Model) embedFileChip(id, absPath string) {
 		m.flash = "embed failed: " + err.Error()
 		return
 	}
+	c, ok := m.chips[id]
+	if !ok {
+		return
+	}
+	c.Content = string(data)
+	m.chips[id] = c
 	if m.ctx.DB != nil {
-		_ = database.UpsertArtifact(m.ctx.DB, database.Artifact{
-			ID: id, Name: filepath.Base(absPath), Kind: e.kind, Content: string(data),
-		})
+		_ = database.UpsertChip(m.ctx.DB, c)
 	}
 }
 
-// openFileChipInBrowser renders an .html chip's saved snapshot to a cache file
+// openFileChipInBrowser writes an .html chip's embedded content to a cache file
 // and opens it in the browser (fire-and-forget). It falls back to the live file
-// when no snapshot is stored (e.g. a chip from before the embed existed).
-func openFileChipInBrowser(m *Model, id, path string) tea.Cmd {
-	content := ""
-	if m.ctx.DB != nil {
-		if a, err := database.GetArtifact(m.ctx.DB, id); err == nil {
-			content = a.Content
-		}
-	}
-	target := path // live file fallback
-	if content != "" {
+// when the chip carries no snapshot (e.g. picked before the embed existed).
+func openFileChipInBrowser(m *Model, c database.Chip) tea.Cmd {
+	target := c.Value // live file fallback
+	if c.Content != "" {
 		dir := filepath.Join(m.ctx.Paths.Cache, "lflow", "embeds")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			m.flash = "open failed: " + err.Error()
 			return nil
 		}
-		cacheFile := filepath.Join(dir, id+".html")
-		if err := os.WriteFile(cacheFile, []byte(content), 0o644); err != nil {
+		cacheFile := filepath.Join(dir, c.ID+".html")
+		if err := os.WriteFile(cacheFile, []byte(c.Content), 0o644); err != nil {
 			m.flash = "open failed: " + err.Error()
 			return nil
 		}
@@ -135,7 +132,7 @@ func openFileChipInBrowser(m *Model, id, path string) tea.Cmd {
 		m.flash = "open failed: " + err.Error()
 		return nil
 	}
-	m.flash = "opened ▣ " + clipStr(filepath.Base(path), 32)
+	m.flash = "opened " + clipStr(filepath.Base(c.Value), 32)
 	return nil
 }
 
@@ -162,7 +159,7 @@ func (m *Model) openPathChipCmd(cur *item) tea.Cmd {
 	for _, sp := range order {
 		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindPath {
 			if e, ok := fileEmbedOf(c.Value); ok && e.open != nil {
-				return e.open(m, c.ID, c.Value)
+				return e.open(m, c)
 			}
 			return openPathInEditor(m, c.Value)
 		}

@@ -94,15 +94,20 @@ func ExpandAnchors(name string, chips map[string]Chip) string {
 // (see the chip-kind registry in pkg/tui/editor). The name text holds an opaque
 // anchor carrying the chip id; the chip's real data lives here. Local content
 // for now — a path chip's value is a machine-specific absolute path.
+//
+// Content is an optional embedded snapshot of the referenced file, captured when
+// the chip is created — used by the .html/.md file chips so the page lives in
+// the DB independent of the on-disk file. Empty for every other chip kind.
 type Chip struct {
-	ID    string `json:"id"`
-	Kind  string `json:"kind"`  // path, date, tag, …
-	Value string `json:"value"` // the full underlying data (e.g. the absolute path)
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`              // path, date, tag, …
+	Value   string `json:"value"`             // the full underlying data (e.g. the absolute path)
+	Content string `json:"content,omitempty"` // embedded file bytes (.html/.md chips); else ""
 }
 
 // LoadChips returns every chip keyed by id.
 func LoadChips(db *DB) (map[string]Chip, error) {
-	rows, err := db.Query("SELECT id, kind, value FROM chips")
+	rows, err := db.Query("SELECT id, kind, value, content FROM chips")
 	if err != nil {
 		return nil, errors.Wrap(err, "loading chips")
 	}
@@ -110,7 +115,7 @@ func LoadChips(db *DB) (map[string]Chip, error) {
 	out := map[string]Chip{}
 	for rows.Next() {
 		var c Chip
-		if err := rows.Scan(&c.ID, &c.Kind, &c.Value); err != nil {
+		if err := rows.Scan(&c.ID, &c.Kind, &c.Value, &c.Content); err != nil {
 			return nil, errors.Wrap(err, "scanning chip")
 		}
 		out[c.ID] = c
@@ -121,15 +126,15 @@ func LoadChips(db *DB) (map[string]Chip, error) {
 // GetChip returns one chip by id.
 func GetChip(db *DB, id string) (Chip, error) {
 	var c Chip
-	err := db.QueryRow("SELECT id, kind, value FROM chips WHERE id = ?", id).Scan(&c.ID, &c.Kind, &c.Value)
+	err := db.QueryRow("SELECT id, kind, value, content FROM chips WHERE id = ?", id).Scan(&c.ID, &c.Kind, &c.Value, &c.Content)
 	return c, errors.Wrapf(err, "getting chip %s", id)
 }
 
 // UpsertChip inserts or overwrites a chip.
 func UpsertChip(db *DB, c Chip) error {
 	_, err := db.Exec(
-		"INSERT INTO chips (id, kind, value) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, value = excluded.value",
-		c.ID, c.Kind, c.Value)
+		"INSERT INTO chips (id, kind, value, content) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, value = excluded.value, content = excluded.content",
+		c.ID, c.Kind, c.Value, c.Content)
 	return errors.Wrapf(err, "upserting chip %s", c.ID)
 }
 

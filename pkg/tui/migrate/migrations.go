@@ -842,20 +842,44 @@ var lm24 = migration{
 	},
 }
 
-// lm25 adds the artifacts table — the embedded content snapshot of an .html/.md
-// file chip (the file's bytes captured when the chip is created), keyed by the
-// chip id. Local only, never synced: the content can be large and is
-// machine-specific, like node_output and chips.
+// lm25 adds the chips.content column — an optional embedded snapshot of the file
+// a chip references, captured when the chip is created. Used by the .html/.md
+// file chips so the page lives in the DB independent of the on-disk file (see
+// the per-extension file-chip behavior in pkg/tui/editor/file.go). Empty for
+// every other chip kind. Local only, never synced like the rest of the chip row.
 var lm25 = migration{
-	name: "add-artifacts-table",
+	name: "add-content-to-chips",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {
-		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS artifacts (
-			id text PRIMARY KEY,
-			name text NOT NULL DEFAULT '',
-			kind text NOT NULL DEFAULT '',
-			content text NOT NULL DEFAULT ''
-		);`); err != nil {
-			return errors.Wrap(err, "creating artifacts table")
+		// supersedes an earlier dev build of this branch that created a standalone
+		// "artifacts" table; drop it so the embedded content lives on the chip row.
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS artifacts;`); err != nil {
+			return errors.Wrap(err, "dropping legacy artifacts table")
+		}
+		if _, err := tx.Exec(`ALTER TABLE chips ADD COLUMN content text NOT NULL DEFAULT '';`); err != nil {
+			return errors.Wrap(err, "adding content column to chips")
+		}
+		return nil
+	},
+}
+
+// lm26 reconciles a DB pinned at the earlier dev schema 25 (which created a
+// standalone "artifacts" table instead of the chips.content column): it drops
+// that table and adds chips.content if a prior lm25 didn't. Idempotent — on a
+// fresh DB where lm25 already added the column it is a no-op.
+var lm26 = migration{
+	name: "reconcile-chip-content-column",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS artifacts;`); err != nil {
+			return errors.Wrap(err, "dropping legacy artifacts table")
+		}
+		var has int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('chips') WHERE name = 'content'`).Scan(&has); err != nil {
+			return errors.Wrap(err, "checking chips.content column")
+		}
+		if has == 0 {
+			if _, err := tx.Exec(`ALTER TABLE chips ADD COLUMN content text NOT NULL DEFAULT '';`); err != nil {
+				return errors.Wrap(err, "adding content column to chips")
+			}
 		}
 		return nil
 	},
