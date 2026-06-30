@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lflow/lflow/pkg/tui/chiptext"
+	"github.com/lflow/lflow/pkg/tui/utils"
 	"github.com/pkg/errors"
 )
 
@@ -115,6 +117,31 @@ type Chip struct {
 	Kind  string `json:"kind"`  // path, date, tag, link, …
 	Value string `json:"value"` // the full underlying data (e.g. the absolute path, or a link target)
 	Label string `json:"label"` // display name; used by link chips, empty for path/date/tag
+}
+
+// ChipifyName rewrites the inline forms in a node name — #tags, canonical dates,
+// and [label](target) links — into chip anchors, recording each chip as it goes.
+// It is how CLI add/edit create the same chips the editor makes inline; the
+// returned name carries opaque anchors, so every read surface resolves them back.
+func ChipifyName(db *DB, name string) (string, error) {
+	var firstErr error
+	out := chiptext.Chipify(name, func(kind, value, label string) string {
+		id, err := utils.GenerateUUID()
+		if err != nil {
+			if firstErr == nil {
+				firstErr = errors.Wrap(err, "generating chip id")
+			}
+			return ""
+		}
+		if err := UpsertChip(db, Chip{ID: id, Kind: kind, Value: value, Label: label}); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			return ""
+		}
+		return ChipAnchor(id)
+	})
+	return out, firstErr
 }
 
 // LoadChips returns every chip keyed by id.
