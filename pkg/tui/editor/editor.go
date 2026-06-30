@@ -2640,7 +2640,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		// a divider is a full-width rule with no glyph/body; it still hangs a note
 		if it.typ == database.TypeDivider {
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
-			groups[i] = []string{dividerLine(r, maxLine, selected)} // single line, never wrapped
+			groups[i] = []string{dividerLine(r, maxLine, selected && m.mode != modeFlash)} // single line, never wrapped
 			noteCaret := -1
 			if selected && m.mode == modeNote {
 				noteCaret = m.caret
@@ -2670,7 +2670,15 @@ func (m *Model) viewOutline(maxLine int) []string {
 			body = rm(m, it) // Model-aware override (voice waveform)
 		}
 
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
+		suffix := m.typeSuffix(it)
+		// flash mode grays the whole outline so the colored action chips are the only
+		// highlights: dim the glyph, the body and the type suffix down to plain gray.
+		if m.mode == modeFlash {
+			glyphColor = cDim
+			body = cDim + stripSGR(body) + cReset
+			suffix = cDim + stripSGR(suffix) + cReset
+		}
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
 		// flash mode hangs each row's action labels off the end of the line
 		if m.mode == modeFlash {
 			line += m.flashRowSuffix(i)
@@ -2693,6 +2701,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 		focusedView := m.focused && i == m.cursor && nodeViewOf(it) != nil
 		if !focusedView {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
+		}
+		// flash grays the note / run-output bands too, so nothing competes with the chips
+		if m.mode == modeFlash {
+			for k := range bands[i] {
+				bands[i][k] = cDim + stripSGR(bands[i][k]) + cReset
+			}
 		}
 	}
 
@@ -2787,7 +2801,13 @@ func (m *Model) viewOutline(maxLine int) []string {
 	var flat []string
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
 	// as a band at the top of the view — the same band a row would hang below it.
-	flat = append(flat, m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)...)
+	rootNote := m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
+	if m.mode == modeFlash {
+		for k := range rootNote {
+			rootNote[k] = cDim + stripSGR(rootNote[k]) + cReset
+		}
+	}
+	flat = append(flat, rootNote...)
 	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)

@@ -222,6 +222,22 @@ func (m *Model) fireFlash(t flashTarget) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// flashColor maps an action kind to its label color, so a chip's color tells you
+// the action at a glance — and the same action is always the same color.
+func flashColor(k flashKind) string {
+	switch k {
+	case flashJump:
+		return cAccent // blue — navigate
+	case flashRun:
+		return cGreen // green — execute
+	case flashExpand:
+		return cCyan // cyan — open a view
+	case flashFold:
+		return cMagenta // purple — fold / unfold
+	}
+	return cAccent
+}
+
 // flashRowSuffix renders the labelled actions hanging off the end of row i. Each
 // chip shows its label then its verb; a label still matching the typed prefix
 // lights the to-type tail (the matched prefix grays), one that no longer matches
@@ -238,18 +254,23 @@ func (m *Model) flashRowSuffix(i int) string {
 	return b.String()
 }
 
-// flashChip styles one label+verb against the current typed prefix.
+// flashChip styles one label+verb against the current typed prefix. The whole
+// outline renders gray in flash mode, so these colored chips are the only
+// highlights on screen; the color is the action's (flashColor), kept consistent.
 func flashChip(t flashTarget, input string) string {
-	// no longer reachable from what's been typed: fade the whole chip.
+	col := flashColor(t.kind)
+	// no longer reachable from what's been typed: fade the whole chip to gray.
 	if input != "" && !strings.HasPrefix(t.label, input) {
 		return cReset + cDim + t.label + " " + t.verb + cReset
 	}
-	rest := t.label[len(input):]
+	tail := t.label[len(input):]
 	s := cReset
 	if input != "" {
 		s += cDim + input + cReset // matched prefix is spent — grayed
 	}
-	s += bgPill + cBold + cFG + rest + cReset // the live, to-type tail
-	s += cDim + " " + t.verb + cReset
+	// the live, to-type tail is a solid block in the action's color (the highlight);
+	// the verb trails in the same color so the chip reads as one unit.
+	s += col + cInvert + cBold + tail + cReset
+	s += col + " " + t.verb + cReset
 	return s
 }

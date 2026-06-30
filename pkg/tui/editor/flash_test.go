@@ -126,6 +126,30 @@ func TestFlashEscCancels(t *testing.T) {
 	}
 }
 
+// Each action kind gets a consistent, distinct label color, and a label that no
+// longer matches the typed prefix renders fully gray (no action color).
+func TestFlashChipColorsByAction(t *testing.T) {
+	jump := flashTarget{label: "a", verb: "jump", kind: flashJump}
+	run := flashTarget{label: "b", verb: "run", kind: flashRun}
+	if !strings.Contains(flashChip(jump, ""), cAccent) {
+		t.Error("jump chip should use the accent (blue) color")
+	}
+	if !strings.Contains(flashChip(run, ""), cGreen) {
+		t.Error("run chip should use the green color")
+	}
+	if flashColor(flashJump) == flashColor(flashRun) {
+		t.Error("distinct actions must use distinct colors")
+	}
+	// 'a' typed: the run label 'b' no longer matches → all gray, no action color.
+	faded := flashChip(run, "a")
+	if strings.Contains(faded, cGreen) {
+		t.Error("a non-matching chip must not keep its action color")
+	}
+	if !strings.Contains(faded, cDim) {
+		t.Error("a non-matching chip must render dim/gray")
+	}
+}
+
 // Typing the first letter of a two-letter label narrows rather than fires:
 // flashInput advances and the chip rendering grays the matched prefix.
 func TestFlashNarrowsOnPartialLabel(t *testing.T) {
