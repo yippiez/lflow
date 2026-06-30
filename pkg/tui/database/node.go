@@ -224,6 +224,19 @@ func NextRank(db *DB, parentUUID string) (int, error) {
 	return int(maxRank.Int64) + 1, nil
 }
 
+// FirstRank returns a rank that sorts before all existing children of the parent,
+// so a node moved in lands at the top of the list rather than the bottom.
+func FirstRank(db *DB, parentUUID string) (int, error) {
+	var minRank sql.NullInt64
+	if err := db.QueryRow("SELECT MIN(rank) FROM nodes WHERE parent_uuid = ? AND deleted = 0", parentUUID).Scan(&minRank); err != nil {
+		return 0, errors.Wrap(err, "querying min rank")
+	}
+	if !minRank.Valid {
+		return 0, nil
+	}
+	return int(minRank.Int64) - 1, nil
+}
+
 // MarkSubtreeDeleted tombstones the node and all descendants.
 func MarkSubtreeDeleted(db *DB, rootUUID string) (int, error) {
 	subtree, err := GetSubtree(db, rootUUID)

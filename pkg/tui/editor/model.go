@@ -563,7 +563,8 @@ func (t *tree) move(it *item, delta int, viewRoot *item) bool {
 	return true
 }
 
-// reparent moves the item under a new parent (appended last).
+// reparent moves the item under a new parent, placed first so it lands at the
+// top of the target's children rather than the bottom.
 func (t *tree) reparent(it *item, newParent *item) bool {
 	// cycle check: newParent must not be inside it's subtree
 	for p := newParent; p != nil; p = p.parent {
@@ -577,7 +578,7 @@ func (t *tree) reparent(it *item, newParent *item) bool {
 	}
 	it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
 	it.parent = newParent
-	newParent.children = append(newParent.children, it)
+	newParent.children = append([]*item{it}, newParent.children...)
 	return true
 }
 
