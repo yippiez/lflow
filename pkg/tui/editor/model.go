@@ -48,8 +48,9 @@ type tree struct {
 	// resolved names for mirrors whose originals are outside the tree
 	externalNames map[string]string
 	byUUID        map[string]*item
-	// defaultType is the node type new items get (empty = bullets). The temp tree
-	// sets it to worker so the agent surface defaults to a worker node.
+	// defaultType is the node type new items get (empty = bullets). Currently
+	// nothing sets it — it's a hook for a tree to default new nodes to a type
+	// other than bullets.
 	defaultType string
 }
 
@@ -360,7 +361,7 @@ func (t *tree) newItem() (*item, error) {
 	}
 	typ := database.TypeBullets
 	if t.defaultType != "" {
-		typ = t.defaultType // the temp tree defaults new nodes to worker
+		typ = t.defaultType // a tree may default new nodes to a non-bullets type
 	}
 	it := &item{uuid: uuid, typ: typ, addedOn: time.Now().UnixNano(), isNew: true}
 	t.byUUID[uuid] = it

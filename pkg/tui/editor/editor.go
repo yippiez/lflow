@@ -54,7 +54,7 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/bring", "Bring another node (or an agent) here"},
+	{"/bring", "Bring another node here"},
 	{"/complete", "Toggle done"},
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
@@ -365,7 +365,7 @@ func (m *Model) undo() {
 	//   - a node already in the DB must UPDATE, never re-INSERT (the UNIQUE-constraint
 	//     crash); a never-saved node stays new.
 	//   - a node that was in the DB but is gone from the restored tree is tombstoned
-	//     (e.g. undoing a just-created agent removes it), and any live process stops.
+	//     (e.g. undoing a just-created node removes it), and any live process stops.
 	m.tree.deleted = nil
 	for uuid, it := range m.tree.byUUID {
 		_, inDB := m.tree.snapshots[uuid]
@@ -779,9 +779,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
-		// path chips are inserted via the /file fuzzy picker now, not a "#…" token,
-		// so Tab just indents (# is tags-only again). The Temporary Domain edits
-		// exactly like the main outline, so indenting works there too.
+		// path chips are inserted via the /file fuzzy picker, and "#" is for tags,
+		// so Tab is free to just indent. The Temporary Domain edits exactly like the
+		// main outline, so indenting works there too.
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.indent(cur) {
@@ -880,10 +880,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur == nil {
 			return m, nil
 		}
-		// at the top of the Agent Domain (the topmost agent, just under the compose
-		// line), alt+shift+up moves the node out into the notes — crossing the divider
-		// as if the two regions were one space.
-		if m.tempActive && cur.parent == m.tempTree.root && indexOf(cur) == 1 {
+		// at the top of the Temporary Domain, alt+shift+up moves the node out into
+		// the notes — crossing the divider as if the two regions were one space.
+		if m.tempActive && cur.parent == m.tempTree.root && indexOf(cur) == 0 {
 			m.crossToNotes(cur)
 			return m, nil
 		}
@@ -992,7 +991,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+e":
-		// toggle a type's inline expanded view (json/agent): alt+e focuses it,
+		// toggle a type's inline expanded view (json/bash): alt+e focuses it,
 		// alt+e again collapses. Else fall back to an action-only expand (voice play).
 		if cur := m.cursorItem(); cur != nil {
 			if v := nodeViewOf(cur); v != nil {
@@ -1017,8 +1016,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+r":
-		// run / re-run a runnable node's own action (bash/query/worker). Never
-		// auto-runs; on an agent it re-runs the turn.
+		// run / re-run a runnable node's own action (bash/query/voice). Never
+		// auto-runs.
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
@@ -1056,7 +1055,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			goal := m.caretColumn(starts, line)
 			m.caret = m.caretAtColumn(starts, line-1, goal)
 		} else if m.atTopOfTempList() {
-			// at the top of the worker list: go back up into the main outline
+			// at the top of the temp list: go back up into the main outline
 			m.exitTemp()
 		} else if m.cursor > 0 {
 			// from the first visual line, cross to the previous node and land
@@ -1316,8 +1315,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// guard against a caret left stale by a cursor move (e.g. a worker run
-		// reseeding the compose) — slicing runes[:m.caret] would otherwise panic
+		// guard against a caret left stale by a cursor move (e.g. landing on a
+		// shorter node) — slicing runes[:m.caret] would otherwise panic
 		m.boundCaret(len([]rune(cur.name)))
 
 		// typing a space commits a sign prefix ("$ "→bash, "-> "/"→ "→log) into the
@@ -1713,8 +1712,8 @@ func (m *Model) clampCaret() {
 }
 
 // boundCaret clamps the caret into [0, n] and returns it — a guard for every name
-// edit against a caret left stale by a cursor move (e.g. a worker run reseeding
-// the compose line), which would otherwise panic slicing runes[:m.caret].
+// edit against a caret left stale by a cursor move (e.g. landing on a shorter
+// node), which would otherwise panic slicing runes[:m.caret].
 func (m *Model) boundCaret(n int) int {
 	if m.caret > n {
 		m.caret = n
@@ -1886,7 +1885,7 @@ func (m *Model) filteredTypes() []string {
 	var ret []string
 	for _, t := range typeOrder {
 		if typeOf(t).tempOnly && !m.tempActive {
-			continue // temp-only types (worker) are not offered in the notebook
+			continue // temp-only types are not offered outside the Temporary Domain
 		}
 		if q != "" && !strings.Contains(strings.ToLower(typeLabels[t]), q) {
 			continue
@@ -2092,7 +2091,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.notePrev = cur.note
 		m.caret = len([]rune(cur.note))
 	case "/bring":
-		// pick any node (incl. an Agent Domain agent) and move it here
+		// pick any node (incl. a Temporary Domain node) and move it here
 		m.openFinder(actBringHere)
 	case "/mirror":
 		m.openFinder(actMirrorHere)
@@ -2194,8 +2193,8 @@ func (m *Model) refreshFinder() {
 		}
 		filtered = append(filtered, h)
 	}
-	// /bring can also pull a node out of the (ephemeral, DB-less) Agent Domain, so
-	// surface its agents alongside the saved nodes — most recent first.
+	// /bring can also pull a node out of the Temporary Domain, so surface its
+	// nodes alongside the saved nodes — most recent first.
 	if m.finderAct == actBringHere {
 		filtered = append(m.tempFinderHits(cur), filtered...)
 	}
@@ -2205,9 +2204,9 @@ func (m *Model) refreshFinder() {
 	}
 }
 
-// tempFinderHits returns the Agent Domain's named nodes as finder candidates,
+// tempFinderHits returns the Temporary Domain's named nodes as finder candidates,
 // synthesized as database.Node so they sit in the same picker list as saved nodes.
-// The always-empty compose line and the cursor node are skipped.
+// Empty (unnamed) nodes and the cursor node are skipped.
 func (m *Model) tempFinderHits(cur *item) []database.Node {
 	if m.tempTree == nil || m.tempTree == m.tree {
 		return nil // no domain, or we're already inside it
@@ -2346,7 +2345,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		// move the picked node (and its subtree) to the cursor location.
 		m.pushUndo("")
 		if src, ok := m.tempTree.byUUID[target.UUID]; ok && m.tempTree != m.tree {
-			m.bringFromTemp(src, cur) // pull an agent out of the Agent Domain
+			m.bringFromTemp(src, cur) // pull a node out of the Temporary Domain
 		} else if it, inTree := m.tree.byUUID[target.UUID]; inTree {
 			m.bringWithin(it, cur) // already in the open subtree
 		} else if err := m.bringFromDB(target, cur); err != nil {
@@ -2409,10 +2408,9 @@ func (m *Model) placeBrought(it, cur *item) {
 	m.flash = "brought here"
 }
 
-// bringFromTemp migrates an agent (and its subtree) out of the ephemeral Agent
-// Domain into the main tree at the cursor. Any live process keeps running — the run
-// machinery is keyed by uuid, not by which tree owns the node. The Agent Domain
-// keeps its compose line afterward.
+// bringFromTemp migrates a node (and its subtree) out of the Temporary Domain
+// into the main tree at the cursor. Any live process keeps running — the run
+// machinery is keyed by uuid, not by which tree owns the node.
 func (m *Model) bringFromTemp(src, cur *item) {
 	if idx := indexOf(src); idx >= 0 {
 		src.parent.children = append(src.parent.children[:idx], src.parent.children[idx+1:]...)
@@ -2493,7 +2491,7 @@ func (m *Model) bringFromDB(target database.Node, cur *item) error {
 }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
-	// stop any live agent processes (kept alive across turns for steering)
+	// stop any live run processes (bash/query/voice) still going
 	for _, cancel := range m.runCancel {
 		cancel()
 	}
@@ -2662,9 +2660,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			noteCaret = m.caret
 		}
 		bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-		// workers render on a single line (status/usage/activity in the suffix); the
-		// transcript lives in the agent UI (alt+e). Other runnable nodes (bash/query)
-		// hang their ephemeral output beneath them.
+		// runnable nodes (bash/query) hang their ephemeral output beneath them.
 		// the focused bash node shows its full scrollable viewer (the nodeView band
 		// below) instead of this capped inline band, so don't render both
 		focusedView := m.focused && i == m.cursor && nodeViewOf(it) != nil
@@ -2680,7 +2676,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// no room for that stack, so fall back to the plain outline.
 	rowBudget := m.rowBudget()
 	// A focused inline view takes the whole body (like a picker) — the temp split
-	// is suppressed so a tall view (agent transcript) isn't crammed into the panel.
+	// is suppressed so a tall view (e.g. bash output) isn't crammed into the panel.
 	showTemp := (m.mode == modeOutline || m.mode == modeNote) && rowBudget >= 3 && !m.focused
 	tempBudget, mainBudget := 0, rowBudget
 	if showTemp {
@@ -2699,7 +2695,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 	// The focused node's inline expanded view renders as a band beneath it,
 	// self-windowed to the focused budget so the node header stays pinned above
-	// while a tall view (e.g. a long agent transcript) scrolls within its window.
+	// while a tall view (e.g. long bash output) scrolls within its window.
 	if m.focused && m.cursor >= 0 && m.cursor < len(rows) {
 		cur := rows[m.cursor].it
 		if v := nodeViewOf(cur); v != nil {
@@ -2990,12 +2986,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if n := len(m.mainStash.viewStack); n > 0 {
 				mainRoot = m.mainStash.viewStack[n-1]
 			}
-			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false, false)
+			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false)
 			tempLines = focused // live, focused temp
 		} else {
 			mainLines = focused // live, focused main
-			// read-only temp panel: hide the empty compose line (only shows once focused)
-			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true, true)
+			// read-only temp panel: the dashed-glyph Temporary Domain look
+			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
 		}
 		body := mainLines
 		body = append(body, m.bottomBar(maxLine)) // the status bar is the divider
