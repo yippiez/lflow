@@ -46,6 +46,11 @@ var agentProviders = map[string]agentProvider{
 	},
 }
 
+// agentShowGlyph toggles the provider glyph on the bar. The provider label and
+// tint already identify the agent, so the glyph is optional chrome — default
+// off for a cleaner bar with a consistent name column across providers.
+var agentShowGlyph = false
+
 func agentProviderOf(typ string) (agentProvider, bool) {
 	p, ok := agentProviders[typ]
 	return p, ok
@@ -149,7 +154,10 @@ func agentBand(m *Model, r row, width, caret int, selected bool) []string {
 	}
 
 	glyph := prov.glyph
-	leadW := 1 + runewidth.StringWidth(glyph) + 2 // " <glyph>  "
+	leadW := 1 // bare leading pad when the glyph is hidden
+	if agentShowGlyph {
+		leadW = 1 + runewidth.StringWidth(glyph) + 2 // " <glyph>  "
+	}
 	labelW := runewidth.StringWidth(prov.label)
 	const gap = 2                                                  // label → name
 	rightW := 1 + runewidth.StringWidth(size) + 1                 // " <size> "
@@ -188,9 +196,11 @@ func agentBand(m *Model, r row, width, caret int, selected bool) []string {
 	}
 
 	var b strings.Builder
-	b.WriteString(cDim + rail)                                        // rail (no bar bg)
-	b.WriteString(cReset + barBg + " ")                               // open the bar
-	b.WriteString(prov.accent + cBold + glyph + cReset + barBg + "  ")
+	b.WriteString(cDim + rail)          // rail (no bar bg)
+	b.WriteString(cReset + barBg + " ") // open the bar
+	if agentShowGlyph {
+		b.WriteString(prov.accent + cBold + glyph + cReset + barBg + "  ")
+	}
 	b.WriteString(prov.accent + prov.label + cReset + barBg)
 	b.WriteString(strings.Repeat(" ", gap))
 	b.WriteString(nameSeg + cReset + barBg)
