@@ -3014,6 +3014,22 @@ func (m *Model) viewOutline(maxLine int) []string {
 		return body
 	}
 
+	// A focused inline view (alt+e on a bash/json/agent node) replaces the temp
+	// split, so it takes this non-showTemp path instead of the padded block above
+	// — and its body is only as tall as the expanded content. Pad it to the same
+	// constant height the showTemp frame uses (rowBudget body rows + the status
+	// bar) so toggling the view never changes the frame height, keeping the status
+	// bar the last line. Without this the frame oscillates between the tall padded
+	// outline and the short expanded view on every alt+e/esc; on a terminal whose
+	// frame sits near the bottom, the grow half of that cycle scrolls rows the
+	// inline renderer can no longer reach up to, stranding a ghost line below and
+	// pushing the outline up one row each toggle (the bleed).
+	if m.focused {
+		for len(lines) < rowBudget {
+			lines = append(lines, "")
+		}
+	}
+
 	lines = append(lines, m.bottomBar(maxLine))
 
 	return lines

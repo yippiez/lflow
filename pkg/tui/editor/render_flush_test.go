@@ -6,6 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // vtGrid is a deliberately small virtual terminal: it replays the exact byte
@@ -217,6 +219,52 @@ func (s *flushSim) clearScreen() {
 	s.linesRendered = 0
 	s.prevLines = nil
 	s.firstRender = true
+}
+
+// TestFocusedViewKeepsConstantFrameHeight is the bash-expand bleed: toggling a
+// node's inline expanded view (alt+e on a bash node) must not change the frame's
+// line count. The plain outline pads its frame to a constant height (rowBudget +
+// status bar) so the inline renderer never strands stale lines, but the focused
+// expanded view took a separate, unpadded path — its short body made the frame
+// oscillate between the tall outline and the short view on every alt+e/esc. On a
+// terminal whose frame sits near the bottom, the grow half of that cycle scrolls
+// rows the renderer can no longer reach, stranding a ghost line and pushing the
+// outline up one row per toggle. Every frame in the cycle must be the same height.
+func TestFocusedViewKeepsConstantFrameHeight(t *testing.T) {
+	root := &item{}
+	tr := &tree{root: root, byUUID: map[string]*item{}, externalNames: map[string]string{}}
+	parent := &item{name: "parent", parent: root, uuid: "p"}
+	bash := &item{name: "echo hi", parent: parent, uuid: "b", typ: database.TypeBash}
+	parent.children = append(parent.children, bash)
+	root.children = append(root.children, parent)
+	tr.byUUID["p"] = parent
+	tr.byUUID["b"] = bash
+
+	// zoom into parent so the bash node is the sole visible row
+	m := &Model{tree: tr, viewStack: []*item{root, parent}, width: 60, height: 24}
+	m.refreshRows()
+	m.cursor = 0
+
+	height := func() int { return len(strings.Split(m.View(), "\n")) }
+	want := height()
+
+	for i := 0; i < 3; i++ {
+		m.press("alt+e") // expand into the focused bash view
+		if !m.focused {
+			t.Fatalf("alt+e did not focus the bash view on iteration %d", i)
+		}
+		if got := height(); got != want {
+			t.Fatalf("focused frame is %d lines, want %d (matching the outline); the "+
+				"oscillation strands a ghost row each toggle", got, want)
+		}
+		m.press("esc") // collapse back to the outline
+		if m.focused {
+			t.Fatalf("esc did not defocus the bash view on iteration %d", i)
+		}
+		if got := height(); got != want {
+			t.Fatalf("outline frame is %d lines after close, want %d", got, want)
+		}
+	}
 }
 
 // TestRenderedRowsHaveNoStaleOverlayAfterResize replays the editor's frames
