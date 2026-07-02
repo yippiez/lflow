@@ -514,9 +514,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setCmdPreview(msg.uuid) // a cmd chip: refresh its inline "→ preview"
 		return m, nil
 	case fzfPickedMsg:
-		if msg.path != "" {
-			if it := m.tree.byUUID[msg.uuid]; it != nil {
+		if it := m.tree.byUUID[msg.uuid]; it != nil {
+			switch {
+			case msg.path != "":
 				m.insertPathChip(it, msg.caret, absolutizePath(msg.path))
+			case msg.onCancel != "":
+				// dismissed without a pick: the ">" that opened the picker types
+				// literally, so a bash redirect (or any literal ">") still works.
+				m.insertLiteralAt(it, msg.caret, msg.onCancel)
 			}
 		}
 		return m, nil
@@ -1263,19 +1268,25 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// ">" opens the file picker to splice a path chip at the caret — the chip
-		// renders as "›name", so ">" is its natural trigger. Skipped where ">" is
-		// real syntax (bash redirects, code, queries), and after a "-" so the "->"
-		// log gesture can form instead of grabbing the picker.
+		// renders as "›name", so ">" is its natural trigger. It fires in every
+		// inline-editable type, including bash/code/query where ">" is real syntax:
+		// the picker is cancelable, and dismissing it types a literal ">" instead
+		// (see the fzfPickedMsg handler), so a redirect still works — you just quit
+		// the picker. Skipped after a "-" so the "->" log gesture can form, and when
+		// fzf is missing we fall through to typing ">" literally.
 		if string(k.Runes) == ">" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			pathChipTrigger(cur.typ) && !runeBeforeCaretIs(cur, m.caret, '-') {
-			return m, m.openFilePicker(cur)
+			if cmd := m.openFilePicker(cur, ">"); cmd != nil {
+				return m, cmd
+			}
 		}
 
 		// "[[" opens the link picker: the second "[" drops the first and opens the
-		// finder where you pick a node or type/paste a URL. Same type guard as the
-		// path chip ("[" stays literal in code/bash/query/quote/json).
+		// finder where you pick a node or type/paste a URL. Unlike the file picker
+		// it has no cancel-to-literal path, so it stays off where "[" is real syntax
+		// (bash test brackets, code, query, quote, json).
 		if string(k.Runes) == "[" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			pathChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
+			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
 			runes := []rune(cur.name)
 			m.boundCaret(len(runes))
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
@@ -1345,9 +1356,17 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // pathChipTrigger reports whether ">" should open the file picker on this type.
-// Text-ish nodes get it; types where ">" is real syntax (bash redirect, code,
-// query, quote, json) keep ">" literal.
+// Every inline-editable type gets it — including bash/code/query where ">" is real
+// syntax — because the picker is cancelable and dismissing it types a literal ">"
+// instead, so file chips work in any node without losing the literal character.
 func pathChipTrigger(typ string) bool {
+	return typeOf(typ).inlineEditable
+}
+
+// linkChipTrigger reports whether "[[" should open the link picker on this type.
+// Unlike the file picker it has no cancel-to-literal path, so it stays off where
+// "[" is real syntax (bash test brackets, code, query, quote, json).
+func linkChipTrigger(typ string) bool {
 	switch typ {
 	case database.TypeBash, database.TypeCode, database.TypeQuery, database.TypeQuote, database.TypeJSON:
 		return false
@@ -2083,7 +2102,11 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.cursor = m.findRow(clone, ctx)
 	case "/file":
 		// fuzzy-pick a file with fzf, then splice a path chip in at the caret
-		return m, m.openFilePicker(cur)
+		cmd := m.openFilePicker(cur, "")
+		if cmd == nil {
+			m.flash = "fzf not found — install it to pick files"
+		}
+		return m, cmd
 	case "/note":
 		// a mirror is the same node everywhere: edit the original's note
 		cur = m.tree.resolve(cur)

@@ -34,25 +34,38 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 		return false
 	}
 	end := m.caret - 1 // command ends just before the trailing space
+	spans := anchorSpans(runes)
 	// walk back to the "$" that opens the command: it must be at the node start or
-	// follow a space (a standalone token). Bail on an anchor so we never swallow a
-	// neighbouring chip.
+	// follow a space (a standalone token). Skip whole chip anchors so a path chip
+	// (or any chip) spliced into the command doesn't stop the scan — its sentinels
+	// would otherwise read as stray markers and abort the token.
 	start := -1
-	for i := end - 1; i >= 0; i-- {
-		if runes[i] == chipSentinel {
-			return false
+	for i := end - 1; i >= 0; {
+		if sp := spanEndingAt(spans, i+1); sp != nil {
+			i = sp.start - 1
+			continue
 		}
 		if runes[i] == '$' && (i == 0 || runes[i-1] == ' ') {
 			start = i
 			break
 		}
+		i--
 	}
 	if start < 0 {
 		return false
 	}
-	cmd := strings.TrimSpace(string(runes[start+1 : end]))
+	// expand any chips folded into the command (e.g. a path chip → its full path)
+	// so the cmd chip's stored command is plain, runnable shell.
+	cmd := strings.TrimSpace(expandAnchors(string(runes[start+1:end]), m.chips))
 	if cmd == "" {
 		return false
+	}
+	// those inner chips are now baked into the cmd value; drop their records before
+	// their anchors are removed from the name, so no orphan chip rows are left.
+	for _, sp := range spans {
+		if sp.start >= start && sp.end <= end {
+			m.deleteChipID(sp.id)
+		}
 	}
 	if !m.replaceRangeWithChip(cur, start, end, chipKindCmd, cmd) {
 		return false
