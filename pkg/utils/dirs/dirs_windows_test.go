@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/shared/assert"
+	"github.com/lflow/lflow/pkg/utils/assert"
 )
 
 func TestDirs(t *testing.T) {

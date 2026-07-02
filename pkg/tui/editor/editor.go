@@ -15,9 +15,9 @@ import (
 
 	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/pkg/browser"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/utils/browser"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )

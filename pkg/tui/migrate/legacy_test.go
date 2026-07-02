@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/shared/assert"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/testutils"
-	"github.com/lflow/lflow/pkg/tui/utils"
+	"github.com/lflow/lflow/pkg/utils"
+	"github.com/lflow/lflow/pkg/utils/assert"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 )

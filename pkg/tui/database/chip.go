@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/lflow/lflow/pkg/tui/chiptext"
-	"github.com/lflow/lflow/pkg/tui/utils"
+	"github.com/lflow/lflow/pkg/utils"
 	"github.com/pkg/errors"
 )
 

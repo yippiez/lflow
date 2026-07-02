@@ -9,8 +9,8 @@ import (
 	"github.com/google/go-github/github"
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
-	"github.com/lflow/lflow/pkg/tui/log"
 	"github.com/lflow/lflow/pkg/tui/ui"
+	"github.com/lflow/lflow/pkg/utils/log"
 	"github.com/pkg/errors"
 )
 

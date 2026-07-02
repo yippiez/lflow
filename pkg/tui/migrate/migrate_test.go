@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/dnote/actions"
-	"github.com/lflow/lflow/pkg/shared/assert"
 	"github.com/lflow/lflow/pkg/tui/config"
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/testutils"
+	"github.com/lflow/lflow/pkg/utils/assert"
 	"github.com/pkg/errors"
 )
 
@@ -1070,4 +1070,3 @@ func TestLocalMigration14(t *testing.T) {
 		}
 	}
 }
-

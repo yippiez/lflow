@@ -2,8 +2,8 @@
 package context
 
 import (
-	"github.com/lflow/lflow/pkg/shared/clock"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/utils/clock"
 )
 
 // Paths contain directory definitions

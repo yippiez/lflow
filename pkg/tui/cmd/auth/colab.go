@@ -7,7 +7,7 @@ import (
 	"github.com/lflow/lflow/pkg/runtime"
 	"github.com/lflow/lflow/pkg/tui/colab"
 	"github.com/lflow/lflow/pkg/tui/context"
-	"github.com/lflow/lflow/pkg/tui/log"
+	"github.com/lflow/lflow/pkg/utils/log"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )

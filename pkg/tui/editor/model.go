@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/tui/utils"
+	"github.com/lflow/lflow/pkg/utils"
 	"github.com/pkg/errors"
 )
 

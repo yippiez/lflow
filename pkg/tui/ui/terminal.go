@@ -7,8 +7,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/lflow/lflow/pkg/shared/prompt"
-	"github.com/lflow/lflow/pkg/tui/log"
+	"github.com/lflow/lflow/pkg/utils/log"
+	"github.com/lflow/lflow/pkg/utils/prompt"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh/terminal"
 )

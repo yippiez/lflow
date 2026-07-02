@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/shared/assert"
+	"github.com/lflow/lflow/pkg/utils/assert"
 )
 
 func TestFormatQuestion(t *testing.T) {

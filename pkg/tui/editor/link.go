@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/pkg/browser"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/utils/browser"
 )
 
 // A link chip points at a node or a website. Its target is stored in the chip

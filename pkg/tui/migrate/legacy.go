@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lflow/lflow/pkg/tui/context"
-	"github.com/lflow/lflow/pkg/tui/log"
-	"github.com/lflow/lflow/pkg/tui/utils"
+	"github.com/lflow/lflow/pkg/utils"
+	"github.com/lflow/lflow/pkg/utils/log"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 )
@@ -47,19 +47,6 @@ var migrationSequence = []int{
 
 type schema struct {
 	CurrentVersion int `yaml:"current_version"`
-}
-
-func makeSchema(complete bool) schema {
-	s := schema{}
-
-	var CurrentVersion int
-	if complete {
-		CurrentVersion = len(migrationSequence)
-	}
-
-	s.CurrentVersion = CurrentVersion
-
-	return s
 }
 
 func genUUID() (string, error) {
