@@ -28,6 +28,13 @@ type nodeType struct {
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
+
+	// hooks below exist for the artifact bridge (see artifact.go): granular
+	// enough that an editable type like log keeps caret editing while a JS
+	// program decides its look. Built-ins may use them too.
+	prefix    func(it *item) string // styled prefix before the body, e.g. the log time chip
+	baseColor func(it *item) string // body foreground SGR; "" keeps the default
+	muteFrom  func(name string) int // rune index the muted tail starts at; -1 = none
 }
 
 // nodeView is a node type's INLINE expanded view: alt+e focuses it, its lines
@@ -73,9 +80,8 @@ var nodeTypes = []nodeType{
 	// rule (see dividerLine), hiding the glyph. It is otherwise a normal node: it
 	// nests, moves, takes a /note, and is removed with ctrl+d.
 	{key: database.TypeDivider, label: "Divider", inlineEditable: false},
-	// a log line: → glyph, a muted "(time)" chip, the label (colored by /color),
-	// then a muted "· description" tail. Rendered in renderBody (TypeLog cases).
-	{key: database.TypeLog, label: "Log", glyph: logGlyph, inlineEditable: true},
+	// log is NOT here: it moved to the artifact model (the seeded "log" row in
+	// the artifacts table renders the → glyph, muted time chip and · tail).
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},
@@ -111,40 +117,46 @@ var byType = func() map[string]nodeType {
 	return m
 }()
 
-// typeOf returns the descriptor for a type key; unknown keys fall back to bullets.
+// typeOf returns the descriptor for a type key — compiled-in first, then
+// runtime artifacts; unknown keys fall back to bullets, which is what keeps a
+// node whose artifact was disabled or deleted rendering instead of crashing.
 func typeOf(key string) nodeType {
 	if nt, ok := byType[key]; ok {
+		return nt
+	}
+	if nt, ok := artifactByKey[key]; ok {
 		return nt
 	}
 	return byType[database.TypeBullets]
 }
 
-// typeOrder / typeLabels drive the /type picker, derived from the registry so
-// there is a single source of truth.
-var typeOrder = func() []string {
-	out := make([]string, len(nodeTypes))
-	for i, nt := range nodeTypes {
-		out[i] = nt.key
+// typeOrder drives the /type picker: built-ins in their fixed order, then
+// installed artifacts in load order. Recomputed per call because artifacts
+// hot-load at runtime (an agent install shows up immediately).
+func typeOrder() []string {
+	out := make([]string, 0, len(nodeTypes)+len(artifactTypes))
+	for _, nt := range nodeTypes {
+		out = append(out, nt.key)
+	}
+	for _, nt := range artifactTypes {
+		out = append(out, nt.key)
 	}
 	return out
-}()
+}
 
-var typeLabels = func() map[string]string {
-	m := make(map[string]string, len(nodeTypes))
-	for _, nt := range nodeTypes {
-		m[nt.key] = nt.label
-	}
-	return m
-}()
+// typeLabel is the picker label for a type key.
+func typeLabel(key string) string {
+	return typeOf(key).label
+}
 
-// logGlyph is the → arrow, tinted by the node's /color (muted gray by default) so
-// the arrow and label share a color while the description stays muted.
-func logGlyph(it *item) (string, string) {
-	col := cDim
-	if c := styleBaseColor(it.style); c != "" {
-		col = c
+// isArtifactType reports whether the key resolves to a runtime artifact — the
+// picker dims these with an "artifact" tag.
+func isArtifactType(key string) bool {
+	if _, builtin := byType[key]; builtin {
+		return false
 	}
-	return "→", col
+	_, ok := artifactByKey[key]
+	return ok
 }
 
 func todoGlyph(it *item) (string, string) {

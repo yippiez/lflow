@@ -883,35 +883,21 @@ func inlineSpans(runes []rune) []spanFlags {
 // every row — selection is carried by the red glyph alone. Unselected rows
 // hide the markdown markers; the selected row shows them and the block
 // cursor inverts the cell under the rune at the caret index (-1 for none).
-// logTime formats a node's creation time for the log chip ("2026-06-24 14:11");
-// a zero timestamp (a brand-new unsaved node) falls back to now.
-func logTime(addedOn int64) string {
-	t := time.Now()
-	if addedOn > 0 {
-		t = time.Unix(0, addedOn)
-	}
-	return t.Format("2006-01-02 15:04")
-}
-
-// logDescStart returns the rune index of the " · " separating a log line's label
-// from its description, or -1 when there is none.
-func logDescStart(runes []rune) int {
-	for i := 0; i+2 < len(runes); i++ {
-		if runes[i] == ' ' && runes[i+1] == '·' && runes[i+2] == ' ' {
-			return i
-		}
-	}
-	return -1
-}
+// logTime/logDescStart moved into the seeded log artifact (lflow.time and a JS
+// muteFrom hook) — see database.SeedLogArtifactSource.
 
 func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip) string {
 	name = stripControlBytes(name)
 	if r := typeOf(it.typ).render; r != nil {
 		return r(it, name) // per-type inline-body override (json preview)
 	}
+	desc := typeOf(it.typ)
 	base := cFG
-	if it.typ == database.TypeLog {
-		base = cDim // a log line is muted gray by default; /color tints the label + →
+	// a type may set its own body color (the log artifact returns dim/its /color)
+	if desc.baseColor != nil {
+		if c := desc.baseColor(it); c != "" {
+			base = c
+		}
 	}
 	// a /color picks the node's foreground; default stays the palette gray
 	if c := styleBaseColor(it.style); c != "" {
@@ -930,10 +916,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		attrs += bgCode
 	case database.TypeBash:
 		attrs += bgTerm // dark terminal block; the "$ " prompt is folded into the pad
-	case database.TypeLog:
-		prefix = cDim + "(" + logTime(it.addedOn) + ") " + cReset // muted time chip
 	}
-	if s := typeOf(it.typ).sign; s != "" && it.typ != database.TypeBash {
+	if desc.prefix != nil {
+		prefix = desc.prefix(it) // per-type prefix, e.g. the log artifact's time chip
+	}
+	if s := desc.sign; s != "" && it.typ != database.TypeBash {
 		prefix = cDim + s + cReset // type sign, e.g. "⌕ " for query
 	}
 	// /bold, /italic, /underline layer on top of the layout's own attributes
@@ -946,9 +933,9 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	flags := inlineSpans(runes)
 	markKeywords(runes, flags, animFrame) // ultracode/ultraloop: render-time only
 	chipsp := anchorSpans(runes)          // inline chip anchors, drawn collapsed
-	if it.typ == database.TypeLog {
-		// everything from the first " · " on is the muted description
-		if d := logDescStart(runes); d >= 0 {
+	if desc.muteFrom != nil {
+		// a type may mute a tail — the log artifact mutes from the first " · "
+		if d := desc.muteFrom(name); d >= 0 && d < len(runes) {
 			for k := d; k < len(runes); k++ {
 				flags[k].mute = true
 			}

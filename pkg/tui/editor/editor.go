@@ -1884,21 +1884,35 @@ func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// filteredTypes returns the node-type keys matching the picker's search query
-// (case-insensitive substring over the label), in registry order.
+// filteredTypes returns the node-type keys matching the picker's search query,
+// in registry order: built-ins first, then installed artifacts. The query
+// fuzzy-matches label and key (subsequence, case-insensitive), so twenty
+// forgotten artifacts never bury Todo.
 func (m *Model) filteredTypes() []string {
 	q := strings.ToLower(m.typeQuery)
 	var ret []string
-	for _, t := range typeOrder {
+	for _, t := range typeOrder() {
 		if typeOf(t).tempOnly && !m.tempActive {
 			continue // temp-only types (worker) are not offered in the notebook
 		}
-		if q != "" && !strings.Contains(strings.ToLower(typeLabels[t]), q) {
+		if q != "" && !fuzzyMatch(strings.ToLower(typeLabel(t)), q) && !fuzzyMatch(t, q) {
 			continue
 		}
 		ret = append(ret, t)
 	}
 	return ret
+}
+
+// fuzzyMatch reports whether needle is an in-order subsequence of hay — the
+// picker's filter ("hd3" hits "Heading 3").
+func fuzzyMatch(hay, needle string) bool {
+	i := 0
+	for _, r := range hay {
+		if i < len(needle) && r == rune(needle[i]) {
+			i++
+		}
+	}
+	return i == len(needle)
 }
 
 func (m *Model) handleTypeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2019,7 +2033,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeType
 		m.typeSel = 0
 		m.typeQuery = ""
-		for i, t := range typeOrder {
+		for i, t := range typeOrder() {
 			if t == cur.typ {
 				m.typeSel = i
 				break
@@ -2887,7 +2901,11 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if i == m.typeSel {
 				mark = cAccent + "▸ " + cReset
 			}
-			lines = append(lines, clip(" "+mark+cFG+typeLabels[filt[i]]+cReset, maxLine))
+			label := " " + mark + cFG + typeLabel(filt[i]) + cReset
+			if isArtifactType(filt[i]) {
+				label += cDim + " · artifact" + cReset
+			}
+			lines = append(lines, clip(label, maxLine))
 		}
 	}
 
@@ -3167,6 +3185,8 @@ func (m *Model) viewFinder(maxLine int) []string {
 
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
+	loadArtifacts(ctx.DB) // runtime node types must exist before the first render
+
 	t, err := loadTree(ctx.DB, nodeUUID)
 	if err != nil {
 		return errors.Wrap(err, "loading node tree")
