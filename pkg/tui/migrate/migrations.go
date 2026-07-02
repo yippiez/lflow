@@ -895,3 +895,23 @@ var lm28 = migration{
 		return nil
 	},
 }
+
+// lm29 adds the node_blobs table — an image node's pixels, stored as a PNG BLOB
+// keyed by node uuid so the whole outline stays a single portable SQLite file. It
+// is a separate table (not a nodes column) so the hot nodes scan and the FTS
+// triggers are untouched by multi-KB blobs.
+var lm29 = migration{
+	name: "add-node-blobs-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS node_blobs (
+			uuid text PRIMARY KEY,
+			mime text NOT NULL DEFAULT '',
+			bytes blob NOT NULL,
+			w integer NOT NULL DEFAULT 0,
+			h integer NOT NULL DEFAULT 0
+		)`); err != nil {
+			return errors.Wrap(err, "creating node_blobs table")
+		}
+		return nil
+	},
+}

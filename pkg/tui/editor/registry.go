@@ -107,6 +107,16 @@ var nodeTypes = []nodeType{
 		expand:       playVoice,
 		flashActions: voiceFlashActions, // name them: "record" (toggle) and "play"
 	},
+	{
+		// an image: alt+r pastes from the host clipboard, alt+e opens the half-block
+		// preview. The pixels live as a local PNG (~/.local/share/lflow/images/
+		// <uuid>.png), never in the DB/sync; the name holds an optional caption.
+		key: database.TypeImage, label: "Image", inlineEditable: false,
+		renderM:      func(m *Model, it *item) string { return m.imageRender(it) },
+		run:          runImagePaste,
+		view:         imageView{}, // alt+e: scrollable half-block render
+		flashActions: imageFlashActions,
+	},
 }
 
 var byType = func() map[string]nodeType {

@@ -20,6 +20,7 @@ const (
 	TypeBash    = "bash"
 	TypeQuery   = "query"
 	TypeVoice   = "voice"
+	TypeImage   = "image"
 	TypeDivider = "divider"
 	TypeLog     = "log"
 )
@@ -41,6 +42,7 @@ var TypeOrder = []string{
 	TypeBash,
 	TypeQuery,
 	TypeVoice,
+	TypeImage,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.

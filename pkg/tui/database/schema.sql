@@ -45,6 +45,13 @@ CREATE TABLE settings (
 			key text PRIMARY KEY,
 			value text NOT NULL DEFAULT ''
 		);
+CREATE TABLE node_blobs (
+			uuid text PRIMARY KEY,
+			mime text NOT NULL DEFAULT '',
+			bytes blob NOT NULL,
+			w integer NOT NULL DEFAULT 0,
+			h integer NOT NULL DEFAULT 0
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 28);
+INSERT INTO system (key, value) VALUES ('schema', 29);

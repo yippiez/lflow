@@ -4,12 +4,15 @@ import "testing"
 
 func TestSettingDefault(t *testing.T) {
 	m := &Model{}
+	if got := m.setting("image.preview"); got != "compact" {
+		t.Errorf("default image.preview = %q, want compact", got)
+	}
 	if got := m.setting("link.color"); got != "blue" {
 		t.Errorf("default link.color = %q, want blue", got)
 	}
-	m.settings = map[string]string{"link.color": "gray"}
-	if got := m.setting("link.color"); got != "gray" {
-		t.Errorf("stored link.color = %q, want gray", got)
+	m.settings = map[string]string{"image.preview": "true"}
+	if got := m.setting("image.preview"); got != "true" {
+		t.Errorf("stored image.preview = %q, want true", got)
 	}
 	if got := m.setting("unknown.key"); got != "" {
 		t.Errorf("unknown key = %q, want empty", got)
