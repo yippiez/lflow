@@ -39,6 +39,7 @@ var LocalSequence = []migration{
 	lm26,
 	lm27,
 	lm28,
+	lm29,
 }
 
 func initSchema(ctx context.DnoteCtx, schemaKey string) (int, error) {

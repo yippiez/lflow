@@ -77,6 +77,12 @@ func markKeywords(runes []rune, flags []spanFlags, frame int) {
 	}
 }
 
+// animActive reports whether anything on screen needs the animation tick — a
+// magic keyword or an in-flight image paste (its spinner).
+func (m *Model) animActive() bool {
+	return m.hasMagicKeyword() || m.anyImagePasting()
+}
+
 // hasMagicKeyword reports whether any currently visible row contains an animated
 // keyword. The animation tick runs only while one is on screen.
 func (m *Model) hasMagicKeyword() bool {
@@ -94,7 +100,7 @@ func (m *Model) hasMagicKeyword() bool {
 // startAnim batches an animation tick onto cmd when a keyword is on screen and the
 // tick is not already running.
 func (m *Model) startAnim(cmd tea.Cmd) tea.Cmd {
-	if !m.animTicking && m.hasMagicKeyword() {
+	if !m.animTicking && m.animActive() {
 		m.animTicking = true
 		return tea.Batch(cmd, animTick())
 	}
