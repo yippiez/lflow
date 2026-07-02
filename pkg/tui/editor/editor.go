@@ -3292,13 +3292,22 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	}
 
 	total, _ := fm.tree.stats()
-	name := fm.tree.displayName(fm.tree.root)
-	// muted gray throughout, only the node name in yellow
-	fmt.Printf("%s→ saved %s%q%s - %s - %s written%s\n",
-		cDim, cYellow, name, cDim,
-		nodeNoun(total), nodeNoun(fm.saved.written), cReset)
+	fmt.Print(savedSummary(fm.tree.displayName(fm.tree.root), fm.chips, total, fm.saved.written))
 
 	return nil
+}
+
+// savedSummary formats the one-line "→ saved" report printed after the editor
+// exits. It resolves chip anchors in the root name first: a loaded/zoomed root
+// whose name carries chips would otherwise leak the raw sentinel-wrapped chip
+// ids into the summary (the chip invariant — every surface that reads a name
+// resolves anchors through the chip store).
+func savedSummary(name string, chips map[string]database.Chip, total, written int) string {
+	name = displayAnchors(name, chips)
+	// muted gray throughout, only the node name in yellow
+	return fmt.Sprintf("%s→ saved %s%q%s - %s - %s written%s\n",
+		cDim, cYellow, name, cDim,
+		nodeNoun(total), nodeNoun(written), cReset)
 }
 
 func nodeNoun(n int) string {

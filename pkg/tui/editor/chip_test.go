@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lflow/lflow/pkg/tui/database"
@@ -37,5 +38,30 @@ func TestExpandAndDisplayAnchors(t *testing.T) {
 	// a missing record degrades to a placeholder, never a raw anchor
 	if got := displayAnchors("x"+chipAnchor("gone"), nil); got != "x@?" {
 		t.Errorf("orphan display = %q, want x@?", got)
+	}
+}
+
+// Regression: quitting a zoomed-in / loaded-node editor prints a "→ saved"
+// summary that must resolve the root name's chip anchors. Before the fix the
+// summary printed the raw name, leaking the sentinel-wrapped chip ids.
+func TestSavedSummaryResolvesChipAnchors(t *testing.T) {
+	chips := map[string]database.Chip{
+		"c1": {ID: "c1", Kind: "date", Value: "2026-07-02"},
+	}
+	name := "Günü Notları " + chipAnchor("c1")
+
+	out := savedSummary(name, chips, 12, 3)
+
+	if strings.ContainsRune(out, chipSentinel) {
+		t.Errorf("summary leaks a chip sentinel: %q", out)
+	}
+	if strings.Contains(out, "c1") {
+		t.Errorf("summary leaks the raw chip id: %q", out)
+	}
+	if !strings.Contains(out, "2026-07-02") {
+		t.Errorf("summary dropped the resolved chip display: %q", out)
+	}
+	if !strings.Contains(out, "Günü Notları") {
+		t.Errorf("summary dropped the node name: %q", out)
 	}
 }
