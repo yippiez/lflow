@@ -123,9 +123,13 @@ type Model struct {
 	width  int
 	height int
 
-	mode        mode
-	slashQuery  string
-	slashSel    int
+	mode mode
+
+	// list is the shared modal picker (slash, /type, /style, /theme, completer);
+	// only one is active at a time. It owns the selection + search query; each
+	// picker's behavior is a pickerSource (see picker_list.go / picker_sources.go).
+	list listPicker
+
 	slashStart  int  // rune index of the "/" that opened the menu
 	slashInline bool // the slash and query are typed into the node text
 	finderQuery string
@@ -149,17 +153,8 @@ type Model struct {
 	flashTargets []flashTarget
 	flashInput   string
 
-	// /type picker selection (index into the filtered list) and search query
-	typeSel   int
-	typeQuery string
-
-	// /style picker selection (index into stylePickerItems)
-	styleSel int
-
-	// /theme picker selection (index into the themes registry)
-	themeSel int
-
-	// inline completer state ("#" tags, ":" query commands)
+	// inline completer anchor ("#" tags, ":" query commands); the live query and
+	// selection live on m.list.
 	compl complState
 
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure the
@@ -634,8 +629,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.mode {
-	case modeSlash:
-		return m.handleSlashKey(k)
+	case modeSlash, modeType, modeStyle, modeTheme, modeComplete:
+		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.handleFinderKey(k)
 	case modeLinkEdit:
@@ -646,14 +641,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNoteKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
-	case modeType:
-		return m.handleTypeKey(k)
-	case modeStyle:
-		return m.handleStyleKey(k)
-	case modeTheme:
-		return m.handleThemeKey(k)
-	case modeComplete:
-		return m.handleCompleteKey(k)
 	case modeFlash:
 		return m.handleFlashKey(k)
 	}
@@ -1268,8 +1255,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// is cancelled, so esc restores the name to what it was before.
 		if string(k.Runes) == "/" && !k.Paste {
 			m.mode = modeSlash
-			m.slashQuery = ""
-			m.slashSel = 0
+			m.list = listPicker{searchable: true}
 			m.slashInline = cur.mirrorOf == "" && !cur.readonly
 			if m.slashInline {
 				runes := []rune(cur.name)
@@ -1814,13 +1800,13 @@ func (m *Model) findRow(it *item, ctx *item) int {
 	return m.rowIndexOf(it)
 }
 
-func (m *Model) filteredSlash() []slashCommand {
-	if m.slashQuery == "" {
+func (m *Model) filteredSlash(query string) []slashCommand {
+	if query == "" {
 		return slashCommands
 	}
 	var ret []slashCommand
 	for _, c := range slashCommands {
-		if strings.Contains(c.name, strings.ToLower(m.slashQuery)) {
+		if strings.Contains(c.name, strings.ToLower(query)) {
 			ret = append(ret, c)
 		}
 	}
@@ -1838,7 +1824,7 @@ func (m *Model) stripSlashText() {
 		return
 	}
 	runes := []rune(cur.name)
-	end := m.slashStart + 1 + len([]rune(m.slashQuery))
+	end := m.slashStart + 1 + len([]rune(m.list.query))
 	if end > len(runes) {
 		end = len(runes)
 	}
@@ -1846,76 +1832,14 @@ func (m *Model) stripSlashText() {
 	m.caret = m.slashStart
 }
 
-func (m *Model) handleSlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	cur := m.cursorItem()
+// Slash-menu key handling now lives in the shared listPicker (picker_list.go)
+// via slashSource (picker_sources.go); the "/query" text-mirroring is its
+// inlineTextSource hooks.
 
-	switch k.String() {
-	case "esc":
-		// escape just closes the menu and LEAVES the typed "/query" as literal text,
-		// so you can write "/pa" without the menu swallowing it. (The slash menu only
-		// strips its text when a command actually runs.)
-		m.mode = modeOutline
-		return m, nil
-	case "up":
-		if m.slashSel > 0 {
-			m.slashSel--
-		}
-		return m, nil
-	case "down":
-		if m.slashSel < len(m.filteredSlash())-1 {
-			m.slashSel++
-		}
-		return m, nil
-	case "backspace":
-		if qr := []rune(m.slashQuery); len(qr) > 0 {
-			m.slashQuery = string(qr[:len(qr)-1])
-			m.slashSel = 0
-			if m.slashInline && cur != nil && m.caret > 0 {
-				runes := []rune(cur.name)
-				cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
-				m.caret--
-			}
-		} else {
-			if m.slashInline && cur != nil {
-				m.stripSlashText()
-			}
-			m.mode = modeOutline
-		}
-		return m, nil
-	case "enter":
-		cmds := m.filteredSlash()
-		if m.slashSel < len(cmds) {
-			m.stripSlashText()
-			return m.runSlash(cmds[m.slashSel].name)
-		}
-		m.mode = modeOutline
-		return m, nil
-	}
-
-	if k.Type == tea.KeySpace && !k.Alt {
-		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
-	}
-	if k.Type == tea.KeyRunes && !k.Alt {
-		m.slashQuery += string(k.Runes)
-		m.slashSel = 0
-		if m.slashInline && cur != nil {
-			runes := []rune(cur.name)
-			ins := []rune(string(k.Runes))
-			cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
-			m.caret += len(ins)
-		}
-		// nothing matches anymore: it was ordinary text, keep it as typed
-		if len(m.filteredSlash()) == 0 {
-			m.mode = modeOutline
-		}
-	}
-	return m, nil
-}
-
-// filteredTypes returns the node-type keys matching the picker's search query
-// (case-insensitive substring over the label), in registry order.
-func (m *Model) filteredTypes() []string {
-	q := strings.ToLower(m.typeQuery)
+// filteredTypes returns the node-type keys matching the query (case-insensitive
+// substring over the label), in registry order.
+func (m *Model) filteredTypes(query string) []string {
+	q := strings.ToLower(query)
 	var ret []string
 	for _, t := range typeOrder {
 		if typeOf(t).tempOnly && !m.tempActive {
@@ -1929,110 +1853,8 @@ func (m *Model) filteredTypes() []string {
 	return ret
 }
 
-func (m *Model) handleTypeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
-	case "esc":
-		m.mode = modeOutline
-		return m, nil
-	case "up":
-		if m.typeSel > 0 {
-			m.typeSel--
-		}
-		return m, nil
-	case "down":
-		if m.typeSel < len(m.filteredTypes())-1 {
-			m.typeSel++
-		}
-		return m, nil
-	case "backspace":
-		if qr := []rune(m.typeQuery); len(qr) > 0 {
-			m.typeQuery = string(qr[:len(qr)-1])
-			m.typeSel = 0
-		} else {
-			m.mode = modeOutline
-		}
-		return m, nil
-	case "enter":
-		filt := m.filteredTypes()
-		cur := m.cursorItem()
-		if cur != nil && m.typeSel < len(filt) {
-			m.pushUndo("")
-			cur.typ = filt[m.typeSel]
-			m.unsaved = true
-		}
-		m.mode = modeOutline
-		return m, nil
-	}
-	// any other rune extends the search query
-	if k.Type == tea.KeySpace && !k.Alt {
-		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
-	}
-	if k.Type == tea.KeyRunes && !k.Alt {
-		m.typeQuery += string(k.Runes)
-		m.typeSel = 0
-	}
-	return m, nil
-}
-
-func (m *Model) handleStyleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
-	case "esc":
-		m.mode = modeOutline
-		return m, nil
-	case "up":
-		if m.styleSel > 0 {
-			m.styleSel--
-		}
-		return m, nil
-	case "down":
-		if m.styleSel < len(stylePickerItems)-1 {
-			m.styleSel++
-		}
-		return m, nil
-	case "enter":
-		cur := m.cursorItem()
-		if cur != nil {
-			m.pushUndo("")
-			it := stylePickerItems[m.styleSel]
-			if it.kind == "toggle" {
-				cur.style = styleToggle(cur.style, it.value)
-			} else {
-				cur.style = styleSetColor(cur.style, it.value)
-			}
-			m.unsaved = true
-		}
-		m.mode = modeOutline
-		return m, nil
-	}
-	return m, nil
-}
-
-func (m *Model) handleThemeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
-	case "esc":
-		m.mode = modeOutline
-		return m, nil
-	case "up":
-		if m.themeSel > 0 {
-			m.themeSel--
-		}
-		return m, nil
-	case "down":
-		if m.themeSel < len(themes)-1 {
-			m.themeSel++
-		}
-		return m, nil
-	case "enter":
-		if m.themeSel >= 0 && m.themeSel < len(themes) {
-			applyTheme(themes[m.themeSel])
-			m.saveTheme(themes[m.themeSel].name)
-			m.flash = "theme · " + activeThemeName
-		}
-		m.mode = modeOutline
-		return m, nil
-	}
-	return m, nil
-}
+// /type, /style, and /theme key handling now live in the shared listPicker
+// (picker_list.go) via their pickerSources (picker_sources.go).
 
 func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
@@ -2043,46 +1865,17 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 
 	switch name {
 	case "/type":
-		// open the picker; pre-select the type already in effect, if any
+		// open the picker; pre-select the type already in effect (see typeSource)
 		m.mode = modeType
-		m.typeSel = 0
-		m.typeQuery = ""
-		for i, t := range typeOrder {
-			if t == cur.typ {
-				m.typeSel = i
-				break
-			}
-		}
+		m.list.open(m, typeSource{}, true)
 	case "/style":
-		// open the picker; pre-select the first active toggle, then the
-		// active color, otherwise default to the first item.
+		// open the picker; pre-select the active toggle/color (see styleSource)
 		m.mode = modeStyle
-		m.styleSel = 0
-		for i, it := range stylePickerItems {
-			if it.kind == "toggle" && styleHas(cur.style, it.value) {
-				m.styleSel = i
-				break
-			}
-		}
-		if m.styleSel == 0 {
-			c := styleColor(cur.style)
-			for i, it := range stylePickerItems {
-				if it.kind == "color" && it.value == c {
-					m.styleSel = i
-					break
-				}
-			}
-		}
+		m.list.open(m, styleSource{}, false)
 	case "/theme":
-		// open the palette picker; pre-select the theme already in effect
+		// open the palette picker; pre-select the active theme (see themeSource)
 		m.mode = modeTheme
-		m.themeSel = 0
-		for i, t := range themes {
-			if t.name == activeThemeName {
-				m.themeSel = i
-				break
-			}
-		}
+		m.list.open(m, themeSource{}, false)
 	case "/lock":
 		// toggle the read-only lock: locked nodes ignore inline text edits (a file
 		// node locks itself on Enter); unlock to edit, Enter re-locks a file node.
@@ -2772,35 +2565,23 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	const pickerMaxRows = 8 // most option rows any picker shows at once before scrolling
-
 	maxRows := focusedBudget
 	// Pickers (slash menu, /type, /style) are modal overlays drawn above the status
 	// bar. Each reserves a small, FIXED-height scrolling window by shrinking the body
 	// budget, so the picker never takes over the screen — the outline stays visible
-	// and the list scrolls to keep the selection in view. typePickerRows includes the
+	// and the list scrolls to keep the selection in view. headerRows includes the
 	// /type search header.
-	pickerItems, typePickerRows := 0, 0
-	switch m.mode {
-	case modeSlash:
-		pickerItems = len(m.filteredSlash())
-	case modeStyle:
-		pickerItems = len(stylePickerItems)
-	case modeType:
-		pickerItems = len(m.filteredTypes())
-		typePickerRows = 1 // the "type:" search header
-	case modeTheme:
-		pickerItems = len(themes)
-	case modeComplete:
-		pickerItems = len(m.complItems())
+	pickerItems, headerRows := 0, 0
+	if src := m.listSource(); src != nil {
+		pickerItems, headerRows = m.list.counts(m, src)
 	}
 	pickerRows := 0
-	if pickerItems > 0 || typePickerRows > 0 {
+	if pickerItems > 0 || headerRows > 0 {
 		win := pickerItems
 		if win > pickerMaxRows {
 			win = pickerMaxRows
 		}
-		pickerRows = win + typePickerRows
+		pickerRows = win + headerRows
 		if pickerRows > rowBudget-1 { // always leave at least one body row
 			pickerRows = rowBudget - 1
 		}
@@ -2885,149 +2666,17 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// The slash menu lists its commands above the status line, same as the
-	// confirm prompt and for the same reason: the inline renderer skips
-	// repainting an unchanged last line, so if the bottomBar were the final line
-	// with the menu below it, dismissing the menu (Backspace on an empty query)
-	// would shrink the frame without moving the bar's row — the renderer would
-	// skip the bar and then erase-below it, blanking the status bar for a frame.
-	// Listing the menu above the bar shifts the bar's row when the menu vanishes,
-	// which forces the repaint. The menu is trimmed to the rows left under the
-	// body so body + menu + bar still fits the window height.
-	if m.mode == modeSlash {
-		cmds := m.filteredSlash()
-		win := pickerMaxRows
-		s2 := scrollStart(m.slashSel, len(cmds), win)
-		e2 := s2 + win
-		if e2 > len(cmds) {
-			e2 = len(cmds)
-		}
-		for i := s2; i < e2; i++ {
-			c := cmds[i]
-			mark := "  "
-			if i == m.slashSel {
-				mark = cAccent + "▸ " + cReset
-			}
-			line := " " + mark + cFG + fmt.Sprintf("%-14s", c.name) + cDim + " " + c.desc + cReset
-			lines = append(lines, clip(line, maxLine))
-		}
-	}
-
-	// the /type picker: a search header plus a scrolling, bounded option list
-	if m.mode == modeType {
-		filt := m.filteredTypes()
-		if m.typeSel >= len(filt) {
-			m.typeSel = len(filt) - 1
-		}
-		if m.typeSel < 0 {
-			m.typeSel = 0
-		}
-		query := m.typeQuery
-		if query == "" {
-			query = cDim + "type to search" + cReset
-		} else {
-			query = cFG + query + cReset
-		}
-		lines = append(lines, clip(" "+cDim+"type: "+cReset+query, maxLine))
-
-		win := pickerMaxRows
-		s2 := scrollStart(m.typeSel, len(filt), win)
-		e2 := s2 + win
-		if e2 > len(filt) {
-			e2 = len(filt)
-		}
-		for i := s2; i < e2; i++ {
-			mark := "  "
-			if i == m.typeSel {
-				mark = cAccent + "▸ " + cReset
-			}
-			lines = append(lines, clip(" "+mark+cFG+typeLabels[filt[i]]+cReset, maxLine))
-		}
-	}
-
-	// the /style picker lists text style toggles and color swatches above the status line
-	if m.mode == modeStyle {
-		cur := m.cursorItem()
-		win := pickerMaxRows
-		s2 := scrollStart(m.styleSel, len(stylePickerItems), win)
-		e2 := s2 + win
-		if e2 > len(stylePickerItems) {
-			e2 = len(stylePickerItems)
-		}
-		for i := s2; i < e2; i++ {
-			it := stylePickerItems[i]
-			mark := "  "
-			if i == m.styleSel {
-				mark = cAccent + "▸ " + cReset
-			}
-			if it.kind == "toggle" {
-				active := ""
-				if cur != nil && styleHas(cur.style, it.value) {
-					active = cDim + " (on)" + cReset
-				}
-				line := " " + mark + cFG + stylePickerLabels[it.value] + active + cReset
-				lines = append(lines, clip(line, maxLine))
-			} else {
-				swatch := styleColorCode[it.value] + "●" + cReset
-				line := " " + mark + swatch + " " + styleColorCode[it.value] + stylePickerLabels[it.value] + cReset
-				lines = append(lines, clip(line, maxLine))
-			}
-		}
-	}
-
-	// the /theme picker: one row per theme, each previewing its own palette as a
-	// strip of swatches so the colors are visible before you commit.
-	if m.mode == modeTheme {
-		win := pickerMaxRows
-		s2 := scrollStart(m.themeSel, len(themes), win)
-		e2 := s2 + win
-		if e2 > len(themes) {
-			e2 = len(themes)
-		}
-		for i := s2; i < e2; i++ {
-			t := themes[i]
-			mark := "  "
-			if i == m.themeSel {
-				mark = cAccent + "▸ " + cReset
-			}
-			active := ""
-			if t.name == activeThemeName {
-				active = cDim + " (on)" + cReset
-			}
-			swatches := t.accent + "●" + t.red + "●" + t.yellow + "●" +
-				t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
-			line := " " + mark + cFG + fmt.Sprintf("%-9s", t.name) + active + "  " + swatches
-			lines = append(lines, clip(line, maxLine))
-		}
-	}
-
-	// the inline completer popup ("#" tags, ":" query commands): a scrolling list
-	// of matches, each label plus an optional dim hint.
-	if m.mode == modeComplete {
-		items := m.complItems()
-		if m.compl.sel >= len(items) {
-			m.compl.sel = len(items) - 1
-		}
-		if m.compl.sel < 0 {
-			m.compl.sel = 0
-		}
-		win := pickerMaxRows
-		s2 := scrollStart(m.compl.sel, len(items), win)
-		e2 := s2 + win
-		if e2 > len(items) {
-			e2 = len(items)
-		}
-		for i := s2; i < e2; i++ {
-			mark := "  "
-			if i == m.compl.sel {
-				mark = cAccent + "▸ " + cReset
-			}
-			line := " " + mark + cFG + items[i].label + cReset
-			if items[i].desc != "" {
-				line += cDim + "  " + items[i].desc + cReset
-			}
-			lines = append(lines, clip(line, maxLine))
-		}
+	// The Group-A pickers (slash menu, /type, /style, /theme, completer) list their
+	// options above the status line, same as the confirm prompt and for the same
+	// reason: the inline renderer skips repainting an unchanged last line, so if the
+	// bottomBar were the final line with the menu below it, dismissing the menu
+	// (Backspace on an empty query) would shrink the frame without moving the bar's
+	// row — the renderer would skip the bar and then erase-below it, blanking the
+	// status bar for a frame. Listing the menu above the bar shifts the bar's row
+	// when the menu vanishes, which forces the repaint. The shared listPicker
+	// renders a bounded, scrolling window (see picker_list.go).
+	if src := m.listSource(); src != nil {
+		lines = append(lines, m.list.render(m, src, maxLine)...)
 	}
 
 	// Assemble the body: main notes, then the status bar (which doubles as the
