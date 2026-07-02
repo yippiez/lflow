@@ -47,7 +47,7 @@ func (m *Model) enterTemp() {
 	m.caret = 0
 }
 
-// crossToNotes moves a top-level agent node out of the Agent Domain into the main
+// crossToNotes moves a top-level node out of the Temporary Domain into the main
 // notes (under the current main view root) and follows it there — so alt+shift+up
 // at the top of the domain feels like moving across one continuous space. The node
 // and its subtree migrate in-memory (byUUID + snapshots) from the temp tree to the
@@ -141,7 +141,7 @@ func (m *Model) tempPanelBudget(rowBudget int) int {
 // editing) region exactly `budget` lines tall — padded with blanks so the layout
 // stays fixed and the temp panel anchors to the bottom. `dashed` swaps in the ◌
 // glyph for every non-mirror node (the Temporary Domain look).
-func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, maxLine int, dashed, hideCompose bool) []string {
+func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, maxLine int, dashed bool) []string {
 	if budget < 1 {
 		budget = 1
 	}
