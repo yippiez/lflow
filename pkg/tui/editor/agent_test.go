@@ -73,13 +73,17 @@ func TestMentionSendAndReplies(t *testing.T) {
 	if m.agentBusy["n1"] {
 		t.Fatal("thread must be idle after done")
 	}
-	if len(n1.children) != 2 {
-		t.Fatalf("want 2 agent replies, got %d", len(n1.children))
+	// exactly ONE reply node per turn — no narration/thinking nodes
+	if len(n1.children) != 1 {
+		t.Fatalf("want exactly 1 agent reply, got %d", len(n1.children))
 	}
-	for _, c := range n1.children {
-		if c.typ != database.TypeAgent {
-			t.Fatalf("reply type = %q, want agent", c.typ)
-		}
+	reply := n1.children[0]
+	if reply.typ != database.TypeAgent {
+		t.Fatalf("reply type = %q, want agent", reply.typ)
+	}
+	// the reply's #tag and date became real chips
+	if !hasAnchor(reply.name) {
+		t.Fatalf("reply must carry chips, got plain %q", reply.name)
 	}
 	s, ok, err := database.GetThreadSession(m.db, "n1", "Pi")
 	if err != nil || !ok {

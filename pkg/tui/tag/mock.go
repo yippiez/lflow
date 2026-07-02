@@ -50,39 +50,21 @@ func (m *MockClient) Send(ctx context.Context, agent, sessionID string, thread [
 			}
 		}
 
+		// exactly ONE reply node per turn — while the agent works, the status
+		// bar's small "✦ agent thinking…" text is the only progress signal; no
+		// narration/thinking nodes ever land in the thread.
 		prompt := lastUserText(thread)
 		if key, label, source, ok := artifactFor(prompt); ok {
-			if !emit(Event{Op: "message", Text: "On it — drafting a " + label + " node type from this thread."}) {
-				return
-			}
 			if !emit(Event{Op: "artifact", Key: key, Label: label, Source: source}) {
 				return
 			}
-			emit(Event{Op: "message", Text: "Installed the " + label + " artifact (" + key + ") — set it on any node via /type; alt+r runs it. Manage it later in /artifacts."})
+			emit(Event{Op: "message", Text: "Installed the " + label + " artifact — set it on any node via /type; alt+r runs it. Tagged #" + key + " so it stays findable."})
 			emit(Event{Op: "done"})
 			return
 		}
 
-		users, agents := 0, 0
-		for _, n := range thread {
-			switch n.Role {
-			case "user":
-				users++
-			case "agent":
-				agents++
-			}
-		}
-		root := ""
-		for _, n := range thread {
-			if n.Depth == 0 && n.Role != "context" {
-				root = n.Name
-				break
-			}
-		}
-		if !emit(Event{Op: "message", Text: fmt.Sprintf("Read the thread — %d notes under %q (plus %d earlier replies of mine).", users, root, agents)}) {
-			return
-		}
-		emit(Event{Op: "message", Text: "My take: capture the decision as a log line, split the open questions into todos, and mention me again when one needs digging into."})
+		followup := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
+		emit(Event{Op: "message", Text: "My take: log the decision here, tag the open questions #followup, and mention me again on " + followup + " if the retries are still flaky."})
 		emit(Event{Op: "done"})
 	}()
 	return ch, nil

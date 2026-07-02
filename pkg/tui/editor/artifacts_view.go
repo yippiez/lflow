@@ -109,6 +109,8 @@ func (m *Model) artifactListLines(maxLine int) []string {
 		if i == m.artSel {
 			mark = cAccent + "▸ " + cReset
 		}
+		// just the name and whether it's on — provenance/version bookkeeping is
+		// deliberately not shown; it's useless while note-taking
 		state := cGreen + "enabled" + cReset
 		if !a.Enabled {
 			state = cDim + "disabled" + cReset
@@ -116,8 +118,7 @@ func (m *Model) artifactListLines(maxLine int) []string {
 		if a.loadErr != "" {
 			state = cRed + "error" + cReset
 		}
-		line := fmt.Sprintf(" %s%s%-16s%s %sv%d · %-10s%s %s",
-			mark, cFG, a.Label, cReset, cDim, a.Version, a.CreatedBy, cReset, state)
+		line := fmt.Sprintf(" %s%s%-16s%s %s", mark, cFG, a.Label, cReset, state)
 		if a.loadErr != "" {
 			line += cDim + " · " + a.loadErr + cReset
 		}
@@ -147,7 +148,7 @@ func (m *Model) artifactSrcLines(maxLine int) []string {
 	if m.artSrcScroll < 0 {
 		m.artSrcScroll = 0
 	}
-	hdr := fmt.Sprintf(" artifact %s · v%d · by %s · %d lines · ↑↓ scroll · esc back", a.Key, a.Version, a.CreatedBy, len(src))
+	hdr := fmt.Sprintf(" artifact %s · %d lines · ↑↓ scroll · esc back", a.Key, len(src))
 	lines := []string{clip(cDim+hdr+cReset, maxLine)}
 	e := m.artSrcScroll + artifactSrcRows
 	if e > len(src) {

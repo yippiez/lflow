@@ -197,6 +197,9 @@ func (m *Model) appendAgentNode(threadUUID, text string) {
 	it.parent = root
 	root.children = append(root.children, it)
 	root.collapsed = false
+	// agent replies carry chips like any node: #tags and canonical dates in
+	// the text become real chips via the same detection the backfill uses
+	m.backfillName(it)
 	m.unsaved = true
 	m.refreshRows()
 }

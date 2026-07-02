@@ -2955,11 +2955,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if i == m.typeSel {
 				mark = cAccent + "▸ " + cReset
 			}
-			label := " " + mark + cFG + typeLabel(filt[i]) + cReset
-			if isArtifactType(filt[i]) {
-				label += cDim + " · artifact" + cReset
-			}
-			lines = append(lines, clip(label, maxLine))
+			lines = append(lines, clip(" "+mark+cFG+typeLabel(filt[i])+cReset, maxLine))
 		}
 	}
 

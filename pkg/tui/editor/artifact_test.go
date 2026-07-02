@@ -61,13 +61,10 @@ func TestArtifactLogType(t *testing.T) {
 		t.Fatalf("muteFrom = %d, want -1", d)
 	}
 
-	// the picker lists it after the built-ins, tagged as an artifact
+	// the picker lists it after the built-ins, indistinguishable from them
 	order := typeOrder()
 	if order[len(order)-1] != database.TypeLog {
 		t.Fatalf("typeOrder tail = %v, want log last", order[len(order)-3:])
-	}
-	if !isArtifactType(database.TypeLog) {
-		t.Fatal("log must report as an artifact type")
 	}
 }
 

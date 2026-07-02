@@ -155,15 +155,9 @@ func typeLabel(key string) string {
 	return typeOf(key).label
 }
 
-// isArtifactType reports whether the key resolves to a runtime artifact — the
-// picker dims these with an "artifact" tag.
-func isArtifactType(key string) bool {
-	if _, builtin := byType[key]; builtin {
-		return false
-	}
-	_, ok := artifactByKey[key]
-	return ok
-}
+// WARNING (invariant): an artifact type is indistinguishable from a built-in
+// everywhere the user picks or reads types — /type shows one flat list with no
+// origin tags. Where a type came from only matters in /artifacts.
 
 func todoGlyph(it *item) (string, string) {
 	if it.completedAt > 0 {

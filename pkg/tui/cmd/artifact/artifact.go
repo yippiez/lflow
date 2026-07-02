@@ -39,7 +39,7 @@ func newListCmd(ctx context.DnoteCtx) *cobra.Command {
 				if !a.Enabled {
 					state = "disabled"
 				}
-				fmt.Printf("→ %s · %s · v%d · %s · %s\n", a.Key, a.Label, a.Version, a.CreatedBy, state)
+				fmt.Printf("→ %s · %s · %s\n", a.Key, a.Label, state)
 			}
 			if len(rows) == 0 {
 				fmt.Println("→ no artifacts installed")
