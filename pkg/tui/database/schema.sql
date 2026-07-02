@@ -52,6 +52,23 @@ CREATE TABLE node_blobs (
 			w integer NOT NULL DEFAULT 0,
 			h integer NOT NULL DEFAULT 0
 		);
+CREATE TABLE artifacts (
+			key text PRIMARY KEY,
+			label text NOT NULL DEFAULT '',
+			version integer NOT NULL DEFAULT 1,
+			source text NOT NULL DEFAULT '',
+			created_by text NOT NULL DEFAULT 'user',
+			created_at integer NOT NULL DEFAULT 0,
+			enabled bool NOT NULL DEFAULT true
+		);
+CREATE TABLE agent_sessions (
+			id text PRIMARY KEY,
+			node_uuid text NOT NULL DEFAULT '',
+			agent text NOT NULL DEFAULT '',
+			state text NOT NULL DEFAULT 'idle',
+			created_at integer NOT NULL DEFAULT 0,
+			updated_at integer NOT NULL DEFAULT 0
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 29);
+INSERT INTO system (key, value) VALUES ('schema', 32);
