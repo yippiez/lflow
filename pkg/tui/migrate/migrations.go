@@ -915,3 +915,62 @@ var lm29 = migration{
 		return nil
 	},
 }
+
+// lm30 adds the artifacts table — runtime-loaded node-type plugins, one JS
+// program per row (see docs/ARTIFACTS.md). Definitions live in the DB so they
+// travel with the outline: installing an artifact is an INSERT, never a
+// migration; this table is the last type-related schema change.
+var lm30 = migration{
+	name: "add-artifacts-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS artifacts (
+			key text PRIMARY KEY,
+			label text NOT NULL DEFAULT '',
+			version integer NOT NULL DEFAULT 1,
+			source text NOT NULL DEFAULT '',
+			created_by text NOT NULL DEFAULT 'user',
+			created_at integer NOT NULL DEFAULT 0,
+			enabled bool NOT NULL DEFAULT true
+		);`); err != nil {
+			return errors.Wrap(err, "creating artifacts table")
+		}
+		return nil
+	},
+}
+
+// lm31 seeds the "log" artifact — the one built-in node type that moved to the
+// artifact model, doubling as the reference program agent-generated artifacts
+// imitate. Its compiled-in registry entry and render branches are gone; the
+// TypeLog constant stays for data compatibility.
+var lm31 = migration{
+	name: "seed-log-artifact",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`INSERT INTO artifacts (key, label, version, source, created_by, created_at, enabled)
+			VALUES ('log', 'Log', 1, ?, 'seed', ?, true)
+			ON CONFLICT(key) DO NOTHING`,
+			database.SeedLogArtifactSource, time.Now().UnixNano()); err != nil {
+			return errors.Wrap(err, "seeding log artifact")
+		}
+		return nil
+	},
+}
+
+// lm32 adds the agent_sessions table — one row per @mention thread, binding a
+// thread root node to a remote agent session id so a later mention in the same
+// thread resumes the conversation (see pkg/tui/tag).
+var lm32 = migration{
+	name: "add-agent-sessions-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS agent_sessions (
+			id text PRIMARY KEY,
+			node_uuid text NOT NULL DEFAULT '',
+			agent text NOT NULL DEFAULT '',
+			state text NOT NULL DEFAULT 'idle',
+			created_at integer NOT NULL DEFAULT 0,
+			updated_at integer NOT NULL DEFAULT 0
+		);`); err != nil {
+			return errors.Wrap(err, "creating agent_sessions table")
+		}
+		return nil
+	},
+}

@@ -31,6 +31,12 @@ type bashDoneMsg struct {
 // runBash runs a bash node's command. Output is ephemeral (in-memory, keyed by
 // uuid) and streams in; a second alt+r while running cancels it.
 func runBash(m *Model, it *item) tea.Cmd {
+	return runShell(m, it, expandAnchors(it.name, m.chips)) // chips → full paths
+}
+
+// runShell streams an arbitrary shell command through the shared run machinery
+// — the bash node and every runnable artifact type go through here.
+func runShell(m *Model, it *item, cmd string) tea.Cmd {
 	if m.runCancel == nil {
 		m.runCancel = map[string]func(){}
 		m.runOut = map[string][]outLine{}
@@ -53,7 +59,7 @@ func runBash(m *Model, it *item) tea.Cmd {
 	m.runOut[it.uuid] = nil
 	ch := make(chan tea.Msg, 1024)
 	m.runCh[it.uuid] = ch
-	go startBash(it.uuid, expandAnchors(it.name, m.chips), ctx, ch) // chips → full paths
+	go startBash(it.uuid, cmd, ctx, ch)
 	return waitBashCmd(ch)
 }
 
@@ -158,7 +164,7 @@ func (bashView) Bands(m *Model, it *item, rail string, width, scroll, winH int, 
 	out := m.runOut[it.uuid]
 	_, running := m.runCancel[it.uuid]
 
-	hdr := fmt.Sprintf("  bash · %d lines", len(out))
+	hdr := fmt.Sprintf("  %s · %d lines", it.typ, len(out))
 	if running {
 		hdr += " · running…"
 	}

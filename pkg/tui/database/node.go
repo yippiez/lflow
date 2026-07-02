@@ -23,11 +23,14 @@ const (
 	TypeImage   = "image"
 	TypeDivider = "divider"
 	TypeLog     = "log"
+	TypeAgent   = "agent" // an agent-authored reply node: red ✦, text + chips only
 )
 
 // TypeOrder is the canonical ordering of node types — the single source of
 // truth for the accepted set. ValidTypes and the human-readable list in CLI
 // help/errors derive from it, so a new type added here needs no other edits.
+// TypeAgent is a valid stored type (agent-authored replies) but is not offered
+// in the /type picker — the editor's picker derives from the registry, not this.
 var TypeOrder = []string{
 	TypeBullets,
 	TypeTodo,
@@ -43,6 +46,7 @@ var TypeOrder = []string{
 	TypeQuery,
 	TypeVoice,
 	TypeImage,
+	TypeAgent,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.
