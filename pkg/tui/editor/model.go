@@ -48,8 +48,9 @@ type tree struct {
 	// resolved names for mirrors whose originals are outside the tree
 	externalNames map[string]string
 	byUUID        map[string]*item
-	// defaultType is the node type new items get (empty = bullets). The temp tree
-	// sets it to worker so the agent surface defaults to a worker node.
+	// defaultType is the node type new items get (empty = bullets). Currently
+	// nothing sets it — it's a hook for a tree to default new nodes to a type
+	// other than bullets.
 	defaultType string
 }
 
@@ -360,7 +361,7 @@ func (t *tree) newItem() (*item, error) {
 	}
 	typ := database.TypeBullets
 	if t.defaultType != "" {
-		typ = t.defaultType // the temp tree defaults new nodes to worker
+		typ = t.defaultType // a tree may default new nodes to a non-bullets type
 	}
 	it := &item{uuid: uuid, typ: typ, addedOn: time.Now().UnixNano(), isNew: true}
 	t.byUUID[uuid] = it
@@ -563,7 +564,8 @@ func (t *tree) move(it *item, delta int, viewRoot *item) bool {
 	return true
 }
 
-// reparent moves the item under a new parent (appended last).
+// reparent moves the item under a new parent, placed first so it lands at the
+// top of the target's children rather than the bottom.
 func (t *tree) reparent(it *item, newParent *item) bool {
 	// cycle check: newParent must not be inside it's subtree
 	for p := newParent; p != nil; p = p.parent {
@@ -577,7 +579,7 @@ func (t *tree) reparent(it *item, newParent *item) bool {
 	}
 	it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
 	it.parent = newParent
-	newParent.children = append(newParent.children, it)
+	newParent.children = append([]*item{it}, newParent.children...)
 	return true
 }
 

@@ -11,22 +11,26 @@ import (
 )
 
 // fzfPickedMsg carries the file the fzf picker selected, to splice a path chip
-// into the node at the caret position captured when the picker opened.
+// into the node at the caret position captured when the picker opened. onCancel
+// is the literal text to type when the picker is dismissed without a selection —
+// ">" for the ">" gesture (so a bash redirect still works), "" for /file.
 type fzfPickedMsg struct {
-	uuid  string
-	caret int
-	path  string
+	uuid     string
+	caret    int
+	path     string
+	onCancel string
 }
 
 // openFilePicker runs fzf (suspending the inline UI, like the $EDITOR open) for a
 // fuzzy file pick under the working dir, then splices the chosen path in as a
-// chip. Returns nil (with a flash) when fzf isn't installed.
-func (m *Model) openFilePicker(cur *item) tea.Cmd {
+// chip. onCancel is typed literally when the pick is dismissed. Returns nil (no
+// flash) when fzf isn't installed — the caller decides whether to flash or fall
+// back to typing the trigger character.
+func (m *Model) openFilePicker(cur *item, onCancel string) tea.Cmd {
 	if cur == nil {
 		return nil
 	}
 	if _, err := exec.LookPath("fzf"); err != nil {
-		m.flash = "fzf not found — install it to pick files"
 		return nil
 	}
 	uuid, caret := cur.uuid, m.caret
@@ -34,8 +38,24 @@ func (m *Model) openFilePicker(cur *item) tea.Cmd {
 	var out bytes.Buffer
 	c.Stdout = &out // fzf draws on /dev/tty and prints the selection to stdout
 	return tea.ExecProcess(c, func(error) tea.Msg {
-		return fzfPickedMsg{uuid: uuid, caret: caret, path: strings.TrimSpace(out.String())}
+		return fzfPickedMsg{uuid: uuid, caret: caret, path: strings.TrimSpace(out.String()), onCancel: onCancel}
 	})
+}
+
+// insertLiteralAt splices plain text s into cur.name at caret (no chip) and parks
+// the caret after it — used when the file picker is dismissed and the ">" that
+// opened it should type literally.
+func (m *Model) insertLiteralAt(cur *item, caret int, s string) {
+	runes := []rune(cur.name)
+	if caret > len(runes) {
+		caret = len(runes)
+	}
+	if caret < 0 {
+		caret = 0
+	}
+	cur.name = string(runes[:caret]) + s + string(runes[caret:])
+	m.caret = caret + len([]rune(s))
+	m.unsaved = true
 }
 
 // insertPathChip splices a path chip for absPath into cur.name at caret.
@@ -144,4 +164,3 @@ func absolutizePath(p string) string {
 	}
 	return abs
 }
-

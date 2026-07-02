@@ -8,26 +8,6 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// stripSGR removes ANSI style sequences, leaving the visible text.
-func stripSGR(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if r == 'm' {
-				inEsc = false
-			}
-			continue
-		}
-		if r == '\x1b' {
-			inEsc = true
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
 func TestSourceUUIDFollowsMirrorChain(t *testing.T) {
 	orig := &item{uuid: "a", name: "alpha"}
 	mir1 := &item{uuid: "b", mirrorOf: "a"} // mirror of the original

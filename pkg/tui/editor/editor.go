@@ -35,6 +35,8 @@ const (
 	modeTheme    // the /theme picker: choose a color palette
 	modeComplete // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
+	modeCmdView  // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
+	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
 )
 
 type finderAction int
@@ -53,7 +55,7 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/bring", "Bring another node (or an agent) here"},
+	{"/bring", "Bring another node here"},
 	{"/complete", "Toggle done"},
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
@@ -137,6 +139,15 @@ type Model struct {
 	linkEditName   string // working copy of the link's display name
 	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
 	linkEditField  int    // 0 = name field, 1 = target field
+
+	cmdViewID  string // cmd chip id whose output the alt+e viewer is showing
+	cmdViewCmd string // that chip's command, for the viewer header
+
+	// flash mode (modeFlash): each visible row's actions carry a typed label;
+	// typing a label narrows (matched prefix grays, the rest stays lit) until one
+	// completes and fires. flashInput is the prefix typed so far. See flash.go.
+	flashTargets []flashTarget
+	flashInput   string
 
 	// /type picker selection (index into the filtered list) and search query
 	typeSel   int
@@ -361,7 +372,7 @@ func (m *Model) undo() {
 	//   - a node already in the DB must UPDATE, never re-INSERT (the UNIQUE-constraint
 	//     crash); a never-saved node stays new.
 	//   - a node that was in the DB but is gone from the restored tree is tombstoned
-	//     (e.g. undoing a just-created agent removes it), and any live process stops.
+	//     (e.g. undoing a just-created node removes it), and any live process stops.
 	m.tree.deleted = nil
 	for uuid, it := range m.tree.byUUID {
 		_, inDB := m.tree.snapshots[uuid]
@@ -507,11 +518,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(m.runCancel, msg.uuid)
 		delete(m.runCh, msg.uuid)
 		m.persistRunOut(msg.uuid) // cache the finished band so it survives a restart
+		m.setCmdPreview(msg.uuid) // a cmd chip: refresh its inline "→ preview"
 		return m, nil
 	case fzfPickedMsg:
-		if msg.path != "" {
-			if it := m.tree.byUUID[msg.uuid]; it != nil {
+		if it := m.tree.byUUID[msg.uuid]; it != nil {
+			switch {
+			case msg.path != "":
 				m.insertPathChip(it, msg.caret, absolutizePath(msg.path))
+			case msg.onCancel != "":
+				// dismissed without a pick: the ">" that opened the picker types
+				// literally, so a bash redirect (or any literal ">") still works.
+				m.insertLiteralAt(it, msg.caret, msg.onCancel)
 			}
 		}
 		return m, nil
@@ -623,6 +640,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFinderKey(k)
 	case modeLinkEdit:
 		return m.handleLinkEditKey(k)
+	case modeCmdView:
+		return m.handleCmdViewKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:
@@ -635,6 +654,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleThemeKey(k)
 	case modeComplete:
 		return m.handleCompleteKey(k)
+	case modeFlash:
+		return m.handleFlashKey(k)
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
@@ -772,11 +793,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
-		// path chips are inserted via the /file fuzzy picker now, not a "#…" token,
-		// so Tab just indents (# is tags-only again)
-		if m.tempActive {
-			return m, nil // no indenting in the Agent Domain
-		}
+		// path chips are inserted via the /file fuzzy picker, and "#" is for tags,
+		// so Tab is free to just indent. The Temporary Domain edits exactly like the
+		// main outline, so indenting works there too.
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.indent(cur) {
@@ -792,9 +811,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "shift+tab":
-		if m.tempActive {
-			return m, nil // no outdenting in the Agent Domain
-		}
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.outdent(cur, mc.localRoot) {
@@ -878,10 +894,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur == nil {
 			return m, nil
 		}
-		// at the top of the Agent Domain (the topmost agent, just under the compose
-		// line), alt+shift+up moves the node out into the notes — crossing the divider
-		// as if the two regions were one space.
-		if m.tempActive && cur.parent == m.tempTree.root && indexOf(cur) == 1 {
+		// at the top of the Temporary Domain, alt+shift+up moves the node out into
+		// the notes — crossing the divider as if the two regions were one space.
+		if m.tempActive && cur.parent == m.tempTree.root && indexOf(cur) == 0 {
 			m.crossToNotes(cur)
 			return m, nil
 		}
@@ -990,7 +1005,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+e":
-		// toggle a type's inline expanded view (json/agent): alt+e focuses it,
+		// toggle a type's inline expanded view (json/bash): alt+e focuses it,
 		// alt+e again collapses. Else fall back to an action-only expand (voice play).
 		if cur := m.cursorItem(); cur != nil {
 			if v := nodeViewOf(cur); v != nil {
@@ -1001,6 +1016,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.focused = true
 					m.focusScroll = 0
 				}
+			} else if c, ok := m.cmdChipAtCaret(cur); ok {
+				m.openCmdView(c) // ⌥e on a cmd chip shows its full run output
+				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
 				return m, nil
@@ -1012,13 +1030,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+r":
-		// run / re-run a runnable node's own action (bash/query/worker). Never
-		// auto-runs; on an agent it re-runs the turn.
+		// run / re-run a runnable node's own action (bash/query/voice). Never
+		// auto-runs.
 		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.cmdChipAtCaret(cur); ok {
+				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
+			}
 			if run := typeOf(cur.typ).run; run != nil {
 				return m, run(m, cur)
 			}
 		}
+		return m, nil
+	case "alt+s":
+		// flash: label every visible row's actions (jump / run / expand / fold) and
+		// hand off to modeFlash so the next keystrokes pick one — act on a node
+		// elsewhere on screen without moving the cursor there. See flash.go.
+		m.enterFlash()
 		return m, nil
 	case "alt+up", "ctrl+up":
 		// collapse the cursor node
@@ -1048,7 +1075,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			goal := m.caretColumn(starts, line)
 			m.caret = m.caretAtColumn(starts, line-1, goal)
 		} else if m.atTopOfTempList() {
-			// at the top of the worker list: go back up into the main outline
+			// at the top of the temp list: go back up into the main outline
 			m.exitTemp()
 		} else if m.cursor > 0 {
 			// from the first visual line, cross to the previous node and land
@@ -1256,19 +1283,25 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// ">" opens the file picker to splice a path chip at the caret — the chip
-		// renders as "›name", so ">" is its natural trigger. Skipped where ">" is
-		// real syntax (bash redirects, code, queries), and after a "-" so the "->"
-		// log gesture can form instead of grabbing the picker.
+		// renders as "›name", so ">" is its natural trigger. It fires in every
+		// inline-editable type, including bash/code/query where ">" is real syntax:
+		// the picker is cancelable, and dismissing it types a literal ">" instead
+		// (see the fzfPickedMsg handler), so a redirect still works — you just quit
+		// the picker. Skipped after a "-" so the "->" log gesture can form, and when
+		// fzf is missing we fall through to typing ">" literally.
 		if string(k.Runes) == ">" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			pathChipTrigger(cur.typ) && !runeBeforeCaretIs(cur, m.caret, '-') {
-			return m, m.openFilePicker(cur)
+			if cmd := m.openFilePicker(cur, ">"); cmd != nil {
+				return m, cmd
+			}
 		}
 
 		// "[[" opens the link picker: the second "[" drops the first and opens the
-		// finder where you pick a node or type/paste a URL. Same type guard as the
-		// path chip ("[" stays literal in code/bash/query/quote/json).
+		// finder where you pick a node or type/paste a URL. Unlike the file picker
+		// it has no cancel-to-literal path, so it stays off where "[" is real syntax
+		// (bash test brackets, code, query, quote, json).
 		if string(k.Runes) == "[" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			pathChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
+			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
 			runes := []rune(cur.name)
 			m.boundCaret(len(runes))
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
@@ -1308,8 +1341,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// guard against a caret left stale by a cursor move (e.g. a worker run
-		// reseeding the compose) — slicing runes[:m.caret] would otherwise panic
+		// guard against a caret left stale by a cursor move (e.g. landing on a
+		// shorter node) — slicing runes[:m.caret] would otherwise panic
 		m.boundCaret(len([]rune(cur.name)))
 
 		// typing a space commits a sign prefix ("$ "→bash, "-> "/"→ "→log) into the
@@ -1317,6 +1350,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if text == " " && !k.Paste {
 			if m.convertBySign(cur) {
 				return m, nil // the sign became the type; the space is consumed
+			}
+			if m.bashCmdBeforeCaret(cur) {
+				return m, nil // a "$cmd" + double space committed a cmd chip
 			}
 			m.chipifyBeforeCaret(cur)
 		}
@@ -1335,9 +1371,17 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // pathChipTrigger reports whether ">" should open the file picker on this type.
-// Text-ish nodes get it; types where ">" is real syntax (bash redirect, code,
-// query, quote, json) keep ">" literal.
+// Every inline-editable type gets it — including bash/code/query where ">" is real
+// syntax — because the picker is cancelable and dismissing it types a literal ">"
+// instead, so file chips work in any node without losing the literal character.
 func pathChipTrigger(typ string) bool {
+	return typeOf(typ).inlineEditable
+}
+
+// linkChipTrigger reports whether "[[" should open the link picker on this type.
+// Unlike the file picker it has no cancel-to-literal path, so it stays off where
+// "[" is real syntax (bash test brackets, code, query, quote, json).
+func linkChipTrigger(typ string) bool {
 	switch typ {
 	case database.TypeBash, database.TypeCode, database.TypeQuery, database.TypeQuote, database.TypeJSON:
 		return false
@@ -1702,8 +1746,8 @@ func (m *Model) clampCaret() {
 }
 
 // boundCaret clamps the caret into [0, n] and returns it — a guard for every name
-// edit against a caret left stale by a cursor move (e.g. a worker run reseeding
-// the compose line), which would otherwise panic slicing runes[:m.caret].
+// edit against a caret left stale by a cursor move (e.g. landing on a shorter
+// node), which would otherwise panic slicing runes[:m.caret].
 func (m *Model) boundCaret(n int) int {
 	if m.caret > n {
 		m.caret = n
@@ -1875,7 +1919,7 @@ func (m *Model) filteredTypes() []string {
 	var ret []string
 	for _, t := range typeOrder {
 		if typeOf(t).tempOnly && !m.tempActive {
-			continue // temp-only types (worker) are not offered in the notebook
+			continue // temp-only types are not offered outside the Temporary Domain
 		}
 		if q != "" && !strings.Contains(strings.ToLower(typeLabels[t]), q) {
 			continue
@@ -2073,7 +2117,11 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.cursor = m.findRow(clone, ctx)
 	case "/file":
 		// fuzzy-pick a file with fzf, then splice a path chip in at the caret
-		return m, m.openFilePicker(cur)
+		cmd := m.openFilePicker(cur, "")
+		if cmd == nil {
+			m.flash = "fzf not found — install it to pick files"
+		}
+		return m, cmd
 	case "/note":
 		// a mirror is the same node everywhere: edit the original's note
 		cur = m.tree.resolve(cur)
@@ -2081,7 +2129,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.notePrev = cur.note
 		m.caret = len([]rune(cur.note))
 	case "/bring":
-		// pick any node (incl. an Agent Domain agent) and move it here
+		// pick any node (incl. a Temporary Domain node) and move it here
 		m.openFinder(actBringHere)
 	case "/mirror":
 		m.openFinder(actMirrorHere)
@@ -2183,8 +2231,8 @@ func (m *Model) refreshFinder() {
 		}
 		filtered = append(filtered, h)
 	}
-	// /bring can also pull a node out of the (ephemeral, DB-less) Agent Domain, so
-	// surface its agents alongside the saved nodes — most recent first.
+	// /bring can also pull a node out of the Temporary Domain, so surface its
+	// nodes alongside the saved nodes — most recent first.
 	if m.finderAct == actBringHere {
 		filtered = append(m.tempFinderHits(cur), filtered...)
 	}
@@ -2194,9 +2242,9 @@ func (m *Model) refreshFinder() {
 	}
 }
 
-// tempFinderHits returns the Agent Domain's named nodes as finder candidates,
+// tempFinderHits returns the Temporary Domain's named nodes as finder candidates,
 // synthesized as database.Node so they sit in the same picker list as saved nodes.
-// The always-empty compose line and the cursor node are skipped.
+// Empty (unnamed) nodes and the cursor node are skipped.
 func (m *Model) tempFinderHits(cur *item) []database.Node {
 	if m.tempTree == nil || m.tempTree == m.tree {
 		return nil // no domain, or we're already inside it
@@ -2322,15 +2370,20 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		m.unsaved = false
 	case actLinkInsert:
 		// insert an inline link chip pointing at the picked node (the original,
-		// never a mirror), its name defaulting to the node's name
+		// never a mirror), its name defaulting to the node's name. Resolve the
+		// target's chip anchors to display text first: a node whose title carries
+		// a chip (e.g. a #tag) stores a raw "￼id￼" anchor in its name, and that
+		// must never become a link label — it leaks the chip id and corrupts the
+		// editor's anchor invariant (see createLabeledChip's sentinel guard).
 		dst := m.resolveSourceNode(target)
-		m.insertLinkChip(nodeLinkURI(dst.UUID), dst.Name)
-		m.flash = "linked → " + clipStr(dst.Name, 24)
+		label := displayAnchors(dst.Name, m.chips)
+		m.insertLinkChip(nodeLinkURI(dst.UUID), label)
+		m.flash = "linked → " + clipStr(label, 24)
 	case actBringHere:
 		// move the picked node (and its subtree) to the cursor location.
 		m.pushUndo("")
 		if src, ok := m.tempTree.byUUID[target.UUID]; ok && m.tempTree != m.tree {
-			m.bringFromTemp(src, cur) // pull an agent out of the Agent Domain
+			m.bringFromTemp(src, cur) // pull a node out of the Temporary Domain
 		} else if it, inTree := m.tree.byUUID[target.UUID]; inTree {
 			m.bringWithin(it, cur) // already in the open subtree
 		} else if err := m.bringFromDB(target, cur); err != nil {
@@ -2349,7 +2402,8 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 	}
 	m.unsaved = false
 
-	rank, err := database.NextRank(m.db, target.UUID)
+	// /move drops the node at the top of the target's children, not the bottom
+	rank, err := database.FirstRank(m.db, target.UUID)
 	if err != nil {
 		return err
 	}
@@ -2392,10 +2446,9 @@ func (m *Model) placeBrought(it, cur *item) {
 	m.flash = "brought here"
 }
 
-// bringFromTemp migrates an agent (and its subtree) out of the ephemeral Agent
-// Domain into the main tree at the cursor. Any live process keeps running — the run
-// machinery is keyed by uuid, not by which tree owns the node. The Agent Domain
-// keeps its compose line afterward.
+// bringFromTemp migrates a node (and its subtree) out of the Temporary Domain
+// into the main tree at the cursor. Any live process keeps running — the run
+// machinery is keyed by uuid, not by which tree owns the node.
 func (m *Model) bringFromTemp(src, cur *item) {
 	if idx := indexOf(src); idx >= 0 {
 		src.parent.children = append(src.parent.children[:idx], src.parent.children[idx+1:]...)
@@ -2476,7 +2529,7 @@ func (m *Model) bringFromDB(target database.Node, cur *item) error {
 }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
-	// stop any live agent processes (kept alive across turns for steering)
+	// stop any live run processes (bash/query/voice) still going
 	for _, cancel := range m.runCancel {
 		cancel()
 	}
@@ -2525,6 +2578,8 @@ func (m *Model) View() string {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)
+	} else if m.mode == modeCmdView {
+		lines = m.viewCmdView(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
@@ -2602,7 +2657,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		// a divider is a full-width rule with no glyph/body; it still hangs a note
 		if it.typ == database.TypeDivider {
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
-			groups[i] = []string{dividerLine(r, maxLine, selected)} // single line, never wrapped
+			groups[i] = []string{dividerLine(r, maxLine, selected && m.mode != modeFlash)} // single line, never wrapped
 			noteCaret := -1
 			if selected && m.mode == modeNote {
 				noteCaret = m.caret
@@ -2624,7 +2679,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		name := m.tree.displayName(it)
 
 		caret := -1
-		if selected && m.mode != modeNote && it.mirrorOf == "" {
+		if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
 			caret = m.caret
 		}
 		body := renderBody(it, name, caret, selected, m.chips)
@@ -2632,7 +2687,19 @@ func (m *Model) viewOutline(maxLine int) []string {
 			body = rm(m, it) // Model-aware override (voice waveform)
 		}
 
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
+		suffix := m.typeSuffix(it)
+		// flash mode grays the whole outline so the colored action chips are the only
+		// highlights: dim the glyph, the body and the type suffix down to plain gray.
+		if m.mode == modeFlash {
+			glyphColor = cDim
+			body = cDim + stripSGR(body) + cReset
+			suffix = cDim + stripSGR(suffix) + cReset
+		}
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
+		// flash mode hangs each row's action labels off the end of the line
+		if m.mode == modeFlash {
+			line += m.flashRowSuffix(i)
+		}
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
@@ -2643,14 +2710,18 @@ func (m *Model) viewOutline(maxLine int) []string {
 			noteCaret = m.caret
 		}
 		bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-		// workers render on a single line (status/usage/activity in the suffix); the
-		// transcript lives in the agent UI (alt+e). Other runnable nodes (bash/query)
-		// hang their ephemeral output beneath them.
+		// runnable nodes (bash/query) hang their ephemeral output beneath them.
 		// the focused bash node shows its full scrollable viewer (the nodeView band
 		// below) instead of this capped inline band, so don't render both
 		focusedView := m.focused && i == m.cursor && nodeViewOf(it) != nil
 		if !focusedView {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
+		}
+		// flash grays the note / run-output bands too, so nothing competes with the chips
+		if m.mode == modeFlash {
+			for k := range bands[i] {
+				bands[i][k] = cDim + stripSGR(bands[i][k]) + cReset
+			}
 		}
 	}
 
@@ -2661,7 +2732,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// no room for that stack, so fall back to the plain outline.
 	rowBudget := m.rowBudget()
 	// A focused inline view takes the whole body (like a picker) — the temp split
-	// is suppressed so a tall view (agent transcript) isn't crammed into the panel.
+	// is suppressed so a tall view (e.g. bash output) isn't crammed into the panel.
 	showTemp := (m.mode == modeOutline || m.mode == modeNote) && rowBudget >= 3 && !m.focused
 	tempBudget, mainBudget := 0, rowBudget
 	if showTemp {
@@ -2680,7 +2751,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 	// The focused node's inline expanded view renders as a band beneath it,
 	// self-windowed to the focused budget so the node header stays pinned above
-	// while a tall view (e.g. a long agent transcript) scrolls within its window.
+	// while a tall view (e.g. long bash output) scrolls within its window.
 	if m.focused && m.cursor >= 0 && m.cursor < len(rows) {
 		cur := rows[m.cursor].it
 		if v := nodeViewOf(cur); v != nil {
@@ -2745,7 +2816,13 @@ func (m *Model) viewOutline(maxLine int) []string {
 	var flat []string
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
 	// as a band at the top of the view — the same band a row would hang below it.
-	flat = append(flat, m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)...)
+	rootNote := m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
+	if m.mode == modeFlash {
+		for k := range rootNote {
+			rootNote[k] = cDim + stripSGR(rootNote[k]) + cReset
+		}
+	}
+	flat = append(flat, rootNote...)
 	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)
@@ -2971,12 +3048,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if n := len(m.mainStash.viewStack); n > 0 {
 				mainRoot = m.mainStash.viewStack[n-1]
 			}
-			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false, false)
+			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false)
 			tempLines = focused // live, focused temp
 		} else {
 			mainLines = focused // live, focused main
-			// read-only temp panel: hide the empty compose line (only shows once focused)
-			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true, true)
+			// read-only temp panel: the dashed-glyph Temporary Domain look
+			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
 		}
 		body := mainLines
 		body = append(body, m.bottomBar(maxLine)) // the status bar is the divider
@@ -2989,6 +3066,22 @@ func (m *Model) viewOutline(maxLine int) []string {
 			body = body[:total]
 		}
 		return body
+	}
+
+	// A focused inline view (alt+e on a bash/json/agent node) replaces the temp
+	// split, so it takes this non-showTemp path instead of the padded block above
+	// — and its body is only as tall as the expanded content. Pad it to the same
+	// constant height the showTemp frame uses (rowBudget body rows + the status
+	// bar) so toggling the view never changes the frame height, keeping the status
+	// bar the last line. Without this the frame oscillates between the tall padded
+	// outline and the short expanded view on every alt+e/esc; on a terminal whose
+	// frame sits near the bottom, the grow half of that cycle scrolls rows the
+	// inline renderer can no longer reach up to, stranding a ghost line below and
+	// pushing the outline up one row each toggle (the bleed).
+	if m.focused {
+		for len(lines) < rowBudget {
+			lines = append(lines, "")
+		}
 	}
 
 	lines = append(lines, m.bottomBar(maxLine))
@@ -3011,6 +3104,13 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	if m.flash != "" {
 		state += " · " + m.flash
+	}
+	if m.mode == modeFlash {
+		hint := cFG + "flash" + cReset + cDim
+		if m.flashInput != "" {
+			hint += " " + cFG + m.flashInput + cReset + cDim
+		}
+		state += " · " + hint + " · esc cancel"
 	}
 	// offer the date conversion while a non-canonical time phrase sits under the
 	// cursor; an already-canonical date needs no conversion and is chipped as-is
@@ -3118,7 +3218,14 @@ func (m *Model) viewFinder(maxLine int) []string {
 			n, err := database.GetNode(m.db, uuid)
 			return n, err == nil
 		}), m.chips)
-		line := mark + cFG + fmt.Sprintf("%-28s", name) + cDim + fmt.Sprintf(" %d nodes", count) + cReset
+		// carry the node's own /color and /bold-/italic-/underline into the
+		// picker so a styled node reads the same here as in the outline
+		base := cFG
+		if c := styleBaseColor(h.Style); c != "" {
+			base = c
+		}
+		label := base + styleAttrs(h.Style) + fmt.Sprintf("%-28s", name) + cReset
+		line := mark + label + cDim + fmt.Sprintf(" %d nodes", count) + cReset
 		lines = append(lines, clip(line, maxLine))
 	}
 	if overflow > 0 {

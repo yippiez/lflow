@@ -28,6 +28,11 @@ type nodeType struct {
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
+	// flashActions lets a type declare its own flash (alt+s) actions — each a verb,
+	// a chip color, and a handler — so flash surfaces named, colored actions with no
+	// switch in flash.go. nil → the actions are inferred from run/view/expand (a
+	// generic "run"/"expand"). See flashActionsFor. jump and fold stay universal.
+	flashActions func(m *Model, it *item) []flashAction
 }
 
 // nodeView is a node type's INLINE expanded view: alt+e focuses it, its lines
@@ -97,9 +102,10 @@ var nodeTypes = []nodeType{
 	},
 	{
 		key: database.TypeVoice, label: "Voice", inlineEditable: false,
-		renderM: func(m *Model, it *item) string { return m.voiceRender(it) },
-		run:     runVoice,
-		expand:  playVoice,
+		renderM:      func(m *Model, it *item) string { return m.voiceRender(it) },
+		run:          runVoice,
+		expand:       playVoice,
+		flashActions: voiceFlashActions, // name them: "record" (toggle) and "play"
 	},
 }
 

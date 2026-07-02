@@ -6,7 +6,7 @@ import (
 )
 
 // TestStaleCaretDoesNotPanic pins the crash fix: a caret left past the current
-// node's length (e.g. after a worker run reseeded the compose) must be clamped,
+// node's length (e.g. after landing on a shorter node) must be clamped,
 // not panic slicing runes[:m.caret].
 func TestStaleCaretDoesNotPanic(t *testing.T) {
 	m := newTestModel(80, "short")

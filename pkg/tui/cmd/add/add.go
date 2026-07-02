@@ -19,11 +19,13 @@ import (
 )
 
 type options struct {
-	parent   string
-	typ      string
-	intoNote bool
-	top      bool
-	strict   bool
+	parent string
+	typ    string
+	note   string
+	top    bool
+	strict bool
+	raw    bool
+	style  infra.StyleFlags
 }
 
 // NewCmd returns a new add command
@@ -37,11 +39,13 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&opts.parent, "parent", "", "parent node, defaults to root")
-	f.StringVar(&opts.typ, "type", database.TypeBullets, "node type: bullets, todo, h1, h2, h3, code or quote")
-	f.BoolVar(&opts.intoNote, "note", false, "append the text to the parent's note instead of creating children")
+	f.StringVar(&opts.parent, "parent", "", "parent node (id, id prefix or text), defaults to root")
+	f.StringVar(&opts.typ, "type", database.TypeBullets, "node type: "+database.TypeList())
+	f.StringVar(&opts.note, "note", "", "set the note on the added node(s)")
 	f.BoolVar(&opts.top, "top", false, "prepend instead of append")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
+	f.BoolVar(&opts.raw, "raw", false, "store text verbatim, without turning #tags, dates or [label](url) links into chips")
+	opts.style.Register(f)
 
 	return cmd
 }
@@ -70,7 +74,7 @@ func readLines(args []string) ([]string, error) {
 	return nil, errors.New("no content: pass text or pipe stdin")
 }
 
-func insertChildren(db *database.DB, parentUUID string, lines []string, typ string, top bool) (int, error) {
+func insertChildren(db *database.DB, parentUUID string, lines []string, typ, note, styleStr string, top, raw bool) (int, error) {
 	now := time.Now().UnixNano()
 
 	var rank int
@@ -94,12 +98,21 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, typ stri
 		if err != nil {
 			return count, errors.Wrap(err, "generating uuid")
 		}
+		name := line
+		if !raw {
+			name, err = database.ChipifyName(db, line)
+			if err != nil {
+				return count, errors.Wrap(err, "creating chips")
+			}
+		}
 		n := database.Node{
 			UUID:       uuid,
 			ParentUUID: parentUUID,
 			Rank:       rank + i,
-			Name:       line,
+			Name:       name,
+			Note:       note,
 			Type:       typ,
+			Style:      styleStr,
 			AddedOn:    now,
 			EditedOn:   now,
 		}
@@ -120,7 +133,13 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		}
 
 		if !database.ValidTypes[opts.typ] {
-			return errors.Errorf("unknown type %q: bullets, todo, h1, h2, h3, code or quote", opts.typ)
+			return errors.Errorf("unknown type %q: %s", opts.typ, database.TypeList())
+		}
+
+		styleChange := opts.style.Change(cmd)
+		styleStr, err := styleChange.Apply("")
+		if err != nil {
+			return err
 		}
 
 		// resolve --parent, defaulting to the always-available root
@@ -129,7 +148,6 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 
 		var r resolve.Result
 		if opts.parent != "" {
-			var err error
 			r, err = resolve.Resolve(db, opts.parent)
 			if err != nil {
 				if _, ok := err.(resolve.ErrNoMatch); ok {
@@ -152,25 +170,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			return err
 		}
 
-		if opts.intoNote {
-			if opts.parent == "" {
-				return errors.New("--note needs --parent")
-			}
-			text := strings.Join(lines, "\n")
-			note := r.Node.Note
-			if note != "" {
-				note += "\n"
-			}
-			note += text
-			now := time.Now().UnixNano()
-			if _, err := db.Exec("UPDATE nodes SET note = ?, edited_on = ? WHERE uuid = ?", note, now, r.Node.UUID); err != nil {
-				return errors.Wrap(err, "updating note")
-			}
-			log.Successf("noted on %q\n", r.Node.Name)
-			return nil
-		}
-
-		count, err := insertChildren(db, parentUUID, lines, opts.typ, opts.top)
+		count, err := insertChildren(db, parentUUID, lines, opts.typ, opts.note, styleStr, opts.top, opts.raw)
 		if err != nil {
 			return errors.Wrap(err, "inserting nodes")
 		}

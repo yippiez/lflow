@@ -211,3 +211,23 @@ func TestNextRank(t *testing.T) {
 	}
 	assert.Equal(t, rank, 0, "next rank for leaf mismatch")
 }
+
+func TestFirstRank(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	defer db.Close()
+
+	seedTree(t, db)
+
+	// r1's children are ranked 0 and 1, so a top insert sorts before them
+	rank, err := FirstRank(db, "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, rank, -1, "first rank mismatch")
+
+	rank, err = FirstRank(db, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, rank, 0, "first rank for leaf mismatch")
+}
