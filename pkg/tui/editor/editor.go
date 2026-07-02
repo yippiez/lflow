@@ -33,6 +33,7 @@ const (
 	modeType     // the /type picker: choose one of the node types
 	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
 	modeTheme    // the /theme picker: choose a color palette
+	modeSettings // the /settings picker: global preferences (theme, image preview, …)
 	modeComplete // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
 	modeCmdView  // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
@@ -65,8 +66,8 @@ var slashCommands = []slashCommand{
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/move", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
+	{"/settings", "Editor preferences (theme, image preview)"},
 	{"/style", "Set this node's text style or color"},
-	{"/theme", "Switch the color theme"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
 }
@@ -156,6 +157,11 @@ type Model struct {
 
 	// inline completer anchor ("#" tags, ":" query commands); the live query and
 	// selection live on m.list.
+
+	// /settings picker selection (index into settingDefs) + the loaded preferences
+	settingsSel int
+	settings    map[string]string
+
 	compl complState
 
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure the
@@ -642,6 +648,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNoteKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
+	case modeSettings:
+		return m.handleSettingsKey(k)
 	case modeFlash:
 		return m.handleFlashKey(k)
 	}
@@ -1857,6 +1865,35 @@ func (m *Model) filteredTypes(query string) []string {
 // /type, /style, and /theme key handling now live in the shared listPicker
 // (picker_list.go) via their pickerSources (picker_sources.go).
 
+// handleSettingsKey drives the /settings picker: up/down pick a preference,
+// left/right (or space) cycle its value with a live apply + DB persist, esc/enter
+// close.
+func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc", "enter":
+		m.mode = modeOutline
+		return m, nil
+	case "up":
+		if m.settingsSel > 0 {
+			m.settingsSel--
+		}
+	case "down":
+		if m.settingsSel < len(settingDefs)-1 {
+			m.settingsSel++
+		}
+	case "left", "right", " ", "space", "h", "l":
+		if m.settingsSel >= 0 && m.settingsSel < len(settingDefs) {
+			d := settingDefs[m.settingsSel]
+			dir := 1
+			if s := k.String(); s == "left" || s == "h" {
+				dir = -1
+			}
+			m.setSetting(d.key, cycleSetting(d, m.setting(d.key), dir))
+		}
+	}
+	return m, nil
+}
+
 func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	cur := m.cursorItem()
@@ -1877,6 +1914,10 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// open the palette picker; pre-select the active theme (see themeSource)
 		m.mode = modeTheme
 		m.list.open(m, themeSource{}, false)
+	case "/settings":
+		// open the global-preferences picker
+		m.mode = modeSettings
+		m.settingsSel = 0
 	case "/lock":
 		// toggle the read-only lock: locked nodes ignore inline text edits (a file
 		// node locks itself on Enter); unlock to edit, Enter re-locks a file node.
@@ -2597,6 +2638,8 @@ func (m *Model) viewOutline(maxLine int) []string {
 	pickerItems, headerRows := 0, 0
 	if src := m.listSource(); src != nil {
 		pickerItems, headerRows = m.list.counts(m, src)
+	} else if m.mode == modeSettings {
+		pickerItems = len(settingDefs)
 	}
 	pickerRows := 0
 	if pickerItems > 0 || headerRows > 0 {
@@ -2700,6 +2743,38 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// renders a bounded, scrolling window (see picker_list.go).
 	if src := m.listSource(); src != nil {
 		lines = append(lines, m.list.render(m, src, maxLine)...)
+	}
+
+	// the /settings picker: one row per preference, showing its current value
+	// between ‹ › carets (left/right cycles). The theme row previews the selected
+	// palette as a swatch strip so colors are visible before committing. It keeps
+	// its own bespoke mode (not a listPicker) because it cycles a value in place
+	// rather than picking one option and closing.
+	if m.mode == modeSettings {
+		win := pickerMaxRows
+		s2 := scrollStart(m.settingsSel, len(settingDefs), win)
+		e2 := s2 + win
+		if e2 > len(settingDefs) {
+			e2 = len(settingDefs)
+		}
+		for i := s2; i < e2; i++ {
+			d := settingDefs[i]
+			val := m.setting(d.key)
+			mark := "  "
+			if i == m.settingsSel {
+				mark = cAccent + "▸ " + cReset
+			}
+			value := cAccent + "‹ " + cReset + cFG + fmt.Sprintf("%-16s", settingValueLabel(d, val)) + cReset + cAccent + "›" + cReset
+			extra := ""
+			if d.key == "theme" {
+				if t, ok := themeByName(val); ok {
+					extra = "  " + t.accent + "●" + t.red + "●" + t.yellow + "●" +
+						t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
+				}
+			}
+			line := " " + mark + cFG + fmt.Sprintf("%-14s", d.label) + cReset + " " + value + extra
+			lines = append(lines, clip(line, maxLine))
+		}
 	}
 
 	// Assemble the body: main notes, then the status bar (which doubles as the
@@ -2869,7 +2944,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
 	}
-	m.loadTheme() // apply the persisted color theme before the first render
+	m.loadSettings() // apply persisted preferences (theme, …) before the first render
 	m.refreshAncestors()
 	m.refreshRows()
 	m.ensureTempTree()    // the panel is always visible, so it must always have >=1 node

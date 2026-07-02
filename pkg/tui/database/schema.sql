@@ -41,6 +41,10 @@ CREATE TABLE chips (
 			kind text NOT NULL DEFAULT '',
 			value text NOT NULL DEFAULT ''
 		, label text NOT NULL DEFAULT '');
+CREATE TABLE settings (
+			key text PRIMARY KEY,
+			value text NOT NULL DEFAULT ''
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 27);
+INSERT INTO system (key, value) VALUES ('schema', 28);
