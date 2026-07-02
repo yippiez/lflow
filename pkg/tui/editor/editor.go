@@ -32,7 +32,7 @@ const (
 	modeConfirm  // inline delete confirmation for nodes with children
 	modeType     // the /type picker: choose one of the node types
 	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme    // the /theme picker: choose a color palette
+	modeSettings // the /settings picker: global preferences (theme, image preview, …)
 	modeComplete // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
 	modeCmdView  // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
@@ -65,8 +65,8 @@ var slashCommands = []slashCommand{
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/move", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
+	{"/settings", "Editor preferences (theme, image preview)"},
 	{"/style", "Set this node's text style or color"},
-	{"/theme", "Switch the color theme"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
 }
@@ -156,8 +156,9 @@ type Model struct {
 	// /style picker selection (index into stylePickerItems)
 	styleSel int
 
-	// /theme picker selection (index into the themes registry)
-	themeSel int
+	// /settings picker selection (index into settingDefs) + the loaded preferences
+	settingsSel int
+	settings    map[string]string
 
 	// inline completer state ("#" tags, ":" query commands)
 	compl complState
@@ -650,8 +651,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTypeKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
-	case modeTheme:
-		return m.handleThemeKey(k)
+	case modeSettings:
+		return m.handleSettingsKey(k)
 	case modeComplete:
 		return m.handleCompleteKey(k)
 	case modeFlash:
@@ -2007,29 +2008,31 @@ func (m *Model) handleStyleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) handleThemeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+// handleSettingsKey drives the /settings picker: up/down pick a preference,
+// left/right (or space) cycle its value with a live apply + DB persist, esc/enter
+// close.
+func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
-	case "esc":
+	case "esc", "enter":
 		m.mode = modeOutline
 		return m, nil
 	case "up":
-		if m.themeSel > 0 {
-			m.themeSel--
+		if m.settingsSel > 0 {
+			m.settingsSel--
 		}
-		return m, nil
 	case "down":
-		if m.themeSel < len(themes)-1 {
-			m.themeSel++
+		if m.settingsSel < len(settingDefs)-1 {
+			m.settingsSel++
 		}
-		return m, nil
-	case "enter":
-		if m.themeSel >= 0 && m.themeSel < len(themes) {
-			applyTheme(themes[m.themeSel])
-			m.saveTheme(themes[m.themeSel].name)
-			m.flash = "theme · " + activeThemeName
+	case "left", "right", " ", "space", "h", "l":
+		if m.settingsSel >= 0 && m.settingsSel < len(settingDefs) {
+			d := settingDefs[m.settingsSel]
+			dir := 1
+			if s := k.String(); s == "left" || s == "h" {
+				dir = -1
+			}
+			m.setSetting(d.key, cycleSetting(d, m.setting(d.key), dir))
 		}
-		m.mode = modeOutline
-		return m, nil
 	}
 	return m, nil
 }
@@ -2073,16 +2076,10 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	case "/theme":
-		// open the palette picker; pre-select the theme already in effect
-		m.mode = modeTheme
-		m.themeSel = 0
-		for i, t := range themes {
-			if t.name == activeThemeName {
-				m.themeSel = i
-				break
-			}
-		}
+	case "/settings":
+		// open the global-preferences picker
+		m.mode = modeSettings
+		m.settingsSel = 0
 	case "/lock":
 		// toggle the read-only lock: locked nodes ignore inline text edits (a file
 		// node locks itself on Enter); unlock to edit, Enter re-locks a file node.
@@ -2789,8 +2786,8 @@ func (m *Model) viewOutline(maxLine int) []string {
 	case modeType:
 		pickerItems = len(m.filteredTypes())
 		typePickerRows = 1 // the "type:" search header
-	case modeTheme:
-		pickerItems = len(themes)
+	case modeSettings:
+		pickerItems = len(settingDefs)
 	case modeComplete:
 		pickerItems = len(m.complItems())
 	}
@@ -2975,28 +2972,32 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// the /theme picker: one row per theme, each previewing its own palette as a
-	// strip of swatches so the colors are visible before you commit.
-	if m.mode == modeTheme {
+	// the /settings picker: one row per preference, showing its current value
+	// between ‹ › carets (left/right cycles). The theme row previews the selected
+	// palette as a swatch strip so colors are visible before committing.
+	if m.mode == modeSettings {
 		win := pickerMaxRows
-		s2 := scrollStart(m.themeSel, len(themes), win)
+		s2 := scrollStart(m.settingsSel, len(settingDefs), win)
 		e2 := s2 + win
-		if e2 > len(themes) {
-			e2 = len(themes)
+		if e2 > len(settingDefs) {
+			e2 = len(settingDefs)
 		}
 		for i := s2; i < e2; i++ {
-			t := themes[i]
+			d := settingDefs[i]
+			val := m.setting(d.key)
 			mark := "  "
-			if i == m.themeSel {
+			if i == m.settingsSel {
 				mark = cAccent + "▸ " + cReset
 			}
-			active := ""
-			if t.name == activeThemeName {
-				active = cDim + " (on)" + cReset
+			value := cAccent + "‹ " + cReset + cFG + fmt.Sprintf("%-16s", settingValueLabel(d, val)) + cReset + cAccent + "›" + cReset
+			extra := ""
+			if d.key == "theme" {
+				if t, ok := themeByName(val); ok {
+					extra = "  " + t.accent + "●" + t.red + "●" + t.yellow + "●" +
+						t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
+				}
 			}
-			swatches := t.accent + "●" + t.red + "●" + t.yellow + "●" +
-				t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
-			line := " " + mark + cFG + fmt.Sprintf("%-9s", t.name) + active + "  " + swatches
+			line := " " + mark + cFG + fmt.Sprintf("%-14s", d.label) + cReset + " " + value + extra
 			lines = append(lines, clip(line, maxLine))
 		}
 	}
@@ -3267,7 +3268,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
 	}
-	m.loadTheme() // apply the persisted color theme before the first render
+	m.loadSettings() // apply persisted preferences (theme, …) before the first render
 	m.refreshAncestors()
 	m.refreshRows()
 	m.ensureTempTree()    // the panel is always visible, so it must always have >=1 node
