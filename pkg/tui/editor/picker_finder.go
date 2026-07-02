@@ -1,100 +1,169 @@
 package editor
 
-// GROUP B — full-body searchable finder.
+// GROUP B — the shared full-body searchable finder. Unlike the Group-A list
+// pickers it replaces the whole editor body: a query line at the top, a result
+// list, and a hint/status footer. It backs the node finder today (/mirror,
+// /move, /goto, /bring, "[[" link) via nodeFinderBackend (see editor.go).
 //
-// SCAFFOLD ONLY: signatures + data structures + TODOs for review. Real logic
-// panics so the package still builds.
-//
-// Unlike the Group A list pickers this one replaces the whole editor body: a
-// query line at the top, a scrolling result list that fills the height, and a
-// hint/status footer (see viewFinder). It is backed by a live data source
-// (SQLite today) re-queried on every keystroke.
-//
-// One component already serves five actions through finderAct: /mirror, /move,
-// /goto, /bring, and "[[" link insertion. The goal is to keep that single
-// component but hide the data plumbing behind finderBackend.
-//
-// Design decisions locked in review:
-//   - search stays synchronous for now (local SQLite; revisit if it janks)
-//   - the backend OWNS filtering: it returns the already-filtered + merged rows
-//     (drop-cursor-node, /goto empty-node drop, /bring Agent-Domain merge all
-//     live in the node backend, not here)
-//   - the backend OWNS the "[[" URL Enter override via interceptEnter
-//   - finderRow is fully decorated by search() (count precomputed); view() does
-//     no DB calls and no per-frame recompute
+// bodyFinder owns the query, selection, and result set; the backend owns where
+// results come from, how they are filtered/decorated, and what a pick does.
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// bodyFinder is the shared full-body picker. It owns the query, the selection,
-// and the current result set; the backend owns where results come from, how they
-// are filtered/decorated, and what a pick does.
+// bodyFinder is the shared full-body picker state.
 type bodyFinder struct {
 	query string
 	sel   int
 	hits  []finderRow
-	act   finderAction // which action a pick performs (also selects the backend)
+	act   finderAction // which action a pick performs (also selects the backend behavior)
 }
 
-// finderRow is one fully-decorated result: the node plus everything view() needs
-// to draw it without touching the DB. search() fills these in.
+// finderRow is one fully-counted result: the node plus its subtree count,
+// precomputed by search() so view() needs no CountSubtree call.
 type finderRow struct {
 	node  database.Node
-	count int // subtree node count shown dim on the right; precomputed in search()
-	// TODO: if per-node style ends up expensive to recompute in view(), precompute
-	// the styled name string here too. Start with node.Style in view() and only
-	// cache if profiling says so.
+	count int
 }
 
-// finderBackend supplies results for a bodyFinder and commits a pick. The node
-// backend wraps RecentNodes/SearchNodes + the caller-specific filtering and the
-// /bring Agent-Domain merge; other backends could front a filesystem or an
-// in-memory list.
+// finderBackend supplies results for a bodyFinder and commits a pick.
 type finderBackend interface {
-	// search returns the already-filtered, already-decorated rows for the query
-	// (finderRow.count populated). An empty query returns a sensible full list
-	// (RecentNodes today), not nothing. Synchronous by decision.
+	// search returns the already-filtered, count-decorated rows for the query. An
+	// empty query returns a sensible full list (recent nodes), not nothing.
 	search(m *Model, query string) []finderRow
-
 	// onSelect commits the highlighted row (mirror/move/goto/bring/link).
 	onSelect(m *Model, row finderRow) (tea.Model, tea.Cmd)
-
-	// interceptEnter runs before row selection. The link backend uses it to link
-	// to a website when the query is a URL. handled=false falls through to normal
-	// onSelect on the highlighted row. Backends without an override return false.
+	// interceptEnter runs before row selection; the link backend uses it to link a
+	// URL query to a website. handled=false falls through to onSelect.
 	interceptEnter(m *Model, query string) (handled bool, _ tea.Model, _ tea.Cmd)
-
-	// label / hint drive the header and footer text ("/mirror", "Enter mirror at
-	// cursor", …).
-	label() string
-	hint() string
+	// queryAffordance is an optional extra line under the query (the "[[ link to
+	// <url>" hint); "" for none.
+	queryAffordance(m *Model, query string) string
+	// label / hint drive the header and footer text.
+	label(m *Model) string
+	hint(m *Model) string
 }
 
 // open resets the finder and runs the initial (empty-query) search.
 func (f *bodyFinder) open(m *Model, act finderAction, be finderBackend) {
-	panic("TODO: implement bodyFinder.open")
+	f.act = act
+	f.query = ""
+	f.sel = 0
+	f.hits = nil
+	f.refresh(m, be)
 }
 
 // refresh re-runs the backend search for the current query and re-clamps sel.
-// Thin now: the backend returns finished rows, so this is essentially
-// `f.hits = be.search(m, f.query)` plus the sel clamp.
 func (f *bodyFinder) refresh(m *Model, be finderBackend) {
-	panic("TODO: implement bodyFinder.refresh")
+	f.hits = be.search(m, f.query)
+	if f.sel >= len(f.hits) {
+		f.sel = 0
+	}
 }
 
 // handleKey is the finder's esc/up/down/enter/backspace/runes loop. On Enter it
-// calls be.interceptEnter first, then falls through to be.onSelect on the
-// highlighted row.
+// gives the backend a chance to intercept (the URL-link case) before selecting
+// the highlighted row.
 func (f *bodyFinder) handleKey(m *Model, k tea.KeyMsg, be finderBackend) (tea.Model, tea.Cmd) {
-	panic("TODO: implement bodyFinder.handleKey")
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "up":
+		if f.sel > 0 {
+			f.sel--
+		}
+		return m, nil
+	case "down":
+		if f.sel < len(f.hits)-1 {
+			f.sel++
+		}
+		return m, nil
+	case "backspace":
+		if len(f.query) > 0 {
+			f.query = f.query[:len(f.query)-1]
+			f.refresh(m, be)
+		}
+		return m, nil
+	case "enter":
+		if handled, mm, cmd := be.interceptEnter(m, f.query); handled {
+			return mm, cmd
+		}
+		if f.sel < len(f.hits) {
+			return be.onSelect(m, f.hits[f.sel])
+		}
+		m.mode = modeOutline
+		return m, nil
+	}
+	if k.Type == tea.KeySpace && !k.Alt {
+		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
+	}
+	if k.Type == tea.KeyRunes && !k.Alt {
+		f.query += string(k.Runes)
+		f.refresh(m, be)
+	}
+	return m, nil
 }
 
 // view renders the full-body finder: query line, optional URL-link affordance,
-// the windowed result rows with precomputed counts and per-node styling, an
-// overflow "… N more" line, then the hint + bottom bar. No DB calls here.
+// the truncated result rows with precomputed counts and per-node styling, an
+// overflow "… N more" line, then the hint + bottom bar. Counts are precomputed;
+// only the shown rows' mirror names are resolved (a cheap per-row GetNode).
 func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
-	panic("TODO: implement bodyFinder.view")
+	var lines []string
+
+	query := cDim + " " + be.label(m) + " " + cFG + withCaret(f.query, len([]rune(f.query))) + cReset
+	lines = append(lines, clip(query, maxLine))
+
+	if aff := be.queryAffordance(m, f.query); aff != "" {
+		lines = append(lines, clip(aff, maxLine))
+	}
+
+	maxResults := m.height - 4
+	if maxResults < 3 {
+		maxResults = 8
+	}
+	shown := f.hits
+	overflow := 0
+	if len(shown) > maxResults {
+		overflow = len(shown) - maxResults
+		shown = shown[:maxResults]
+	}
+
+	for i, r := range shown {
+		mark := "   "
+		if i == f.sel {
+			mark = cAccent + " ▸ " + cReset
+		}
+		name := displayAnchors(finderRowName(r.node, func(uuid string) (database.Node, bool) {
+			n, err := database.GetNode(m.db, uuid)
+			return n, err == nil
+		}), m.chips)
+		// carry the node's own /color and /bold-/italic-/underline into the picker
+		// so a styled node reads the same here as in the outline
+		base := cFG
+		if c := styleBaseColor(r.node.Style); c != "" {
+			base = c
+		}
+		label := base + styleAttrs(r.node.Style) + fmt.Sprintf("%-28s", name) + cReset
+		line := mark + label + cDim + fmt.Sprintf(" %d nodes", r.count) + cReset
+		lines = append(lines, clip(line, maxLine))
+	}
+	if overflow > 0 {
+		lines = append(lines, clip(cDim+fmt.Sprintf("   … %d more", overflow)+cReset, maxLine))
+	}
+	if len(shown) == 0 {
+		lines = append(lines, cDim+"   no matches"+cReset)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, clip(cDim+" "+be.hint(m)+" - esc back to outline"+cReset, maxLine))
+	lines = append(lines, m.bottomBar(maxLine))
+
+	return lines
 }

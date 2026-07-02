@@ -80,8 +80,8 @@ func TestLinkCreateNodeViaBrackets(t *testing.T) {
 
 	m.press("[")
 	m.press("[")
-	if m.mode != modeFinder || m.finderAct != actLinkInsert {
-		t.Fatalf("[[ did not open the link finder: mode=%v act=%v", m.mode, m.finderAct)
+	if m.mode != modeFinder || m.finder.act != actLinkInsert {
+		t.Fatalf("[[ did not open the link finder: mode=%v act=%v", m.mode, m.finder.act)
 	}
 	m.press("Target") // narrow the picker to the target
 	m.press("enter")

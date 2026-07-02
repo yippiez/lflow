@@ -132,11 +132,12 @@ type Model struct {
 
 	slashStart  int  // rune index of the "/" that opened the menu
 	slashInline bool // the slash and query are typed into the node text
-	finderQuery string
-	finderSel   int
-	finderHits  []database.Node
-	finderAct   finderAction
-	notePrev    string // note backup for esc in note mode
+
+	// finder is the shared full-body node picker (/mirror, /move, /goto, /bring,
+	// "[[" link); it owns the query, selection, and results (see picker_finder.go).
+	finder bodyFinder
+
+	notePrev string // note backup for esc in note mode
 
 	// alt+e link-chip editor (modeLinkEdit)
 	linkEditID     string // chip id being edited
@@ -632,7 +633,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeSlash, modeType, modeStyle, modeTheme, modeComplete:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
-		return m.handleFinderKey(k)
+		return m.finder.handleKey(m, k, nodeFinderBackend{})
 	case modeLinkEdit:
 		return m.handleLinkEditKey(k)
 	case modeCmdView:
@@ -1989,60 +1990,125 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) openFinder(act finderAction) {
 	m.mode = modeFinder
-	m.finderAct = act
-	m.finderQuery = ""
-	m.finderSel = 0
-	m.finderHits = nil
-	m.refreshFinder()
+	m.finder.open(m, act, nodeFinderBackend{})
 }
 
-func (m *Model) refreshFinder() {
-	// an empty query matches everything, recent first: the picker starts
-	// full and narrows as you type
+// nodeFinderBackend is the finderBackend that fronts the outline's nodes: it
+// searches the DB (plus the Agent Domain for /bring), commits a pick via
+// runFinder, and links a URL query straight to a website for "[[".
+type nodeFinderBackend struct{}
+
+func (nodeFinderBackend) search(m *Model, query string) []finderRow {
+	// an empty query matches everything, recent first: the picker starts full and
+	// narrows as you type
 	var hits []database.Node
 	var err error
-	if strings.TrimSpace(m.finderQuery) == "" {
+	if strings.TrimSpace(query) == "" {
 		hits, err = database.RecentNodes(m.db, 100)
 	} else {
-		hits, err = database.SearchNodes(m.db, m.finderQuery, true)
+		hits, err = database.SearchNodes(m.db, query, true)
 	}
 	if err != nil {
-		m.finderHits = nil
-		return
+		return nil
 	}
-	// the node being acted on is never a valid target
 	cur := m.cursorItem()
-	var filtered []database.Node
+	var rows []finderRow
 	for _, h := range hits {
+		// the node being acted on is never a valid target
 		if cur != nil && h.UUID == cur.uuid {
 			continue
 		}
 		// /goto is a jump target list: a node with no name and no mirror is empty
 		// noise, so leave it out
-		if m.finderAct == actGoto && h.Name == "" && h.MirrorOf == "" {
+		if m.finder.act == actGoto && h.Name == "" && h.MirrorOf == "" {
 			continue
 		}
-		filtered = append(filtered, h)
+		rows = append(rows, m.finderRowFor(h))
 	}
-	// /bring can also pull a node out of the Temporary Domain, so surface its
-	// nodes alongside the saved nodes — most recent first.
-	if m.finderAct == actBringHere {
-		filtered = append(m.tempFinderHits(cur), filtered...)
+	// /bring can also pull a node out of the (ephemeral, DB-less) Temporary Domain,
+	// so surface its nodes alongside the saved nodes — most recent first.
+	if m.finder.act == actBringHere {
+		var temp []finderRow
+		for _, n := range m.tempFinderHits(cur, query) {
+			temp = append(temp, m.finderRowFor(n))
+		}
+		rows = append(temp, rows...)
 	}
-	m.finderHits = filtered
-	if m.finderSel >= len(m.finderHits) {
-		m.finderSel = 0
+	return rows
+}
+
+func (nodeFinderBackend) onSelect(m *Model, row finderRow) (tea.Model, tea.Cmd) {
+	return m.runFinder(row.node)
+}
+
+func (nodeFinderBackend) interceptEnter(m *Model, query string) (bool, tea.Model, tea.Cmd) {
+	// [[ accepts a URL typed/pasted straight into the query — link to the website
+	// instead of a node
+	if m.finder.act == actLinkInsert && browser.IsURL(query) {
+		mm, cmd := m.insertURLLink(query)
+		return true, mm, cmd
 	}
+	return false, m, nil
+}
+
+func (nodeFinderBackend) queryAffordance(m *Model, query string) string {
+	if m.finder.act == actLinkInsert && browser.IsURL(query) {
+		return cAccent + " ↵ " + cReset + cDim + "link to " + cFG + browser.Normalize(query) + cReset
+	}
+	return ""
+}
+
+func (nodeFinderBackend) label(m *Model) string {
+	switch m.finder.act {
+	case actMirrorHere:
+		return "/mirror"
+	case actMoveTo:
+		return "/move"
+	case actGoto:
+		return "/goto"
+	case actBringHere:
+		return "/bring"
+	case actLinkInsert:
+		return "[[ link"
+	}
+	return ""
+}
+
+func (nodeFinderBackend) hint(m *Model) string {
+	switch m.finder.act {
+	case actMirrorHere:
+		return "Enter mirror at cursor"
+	case actMoveTo:
+		return "Enter move this node there"
+	case actGoto:
+		return "Enter open node"
+	case actBringHere:
+		return "Enter bring this node here"
+	case actLinkInsert:
+		return "Enter link to node, or type a URL"
+	}
+	return ""
+}
+
+// finderRowFor decorates a node with its subtree count for the finder list. A
+// count error (or a synthetic Agent-Domain node not in the DB) falls back to 1,
+// matching the pre-refactor lazy count.
+func (m *Model) finderRowFor(n database.Node) finderRow {
+	count, err := database.CountSubtree(m.db, n.UUID)
+	if err != nil {
+		count = 1
+	}
+	return finderRow{node: n, count: count}
 }
 
 // tempFinderHits returns the Temporary Domain's named nodes as finder candidates,
 // synthesized as database.Node so they sit in the same picker list as saved nodes.
 // Empty (unnamed) nodes and the cursor node are skipped.
-func (m *Model) tempFinderHits(cur *item) []database.Node {
+func (m *Model) tempFinderHits(cur *item, query string) []database.Node {
 	if m.tempTree == nil || m.tempTree == m.tree {
 		return nil // no domain, or we're already inside it
 	}
-	q := strings.ToLower(strings.TrimSpace(m.finderQuery))
+	q := strings.ToLower(strings.TrimSpace(query))
 	var hits []database.Node
 	for _, it := range m.tempTree.root.children {
 		name := strings.TrimSpace(it.name)
@@ -2057,49 +2123,6 @@ func (m *Model) tempFinderHits(cur *item) []database.Node {
 	return hits
 }
 
-func (m *Model) handleFinderKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
-	case "esc":
-		m.mode = modeOutline
-		return m, nil
-	case "up":
-		if m.finderSel > 0 {
-			m.finderSel--
-		}
-		return m, nil
-	case "down":
-		if m.finderSel < len(m.finderHits)-1 {
-			m.finderSel++
-		}
-		return m, nil
-	case "backspace":
-		if len(m.finderQuery) > 0 {
-			m.finderQuery = m.finderQuery[:len(m.finderQuery)-1]
-			m.refreshFinder()
-		}
-		return m, nil
-	case "enter":
-		// [[ accepts a URL typed/pasted straight into the query — link to the
-		// website instead of a node
-		if m.finderAct == actLinkInsert && browser.IsURL(m.finderQuery) {
-			return m.insertURLLink(m.finderQuery)
-		}
-		if m.finderSel < len(m.finderHits) {
-			return m.runFinder(m.finderHits[m.finderSel])
-		}
-		m.mode = modeOutline
-		return m, nil
-	}
-	if k.Type == tea.KeySpace && !k.Alt {
-		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
-	}
-	if k.Type == tea.KeyRunes && !k.Alt {
-		m.finderQuery += string(k.Runes)
-		m.refreshFinder()
-	}
-	return m, nil
-}
-
 func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	cur := m.cursorItem()
@@ -2107,7 +2130,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	switch m.finderAct {
+	switch m.finder.act {
 	case actMirrorHere:
 		m.pushUndo("")
 		target = m.resolveSourceNode(target)
@@ -2818,77 +2841,7 @@ func finderRowName(n database.Node, resolve func(string) (database.Node, bool)) 
 }
 
 func (m *Model) viewFinder(maxLine int) []string {
-	var lines []string
-
-	labels := map[finderAction]string{
-		actMirrorHere: "/mirror",
-		actMoveTo:     "/move",
-		actGoto:       "/goto",
-		actBringHere:  "/bring",
-		actLinkInsert: "[[ link",
-	}
-	hints := map[finderAction]string{
-		actMirrorHere: "Enter mirror at cursor",
-		actMoveTo:     "Enter move this node there",
-		actGoto:       "Enter open node",
-		actBringHere:  "Enter bring this node here",
-		actLinkInsert: "Enter link to node, or type a URL",
-	}
-
-	query := cDim + " " + labels[m.finderAct] + " " + cFG + withCaret(m.finderQuery, len([]rune(m.finderQuery))) + cReset
-	lines = append(lines, clip(query, maxLine))
-
-	// [[ doubles as a URL field: when the query is a URL, Enter links to the site
-	if m.finderAct == actLinkInsert && browser.IsURL(m.finderQuery) {
-		lines = append(lines, clip(cAccent+" ↵ "+cReset+cDim+"link to "+cFG+browser.Normalize(m.finderQuery)+cReset, maxLine))
-	}
-
-	maxResults := m.height - 4
-	if maxResults < 3 {
-		maxResults = 8
-	}
-	shown := m.finderHits
-	overflow := 0
-	if len(shown) > maxResults {
-		overflow = len(shown) - maxResults
-		shown = shown[:maxResults]
-	}
-
-	for i, h := range shown {
-		mark := "   "
-		if i == m.finderSel {
-			mark = cAccent + " ▸ " + cReset
-		}
-		count, err := database.CountSubtree(m.db, h.UUID)
-		if err != nil {
-			count = 1
-		}
-		name := displayAnchors(finderRowName(h, func(uuid string) (database.Node, bool) {
-			n, err := database.GetNode(m.db, uuid)
-			return n, err == nil
-		}), m.chips)
-		// carry the node's own /color and /bold-/italic-/underline into the
-		// picker so a styled node reads the same here as in the outline
-		base := cFG
-		if c := styleBaseColor(h.Style); c != "" {
-			base = c
-		}
-		label := base + styleAttrs(h.Style) + fmt.Sprintf("%-28s", name) + cReset
-		line := mark + label + cDim + fmt.Sprintf(" %d nodes", count) + cReset
-		lines = append(lines, clip(line, maxLine))
-	}
-	if overflow > 0 {
-		lines = append(lines, clip(cDim+fmt.Sprintf("   … %d more", overflow)+cReset, maxLine))
-	}
-	if len(shown) == 0 {
-		lines = append(lines, cDim+"   no matches"+cReset)
-	}
-
-	lines = append(lines, "")
-	lines = append(lines, clip(cDim+" "+hints[m.finderAct]+" - esc back to outline"+cReset, maxLine))
-	lines = append(lines, m.bottomBar(maxLine))
-
-	return lines
+	return m.finder.view(m, nodeFinderBackend{}, maxLine)
 }
 
 // Run opens the inline node editor on the given node.
