@@ -34,8 +34,10 @@ const (
 	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
 	modeTheme    // the /theme picker: choose a color palette
 	modeComplete // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
-	modeCmdView  // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
+	modeLinkEdit    // the alt+e link-chip editor: edit a link's name and target
+	modeCmdView     // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
+	modeArtifacts   // the /artifacts management view: list, enable/disable, uninstall
+	modeArtifactSrc // the artifact source pager (enter on an /artifacts row)
 )
 
 type finderAction int
@@ -54,6 +56,7 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
+	{"/artifacts", "Manage installed artifact node types"},
 	{"/bring", "Bring another node (or an agent) here"},
 	{"/complete", "Toggle done"},
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
@@ -151,6 +154,11 @@ type Model struct {
 
 	// /theme picker selection (index into the themes registry)
 	themeSel int
+
+	// /artifacts management view: selected row, inspected key, source scroll
+	artSel       int
+	artKey       string
+	artSrcScroll int
 
 	// inline completer state ("#" tags, ":" query commands)
 	compl complState
@@ -636,6 +644,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(k)
 	case modeType:
 		return m.handleTypeKey(k)
+	case modeArtifacts:
+		return m.handleArtifactsKey(k)
+	case modeArtifactSrc:
+		return m.handleArtifactSrcKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
 	case modeTheme:
@@ -2028,6 +2040,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	}
 
 	switch name {
+	case "/artifacts":
+		m.mode = modeArtifacts
+		m.artSel = 0
 	case "/type":
 		// open the picker; pre-select the type already in effect, if any
 		m.mode = modeType
@@ -2755,6 +2770,15 @@ func (m *Model) viewOutline(maxLine int) []string {
 	case modeType:
 		pickerItems = len(m.filteredTypes())
 		typePickerRows = 1 // the "type:" search header
+	case modeArtifacts:
+		pickerItems = len(loadedArtifacts)
+		if pickerItems == 0 {
+			pickerItems = 1 // the "none installed" hint row
+		}
+		typePickerRows = 1 // the header row
+	case modeArtifactSrc:
+		pickerItems = artifactSrcRows
+		typePickerRows = 1 // the header row
 	case modeTheme:
 		pickerItems = len(themes)
 	case modeComplete:
@@ -2907,6 +2931,14 @@ func (m *Model) viewOutline(maxLine int) []string {
 			}
 			lines = append(lines, clip(label, maxLine))
 		}
+	}
+
+	// the /artifacts management view and its source pager
+	if m.mode == modeArtifacts {
+		lines = append(lines, m.artifactListLines(maxLine)...)
+	}
+	if m.mode == modeArtifactSrc {
+		lines = append(lines, m.artifactSrcLines(maxLine)...)
 	}
 
 	// the /style picker lists text style toggles and color swatches above the status line
