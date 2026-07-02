@@ -41,15 +41,19 @@ func (m *Model) mentionedAgent(text string) (tag.Agent, bool) {
 	return tag.Agent{}, false
 }
 
-// threadRootFor resolves the thread a mention belongs to: the nearest ancestor
-// (or the node itself) that already has a session with the agent — so a
-// follow-up mention deeper in a thread continues the conversation instead of
-// forking a new one.
+// threadRootFor resolves the conversation a message belongs to. The Slack
+// shape: a NOTE is the channel — its children are the board messages, and a
+// message's children are that message's reply thread. So an existing session
+// on any ancestor wins (follow-ups continue it), and a fresh mention binds
+// the session to the mention's PARENT: the note, covering the whole board.
 func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 	for p := it; p != nil; p = p.parent {
 		if _, ok, _ := database.GetThreadSession(m.db, p.uuid, ag.Name); ok {
 			return p
 		}
+	}
+	if it.parent != nil {
+		return it.parent
 	}
 	return it
 }
@@ -171,8 +175,6 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 		}
 		if err := installArtifact(m.db, a); err != nil {
 			m.placeAgentNode(msg.thread, msg.asked, "failed to install artifact "+a.Key+": "+err.Error(), "thread")
-		} else {
-			m.flash = "artifact · installed " + a.Key + " — available in /type"
 		}
 	case "error":
 		m.placeAgentNode(msg.thread, msg.asked, "error: "+msg.ev.Text, "thread")

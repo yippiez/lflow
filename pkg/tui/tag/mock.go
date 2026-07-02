@@ -51,10 +51,17 @@ func (m *MockClient) Send(ctx context.Context, agent, sessionID string, thread [
 		}
 
 		// exactly ONE reply node per turn — while the agent works, the status
-		// bar's small "agent thinking…" text is the only progress signal; no
-		// narration/thinking nodes ever land in the thread.
-		prompt, mentioned := askedText(thread, agent)
-		if key, label, source, ok := artifactFor(prompt); ok {
+		// bar's "N thinking" count is the only progress signal; no narration
+		// nodes ever land in the conversation.
+		//
+		// The Slack shape decides placement: a note is the channel, its
+		// children are board messages, a message's children are its reply
+		// thread. Mentions and detected questions get board replies ("below");
+		// a review comment on committed code nests on the code node
+		// ("thread"); inside a reply thread the conversation continues
+		// "below"; plain notes stay silent.
+		asked, mentioned := askedNode(thread, agent)
+		if key, label, source, ok := artifactFor(asked.Name); ok {
 			if !emit(Event{Op: "artifact", Key: key, Label: label, Source: source}) {
 				return
 			}
@@ -63,39 +70,58 @@ func (m *MockClient) Send(ctx context.Context, agent, sessionID string, thread [
 			return
 		}
 
-		// an untagged follow-up only earns a reply when it reads like a
-		// question — a plain note keeps the agent silent (discretion, not
-		// auto-reply). Mentions always answer, nested in the asked node's
-		// thread; detected questions answer "below", message-board style.
-		if !mentioned && !looksLikeQuestion(prompt) {
-			emit(Event{Op: "done"})
-			return
+		switch {
+		case asked.Type == "bash" || asked.Type == "code":
+			// an unprompted review comment, attached to the code as its thread
+			emit(Event{Op: "message", Placement: "thread", Text: "Review: this retries on every exit code — gate it on the transient curl exits (52, 56) so hard failures fail fast, and cap the attempts."})
+		case parentType(thread, asked) == "agent":
+			// continuing a conversation inside a message's reply thread
+			emit(Event{Op: "message", Placement: "below", Text: "Yes — 3 attempts with exponential backoff (2s, 4s, 8s) is plenty; past that it's an outage, not flakiness. Tag it #decided."})
+		case mentioned || looksLikeQuestion(asked.Name):
+			followup := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
+			emit(Event{Op: "message", Placement: "below", Text: "Retry only the transient failures, log each attempt as a log node, and revisit on " + followup + " if it is still flaky."})
 		}
-		placement := "thread"
-		if !mentioned {
-			placement = "below"
-		}
-		followup := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
-		emit(Event{Op: "message", Placement: placement, Text: "My take: log the decision here, tag the open questions #followup, and mention me again on " + followup + " if the retries are still flaky."})
 		emit(Event{Op: "done"})
 	}()
 	return ch, nil
 }
 
-// askedText is the turn's prompt — the marked asked node (falling back to the
-// most recent user node) — and whether it mentions the agent.
-func askedText(thread []ThreadNode, agent string) (string, bool) {
-	prompt := ""
+// askedNode is the turn's subject — the marked asked node (falling back to
+// the most recent user node) — and whether it mentions the agent.
+func askedNode(thread []ThreadNode, agent string) (ThreadNode, bool) {
+	var asked ThreadNode
 	for i := len(thread) - 1; i >= 0; i-- {
 		if thread[i].Asked {
-			prompt = thread[i].Name
+			asked = thread[i]
 			break
 		}
-		if prompt == "" && thread[i].Role == "user" {
-			prompt = thread[i].Name
+		if asked.UUID == "" && thread[i].Role == "user" {
+			asked = thread[i]
 		}
 	}
-	return prompt, strings.Contains(prompt, "@"+agent)
+	return asked, strings.Contains(asked.Name, "@"+agent)
+}
+
+// parentType reconstructs the asked node's parent from the depth-first thread
+// (the nearest preceding node one level shallower) — how the mock knows a
+// commit happened inside an agent message's reply thread.
+func parentType(thread []ThreadNode, asked ThreadNode) string {
+	idx := -1
+	for i, n := range thread {
+		if n.UUID == asked.UUID {
+			idx = i
+			break
+		}
+	}
+	for i := idx - 1; i >= 0; i-- {
+		if thread[i].Role == "context" {
+			break
+		}
+		if thread[i].Depth == asked.Depth-1 {
+			return thread[i].Type
+		}
+	}
+	return ""
 }
 
 // looksLikeQuestion is the mock's stand-in for a model's judgement call on

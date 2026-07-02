@@ -3099,8 +3099,10 @@ func (m *Model) bottomBar(maxLine int) string {
 	if m.unsaved {
 		state = " · unsaved"
 	}
-	if len(m.agentBusy) > 0 {
-		state += " · " + cRed + "π thinking…" + cDim
+	// the ONE agent signal the bar carries: how many agents are thinking right
+	// now. No install/reply/progress chatter — the outline itself shows results.
+	if n := len(m.agentBusy); n > 0 {
+		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
 	}
 	if m.flash != "" {
 		state += " · " + m.flash

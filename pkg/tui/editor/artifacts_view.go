@@ -31,11 +31,11 @@ func (m *Model) handleArtifactsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case " ", "space":
+		// no flash — the row's state column is the feedback
 		if m.artSel < n {
 			a := loadedArtifacts[m.artSel]
 			if err := database.SetArtifactEnabled(m.db, a.Key, !a.Enabled); err == nil {
 				loadArtifacts(m.db)
-				m.flash = "artifact · " + a.Key + " " + onOff(!a.Enabled)
 			}
 		}
 		return m, nil
@@ -44,7 +44,6 @@ func (m *Model) handleArtifactsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a := loadedArtifacts[m.artSel]
 			if err := database.DeleteArtifact(m.db, a.Key); err == nil {
 				loadArtifacts(m.db)
-				m.flash = "artifact · " + a.Key + " uninstalled - its nodes fall back to bullets"
 				if m.artSel >= len(loadedArtifacts) && m.artSel > 0 {
 					m.artSel--
 				}
@@ -95,10 +94,3 @@ func (m *Model) artifactListLines(maxLine int) []string {
 }
 
 const pickerMaxRowsArtifacts = 8
-
-func onOff(b bool) string {
-	if b {
-		return "enabled"
-	}
-	return "disabled"
-}

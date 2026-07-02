@@ -10,8 +10,10 @@ import (
 	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
-// newAgentTestModel builds a DB-backed model with the mock Pi wired in.
-func newAgentTestModel(t *testing.T) (*Model, *item) {
+// newAgentTestModel builds a DB-backed model with the mock Pi wired in. The
+// outline mirrors the Slack shape: root → disc (the note/channel) → n1 (the
+// first board message, a mention).
+func newAgentTestModel(t *testing.T) (*Model, *item, *item) {
 	t.Helper()
 	db := database.InitTestMemoryDB(t)
 	root := &item{uuid: "root"}
@@ -22,8 +24,11 @@ func newAgentTestModel(t *testing.T) (*Model, *item) {
 		externalNames: map[string]string{},
 		snapshots:     map[string]snapshot{},
 	}
-	n1 := &item{uuid: "n1", name: "outline plans @Pi what do you think?", parent: root}
-	root.children = append(root.children, n1)
+	disc := &item{uuid: "disc", name: "importer retries", parent: root}
+	root.children = append(root.children, disc)
+	tr.byUUID["disc"] = disc
+	n1 := &item{uuid: "n1", name: "@Pi how do i make importer retries safe?", parent: disc}
+	disc.children = append(disc.children, n1)
 	tr.byUUID["n1"] = n1
 
 	m := &Model{
@@ -32,74 +37,7 @@ func newAgentTestModel(t *testing.T) (*Model, *item) {
 		tagClients: map[string]tag.Client{"Pi": &tag.MockClient{Delay: time.Nanosecond}},
 	}
 	m.refreshRows()
-	return m, n1
-}
-
-func TestMentionSendAndReplies(t *testing.T) {
-	m, n1 := newAgentTestModel(t)
-	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
-
-	cmd, sent := m.mentionSendOnEnter(n1)
-	if !sent || cmd == nil {
-		t.Fatal("a fresh mention on Enter must send")
-	}
-	if cmd2, sent2 := m.mentionSendOnEnter(n1); sent2 || cmd2 != nil {
-		t.Fatal("a second Enter must not re-send")
-	}
-	if !m.agentBusy["n1"] {
-		t.Fatal("thread must be busy while the agent works")
-	}
-
-	// pump the stream to completion through the real update handler
-	msg := cmd()
-	for i := 0; i < 50; i++ {
-		switch v := msg.(type) {
-		case agentEvMsg:
-			_, next := m.handleAgentEvent(v)
-			if next == nil {
-				i = 50
-				break
-			}
-			msg = next()
-		case agentStreamEndMsg:
-			delete(m.agentBusy, v.thread)
-			i = 50
-		default:
-			t.Fatalf("unexpected msg %T", msg)
-		}
-		if _, busy := m.agentBusy["n1"]; !busy {
-			break
-		}
-	}
-
-	if m.agentBusy["n1"] {
-		t.Fatal("thread must be idle after done")
-	}
-	// exactly ONE reply node per turn — no narration/thinking nodes
-	if len(n1.children) != 1 {
-		t.Fatalf("want exactly 1 agent reply, got %d", len(n1.children))
-	}
-	reply := n1.children[0]
-	if reply.typ != database.TypeAgent {
-		t.Fatalf("reply type = %q, want agent", reply.typ)
-	}
-	// the reply's #tag and date became real chips
-	if !hasAnchor(reply.name) {
-		t.Fatalf("reply must carry chips, got plain %q", reply.name)
-	}
-	s, ok, err := database.GetThreadSession(m.db, "n1", "Pi")
-	if err != nil || !ok {
-		t.Fatalf("session not persisted: %v", err)
-	}
-	if s.State != "idle" {
-		t.Fatalf("session state = %q, want idle", s.State)
-	}
-
-	// a follow-up mention on a child resolves to the same thread root
-	child := n1.children[0]
-	if root := m.threadRootFor(child, tag.Agent{Name: "Pi"}); root != n1 {
-		t.Fatal("follow-up must continue the existing thread")
-	}
+	return m, disc, n1
 }
 
 // drain runs one turn's event stream through the update handler to completion.
@@ -127,65 +65,107 @@ func drain(t *testing.T, m *Model, cmd tea.Cmd) {
 	t.Fatal("event stream did not finish")
 }
 
-func TestUntaggedFollowUpInThread(t *testing.T) {
-	m, n1 := newAgentTestModel(t)
+func addChild(m *Model, parent *item, uuid, name, typ string) *item {
+	it := &item{uuid: uuid, name: name, typ: typ, parent: parent}
+	parent.children = append(parent.children, it)
+	m.tree.byUUID[uuid] = it
+	return it
+}
+
+func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
+	m, disc, n1 := newAgentTestModel(t)
 	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
 
-	// first turn: the mention creates the session
-	cmd, _ := m.mentionSendOnEnter(n1)
-	drain(t, m, cmd)
-	if _, ok, _ := database.GetThreadSession(m.db, "n1", "Pi"); !ok {
-		t.Fatal("session must exist after the mention turn")
+	cmd, consumed := m.mentionSendOnEnter(n1)
+	if !consumed || cmd == nil {
+		t.Fatal("a fresh mention on Enter must send and consume the Enter")
 	}
-	base := len(n1.children)
-
-	// an untagged QUESTION committed inside the thread: sent for
-	// consideration, Enter NOT consumed, reply lands BELOW it (sibling)
-	q := &item{uuid: "q1", name: "where do the retries go?", parent: n1}
-	n1.children = append(n1.children, q)
-	m.tree.byUUID["q1"] = q
-	cmd, consumed := m.mentionSendOnEnter(q)
-	if consumed {
-		t.Fatal("untagged follow-up must not consume Enter")
+	if cmd2, c2 := m.mentionSendOnEnter(n1); c2 || cmd2 != nil {
+		t.Fatal("a second Enter must not re-send")
 	}
-	if cmd == nil {
-		t.Fatal("untagged follow-up in an active thread must be sent")
+	// the session binds to the mention's PARENT — the note is the channel
+	if !m.agentBusy["disc"] {
+		t.Fatal("the note (mention's parent) must own the busy flag")
 	}
 	drain(t, m, cmd)
-	if len(n1.children) != base+2 {
-		t.Fatalf("want reply below the question, children %d → %d", base+1, len(n1.children))
-	}
-	reply := n1.children[len(n1.children)-1]
-	if reply.typ != database.TypeAgent || indexOf(reply) != indexOf(q)+1 {
-		t.Fatal("reply must be the question's next sibling (message-board placement)")
-	}
 
-	// a plain NOTE committed inside the thread: shown to the agent, but the
-	// agent stays silent — no node appears
-	note := &item{uuid: "note1", name: "met with sam about this", parent: n1}
-	n1.children = append(n1.children, note)
-	m.tree.byUUID["note1"] = note
-	cmd, consumed = m.mentionSendOnEnter(note)
+	// exactly one reply, placed BELOW the mention as the next board message
+	if len(disc.children) != 2 {
+		t.Fatalf("want [question, reply] on the board, got %d children", len(disc.children))
+	}
+	reply := disc.children[1]
+	if reply.typ != database.TypeAgent {
+		t.Fatalf("board reply type = %q, want agent", reply.typ)
+	}
+	if !hasAnchor(reply.name) {
+		t.Fatalf("reply must carry chips, got plain %q", reply.name)
+	}
+	if len(n1.children) != 0 {
+		t.Fatal("a board answer must not nest under the question")
+	}
+	s, ok, err := database.GetThreadSession(m.db, "disc", "Pi")
+	if err != nil || !ok {
+		t.Fatalf("session must persist on the note: %v", err)
+	}
+	if s.State != "idle" {
+		t.Fatalf("session state = %q, want idle", s.State)
+	}
+}
+
+func TestBoardReviewAndReplyThread(t *testing.T) {
+	m, disc, _ := newAgentTestModel(t)
+	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
+
+	// establish the session with the mention turn
+	cmd, _ := m.mentionSendOnEnter(disc.children[0])
+	drain(t, m, cmd)
+
+	// a plain note on the board: seen, no reply
+	note := addChild(m, disc, "note1", "retry only transient curl exits", database.TypeBullets)
+	cmd, consumed := m.mentionSendOnEnter(note)
 	if consumed || cmd == nil {
-		t.Fatal("a note in a thread is sent for consideration without consuming Enter")
+		t.Fatal("a note in the channel is considered without consuming Enter")
 	}
-	before := len(n1.children)
+	before := len(disc.children)
 	drain(t, m, cmd)
-	if len(n1.children) != before {
+	if len(disc.children) != before || len(note.children) != 0 {
 		t.Fatal("a plain note must not earn a reply")
 	}
 
-	// outside any thread nothing is watched
-	out := &item{uuid: "out1", name: "is this watched?", parent: m.tree.root}
-	m.tree.root.children = append(m.tree.root.children, out)
-	m.tree.byUUID["out1"] = out
+	// committed CODE earns an unprompted review comment, nested ON the code
+	sh := addChild(m, disc, "sh1", "./retry.sh upload 3", database.TypeBash)
+	cmd, _ = m.mentionSendOnEnter(sh)
+	drain(t, m, cmd)
+	if len(sh.children) != 1 || sh.children[0].typ != database.TypeAgent {
+		t.Fatalf("want a review comment as the code node's thread, got %+v", sh.children)
+	}
+	review := sh.children[0]
+
+	// continuing the conversation INSIDE the review's thread: my reply gets
+	// the agent's answer below it, still inside the thread
+	r1 := addChild(m, review, "r1", "good catch - cap it at how many attempts?", database.TypeBullets)
+	cmd, consumed = m.mentionSendOnEnter(r1)
+	if consumed || cmd == nil {
+		t.Fatal("a thread reply is considered without consuming Enter")
+	}
+	drain(t, m, cmd)
+	if len(review.children) != 2 {
+		t.Fatalf("want [my reply, agent answer] in the thread, got %d", len(review.children))
+	}
+	answer := review.children[1]
+	if answer.typ != database.TypeAgent || indexOf(answer) != indexOf(r1)+1 {
+		t.Fatal("the thread answer must be my reply's next sibling")
+	}
+
+	// a node OUTSIDE the note reaches no agent
+	out := addChild(m, m.tree.root, "out1", "is this watched?", database.TypeBullets)
 	if cmd, _ := m.mentionSendOnEnter(out); cmd != nil {
-		t.Fatal("nodes outside active threads must never reach an agent")
+		t.Fatal("nodes outside the session's note must never reach an agent")
 	}
 }
 
 func TestMentionCreatesArtifact(t *testing.T) {
-	m, n1 := newAgentTestModel(t)
+	m, _, n1 := newAgentTestModel(t)
 	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
 	n1.name = "@Pi create a dice artifact for me"
 
@@ -193,33 +173,23 @@ func TestMentionCreatesArtifact(t *testing.T) {
 	if !sent {
 		t.Fatal("mention must send")
 	}
-	msg := cmd()
-	for i := 0; i < 50; i++ {
-		ev, ok := msg.(agentEvMsg)
-		if !ok {
-			break
-		}
-		_, next := m.handleAgentEvent(ev)
-		if next == nil {
-			break
-		}
-		msg = next()
-	}
+	drain(t, m, cmd)
 
 	if _, err := database.GetArtifact(m.db, "dice"); err != nil {
 		t.Fatalf("dice artifact not installed: %v", err)
 	}
-	if typeOf("dice").label != "Dice" {
-		t.Fatal("dice artifact must hot-load into the registry")
+	if typeOf("dice").label != "Dice" || typeOf("dice").run == nil {
+		t.Fatal("dice artifact must hot-load into the registry, runnable")
 	}
-	if typeOf("dice").run == nil {
-		t.Fatal("dice artifact must be runnable")
+	// the install confirmation is a threaded reply on the request message
+	if len(n1.children) != 1 || n1.children[0].typ != database.TypeAgent {
+		t.Fatal("artifact confirmation must nest under the request message")
 	}
 }
 
 func TestBuildThreadGuardsMirrorCycles(t *testing.T) {
-	m, n1 := newAgentTestModel(t)
-	// child mirrors the thread root — a naive walk would recurse forever
+	m, _, n1 := newAgentTestModel(t)
+	// child mirrors the message — a naive walk would recurse forever
 	loop := &item{uuid: "m1", mirrorOf: "n1", parent: n1}
 	n1.children = append(n1.children, loop)
 	m.tree.byUUID["m1"] = loop
