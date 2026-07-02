@@ -20,13 +20,12 @@ const (
 	complQueryCmd                  // ":": pick a query time command (query nodes only)
 )
 
-// complState is the live completer: where its trigger sits in the name, the
-// query typed after it, and the highlighted row.
+// complState is the completer's anchor: which trigger opened it and where that
+// trigger sits in the name. The live query and highlighted row live on m.list
+// (the shared listPicker), since the completer is now a Group-A pickerSource.
 type complState struct {
 	kind  complKind
 	start int // rune index of the trigger char in cur.name
-	query string
-	sel   int
 }
 
 // complItem is one row: label is shown, value is what completion inserts (the
@@ -74,9 +73,9 @@ func (m *Model) existingTags() []string {
 	return out
 }
 
-// complItems is the filtered list for the live completer.
-func (m *Model) complItems() []complItem {
-	q := strings.ToLower(m.compl.query)
+// complItems is the filtered list for the live completer, for the given query.
+func (m *Model) complItems(query string) []complItem {
+	q := strings.ToLower(query)
 	var src []complItem
 	if m.compl.kind == complQueryCmd {
 		src = queryCmdItems
@@ -103,6 +102,7 @@ func (m *Model) openCompleter(cur *item, kind complKind, trigger string) (tea.Mo
 	m.boundCaret(len(runes))
 	cur.name = string(runes[:m.caret]) + trigger + string(runes[m.caret:])
 	m.compl = complState{kind: kind, start: m.caret}
+	m.list = listPicker{searchable: true}
 	m.caret += len([]rune(trigger))
 	m.mode = modeComplete
 	m.unsaved = true
@@ -110,9 +110,10 @@ func (m *Model) openCompleter(cur *item, kind complKind, trigger string) (tea.Mo
 }
 
 // applyCompletion replaces the typed "trigger+query" with the chosen result: a
-// tag chip, or a query-command token. With nothing highlighted, a tag falls back
-// to the typed word (so a brand-new tag still commits) and a query command no-ops.
-func (m *Model) applyCompletion(cur *item, items []complItem) {
+// tag chip, or a query-command token. chosen is the highlighted row (a zero
+// pickerItem when nothing is highlighted): a tag then falls back to the typed
+// word (so a brand-new tag still commits) and a query command no-ops.
+func (m *Model) applyCompletion(cur *item, chosen pickerItem) {
 	if cur == nil {
 		return
 	}
@@ -122,19 +123,19 @@ func (m *Model) applyCompletion(cur *item, items []complItem) {
 		end = len(runes)
 	}
 	if m.compl.kind == complQueryCmd {
-		if len(items) == 0 || m.compl.sel >= len(items) {
+		if chosen.value == "" {
 			return // leave the typed text as-is
 		}
-		token := items[m.compl.sel].value
+		token := chosen.value
 		cur.name = string(runes[:m.compl.start]) + token + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(token))
 		m.unsaved = true
 		return
 	}
 	// tag: the highlighted tag, else the typed word (new tag)
-	tag := strings.TrimSpace(m.compl.query)
-	if len(items) > 0 && m.compl.sel < len(items) {
-		tag = items[m.compl.sel].value
+	tag := strings.TrimSpace(m.list.query)
+	if chosen.value != "" {
+		tag = chosen.value
 	}
 	if tag == "" {
 		return
@@ -163,67 +164,6 @@ func (m *Model) delCharBeforeCaret(cur *item) {
 	m.unsaved = true
 }
 
-func (m *Model) handleCompleteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	cur := m.cursorItem()
-	items := m.complItems()
-	switch k.String() {
-	case "esc":
-		m.mode = modeOutline // leave the typed trigger+query as literal text
-		return m, nil
-	case "up":
-		if m.compl.sel > 0 {
-			m.compl.sel--
-		}
-		return m, nil
-	case "down":
-		if m.compl.sel < len(items)-1 {
-			m.compl.sel++
-		}
-		return m, nil
-	case "enter", "tab":
-		m.applyCompletion(cur, items)
-		m.mode = modeOutline
-		return m, nil
-	case "backspace":
-		if qr := []rune(m.compl.query); len(qr) > 0 {
-			m.compl.query = string(qr[:len(qr)-1])
-			m.compl.sel = 0
-			m.delCharBeforeCaret(cur)
-		} else {
-			m.delCharBeforeCaret(cur) // remove the trigger itself
-			m.mode = modeOutline
-		}
-		return m, nil
-	}
-
-	if k.Type == tea.KeySpace && !k.Alt {
-		// space ends the completer. A tag commits the typed "#word" into a chip
-		// (the long-standing fast path); a query command just leaves "·query"
-		// literal. Either way the space is then typed normally.
-		m.mode = modeOutline
-		if m.compl.kind == complTag && cur != nil {
-			m.chipifyBeforeCaret(cur)
-		}
-		if cur != nil {
-			runes := []rune(cur.name)
-			m.boundCaret(len(runes))
-			cur.name = string(runes[:m.caret]) + " " + string(runes[m.caret:])
-			m.caret++
-			m.unsaved = true
-		}
-		return m, nil
-	}
-	if k.Type == tea.KeyRunes && !k.Alt {
-		m.compl.query += string(k.Runes)
-		m.compl.sel = 0
-		if cur != nil {
-			runes := []rune(cur.name)
-			m.boundCaret(len(runes))
-			ins := []rune(string(k.Runes))
-			cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
-			m.caret += len(ins)
-			m.unsaved = true
-		}
-	}
-	return m, nil
-}
+// Completer key handling now lives in the shared listPicker (see picker_list.go)
+// via completerSource in picker_sources.go; the completer's inline-text behavior
+// is its inlineTextSource hooks.

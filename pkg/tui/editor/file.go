@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,15 +29,11 @@ func (m *Model) openFilePicker(cur *item, onCancel string) tea.Cmd {
 	if cur == nil {
 		return nil
 	}
-	if _, err := exec.LookPath("fzf"); err != nil {
-		return nil
-	}
 	uuid, caret := cur.uuid, m.caret
-	c := exec.Command("fzf", "--prompt", "file> ")
-	var out bytes.Buffer
-	c.Stdout = &out // fzf draws on /dev/tty and prints the selection to stdout
-	return tea.ExecProcess(c, func(error) tea.Msg {
-		return fzfPickedMsg{uuid: uuid, caret: caret, path: strings.TrimSpace(out.String()), onCancel: onCancel}
+	// externalPicker.run returns nil when fzf isn't installed; the caller decides
+	// whether to flash or fall back to typing the trigger character.
+	return externalPicker{bin: "fzf", prompt: "file> "}.run(func(sel string) tea.Msg {
+		return fzfPickedMsg{uuid: uuid, caret: caret, path: sel, onCancel: onCancel}
 	})
 }
 

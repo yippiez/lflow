@@ -7,8 +7,8 @@ import (
 )
 
 func TestComplItemsQueryCmdFilter(t *testing.T) {
-	m := &Model{compl: complState{kind: complQueryCmd, query: "aft"}}
-	items := m.complItems()
+	m := &Model{compl: complState{kind: complQueryCmd}}
+	items := m.complItems("aft")
 	if len(items) != 1 || items[0].value != ":after:" {
 		t.Fatalf("query-cmd filter 'aft' = %v, want [:after:]", items)
 	}
@@ -20,13 +20,12 @@ func TestComplItemsTagsFromChips(t *testing.T) {
 		"2": {ID: "2", Kind: "tag", Value: "logic"},
 		"3": {ID: "3", Kind: "path", Value: "/x"},
 	}}
-	m.compl = complState{kind: complTag, query: "log"}
-	items := m.complItems()
+	m.compl = complState{kind: complTag}
+	items := m.complItems("log")
 	if len(items) != 2 {
 		t.Fatalf("tag filter 'log' = %v, want #log and #logic", items)
 	}
-	m.compl.query = "logi"
-	if items = m.complItems(); len(items) != 1 || items[0].value != "logic" {
+	if items = m.complItems("logi"); len(items) != 1 || items[0].value != "logic" {
 		t.Fatalf("tag filter 'logi' = %v, want [logic]", items)
 	}
 }
@@ -35,8 +34,9 @@ func TestApplyCompletionQueryCmd(t *testing.T) {
 	it := &item{uuid: "n", typ: database.TypeQuery, name: "deploy :af"}
 	tr := &tree{byUUID: map[string]*item{"n": it}}
 	m := &Model{tree: tr, caret: len([]rune("deploy :af"))}
-	m.compl = complState{kind: complQueryCmd, start: len([]rune("deploy ")), query: "af"}
-	m.applyCompletion(it, m.complItems())
+	m.compl = complState{kind: complQueryCmd, start: len([]rune("deploy "))}
+	items := m.complItems("af")
+	m.applyCompletion(it, pickerItem{value: items[0].value})
 	if it.name != "deploy :after:" {
 		t.Fatalf("name = %q, want %q", it.name, "deploy :after:")
 	}
@@ -55,10 +55,10 @@ func TestApplyCompletionTagInsertsChip(t *testing.T) {
 		caret:  len([]rune("note #lo")),
 		chips:  map[string]database.Chip{"c": {ID: "c", Kind: "tag", Value: "log"}},
 	}
-	m.compl = complState{kind: complTag, start: len([]rune("note ")), query: "lo"}
+	m.compl = complState{kind: complTag, start: len([]rune("note "))}
 	// highlight the existing #log tag
-	items := m.complItems()
-	m.applyCompletion(it, items)
+	items := m.complItems("lo")
+	m.applyCompletion(it, pickerItem{value: items[0].value})
 	if !hasAnchor(it.name) {
 		t.Fatalf("tag completion should splice a chip anchor, got %q", it.name)
 	}
