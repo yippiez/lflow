@@ -36,6 +36,7 @@ const (
 	modeComplete // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
 	modeCmdView  // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
+	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
 )
 
 type finderAction int
@@ -141,6 +142,12 @@ type Model struct {
 
 	cmdViewID  string // cmd chip id whose output the alt+e viewer is showing
 	cmdViewCmd string // that chip's command, for the viewer header
+
+	// flash mode (modeFlash): each visible row's actions carry a typed label;
+	// typing a label narrows (matched prefix grays, the rest stays lit) until one
+	// completes and fires. flashInput is the prefix typed so far. See flash.go.
+	flashTargets []flashTarget
+	flashInput   string
 
 	// /type picker selection (index into the filtered list) and search query
 	typeSel   int
@@ -647,6 +654,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleThemeKey(k)
 	case modeComplete:
 		return m.handleCompleteKey(k)
+	case modeFlash:
+		return m.handleFlashKey(k)
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
@@ -1031,6 +1040,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, run(m, cur)
 			}
 		}
+		return m, nil
+	case "alt+s":
+		// flash: label every visible row's actions (jump / run / expand / fold) and
+		// hand off to modeFlash so the next keystrokes pick one — act on a node
+		// elsewhere on screen without moving the cursor there. See flash.go.
+		m.enterFlash()
 		return m, nil
 	case "alt+up", "ctrl+up":
 		// collapse the cursor node
@@ -2642,7 +2657,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		// a divider is a full-width rule with no glyph/body; it still hangs a note
 		if it.typ == database.TypeDivider {
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
-			groups[i] = []string{dividerLine(r, maxLine, selected)} // single line, never wrapped
+			groups[i] = []string{dividerLine(r, maxLine, selected && m.mode != modeFlash)} // single line, never wrapped
 			noteCaret := -1
 			if selected && m.mode == modeNote {
 				noteCaret = m.caret
@@ -2664,7 +2679,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		name := m.tree.displayName(it)
 
 		caret := -1
-		if selected && m.mode != modeNote && it.mirrorOf == "" {
+		if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
 			caret = m.caret
 		}
 		body := renderBody(it, name, caret, selected, m.chips)
@@ -2672,7 +2687,19 @@ func (m *Model) viewOutline(maxLine int) []string {
 			body = rm(m, it) // Model-aware override (voice waveform)
 		}
 
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
+		suffix := m.typeSuffix(it)
+		// flash mode grays the whole outline so the colored action chips are the only
+		// highlights: dim the glyph, the body and the type suffix down to plain gray.
+		if m.mode == modeFlash {
+			glyphColor = cDim
+			body = cDim + stripSGR(body) + cReset
+			suffix = cDim + stripSGR(suffix) + cReset
+		}
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
+		// flash mode hangs each row's action labels off the end of the line
+		if m.mode == modeFlash {
+			line += m.flashRowSuffix(i)
+		}
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
@@ -2689,6 +2716,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 		focusedView := m.focused && i == m.cursor && nodeViewOf(it) != nil
 		if !focusedView {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
+		}
+		// flash grays the note / run-output bands too, so nothing competes with the chips
+		if m.mode == modeFlash {
+			for k := range bands[i] {
+				bands[i][k] = cDim + stripSGR(bands[i][k]) + cReset
+			}
 		}
 	}
 
@@ -2783,7 +2816,13 @@ func (m *Model) viewOutline(maxLine int) []string {
 	var flat []string
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
 	// as a band at the top of the view — the same band a row would hang below it.
-	flat = append(flat, m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)...)
+	rootNote := m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
+	if m.mode == modeFlash {
+		for k := range rootNote {
+			rootNote[k] = cDim + stripSGR(rootNote[k]) + cReset
+		}
+	}
+	flat = append(flat, rootNote...)
 	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)
@@ -3065,6 +3104,13 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	if m.flash != "" {
 		state += " · " + m.flash
+	}
+	if m.mode == modeFlash {
+		hint := cFG + "flash" + cReset + cDim
+		if m.flashInput != "" {
+			hint += " " + cFG + m.flashInput + cReset + cDim
+		}
+		state += " · " + hint + " · esc cancel"
 	}
 	// offer the date conversion while a non-canonical time phrase sits under the
 	// cursor; an already-canonical date needs no conversion and is chipped as-is

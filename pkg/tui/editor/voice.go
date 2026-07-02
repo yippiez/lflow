@@ -84,6 +84,22 @@ func runVoice(m *Model, it *item) tea.Cmd {
 	return nil
 }
 
+// voiceFlashActions names a voice node's flash actions properly: alt+r records
+// (a toggle — the verb tracks the state) and alt+e plays. Without this hook flash
+// would infer the generic "run"/"expand" from the registry; the hook is the
+// per-type discovery mechanism that lets a type say what its actions are called.
+func voiceFlashActions(m *Model, it *item) []flashAction {
+	record := "record"
+	if _, recording := m.voiceRecOf(it.uuid); recording {
+		record = "stop"
+	}
+	acts := []flashAction{{verb: record, color: cGreen, do: runVoice}}
+	if fileExists(m.voicePath(it.uuid)) {
+		acts = append(acts, flashAction{verb: "play", color: cCyan, do: playVoice})
+	}
+	return acts
+}
+
 // playVoice plays the recording via ffplay (detached, fire-and-forget).
 func playVoice(m *Model, it *item) tea.Cmd {
 	path := m.voicePath(it.uuid)
