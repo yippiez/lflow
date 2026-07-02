@@ -8,33 +8,86 @@ import (
 )
 
 // Flash is a flash.nvim-style "jump / act without moving the cursor": alt+s
-// labels every visible row's available actions (jump there, run it, open its
-// expanded view, fold/unfold), then the next keystrokes pick one. Labels are a
-// for the common case, two letters (e.g. "hj") once a screen overflows the
-// single-letter alphabet. Typing a label narrows live — the matched prefix grays
-// out while the rest stays lit — and a completed label fires its action.
+// labels every visible row's available actions, then the next keystrokes pick
+// one. Labels are a single letter for the common case, two letters (e.g. "hj")
+// once a screen overflows the alphabet. Typing a label narrows live — the matched
+// prefix grays out while the rest stays lit — and a completed label fires.
 //
 // It stays inside the outline: no alt-screen, no separate mode plumbing beyond
-// modeFlash. The action set is read straight from the node-type registry (run /
-// view / expand hooks), so a new runnable or expandable type gets flash actions
-// for free, with no switch here to edit.
+// modeFlash. Two actions are universal (jump onto a row; fold a row with
+// children); the rest are contributed BY THE NODE TYPE via the registry's
+// flashActions hook — so a type declares its own labelled actions (verb, color,
+// handler) in one place, and flash surfaces them with no switch here to edit. A
+// type that sets no hook falls back to inference from its run / view / expand
+// hooks (see flashActionsFor).
 
-// flashKind is the action a label fires.
-type flashKind int
+// flashAction is one action a node type contributes to flash: a short verb, a
+// chip color (so like actions read alike on screen), and the handler run after
+// the cursor moves onto the node.
+type flashAction struct {
+	verb  string
+	color string
+	do    func(m *Model, it *item) tea.Cmd
+}
 
-const (
-	flashJump   flashKind = iota // move the cursor onto the row
-	flashRun                     // alt+r: run the node's action (bash/query/voice)
-	flashExpand                  // alt+e: open the node's inline view / action (bash output, json, voice play)
-	flashFold                    // toggle the node's collapsed state
-)
-
-// flashTarget is one labelled action sitting on a visible row.
+// flashTarget is one labelled action sitting on a visible row — a flashAction
+// pinned to a row and assigned a key label. do == nil means "jump only" (moving
+// the cursor onto the row is the whole action).
 type flashTarget struct {
-	row   int       // index into m.rows
-	kind  flashKind // what firing it does
-	verb  string    // short word shown beside the label (jump / run / expand / fold)
-	label string    // assigned key sequence, e.g. "a" or "hj"; "" = unlabelled (over capacity)
+	row   int    // index into m.rows
+	label string // assigned key sequence, e.g. "a" or "hj"; "" = unlabelled (over capacity)
+	verb  string // short word shown beside the label (jump / run / expand / fold …)
+	color string // chip color (SGR)
+	do    func(m *Model, it *item) tea.Cmd
+}
+
+// flashActionsFor returns the node-type-contributed actions for an item. A type
+// with a flashActions hook fully controls its own list; otherwise the actions are
+// inferred from its run / view / expand hooks, so existing types need no changes.
+// (jump and fold are added universally in enterFlash, not here.)
+func (m *Model) flashActionsFor(it *item) []flashAction {
+	nt := typeOf(it.typ)
+	if nt.flashActions != nil {
+		return nt.flashActions(m, it)
+	}
+	var out []flashAction
+	if nt.run != nil {
+		out = append(out, flashAction{verb: "run", color: cGreen, do: nt.run})
+	}
+	if nt.view != nil || nt.expand != nil {
+		out = append(out, flashAction{verb: "expand", color: cCyan, do: flashExpandDo})
+	}
+	return out
+}
+
+// flashExpandDo is the default "expand" handler: focus an inline view, else run
+// an action-only expand (e.g. voice play). Mirrors the alt+e handler.
+func flashExpandDo(m *Model, it *item) tea.Cmd {
+	if v := nodeViewOf(it); v != nil {
+		if v.Enter(m, it) {
+			m.focused = true
+			m.focusScroll = 0
+		}
+		return nil
+	}
+	if e := typeOf(it.typ).expand; e != nil {
+		return e(m, it)
+	}
+	return nil
+}
+
+// flashFold toggles a node's collapsed state, keeping the cursor on it (restored
+// through its mirror context). It is the universal fold action's handler.
+func flashFold(m *Model, it *item) tea.Cmd {
+	if len(m.tree.childItems(it)) == 0 {
+		return nil
+	}
+	ctx := m.mirrorContext().ctx
+	it.collapsed = !it.collapsed
+	m.persistCollapsed(it)
+	m.refreshRows()
+	m.cursor = m.findRow(it, ctx)
+	return nil
 }
 
 // flashAlphabet is the label key pool, home-row first so the common (single
@@ -89,22 +142,20 @@ func (m *Model) enterFlash() {
 	for i, r := range m.rows {
 		it := r.it
 		// jumping onto the row the cursor already sits on is a no-op — skip it, but
-		// still offer that row's other actions (run/expand/fold).
+		// still offer that row's other actions.
 		if i != m.cursor {
-			ts = append(ts, flashTarget{row: i, kind: flashJump, verb: "jump"})
+			ts = append(ts, flashTarget{row: i, verb: "jump", color: cAccent})
 		}
-		if typeOf(it.typ).run != nil {
-			ts = append(ts, flashTarget{row: i, kind: flashRun, verb: "run"})
-		}
-		if nodeViewOf(it) != nil || typeOf(it.typ).expand != nil {
-			ts = append(ts, flashTarget{row: i, kind: flashExpand, verb: "expand"})
+		// node-type-contributed actions (run / expand / play / …), from the registry
+		for _, a := range m.flashActionsFor(it) {
+			ts = append(ts, flashTarget{row: i, verb: a.verb, color: a.color, do: a.do})
 		}
 		if len(m.tree.childItems(it)) > 0 {
 			verb := "fold"
 			if it.collapsed {
 				verb = "unfold"
 			}
-			ts = append(ts, flashTarget{row: i, kind: flashFold, verb: verb})
+			ts = append(ts, flashTarget{row: i, verb: verb, color: cMagenta, do: flashFold})
 		}
 	}
 	if len(ts) == 0 {
@@ -112,7 +163,7 @@ func (m *Model) enterFlash() {
 	}
 
 	// Assign labels nearest-cursor-first so the closest targets earn the
-	// single-keystroke labels; ties keep build order (jump before run/expand/fold).
+	// single-keystroke labels; ties keep build order (jump before the rest).
 	order := make([]int, len(ts))
 	for i := range order {
 		order[i] = i
@@ -181,7 +232,7 @@ func (m *Model) handleFlashKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // fireFlash leaves flash mode, moves the cursor onto the target row, and performs
-// the chosen action there.
+// the chosen action there (do == nil is a plain jump).
 func (m *Model) fireFlash(t flashTarget) (tea.Model, tea.Cmd) {
 	m.exitFlash()
 	if t.row < 0 || t.row >= len(m.rows) {
@@ -191,51 +242,10 @@ func (m *Model) fireFlash(t flashTarget) (tea.Model, tea.Cmd) {
 	cur := m.rows[t.row].it
 	m.caret = len([]rune(m.tree.displayName(cur)))
 	m.clampCaret()
-
-	switch t.kind {
-	case flashFold:
-		if len(m.tree.childItems(cur)) > 0 {
-			ctx := m.mirrorContext().ctx
-			cur.collapsed = !cur.collapsed
-			m.persistCollapsed(cur)
-			m.refreshRows()
-			m.cursor = m.findRow(cur, ctx)
-		}
-	case flashExpand:
-		// mirror the alt+e handler: an inline view focuses, an action-only expand
-		// (voice play) returns its command.
-		if v := nodeViewOf(cur); v != nil {
-			if v.Enter(m, cur) {
-				m.focused = true
-				m.focusScroll = 0
-			}
-			return m, nil
-		}
-		if e := typeOf(cur.typ).expand; e != nil {
-			return m, e(m, cur)
-		}
-	case flashRun:
-		if run := typeOf(cur.typ).run; run != nil {
-			return m, run(m, cur)
-		}
+	if t.do != nil {
+		return m, t.do(m, cur)
 	}
 	return m, nil
-}
-
-// flashColor maps an action kind to its label color, so a chip's color tells you
-// the action at a glance — and the same action is always the same color.
-func flashColor(k flashKind) string {
-	switch k {
-	case flashJump:
-		return cAccent // blue — navigate
-	case flashRun:
-		return cGreen // green — execute
-	case flashExpand:
-		return cCyan // cyan — open a view
-	case flashFold:
-		return cMagenta // purple — fold / unfold
-	}
-	return cAccent
 }
 
 // flashRowSuffix renders the labelled actions hanging off the end of row i. Each
@@ -256,9 +266,8 @@ func (m *Model) flashRowSuffix(i int) string {
 
 // flashChip styles one label+verb against the current typed prefix. The whole
 // outline renders gray in flash mode, so these colored chips are the only
-// highlights on screen; the color is the action's (flashColor), kept consistent.
+// highlights on screen; the color is the action's, kept consistent per action.
 func flashChip(t flashTarget, input string) string {
-	col := flashColor(t.kind)
 	// no longer reachable from what's been typed: fade the whole chip to gray.
 	if input != "" && !strings.HasPrefix(t.label, input) {
 		return cReset + cDim + t.label + " " + t.verb + cReset
@@ -270,7 +279,7 @@ func flashChip(t flashTarget, input string) string {
 	}
 	// the live, to-type tail is a solid block in the action's color (the highlight);
 	// the verb trails in the same color so the chip reads as one unit.
-	s += col + cInvert + cBold + tail + cReset
-	s += col + " " + t.verb + cReset
+	s += t.color + cInvert + cBold + tail + cReset
+	s += t.color + " " + t.verb + cReset
 	return s
 }

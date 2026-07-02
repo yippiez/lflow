@@ -45,7 +45,7 @@ func TestEnterFlashLabelsEveryOtherRow(t *testing.T) {
 	}
 	jumps := 0
 	for _, tg := range m.flashTargets {
-		if tg.kind == flashJump {
+		if tg.verb == "jump" {
 			jumps++
 			if tg.row == m.cursor {
 				t.Fatalf("jump labelled on the cursor row %d", tg.row)
@@ -66,7 +66,7 @@ func TestFlashJumpFires(t *testing.T) {
 	// find the label that jumps to row 2
 	var label string
 	for _, tg := range m.flashTargets {
-		if tg.kind == flashJump && tg.row == 2 {
+		if tg.verb == "jump" && tg.row == 2 {
 			label = tg.label
 		}
 	}
@@ -97,15 +97,38 @@ func TestFlashOffersBashActions(t *testing.T) {
 		if tg.row != 1 {
 			continue
 		}
-		switch tg.kind {
-		case flashRun:
+		switch tg.verb {
+		case "run":
 			run = true
-		case flashExpand:
+		case "expand":
 			expand = true
 		}
 	}
 	if !run || !expand {
 		t.Fatalf("bash actions: run=%v expand=%v, want both true", run, expand)
+	}
+}
+
+// A node type can contribute its own named, colored flash actions via the
+// registry flashActions hook — voice names them "record" and "play" rather than
+// the generic "run"/"expand".
+func TestFlashTypeContributedActions(t *testing.T) {
+	m := newTestModel(80, "note", "a memo")
+	m.tree.root.children[1].typ = database.TypeVoice
+	m.refreshRows()
+	m.cursor = 0
+	m.enterFlash()
+	verbs := map[string]bool{}
+	for _, tg := range m.flashTargets {
+		if tg.row == 1 {
+			verbs[tg.verb] = true
+		}
+	}
+	if !verbs["record"] {
+		t.Fatalf("voice should contribute a 'record' action, got %v", verbs)
+	}
+	if verbs["run"] || verbs["expand"] {
+		t.Fatalf("voice hook should replace the generic run/expand verbs, got %v", verbs)
 	}
 }
 
@@ -126,19 +149,16 @@ func TestFlashEscCancels(t *testing.T) {
 	}
 }
 
-// Each action kind gets a consistent, distinct label color, and a label that no
-// longer matches the typed prefix renders fully gray (no action color).
+// A chip renders in its action's color; a label that no longer matches the typed
+// prefix renders fully gray (no action color).
 func TestFlashChipColorsByAction(t *testing.T) {
-	jump := flashTarget{label: "a", verb: "jump", kind: flashJump}
-	run := flashTarget{label: "b", verb: "run", kind: flashRun}
+	jump := flashTarget{label: "a", verb: "jump", color: cAccent}
+	run := flashTarget{label: "b", verb: "run", color: cGreen}
 	if !strings.Contains(flashChip(jump, ""), cAccent) {
 		t.Error("jump chip should use the accent (blue) color")
 	}
 	if !strings.Contains(flashChip(run, ""), cGreen) {
 		t.Error("run chip should use the green color")
-	}
-	if flashColor(flashJump) == flashColor(flashRun) {
-		t.Error("distinct actions must use distinct colors")
 	}
 	// 'a' typed: the run label 'b' no longer matches → all gray, no action color.
 	faded := flashChip(run, "a")
