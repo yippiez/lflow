@@ -21,6 +21,10 @@ package editor
 //     unavailable and never touches Model, keeping this helper UI-agnostic
 
 import (
+	"bytes"
+	"os/exec"
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -29,14 +33,15 @@ import (
 type externalPicker struct {
 	bin    string   // executable to look up and run (e.g. "fzf")
 	prompt string   // shown to the user (fzf --prompt)
-	args   []string // any extra args beyond the prompt
+	args   []string // any extra args before the prompt
 }
 
 // available reports whether the picker binary is on PATH (exec.LookPath). The
 // caller uses this (or run's nil return) to decide whether to flash its own
 // "fzf not found — install it" message; this helper sets no flash itself.
 func (e externalPicker) available() bool {
-	panic("TODO: implement externalPicker.available")
+	_, err := exec.LookPath(e.bin)
+	return err == nil
 }
 
 // run suspends the inline UI and executes the picker, capturing stdout. onPick
@@ -44,5 +49,17 @@ func (e externalPicker) available() bool {
 // each caller attaches its own splice context (uuid, caret, …) in its own msg
 // type. Returns nil when the binary is missing — the caller flashes.
 func (e externalPicker) run(onPick func(selection string) tea.Msg) tea.Cmd {
-	panic("TODO: implement externalPicker.run")
+	if !e.available() {
+		return nil
+	}
+	args := append([]string{}, e.args...)
+	if e.prompt != "" {
+		args = append(args, "--prompt", e.prompt)
+	}
+	c := exec.Command(e.bin, args...)
+	var out bytes.Buffer
+	c.Stdout = &out // the picker draws on /dev/tty and prints the selection to stdout
+	return tea.ExecProcess(c, func(error) tea.Msg {
+		return onPick(strings.TrimSpace(out.String()))
+	})
 }
