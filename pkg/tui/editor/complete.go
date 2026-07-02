@@ -83,12 +83,9 @@ func (m *Model) complItems() []complItem {
 	case complQueryCmd:
 		src = queryCmdItems
 	case complAgent:
+		// just the name — no descriptions in the mention picker
 		for _, a := range m.agents {
-			kind := "agent"
-			if a.Mock {
-				kind = "agent · mock"
-			}
-			src = append(src, complItem{label: "@" + a.Name, value: a.Name, desc: kind + " — Enter on the node sends the thread"})
+			src = append(src, complItem{label: "@" + a.Name, value: a.Name})
 		}
 	default:
 		for _, t := range m.existingTags() {

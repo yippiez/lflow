@@ -26,17 +26,22 @@ type ThreadNode struct {
 	Depth int    `json:"depth"` // 0 = thread root; ancestors count up from 0 in their own run
 	Name  string `json:"name"`
 	Type  string `json:"type"`
-	Role  string `json:"role"` // "context" | "user" | "agent"
+	Role  string `json:"role"`  // "context" | "user" | "agent"
+	Asked bool   `json:"asked"` // the node this turn is about — replies target it
 }
 
 // Event is one message streamed back from the agent service.
 type Event struct {
-	Op     string `json:"op"`     // "session" | "message" | "artifact" | "done" | "error"
-	ID     string `json:"id"`     // op=session: the assigned session id
-	Text   string `json:"text"`   // op=message/error
-	Key    string `json:"key"`    // op=artifact
-	Label  string `json:"label"`  // op=artifact
-	Source string `json:"source"` // op=artifact: the JS program to install
+	Op   string `json:"op"`   // "session" | "message" | "artifact" | "done" | "error"
+	ID   string `json:"id"`   // op=session: the assigned session id
+	Text string `json:"text"` // op=message/error
+	// Placement is where a message lands relative to the asked node — the two
+	// Claude-Tag surfaces: "below" posts it like a message-board reply (next
+	// sibling), "thread" nests it as the asked node's child. Default: thread.
+	Placement string `json:"placement"`
+	Key       string `json:"key"`    // op=artifact
+	Label     string `json:"label"`  // op=artifact
+	Source    string `json:"source"` // op=artifact: the JS program to install
 }
 
 // Client drives agent conversations. Send delivers the thread to the session

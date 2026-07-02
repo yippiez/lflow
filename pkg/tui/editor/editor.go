@@ -38,7 +38,6 @@ const (
 	modeLinkEdit    // the alt+e link-chip editor: edit a link's name and target
 	modeCmdView     // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
 	modeArtifacts   // the /artifacts management view: list, enable/disable, uninstall
-	modeArtifactSrc // the artifact source pager (enter on an /artifacts row)
 )
 
 type finderAction int
@@ -156,10 +155,8 @@ type Model struct {
 	// /theme picker selection (index into the themes registry)
 	themeSel int
 
-	// /artifacts management view: selected row, inspected key, source scroll
-	artSel       int
-	artKey       string
-	artSrcScroll int
+	// /artifacts management view: selected row
+	artSel int
 
 	// inline completer state ("#" tags, ":" query commands)
 	compl complState
@@ -660,8 +657,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTypeKey(k)
 	case modeArtifacts:
 		return m.handleArtifactsKey(k)
-	case modeArtifactSrc:
-		return m.handleArtifactSrcKey(k)
 	case modeStyle:
 		return m.handleStyleKey(k)
 	case modeTheme:
@@ -741,10 +736,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chipifyBeforeCaret(cur)
 		}
 		// a node with a fresh @AgentName mention: Enter IS the send (the
-		// keyboard stand-in for Slack's send button) — the reply lands beneath
-		// this node instead of a sibling opening. alt+r re-sends any time.
-		if cmd, sent := m.mentionSendOnEnter(cur); sent {
-			return m, cmd
+		// keyboard stand-in for Slack's send button) — the reply lands at this
+		// node instead of a sibling opening. An untagged commit inside an
+		// active thread also ships for consideration (agentCmd) while Enter
+		// carries on normally. alt+r re-sends any time.
+		agentCmd, consumed := m.mentionSendOnEnter(cur)
+		if consumed {
+			return m, agentCmd
 		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
@@ -763,7 +761,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 			m.cursor = m.findRow(it, mc.ctx)
 			m.caret = 0
-			return m, nil
+			return m, agentCmd
 		}
 		var it *item
 		var err error
@@ -809,7 +807,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = m.findRow(it, mc.ctx)
 			m.caret = 0
 		}
-		return m, nil
+		return m, agentCmd
 	case "tab":
 		// path chips are inserted via the /file fuzzy picker now, not a "#…" token,
 		// so Tab just indents (# is tags-only again)
@@ -2806,9 +2804,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 			pickerItems = 1 // the "none installed" hint row
 		}
 		typePickerRows = 1 // the header row
-	case modeArtifactSrc:
-		pickerItems = artifactSrcRows
-		typePickerRows = 1 // the header row
 	case modeTheme:
 		pickerItems = len(themes)
 	case modeComplete:
@@ -2963,10 +2958,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 	if m.mode == modeArtifacts {
 		lines = append(lines, m.artifactListLines(maxLine)...)
 	}
-	if m.mode == modeArtifactSrc {
-		lines = append(lines, m.artifactSrcLines(maxLine)...)
-	}
-
 	// the /style picker lists text style toggles and color swatches above the status line
 	if m.mode == modeStyle {
 		cur := m.cursorItem()
@@ -3109,7 +3100,7 @@ func (m *Model) bottomBar(maxLine int) string {
 		state = " · unsaved"
 	}
 	if len(m.agentBusy) > 0 {
-		state += " · " + cRed + "✦ agent thinking…" + cDim
+		state += " · " + cRed + "π thinking…" + cDim
 	}
 	if m.flash != "" {
 		state += " · " + m.flash

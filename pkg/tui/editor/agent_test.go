@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/tag"
 )
@@ -100,6 +102,88 @@ func TestMentionSendAndReplies(t *testing.T) {
 	}
 }
 
+// drain runs one turn's event stream through the update handler to completion.
+func drain(t *testing.T, m *Model, cmd tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	for i := 0; i < 60; i++ {
+		switch v := msg.(type) {
+		case agentEvMsg:
+			_, next := m.handleAgentEvent(v)
+			if next == nil {
+				return
+			}
+			msg = next()
+		case agentStreamEndMsg:
+			delete(m.agentBusy, v.thread)
+			return
+		default:
+			t.Fatalf("unexpected msg %T", msg)
+		}
+	}
+	t.Fatal("event stream did not finish")
+}
+
+func TestUntaggedFollowUpInThread(t *testing.T) {
+	m, n1 := newAgentTestModel(t)
+	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
+
+	// first turn: the mention creates the session
+	cmd, _ := m.mentionSendOnEnter(n1)
+	drain(t, m, cmd)
+	if _, ok, _ := database.GetThreadSession(m.db, "n1", "Pi"); !ok {
+		t.Fatal("session must exist after the mention turn")
+	}
+	base := len(n1.children)
+
+	// an untagged QUESTION committed inside the thread: sent for
+	// consideration, Enter NOT consumed, reply lands BELOW it (sibling)
+	q := &item{uuid: "q1", name: "where do the retries go?", parent: n1}
+	n1.children = append(n1.children, q)
+	m.tree.byUUID["q1"] = q
+	cmd, consumed := m.mentionSendOnEnter(q)
+	if consumed {
+		t.Fatal("untagged follow-up must not consume Enter")
+	}
+	if cmd == nil {
+		t.Fatal("untagged follow-up in an active thread must be sent")
+	}
+	drain(t, m, cmd)
+	if len(n1.children) != base+2 {
+		t.Fatalf("want reply below the question, children %d → %d", base+1, len(n1.children))
+	}
+	reply := n1.children[len(n1.children)-1]
+	if reply.typ != database.TypeAgent || indexOf(reply) != indexOf(q)+1 {
+		t.Fatal("reply must be the question's next sibling (message-board placement)")
+	}
+
+	// a plain NOTE committed inside the thread: shown to the agent, but the
+	// agent stays silent — no node appears
+	note := &item{uuid: "note1", name: "met with sam about this", parent: n1}
+	n1.children = append(n1.children, note)
+	m.tree.byUUID["note1"] = note
+	cmd, consumed = m.mentionSendOnEnter(note)
+	if consumed || cmd == nil {
+		t.Fatal("a note in a thread is sent for consideration without consuming Enter")
+	}
+	before := len(n1.children)
+	drain(t, m, cmd)
+	if len(n1.children) != before {
+		t.Fatal("a plain note must not earn a reply")
+	}
+
+	// outside any thread nothing is watched
+	out := &item{uuid: "out1", name: "is this watched?", parent: m.tree.root}
+	m.tree.root.children = append(m.tree.root.children, out)
+	m.tree.byUUID["out1"] = out
+	if cmd, _ := m.mentionSendOnEnter(out); cmd != nil {
+		t.Fatal("nodes outside active threads must never reach an agent")
+	}
+}
+
 func TestMentionCreatesArtifact(t *testing.T) {
 	m, n1 := newAgentTestModel(t)
 	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
@@ -140,7 +224,7 @@ func TestBuildThreadGuardsMirrorCycles(t *testing.T) {
 	n1.children = append(n1.children, loop)
 	m.tree.byUUID["m1"] = loop
 
-	thread := m.buildThread(n1)
+	thread := m.buildThread(n1, n1.uuid)
 	if len(thread) < 2 || len(thread) > 10 {
 		t.Fatalf("mirror cycle not guarded: %d nodes", len(thread))
 	}

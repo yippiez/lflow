@@ -51,33 +51,66 @@ func (m *MockClient) Send(ctx context.Context, agent, sessionID string, thread [
 		}
 
 		// exactly ONE reply node per turn — while the agent works, the status
-		// bar's small "✦ agent thinking…" text is the only progress signal; no
+		// bar's small "agent thinking…" text is the only progress signal; no
 		// narration/thinking nodes ever land in the thread.
-		prompt := lastUserText(thread)
+		prompt, mentioned := askedText(thread, agent)
 		if key, label, source, ok := artifactFor(prompt); ok {
 			if !emit(Event{Op: "artifact", Key: key, Label: label, Source: source}) {
 				return
 			}
-			emit(Event{Op: "message", Text: "Installed the " + label + " artifact — set it on any node via /type; alt+r runs it. Tagged #" + key + " so it stays findable."})
+			emit(Event{Op: "message", Placement: "thread", Text: "Installed the " + label + " artifact — set it on any node via /type; alt+r runs it. Tagged #" + key + " so it stays findable."})
 			emit(Event{Op: "done"})
 			return
 		}
 
+		// an untagged follow-up only earns a reply when it reads like a
+		// question — a plain note keeps the agent silent (discretion, not
+		// auto-reply). Mentions always answer, nested in the asked node's
+		// thread; detected questions answer "below", message-board style.
+		if !mentioned && !looksLikeQuestion(prompt) {
+			emit(Event{Op: "done"})
+			return
+		}
+		placement := "thread"
+		if !mentioned {
+			placement = "below"
+		}
 		followup := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
-		emit(Event{Op: "message", Text: "My take: log the decision here, tag the open questions #followup, and mention me again on " + followup + " if the retries are still flaky."})
+		emit(Event{Op: "message", Placement: placement, Text: "My take: log the decision here, tag the open questions #followup, and mention me again on " + followup + " if the retries are still flaky."})
 		emit(Event{Op: "done"})
 	}()
 	return ch, nil
 }
 
-// lastUserText is the most recent user-authored node — the turn's prompt.
-func lastUserText(thread []ThreadNode) string {
+// askedText is the turn's prompt — the marked asked node (falling back to the
+// most recent user node) — and whether it mentions the agent.
+func askedText(thread []ThreadNode, agent string) (string, bool) {
+	prompt := ""
 	for i := len(thread) - 1; i >= 0; i-- {
-		if thread[i].Role == "user" {
-			return thread[i].Name
+		if thread[i].Asked {
+			prompt = thread[i].Name
+			break
+		}
+		if prompt == "" && thread[i].Role == "user" {
+			prompt = thread[i].Name
 		}
 	}
-	return ""
+	return prompt, strings.Contains(prompt, "@"+agent)
+}
+
+// looksLikeQuestion is the mock's stand-in for a model's judgement call on
+// whether an untagged note wants an answer.
+func looksLikeQuestion(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	if strings.HasSuffix(t, "?") {
+		return true
+	}
+	for _, w := range []string{"how ", "what ", "where ", "why ", "when ", "should ", "can ", "could ", "is ", "are ", "do ", "does "} {
+		if strings.HasPrefix(t, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // artifactFor recognises an artifact request and picks a template. The mock

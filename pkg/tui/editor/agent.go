@@ -20,9 +20,11 @@ import (
 // visible world, replies land beneath it as agent nodes (red ✦, text + chips
 // only), and the session id persists so a later mention resumes the context.
 
-// agentGlyph is the agent reply marker: a red ✦ (dim once the thread is done).
+// agentGlyph is the agent reply marker: a red π — the agent's own initial as
+// the glyph, like the heading digits. (When a second agent exists, the author
+// will need to be recorded on the node so each agent can wear its own letter.)
 func agentGlyph(it *item) (string, string) {
-	return "✦", cRed
+	return "π", cRed
 }
 
 var mentionRe = regexp.MustCompile(`@([A-Za-z][A-Za-z0-9_-]*)`)
@@ -54,9 +56,10 @@ func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 
 // buildThread flattens the thread context: the root's ancestor chain (role
 // "context", orientation only), then the root and its subtree depth-first.
+// askedUUID marks the node this turn is about, so replies can target it.
 // Mirrors expand at most once via the visited set, so a mirror pointing back
 // at an ancestor can't loop the walk (the same guard the renderer uses).
-func (m *Model) buildThread(root *item) []tag.ThreadNode {
+func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 	var out []tag.ThreadNode
 
 	var ancestors []*item
@@ -78,7 +81,7 @@ func (m *Model) buildThread(root *item) []tag.ThreadNode {
 		}
 		out = append(out, tag.ThreadNode{
 			UUID: it.uuid, Depth: depth, Name: expandAnchors(m.tree.displayName(it), m.chips),
-			Type: it.typ, Role: role,
+			Type: it.typ, Role: role, Asked: it.uuid == askedUUID,
 		})
 		tgt := m.tree.expandTarget(it)
 		if tgt == nil || seen[tgt] {
@@ -97,6 +100,7 @@ func (m *Model) buildThread(root *item) []tag.ThreadNode {
 // agentEvMsg carries one streamed event into the update loop.
 type agentEvMsg struct {
 	thread string // thread root uuid
+	asked  string // the node this turn is about — replies target it
 	agent  string
 	ev     tag.Event
 	ch     <-chan tag.Event
@@ -105,24 +109,24 @@ type agentEvMsg struct {
 // agentStreamEndMsg fires when the event channel closes.
 type agentStreamEndMsg struct{ thread string }
 
-func waitAgentCmd(thread, agent string, ch <-chan tag.Event) tea.Cmd {
+func waitAgentCmd(thread, asked, agent string, ch <-chan tag.Event) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-ch
 		if !ok {
 			return agentStreamEndMsg{thread: thread}
 		}
-		return agentEvMsg{thread: thread, agent: agent, ev: ev, ch: ch}
+		return agentEvMsg{thread: thread, asked: asked, agent: agent, ev: ev, ch: ch}
 	}
 }
 
-// sendThread ships the thread to the agent's session on an explicit gesture.
-func (m *Model) sendThread(it *item, ag tag.Agent) tea.Cmd {
-	root := m.threadRootFor(it, ag)
+// sendThread ships the thread to the agent's session; asked is the node this
+// turn is about (the mention, or a detected follow-up question).
+func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
+	root := m.threadRootFor(asked, ag)
 	if m.agentBusy == nil {
 		m.agentBusy = map[string]bool{}
 	}
 	if m.agentBusy[root.uuid] {
-		m.flash = "@" + ag.Name + " · already thinking on this thread"
 		return nil
 	}
 
@@ -140,7 +144,7 @@ func (m *Model) sendThread(it *item, ag tag.Agent) tea.Cmd {
 		m.tagClients[ag.Name] = client
 	}
 
-	ch, err := client.Send(context.Background(), ag.Name, sessionID, m.buildThread(root))
+	ch, err := client.Send(context.Background(), ag.Name, sessionID, m.buildThread(root, asked.uuid))
 	if err != nil {
 		m.flash = "@" + ag.Name + " · " + err.Error()
 		return nil
@@ -149,30 +153,29 @@ func (m *Model) sendThread(it *item, ag tag.Agent) tea.Cmd {
 	if sessionID != "" {
 		m.touchSession(sessionID, root.uuid, ag.Name, "running")
 	}
-	m.flash = "@" + ag.Name + " · thinking…"
-	return waitAgentCmd(root.uuid, ag.Name, ch)
+	return waitAgentCmd(root.uuid, asked.uuid, ag.Name, ch)
 }
 
 // handleAgentEvent lands one event in the outline and re-arms the stream.
 func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
-	rearm := waitAgentCmd(msg.thread, msg.agent, msg.ch)
+	rearm := waitAgentCmd(msg.thread, msg.asked, msg.agent, msg.ch)
 	switch msg.ev.Op {
 	case "session":
 		m.touchSession(msg.ev.ID, msg.thread, msg.agent, "running")
 	case "message":
-		m.appendAgentNode(msg.thread, msg.ev.Text)
+		m.placeAgentNode(msg.thread, msg.asked, msg.ev.Text, msg.ev.Placement)
 	case "artifact":
 		a := database.Artifact{
 			Key: msg.ev.Key, Label: msg.ev.Label, Version: 1, Source: msg.ev.Source,
 			CreatedBy: msg.agent, CreatedAt: time.Now().UnixNano(), Enabled: true,
 		}
 		if err := installArtifact(m.db, a); err != nil {
-			m.appendAgentNode(msg.thread, "failed to install artifact "+a.Key+": "+err.Error())
+			m.placeAgentNode(msg.thread, msg.asked, "failed to install artifact "+a.Key+": "+err.Error(), "thread")
 		} else {
 			m.flash = "artifact · installed " + a.Key + " — available in /type"
 		}
 	case "error":
-		m.appendAgentNode(msg.thread, "error: "+msg.ev.Text)
+		m.placeAgentNode(msg.thread, msg.asked, "error: "+msg.ev.Text, "thread")
 		m.finishThread(msg.thread, msg.agent)
 		return m, nil
 	case "done":
@@ -182,10 +185,17 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 	return m, rearm
 }
 
-// appendAgentNode adds one agent reply as the thread root's last child.
-func (m *Model) appendAgentNode(threadUUID, text string) {
-	root := m.tree.byUUID[threadUUID]
-	if root == nil {
+// placeAgentNode lands one agent reply relative to the asked node — the two
+// Claude-Tag surfaces: "thread" nests it as the asked node's child, "below"
+// posts it message-board style as the next sibling. A missing asked node
+// (e.g. deleted mid-turn) falls back to the thread root's children.
+func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
+	asked := m.tree.byUUID[askedUUID]
+	if asked == nil {
+		asked = m.tree.byUUID[threadUUID]
+		placement = "thread"
+	}
+	if asked == nil {
 		return
 	}
 	it, err := m.tree.newItem()
@@ -194,9 +204,19 @@ func (m *Model) appendAgentNode(threadUUID, text string) {
 	}
 	it.typ = database.TypeAgent
 	it.name = text
-	it.parent = root
-	root.children = append(root.children, it)
-	root.collapsed = false
+
+	if placement == "below" && asked.parent != nil {
+		it.parent = asked.parent
+		idx := indexOf(asked)
+		sibs := asked.parent.children
+		asked.parent.children = append(sibs, nil)
+		copy(asked.parent.children[idx+2:], asked.parent.children[idx+1:])
+		asked.parent.children[idx+1] = it
+	} else {
+		it.parent = asked
+		asked.children = append(asked.children, it)
+		asked.collapsed = false
+	}
 	// agent replies carry chips like any node: #tags and canonical dates in
 	// the text become real chips via the same detection the backfill uses
 	m.backfillName(it)
@@ -210,7 +230,6 @@ func (m *Model) finishThread(threadUUID, agent string) {
 	if s, ok, _ := database.GetThreadSession(m.db, threadUUID, agent); ok {
 		m.touchSession(s.ID, threadUUID, agent, "idle")
 	}
-	m.flash = "@" + agent + " · replied"
 }
 
 // touchSession upserts the session row.
@@ -223,15 +242,15 @@ func (m *Model) touchSession(id, nodeUUID, agent, state string) {
 	_ = s.Upsert(m.db)
 }
 
-// mentionSendOnEnter fires the send when Enter commits a node with a fresh
-// mention. Returns the send command and true when the Enter was consumed as
-// "send" (no split happens — the reply arrives beneath this node).
+// mentionSendOnEnter fires the send when Enter commits a node the agent
+// should see. Two cases, mirroring Claude Tag:
+//   - a fresh @mention: Enter IS the send and is consumed (no split — the
+//     reply arrives at this node);
+//   - an untagged node inside a subtree that already has a session: it is
+//     shipped for consideration (the agent answers only if it judges the node
+//     a question) and Enter continues to behave normally.
 func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
 	if cur == nil || cur.name == "" || cur.typ == database.TypeAgent {
-		return nil, false
-	}
-	ag, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips))
-	if !ok {
 		return nil, false
 	}
 	if m.mentionSent == nil {
@@ -240,6 +259,31 @@ func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
 	if m.mentionSent[cur.uuid] {
 		return nil, false // already sent — Enter behaves normally; alt+r re-sends
 	}
-	m.mentionSent[cur.uuid] = true
-	return m.sendThread(cur, ag), true
+
+	if ag, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
+		m.mentionSent[cur.uuid] = true
+		return m.sendThread(cur, ag), true
+	}
+
+	// no mention: inside an active thread, committing still shows the node to
+	// the session — discretionary, so a plain note stays unanswered
+	if ag, ok := m.activeThreadAgent(cur); ok {
+		m.mentionSent[cur.uuid] = true
+		return m.sendThread(cur, ag), false
+	}
+	return nil, false
+}
+
+// activeThreadAgent finds the agent whose session covers this node — the
+// nearest ancestor (or the node itself) bound to a session. Nodes outside
+// active threads reach no agent, ever.
+func (m *Model) activeThreadAgent(it *item) (tag.Agent, bool) {
+	for p := it; p != nil; p = p.parent {
+		for _, a := range m.agents {
+			if _, ok, _ := database.GetThreadSession(m.db, p.uuid, a.Name); ok {
+				return a, true
+			}
+		}
+	}
+	return tag.Agent{}, false
 }
