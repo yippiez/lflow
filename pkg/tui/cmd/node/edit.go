@@ -7,6 +7,7 @@ import (
 
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/infra"
 	"github.com/lflow/lflow/pkg/tui/log"
 	"github.com/lflow/lflow/pkg/tui/resolve"
 	"github.com/pkg/errors"
@@ -14,21 +15,24 @@ import (
 )
 
 type editOptions struct {
-	state  string
-	name   string
-	note   string
-	typ    string
-	strict bool
+	state    string
+	name     string
+	note     string
+	typ      string
+	readonly bool
+	strict   bool
+	raw      bool
+	style    infra.StyleFlags
 }
 
 // newEditCmd returns the node edit command: one command for every node
-// property — state, name, note and type.
+// property — state, name, note, type, style and lock.
 func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
 	opts := &editOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "edit <node>",
-		Short: "Edit a node's state, name, note or type",
+		Short: "Edit a node's state, name, note, type, style or lock",
 		RunE:  newEditRun(ctx, opts),
 	}
 
@@ -36,8 +40,11 @@ func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
 	f.StringVar(&opts.state, "state", "", "complete or uncomplete")
 	f.StringVar(&opts.name, "name", "", "rename the node")
 	f.StringVar(&opts.note, "note", "", "replace the node's note")
-	f.StringVar(&opts.typ, "type", "", "bullets, todo, h1, h2, h3, code or quote")
+	f.StringVar(&opts.typ, "type", "", "node type: "+database.TypeList())
+	f.BoolVar(&opts.readonly, "readonly", false, "lock the node against editing (--readonly=false unlocks)")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
+	f.BoolVar(&opts.raw, "raw", false, "with --name, store text verbatim instead of turning #tags, dates or [label](url) links into chips")
+	opts.style.Register(f)
 
 	return cmd
 }
@@ -48,8 +55,10 @@ func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command
 			return errors.New("missing node reference")
 		}
 		flags := cmd.Flags()
-		if !flags.Changed("state") && !flags.Changed("name") && !flags.Changed("note") && !flags.Changed("type") {
-			return errors.New("nothing to edit: pass --state, --name, --note or --type")
+		styleChange := opts.style.Change(cmd)
+		if !flags.Changed("state") && !flags.Changed("name") && !flags.Changed("note") &&
+			!flags.Changed("type") && !flags.Changed("readonly") && !styleChange.Any() {
+			return errors.New("nothing to edit: pass --state, --name, --note, --type, --readonly or a style flag (--style/--color/--bold/...)")
 		}
 
 		ref := strings.Join(args, " ")
@@ -83,8 +92,15 @@ func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command
 			}
 		}
 		if flags.Changed("name") {
+			name := opts.name
+			if !opts.raw {
+				name, err = database.ChipifyName(db, opts.name)
+				if err != nil {
+					return errors.Wrap(err, "creating chips")
+				}
+			}
 			sets = append(sets, "name = ?")
-			vals = append(vals, opts.name)
+			vals = append(vals, name)
 		}
 		if flags.Changed("note") {
 			sets = append(sets, "note = ?")
@@ -92,10 +108,22 @@ func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command
 		}
 		if flags.Changed("type") {
 			if !database.ValidTypes[opts.typ] {
-				return errors.Errorf("unknown type %q: bullets, todo, h1, h2, h3, code or quote", opts.typ)
+				return errors.Errorf("unknown type %q: %s", opts.typ, database.TypeList())
 			}
 			sets = append(sets, "type = ?")
 			vals = append(vals, opts.typ)
+		}
+		if flags.Changed("readonly") {
+			sets = append(sets, "readonly = ?")
+			vals = append(vals, opts.readonly)
+		}
+		if styleChange.Any() {
+			newStyle, err := styleChange.Apply(r.Node.Style)
+			if err != nil {
+				return err
+			}
+			sets = append(sets, "style = ?")
+			vals = append(vals, newStyle)
 		}
 
 		vals = append(vals, r.Node.UUID)

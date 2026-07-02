@@ -137,18 +137,102 @@ func TestAppendStdin(t *testing.T) {
 	assert.Equal(t, childCount, 3, "each stdin line should become a child node")
 }
 
-func TestAppendNoteFlag(t *testing.T) {
+func TestAddNoteFlag(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "target")
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "target", "some context", "--note")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "target", "child item", "--note", "some context")
 
 	db := database.OpenTestDB(t, testDir)
 
-	var note string
-	database.MustScan(t, "getting note",
-		db.QueryRow("SELECT note FROM nodes WHERE name = ?", "target"), &note)
-	assert.Equal(t, note, "some context", "note content mismatch")
+	// --note sets the note on the added node, leaving the parent untouched
+	var parentNote string
+	database.MustScan(t, "getting parent note",
+		db.QueryRow("SELECT note FROM nodes WHERE name = ?", "target"), &parentNote)
+	assert.Equal(t, parentNote, "", "parent note should be untouched")
+
+	var childNote string
+	database.MustScan(t, "getting child note",
+		db.QueryRow("SELECT note FROM nodes WHERE name = ?", "child item"), &childNote)
+	assert.Equal(t, childNote, "some context", "note should land on the added node")
+}
+
+func TestAddChipifiesText(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "ship #project by 2026-07-01 see [docs](https://x.com)")
+
+	db := database.OpenTestDB(t, testDir)
+
+	// three chips recorded: the tag, the date and the link
+	var chipCount int
+	database.MustScan(t, "counting chips", db.QueryRow("SELECT count(*) FROM chips"), &chipCount)
+	assert.Equal(t, chipCount, 3, "tag, date and link should each become a chip")
+
+	// the stored name carries anchors, not the literal inline forms
+	var name string
+	database.MustScan(t, "getting name",
+		db.QueryRow("SELECT name FROM nodes WHERE name LIKE 'ship%'"), &name)
+	if strings.Contains(name, "#project") || strings.Contains(name, "[docs]") {
+		t.Errorf("inline forms should be replaced by anchors, got %q", name)
+	}
+
+	// list resolves the anchors back to their display forms
+	out := testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	if !strings.Contains(out, "#project") {
+		t.Errorf("list should resolve the tag chip, got %q", out)
+	}
+}
+
+func TestAddRawSkipsChipify(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--raw", "literal #notatag text")
+
+	db := database.OpenTestDB(t, testDir)
+
+	var chipCount int
+	database.MustScan(t, "counting chips", db.QueryRow("SELECT count(*) FROM chips"), &chipCount)
+	assert.Equal(t, chipCount, 0, "--raw should create no chips")
+
+	var name string
+	database.MustScan(t, "getting name",
+		db.QueryRow("SELECT name FROM nodes WHERE name LIKE 'literal%'"), &name)
+	assert.Equal(t, name, "literal #notatag text", "--raw should store text verbatim")
+}
+
+func TestAddStyleFlags(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "styled item", "--bold", "--color", "blue")
+
+	db := database.OpenTestDB(t, testDir)
+
+	var style string
+	database.MustScan(t, "getting style",
+		db.QueryRow("SELECT style FROM nodes WHERE name = ?", "styled item"), &style)
+	assert.Equal(t, style, "bold,color:blue", "style tokens mismatch")
+}
+
+func TestEditStyleAndType(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "edit me")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "edit me", "--type", "h2", "--underline", "--color", "red")
+
+	db := database.OpenTestDB(t, testDir)
+
+	var typ, style string
+	database.MustScan(t, "getting type and style",
+		db.QueryRow("SELECT type, style FROM nodes WHERE name = ?", "edit me"), &typ, &style)
+	assert.Equal(t, typ, "h2", "type mismatch")
+	assert.Equal(t, style, "underline,color:red", "style tokens mismatch")
+
+	// editing again preserves untouched style aspects and unsets bold/color via flags
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "edit me", "--color", "")
+	database.MustScan(t, "getting style after color clear",
+		db.QueryRow("SELECT style FROM nodes WHERE name = ?", "edit me"), &style)
+	assert.Equal(t, style, "underline", "clearing color should preserve other tokens")
 }
 
 func TestList(t *testing.T) {

@@ -1,17 +1,17 @@
 package editor
 
-import "strings"
+import "github.com/lflow/lflow/pkg/tui/style"
 
 // A node's visual styling — set by /color, /bold, /italic and /underline — is
 // stored as a comma-separated token list in item.style, e.g. "bold,color:blue".
-// Tokens: "bold", "italic", "underline", and "color:<name>". An empty string is
-// an unstyled node. These helpers parse and edit that list; render.go turns the
-// tokens into SGR sequences via styleAttrs/styleBaseColor.
+// The token vocabulary (attributes + color names) lives in pkg/tui/style, the
+// single source shared with the CLI's --style/--color flags; this file owns only
+// what the editor adds on top: the SGR escape codes and render-time helpers.
 
 // styleColorOrder is the eight /color options, in the order the picker lists
 // them. Each maps to a truecolor SGR foreground in styleColorCode, drawn from
 // the locked editor palette so styled text stays on-brand.
-var styleColorOrder = []string{"red", "orange", "yellow", "green", "cyan", "blue", "purple", "gray"}
+var styleColorOrder = style.Colors
 
 var styleColorCode = map[string]string{
 	"red":    "\x1b[38;2;244;71;71m",   // #f44747
@@ -24,95 +24,36 @@ var styleColorCode = map[string]string{
 	"gray":   "\x1b[38;2;122;122;122m", // #7a7a7a
 }
 
-// styleTokens splits a style string into its tokens, dropping empties.
-func styleTokens(style string) []string {
-	if style == "" {
-		return nil
-	}
-	var out []string
-	for _, t := range strings.Split(style, ",") {
-		if t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// styleHas reports whether the style carries the given flag token.
-func styleHas(style, tok string) bool {
-	for _, t := range styleTokens(style) {
-		if t == tok {
-			return true
-		}
-	}
-	return false
-}
-
-// styleToggle adds the flag token if absent, removes it if present, preserving
-// the order of the remaining tokens.
-func styleToggle(style, tok string) string {
-	var out []string
-	found := false
-	for _, t := range styleTokens(style) {
-		if t == tok {
-			found = true
-			continue
-		}
-		out = append(out, t)
-	}
-	if !found {
-		out = append(out, tok)
-	}
-	return strings.Join(out, ",")
-}
-
-// styleColor returns the current color name, or "" when none is set.
-func styleColor(style string) string {
-	for _, t := range styleTokens(style) {
-		if c, ok := strings.CutPrefix(t, "color:"); ok {
-			return c
-		}
-	}
-	return ""
-}
-
-// styleSetColor replaces any existing color with the given one. Re-picking the
-// color already in effect clears it, so the picker doubles as a toggle.
-func styleSetColor(style, color string) string {
-	var out []string
-	for _, t := range styleTokens(style) {
-		if strings.HasPrefix(t, "color:") {
-			continue
-		}
-		out = append(out, t)
-	}
-	if color != "" && styleColor(style) != color {
-		out = append(out, "color:"+color)
-	}
-	return strings.Join(out, ",")
+// The token-list helpers live in pkg/tui/style; these thin aliases keep the
+// editor's existing call sites readable.
+func styleHas(s, tok string) bool      { return style.Has(s, tok) }
+func styleToggle(s, tok string) string { return style.Toggle(s, tok) }
+func styleColor(s string) string       { return style.Color(s) }
+func styleSetColor(s, color string) string {
+	return style.SetColor(s, color)
 }
 
 // styleAttrs returns the SGR attribute codes (bold/italic/underline) implied by
 // the style, to be appended to the per-row attribute string in render.
-func styleAttrs(style string) string {
-	var s string
-	if styleHas(style, "bold") {
-		s += cBold
+func styleAttrs(s string) string {
+	var out string
+	if styleHas(s, "bold") {
+		out += cBold
 	}
-	if styleHas(style, "italic") {
-		s += cItalic
+	if styleHas(s, "italic") {
+		out += cItalic
 	}
-	if styleHas(style, "underline") {
-		s += cUnderline
+	if styleHas(s, "underline") {
+		out += cUnderline
 	}
-	if styleHas(style, "strike") {
-		s += cStrike
+	if styleHas(s, "strike") {
+		out += cStrike
 	}
-	return s
+	return out
 }
 
 // styleBaseColor returns the SGR foreground code for the node's color, or "" to
 // keep the default foreground.
-func styleBaseColor(style string) string {
-	return styleColorCode[styleColor(style)]
+func styleBaseColor(s string) string {
+	return styleColorCode[styleColor(s)]
 }

@@ -24,21 +24,44 @@ const (
 	TypeLog     = "log"
 )
 
-// ValidTypes is the set of accepted type values.
-var ValidTypes = map[string]bool{
-	TypeBullets: true,
-	TypeTodo:    true,
-	TypeH1:      true,
-	TypeH2:      true,
-	TypeH3:      true,
-	TypeCode:    true,
-	TypeQuote:   true,
-	TypeJSON:    true,
-	TypeBash:    true,
-	TypeQuery:   true,
-	TypeVoice:   true,
-	TypeDivider: true,
-	TypeLog:     true,
+// TypeOrder is the canonical ordering of node types — the single source of
+// truth for the accepted set. ValidTypes and the human-readable list in CLI
+// help/errors derive from it, so a new type added here needs no other edits.
+var TypeOrder = []string{
+	TypeBullets,
+	TypeTodo,
+	TypeDivider,
+	TypeLog,
+	TypeH1,
+	TypeH2,
+	TypeH3,
+	TypeCode,
+	TypeQuote,
+	TypeJSON,
+	TypeBash,
+	TypeQuery,
+	TypeVoice,
+}
+
+// ValidTypes is the set of accepted type values, derived from TypeOrder.
+var ValidTypes = func() map[string]bool {
+	m := make(map[string]bool, len(TypeOrder))
+	for _, t := range TypeOrder {
+		m[t] = true
+	}
+	return m
+}()
+
+// TypeList renders the accepted types as a human list, e.g.
+// "bullets, todo, ... or voice", for flag help and error messages.
+func TypeList() string {
+	switch len(TypeOrder) {
+	case 0:
+		return ""
+	case 1:
+		return TypeOrder[0]
+	}
+	return strings.Join(TypeOrder[:len(TypeOrder)-1], ", ") + " or " + TypeOrder[len(TypeOrder)-1]
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror
@@ -364,7 +387,7 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 	// and FTS passes, which see only the opaque anchor. Resolve anchors for the
 	// anchor-bearing nodes and match the display + full value. char(65532) is the
 	// anchor sentinel U+FFFC, so this stays off chipless nodes.
-	if rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE deleted = 0 AND instr(name, char(65532)) > 0 LIMIT 200"); err == nil {
+	if rows, err := db.Query("SELECT " + nodeColumns + " FROM nodes WHERE deleted = 0 AND instr(name, char(65532)) > 0 LIMIT 200"); err == nil {
 		chips, _ := LoadChips(db)
 		lq := strings.ToLower(q)
 		for rows.Next() {
