@@ -221,7 +221,20 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	// the text become real chips via the same detection the backfill uses
 	m.backfillName(it)
 	m.unsaved = true
+
+	// a reply arrives asynchronously: re-anchor the cursor to the ITEM it was
+	// on, or an insertion above it shifts every row and typing lands on the
+	// wrong node (worst case the read-only reply itself)
+	var curIt, curCtx *item
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		curIt, curCtx = m.rows[m.cursor].it, m.rows[m.cursor].ctx
+	}
 	m.refreshRows()
+	if curIt != nil {
+		if r := m.findRow(curIt, curCtx); r >= 0 {
+			m.cursor = r
+		}
+	}
 }
 
 // finishThread clears the busy flag and parks the session.
