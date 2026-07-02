@@ -43,6 +43,14 @@ var settingDefs = []settingDef{
 		def:     "blue",
 		apply:   func(m *Model, v string) { linkColorMode = v },
 	},
+	{
+		key: "image.preview", label: "Image preview",
+		options: []settingOption{
+			{"compact", "compact · one line"},
+			{"true", "true · thumbnail"},
+		},
+		def: "compact",
+	},
 }
 
 // themeOptions derives the theme setting's options from the theme registry so

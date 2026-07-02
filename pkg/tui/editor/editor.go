@@ -505,10 +505,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.startAnim(cmd)
 	case animTickMsg:
 		animFrame++
-		if m.hasMagicKeyword() {
-			return m, animTick() // keep animating while a keyword is on screen
+		if m.animActive() {
+			return m, animTick() // keep animating while a keyword or paste spinner is live
 		}
-		m.animTicking = false // none visible — stop redrawing
+		m.animTicking = false // nothing animating — stop redrawing
 		return m, nil
 	case bashLineMsg:
 		if _, running := m.runCancel[msg.uuid]; !running {
@@ -536,6 +536,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
+		return m, nil
+	case imagePastedMsg:
+		m.setImagePasting(msg.uuid, false)
+		switch {
+		case msg.err != nil:
+			m.flash = "image: " + msg.err.Error()
+		case m.db == nil:
+			m.flash = "image: no database"
+		default:
+			blob := database.Blob{UUID: msg.uuid, Mime: "image/png", Bytes: msg.data, W: msg.w, H: msg.h}
+			if err := database.PutBlob(m.db, blob); err != nil {
+				m.err = err
+			} else {
+				m.imageInvalidate(msg.uuid) // reload the decode from the fresh blob
+				m.flash = "image pasted"
+			}
+		}
 		return m, nil
 	}
 	return m, nil
@@ -2403,6 +2420,7 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 			// edits, or nodes tombstoned this session)
 			if m.ctx.DB != nil {
 				_ = database.GCChips(m.ctx.DB)
+				_ = database.GCBlobs(m.ctx.DB) // drop image blobs whose node is gone
 			}
 		}
 	}
@@ -2491,6 +2509,9 @@ func (m *Model) finalView(maxLine int) []string {
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r.it)
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
+		if r.it.typ == database.TypeImage {
+			lines = append(lines, m.imageBandLines(r, below, maxLine)...)
+		}
 	}
 	return lines
 }
@@ -2573,6 +2594,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 		focusedView := m.focused && i == m.cursor && nodeViewOf(it) != nil
 		if !focusedView {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
+			if it.typ == database.TypeImage {
+				bands[i] = append(bands[i], m.imageBandLines(r, below, maxLine)...)
+			}
 		}
 		// flash grays the note / run-output bands too, so nothing competes with the chips
 		if m.mode == modeFlash {
