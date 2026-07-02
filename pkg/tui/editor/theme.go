@@ -2,9 +2,7 @@ package editor
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 )
 
 // A theme is a named palette. Today a theme is purely colors, but the struct is
@@ -87,25 +85,9 @@ func applyTheme(t theme) {
 
 func init() { applyTheme(themes[0]) } // seed "system" before the first render
 
-// themeConfigPath is the small text file holding the chosen theme name, under
-// the lflow config dir. The theme is local UI state — never synced.
+// themeConfigPath is the legacy text file that held the chosen theme name under
+// the lflow config dir. The theme is now a DB-backed setting; this path survives
+// only so loadSettings can migrate an old file-based choice into the DB once.
 func (m *Model) themeConfigPath() string {
 	return filepath.Join(m.ctx.Paths.Config, "lflow", "theme")
-}
-
-// loadTheme applies the persisted theme choice at startup; absent/unknown falls
-// back to "system" (already seeded by init), so this is best-effort.
-func (m *Model) loadTheme() {
-	b, err := os.ReadFile(m.themeConfigPath())
-	if err != nil {
-		return
-	}
-	if t, ok := themeByName(strings.TrimSpace(string(b))); ok {
-		applyTheme(t)
-	}
-}
-
-// saveTheme persists the chosen theme name so it survives a relaunch.
-func (m *Model) saveTheme(name string) {
-	_ = os.WriteFile(m.themeConfigPath(), []byte(name+"\n"), 0o644)
 }

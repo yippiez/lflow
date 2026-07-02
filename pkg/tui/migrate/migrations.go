@@ -879,3 +879,19 @@ var lm27 = migration{
 		return nil
 	},
 }
+
+// lm28 adds the settings table — global editor preferences (theme, link color, …)
+// as key/value rows. Local UI state, kept out of the `system` table so app
+// settings never mingle with the schema-version bookkeeping.
+var lm28 = migration{
+	name: "add-settings-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS settings (
+			key text PRIMARY KEY,
+			value text NOT NULL DEFAULT ''
+		)`); err != nil {
+			return errors.Wrap(err, "creating settings table")
+		}
+		return nil
+	},
+}

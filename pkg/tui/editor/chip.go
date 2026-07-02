@@ -166,6 +166,19 @@ func chipKindOf(kind string) (chipKind, bool) {
 	return k, ok
 }
 
+// linkColorMode is the /settings "link.color" preference ("blue" or "gray"),
+// applied at render time so it tracks the active theme's palette.
+var linkColorMode = "blue"
+
+// linkChipColorCode is the SGR for a link chip: blue (accent) or muted gray, kept
+// underlined either way so a link stays visually a link.
+func linkChipColorCode() string {
+	if linkColorMode == "gray" {
+		return cDim + cUnderline
+	}
+	return cAccent + cUnderline
+}
+
 // chipDisplay returns the compact display string for a chip record. A link uses
 // its label (the arbitrary name), not its target.
 func chipDisplay(c database.Chip) string {
