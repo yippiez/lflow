@@ -22,6 +22,7 @@ const (
 	TypeVoice   = "voice"
 	TypeDivider = "divider"
 	TypeLog     = "log"
+	TypeAgent   = "agent" // an agent-authored reply node: red ✦, text + chips only
 )
 
 // ValidTypes is the set of accepted type values.
@@ -39,6 +40,7 @@ var ValidTypes = map[string]bool{
 	TypeVoice:   true,
 	TypeDivider: true,
 	TypeLog:     true,
+	TypeAgent:   true,
 }
 
 // Node is the single content model: every bullet, heading, todo and mirror

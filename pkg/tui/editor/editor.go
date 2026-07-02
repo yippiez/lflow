@@ -18,6 +18,7 @@ import (
 	"github.com/lflow/lflow/pkg/browser"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/tag"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )
@@ -194,6 +195,14 @@ type Model struct {
 	// persisted or synced — node views keep live/edit state here instead of
 	// growing the Model with one named map per type.
 	nodeData map[string]map[string]any
+
+	// @mention agent sessions (see agent.go and pkg/tui/tag): configured
+	// agents, one client per agent, busy flags per thread root, and the nodes
+	// whose mention already sent this session (Enter sends once; alt+r re-sends)
+	agents      []tag.Agent
+	tagClients  map[string]tag.Client
+	agentBusy   map[string]bool
+	mentionSent map[string]bool
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -521,6 +530,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.persistRunOut(msg.uuid) // cache the finished band so it survives a restart
 		m.setCmdPreview(msg.uuid) // a cmd chip: refresh its inline "→ preview"
 		return m, nil
+	case agentEvMsg:
+		return m.handleAgentEvent(msg)
+	case agentStreamEndMsg:
+		delete(m.agentBusy, msg.thread)
+		return m, nil
 	case fzfPickedMsg:
 		if msg.path != "" {
 			if it := m.tree.byUUID[msg.uuid]; it != nil {
@@ -725,6 +739,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// commit a #tag or date token under the caret into a chip before splitting
 		if cur != nil {
 			m.chipifyBeforeCaret(cur)
+		}
+		// a node with a fresh @AgentName mention: Enter IS the send (the
+		// keyboard stand-in for Slack's send button) — the reply lands beneath
+		// this node instead of a sibling opening. alt+r re-sends any time.
+		if cmd, sent := m.mentionSendOnEnter(cur); sent {
+			return m, cmd
 		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
@@ -1040,6 +1060,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
 			}
+			// a node mentioning an agent re-sends its thread to the session
+			if ag, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
+				return m, m.sendThread(cur, ag)
+			}
 			if run := typeOf(cur.typ).run; run != nil {
 				return m, run(m, cur)
 			}
@@ -1313,6 +1337,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if string(k.Runes) == ":" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			cur.typ == database.TypeQuery && atWordStart(cur, m.caret) {
 			return m.openCompleter(cur, complQueryCmd, ":")
+		}
+		// "@" opens the agent picker at a word boundary — the mention stays
+		// plain text; Enter on the node later sends the thread (see agent.go)
+		if string(k.Runes) == "@" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			len(m.agents) > 0 && tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
+			return m.openCompleter(cur, complAgent, "@")
 		}
 
 		if cur.mirrorOf != "" {
@@ -3082,6 +3112,9 @@ func (m *Model) bottomBar(maxLine int) string {
 	if m.unsaved {
 		state = " · unsaved"
 	}
+	if len(m.agentBusy) > 0 {
+		state += " · " + cRed + "✦ agent thinking…" + cDim
+	}
 	if m.flash != "" {
 		state += " · " + m.flash
 	}
@@ -3241,6 +3274,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		chips:     chips,
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
+		agents:    tag.LoadAgents(ctx.Paths.Config),
 	}
 	m.loadTheme() // apply the persisted color theme before the first render
 	m.refreshAncestors()
@@ -3262,6 +3296,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	if !ok {
 		fm = m
 	}
+	// the agent bridge dies with the editor: park in-flight sessions so their
+	// ids resume the remote context on the next mention
+	_ = database.PauseRunningSessions(ctx.DB)
 	if fm.err != nil {
 		return fm.err
 	}

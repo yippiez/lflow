@@ -101,6 +101,12 @@ var nodeTypes = []nodeType{
 		key: database.TypeQuery, label: "Query", sign: "⌕ ", inlineEditable: true,
 		run: runQuery,
 	},
+	// an agent reply (see agent.go): red ✦, body red, plain text + chips only,
+	// read-only inline — the agent's message is a record, not an editable note.
+	{
+		key: database.TypeAgent, label: "Agent", glyph: agentGlyph, inlineEditable: false,
+		baseColor: func(it *item) string { return cRed },
+	},
 	{
 		key: database.TypeVoice, label: "Voice", inlineEditable: false,
 		renderM: func(m *Model, it *item) string { return m.voiceRender(it) },
