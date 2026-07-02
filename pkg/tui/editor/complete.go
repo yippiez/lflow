@@ -18,6 +18,7 @@ type complKind int
 const (
 	complTag      complKind = iota // "#": pick an existing tag
 	complQueryCmd                  // ":": pick a query time command (query nodes only)
+	complAgent                     // "@": pick a configured agent to mention (see agent.go)
 )
 
 // complState is the live completer: where its trigger sits in the name, the
@@ -78,9 +79,15 @@ func (m *Model) existingTags() []string {
 func (m *Model) complItems() []complItem {
 	q := strings.ToLower(m.compl.query)
 	var src []complItem
-	if m.compl.kind == complQueryCmd {
+	switch m.compl.kind {
+	case complQueryCmd:
 		src = queryCmdItems
-	} else {
+	case complAgent:
+		// just the name — no descriptions in the mention picker
+		for _, a := range m.agents {
+			src = append(src, complItem{label: "@" + a.Name, value: a.Name})
+		}
+	default:
 		for _, t := range m.existingTags() {
 			src = append(src, complItem{label: "#" + t, value: t})
 		}
@@ -121,11 +128,14 @@ func (m *Model) applyCompletion(cur *item, items []complItem) {
 	if end > len(runes) {
 		end = len(runes)
 	}
-	if m.compl.kind == complQueryCmd {
+	if m.compl.kind == complQueryCmd || m.compl.kind == complAgent {
 		if len(items) == 0 || m.compl.sel >= len(items) {
 			return // leave the typed text as-is
 		}
 		token := items[m.compl.sel].value
+		if m.compl.kind == complAgent {
+			token = "@" + token + " " // a mention stays plain text; Enter later sends
+		}
 		cur.name = string(runes[:m.compl.start]) + token + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(token))
 		m.unsaved = true
