@@ -150,7 +150,7 @@ bullet." (Separate UX pass — worth its own questions/iteration.)
 
 ## 7. Invariants to preserve (do not regress)
 
-From CLAUDE.md / ADR: everything-is-a-node; no markup leaks into stored text
+From CLAUDE.md: everything-is-a-node; no markup leaks into stored text
 (outline in/out, never markdown); inline scrollback only — **never** the
 alt-screen (lint-enforced); **never auto-run** runnable nodes anywhere (alt+r
 only); secrets, view-state, the Temporary Domain contents-vs-structure, and binary
