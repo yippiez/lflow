@@ -247,8 +247,8 @@ func (themeSource) initialSel(m *Model) int {
 func (themeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	for _, t := range themes {
 		if t.name == it.value {
-			applyTheme(t)
-			m.saveTheme(t.name)
+			// theme is a DB-backed setting now; setSetting applies + persists it
+			m.setSetting("theme", t.name)
 			m.flash = "theme · " + activeThemeName
 			break
 		}

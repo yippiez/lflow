@@ -1022,6 +1022,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				// it make the chip Ctrl+clickable. Node links can't — the terminal
 				// can't jump inside the app — so they get no OSC 8.
 				if c.Kind == chipKindLink {
+					col = linkChipColorCode() // /settings link.color: blue or gray
 					if _, isNode := nodeLinkUUID(c.Value); !isNode {
 						osc8 = c.Value
 					}
