@@ -60,7 +60,9 @@ type Agent struct {
 // LoadAgents reads <configDir>/lflow/agents.json. With no file (or a broken
 // one) the built-in mock Miso is registered so @mentions work out of the box.
 func LoadAgents(configDir string) []Agent {
-	fallback := []Agent{{Name: "Miso", Mock: true}}
+	// Miso defaults to a real backend (the local pi CLI); ClientFor falls back to
+	// the mock when pi is not installed, so @mentions still work offline.
+	fallback := []Agent{{Name: "Miso"}}
 	b, err := os.ReadFile(filepath.Join(configDir, "lflow", "agents.json"))
 	if err != nil {
 		return fallback
@@ -72,11 +74,19 @@ func LoadAgents(configDir string) []Agent {
 	return agents
 }
 
-// ClientFor returns the client that serves the agent: the offline mock, or the
-// websocket bridge to its configured service.
+// ClientFor returns the client that serves the agent: the offline mock, the
+// websocket bridge to a configured service, or the local pi CLI. A non-mock
+// agent with no URL uses pi when it is installed, falling back to the mock so
+// the feature still works with no agent backend at all.
 func ClientFor(a Agent) Client {
-	if a.Mock || a.URL == "" {
+	if a.Mock {
 		return &MockClient{}
 	}
-	return &WSClient{URL: a.URL}
+	if a.URL != "" {
+		return &WSClient{URL: a.URL}
+	}
+	if piAvailable() {
+		return &PiClient{}
+	}
+	return &MockClient{}
 }
