@@ -108,7 +108,7 @@ type typeSource struct{}
 func (typeSource) items(m *Model, q string) []pickerItem {
 	var out []pickerItem
 	for _, t := range m.filteredTypes(q) {
-		out = append(out, pickerItem{label: typeLabels[t], value: t})
+		out = append(out, pickerItem{label: typeLabel(t), value: t})
 	}
 	return out
 }

@@ -17,6 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/tag"
 	"github.com/lflow/lflow/pkg/utils/browser"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
@@ -29,15 +30,16 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm  // inline delete confirmation for nodes with children
-	modeType     // the /type picker: choose one of the node types
-	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme    // the /theme picker: choose a color palette
-	modeSettings // the /settings picker: global preferences (theme, image preview, …)
-	modeComplete // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
-	modeCmdView  // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
-	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeConfirm   // inline delete confirmation for nodes with children
+	modeType      // the /type picker: choose one of the node types
+	modeStyle     // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme     // the /theme picker: choose a color palette
+	modeSettings  // the /settings picker: global preferences (theme, image preview, …)
+	modeComplete  // the inline completer: "#" tags, ":" query commands
+	modeLinkEdit  // the alt+e link-chip editor: edit a link's name and target
+	modeCmdView   // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
+	modeFlash     // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeArtifacts // the /artifacts management view: list, enable/disable, uninstall
 )
 
 type finderAction int
@@ -56,7 +58,8 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/bring", "Bring another node here"},
+	{"/artifacts", "Manage installed artifact node types"},
+	{"/bring", "Bring another node (or an agent) here"},
 	{"/complete", "Toggle done"},
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
@@ -162,6 +165,9 @@ type Model struct {
 	settingsSel int
 	settings    map[string]string
 
+	// /artifacts management view: selected row
+	artSel int
+
 	compl complState
 
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure the
@@ -195,6 +201,14 @@ type Model struct {
 	// persisted or synced — node views keep live/edit state here instead of
 	// growing the Model with one named map per type.
 	nodeData map[string]map[string]any
+
+	// @mention agent sessions (see agent.go and pkg/tui/tag): configured
+	// agents, one client per agent, busy flags per thread root, and the nodes
+	// whose mention already sent this session (Enter sends once; alt+r re-sends)
+	agents      []tag.Agent
+	tagClients  map[string]tag.Client
+	agentBusy   map[string]bool
+	mentionSent map[string]bool
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -522,6 +536,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.persistRunOut(msg.uuid) // cache the finished band so it survives a restart
 		m.setCmdPreview(msg.uuid) // a cmd chip: refresh its inline "→ preview"
 		return m, nil
+	case agentEvMsg:
+		return m.handleAgentEvent(msg)
+	case agentStreamEndMsg:
+		delete(m.agentBusy, msg.thread)
+		return m, nil
 	case fzfPickedMsg:
 		if it := m.tree.byUUID[msg.uuid]; it != nil {
 			switch {
@@ -665,6 +684,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNoteKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
+	case modeArtifacts:
+		return m.handleArtifactsKey(k)
 	case modeSettings:
 		return m.handleSettingsKey(k)
 	case modeFlash:
@@ -741,6 +762,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur != nil {
 			m.chipifyBeforeCaret(cur)
 		}
+		// a node with a fresh @AgentName mention: Enter IS the send (the
+		// keyboard stand-in for Slack's send button) — the reply lands at this
+		// node instead of a sibling opening. An untagged commit inside an
+		// active thread also ships for consideration (agentCmd) while Enter
+		// carries on normally. alt+r re-sends any time.
+		agentCmd, consumed := m.mentionSendOnEnter(cur)
+		if consumed {
+			return m, agentCmd
+		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
 		// node and its whole subtree intact and push it down, opening an empty node
@@ -758,7 +788,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 			m.cursor = m.findRow(it, mc.ctx)
 			m.caret = 0
-			return m, nil
+			return m, agentCmd
 		}
 		var it *item
 		var err error
@@ -804,7 +834,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = m.findRow(it, mc.ctx)
 			m.caret = 0
 		}
-		return m, nil
+		return m, agentCmd
 	case "tab":
 		// path chips are inserted via the /file fuzzy picker, and "#" is for tags,
 		// so Tab is free to just indent. The Temporary Domain edits exactly like the
@@ -1048,6 +1078,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
+			}
+			// a node mentioning an agent re-sends its thread to the session
+			if ag, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
+				return m, m.sendThread(cur, ag)
 			}
 			if run := typeOf(cur.typ).run; run != nil {
 				return m, run(m, cur)
@@ -1333,6 +1367,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if string(k.Runes) == ":" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			cur.typ == database.TypeQuery && atWordStart(cur, m.caret) {
 			return m.openCompleter(cur, complQueryCmd, ":")
+		}
+		// "@" opens the agent picker at a word boundary — the mention stays
+		// plain text; Enter on the node later sends the thread (see agent.go)
+		if string(k.Runes) == "@" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			len(m.agents) > 0 && tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
+			return m.openCompleter(cur, complAgent, "@")
 		}
 
 		if cur.mirrorOf != "" {
@@ -1862,16 +1902,18 @@ func (m *Model) stripSlashText() {
 // via slashSource (picker_sources.go); the "/query" text-mirroring is its
 // inlineTextSource hooks.
 
-// filteredTypes returns the node-type keys matching the query (case-insensitive
-// substring over the label), in registry order.
+// filteredTypes returns the node-type keys matching the picker's search query,
+// in registry order: built-ins first, then installed artifacts. The query
+// fuzzy-matches label and key (subsequence, case-insensitive), so twenty
+// forgotten artifacts never bury Todo.
 func (m *Model) filteredTypes(query string) []string {
 	q := strings.ToLower(query)
 	var ret []string
-	for _, t := range typeOrder {
+	for _, t := range typeOrder() {
 		if typeOf(t).tempOnly && !m.tempActive {
 			continue // temp-only types are not offered outside the Temporary Domain
 		}
-		if q != "" && !strings.Contains(strings.ToLower(typeLabels[t]), q) {
+		if q != "" && !fuzzyMatch(strings.ToLower(typeLabel(t)), q) && !fuzzyMatch(t, q) {
 			continue
 		}
 		ret = append(ret, t)
@@ -1881,6 +1923,18 @@ func (m *Model) filteredTypes(query string) []string {
 
 // /type, /style, and /theme key handling now live in the shared listPicker
 // (picker_list.go) via their pickerSources (picker_sources.go).
+
+// fuzzyMatch reports whether needle is an in-order subsequence of hay — the
+// picker's filter ("hd3" hits "Heading 3").
+func fuzzyMatch(hay, needle string) bool {
+	i := 0
+	for _, r := range hay {
+		if i < len(needle) && r == rune(needle[i]) {
+			i++
+		}
+	}
+	return i == len(needle)
+}
 
 // handleSettingsKey drives the /settings picker: up/down pick a preference,
 // left/right (or space) cycle its value with a live apply + DB persist, esc/enter
@@ -1919,6 +1973,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	}
 
 	switch name {
+	case "/artifacts":
+		m.mode = modeArtifacts
+		m.artSel = 0
 	case "/type":
 		// open the picker; pre-select the type already in effect (see typeSource)
 		m.mode = modeType
@@ -2664,6 +2721,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 		pickerItems, headerRows = m.list.counts(m, src)
 	} else if m.mode == modeSettings {
 		pickerItems = len(settingDefs)
+	} else if m.mode == modeArtifacts {
+		pickerItems = len(loadedArtifacts)
+		if pickerItems == 0 {
+			pickerItems = 1 // the "none installed" hint row
+		}
+		headerRows = 1 // the header row
 	}
 	pickerRows := 0
 	if pickerItems > 0 || headerRows > 0 {
@@ -2767,6 +2830,11 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// renders a bounded, scrolling window (see picker_list.go).
 	if src := m.listSource(); src != nil {
 		lines = append(lines, m.list.render(m, src, maxLine)...)
+	}
+
+	// the /artifacts management view and its source pager
+	if m.mode == modeArtifacts {
+		lines = append(lines, m.artifactListLines(maxLine)...)
 	}
 
 	// the /settings picker: one row per preference, showing its current value
@@ -2873,6 +2941,11 @@ func (m *Model) bottomBar(maxLine int) string {
 	if m.unsaved {
 		state = " · unsaved"
 	}
+	// the ONE agent signal the bar carries: how many agents are thinking right
+	// now. No install/reply/progress chatter — the outline itself shows results.
+	if n := len(m.agentBusy); n > 0 {
+		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
+	}
 	if m.flash != "" {
 		state += " · " + m.flash
 	}
@@ -2945,6 +3018,8 @@ func (m *Model) viewFinder(maxLine int) []string {
 
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
+	loadArtifacts(ctx.DB) // runtime node types must exist before the first render
+
 	t, err := loadTree(ctx.DB, nodeUUID)
 	if err != nil {
 		return errors.Wrap(err, "loading node tree")
@@ -2967,6 +3042,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		chips:     chips,
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
+		agents:    tag.LoadAgents(ctx.Paths.Config),
 	}
 	m.loadSettings() // apply persisted preferences (theme, …) before the first render
 	m.refreshAncestors()
@@ -2988,6 +3064,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	if !ok {
 		fm = m
 	}
+	// the agent bridge dies with the editor: park in-flight sessions so their
+	// ids resume the remote context on the next mention
+	_ = database.PauseRunningSessions(ctx.DB)
 	if fm.err != nil {
 		return fm.err
 	}

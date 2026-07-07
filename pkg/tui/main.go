@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 
 	// commands
+	"github.com/lflow/lflow/pkg/tui/cmd/artifact"
 	"github.com/lflow/lflow/pkg/tui/cmd/auth"
 	"github.com/lflow/lflow/pkg/tui/cmd/export"
 	"github.com/lflow/lflow/pkg/tui/cmd/node"
@@ -29,6 +30,7 @@ func main() {
 	defer ctx.DB.Close()
 
 	root.Register(node.NewCmd(*ctx))
+	root.Register(artifact.NewCmd(*ctx))
 	root.Register(auth.NewCmd(*ctx))
 	root.Register(export.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
