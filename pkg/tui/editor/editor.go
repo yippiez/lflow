@@ -1333,10 +1333,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// inline-editable type, including bash/code/query where ">" is real syntax:
 		// the picker is cancelable, and dismissing it types a literal ">" instead
 		// (see the fzfPickedMsg handler), so a redirect still works — you just quit
-		// the picker. Skipped after a "-" so the "->" log gesture can form, and when
-		// fzf is missing we fall through to typing ">" literally.
+		// the picker. Only at a word start (start of text or after a space) so a
+		// mid-word ">" and the "->" log gesture stay literal; when fzf is missing we
+		// fall through to typing ">" literally.
 		if string(k.Runes) == ">" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			pathChipTrigger(cur.typ) && !runeBeforeCaretIs(cur, m.caret, '-') {
+			pathChipTrigger(cur.typ) && atWordStart(cur, m.caret) {
 			if cmd := m.openFilePicker(cur, ">"); cmd != nil {
 				return m, cmd
 			}
