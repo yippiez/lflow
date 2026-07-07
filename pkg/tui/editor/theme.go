@@ -32,7 +32,7 @@ var themes = []theme{
 	{
 		name: "system",
 		fg:   fg(212, 212, 212), dim: fg(122, 122, 122), accent: fg(86, 156, 214),
-		red: fg(244, 71, 71), orange: fg(206, 145, 120), yellow: fg(220, 220, 170),
+		red: fg(244, 71, 71), orange: fg(206, 145, 120), yellow: fg(255, 215, 95),
 		green: fg(106, 153, 85), cyan: fg(78, 201, 176), purple: fg(197, 134, 192),
 		bgCode: bg(31, 31, 31), bgTerm: bg(30, 34, 48), bgPill: bg(38, 79, 120),
 	},

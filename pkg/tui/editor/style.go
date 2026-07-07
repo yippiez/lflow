@@ -16,7 +16,7 @@ var styleColorOrder = style.Colors
 var styleColorCode = map[string]string{
 	"red":    "\x1b[38;2;244;71;71m",   // #f44747
 	"orange": "\x1b[38;2;206;145;120m", // #ce9178
-	"yellow": "\x1b[38;2;220;220;170m", // #dcdcaa
+	"yellow": "\x1b[38;2;255;215;95m",  // #ffd75f
 	"green":  "\x1b[38;2;106;153;85m",  // #6a9955
 	"cyan":   "\x1b[38;2;78;201;176m",  // #4ec9b0
 	"blue":   "\x1b[38;2;86;156;214m",  // #569cd6
