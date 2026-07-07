@@ -65,7 +65,7 @@ func (m *Model) queryMatches(q *item) []database.Node {
 		return strings.Contains(strings.ToLower(name), lc) || strings.Contains(strings.ToLower(note), lc)
 	}
 	timeOK := func(name string, addedOn int64) bool {
-		if !tq.hasFilter() {
+		if !tq.hasTimeFilter() {
 			return true
 		}
 		return tq.matchDates(m.nodeDates(name, addedOn, now))
@@ -78,7 +78,7 @@ func (m *Model) queryMatches(q *item) []database.Node {
 		if it == q || it.mirrorOf != "" || it.name == "" {
 			continue // skip self, mirror rows, and empty/derived names
 		}
-		if matches(it.name, it.note) && timeOK(it.name, it.addedOn) {
+		if matches(it.name, it.note) && timeOK(it.name, it.addedOn) && tq.matchType(it.typ) {
 			out = append(out, database.Node{UUID: uuid, Name: it.name})
 			seen[uuid] = true
 		}
@@ -105,6 +105,9 @@ func (m *Model) queryMatches(q *item) []database.Node {
 				continue
 			}
 			if !timeOK(mn.Name, mn.AddedOn) {
+				continue
+			}
+			if !tq.matchType(mn.Type) {
 				continue
 			}
 			out = append(out, mn)

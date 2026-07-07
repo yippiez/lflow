@@ -14,13 +14,37 @@ import (
 // creation time (so log nodes match by their timestamp) plus every date chip /
 // inline date in its name.
 
-// timeQuery is the parsed time filter plus the leftover text query.
+// timeQuery is the parsed time filter plus the leftover text query. It also
+// carries a ":type:<key>" filter (any number, OR'd) so a query can select node
+// types alongside its time window and words.
 type timeQuery struct {
 	after, before *time.Time
+	types         []string
 	text          string
 }
 
-func (tq timeQuery) hasFilter() bool { return tq.after != nil || tq.before != nil }
+func (tq timeQuery) hasFilter() bool {
+	return tq.hasTimeFilter() || len(tq.types) > 0
+}
+
+// hasTimeFilter reports whether a date window (after/before) is set — distinct
+// from hasFilter, which also counts a ":type:" filter.
+func (tq timeQuery) hasTimeFilter() bool { return tq.after != nil || tq.before != nil }
+
+// matchType reports whether typ is selected: true when no ":type:" filter is set,
+// otherwise typ must equal one of the filter's keys (case-insensitive).
+func (tq timeQuery) matchType(typ string) bool {
+	if len(tq.types) == 0 {
+		return true
+	}
+	typ = strings.ToLower(typ)
+	for _, t := range tq.types {
+		if t == typ {
+			return true
+		}
+	}
+	return false
+}
 
 // matchDates reports whether any of dates lands inside [after, before] (either
 // bound may be open).
@@ -60,6 +84,12 @@ func parseTimeQuery(raw string, now time.Time) timeQuery {
 					hi = time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, t.Location())
 				}
 				tq.before = &hi
+			}
+			continue
+		}
+		if rest, ok := cutAnyPrefix(lf, ":type:"); ok {
+			if rest != "" {
+				tq.types = append(tq.types, rest)
 			}
 			continue
 		}

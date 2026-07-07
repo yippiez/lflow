@@ -128,3 +128,46 @@ func TestQueryMatchesTimeFilter(t *testing.T) {
 	}
 }
 
+// TestQueryMatchesTypeFilter drives queryMatches with a ":type:" filter over the
+// in-memory tree: only nodes of the named type(s) are kept, AND-ed with any text.
+func TestQueryMatchesTypeFilter(t *testing.T) {
+	root := &item{uuid: "root"}
+	mk := func(uuid, name, typ string) *item {
+		return &item{uuid: uuid, name: name, typ: typ, parent: root}
+	}
+	buyMilk := mk("t1", "buy milk", database.TypeTodo)
+	shipIt := mk("t2", "ship it", database.TypeTodo)
+	note := mk("b1", "buy a boat", database.TypeBullets)
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root}
+	root.children = []*item{buyMilk, shipIt, note, q}
+	tr := &tree{
+		root:          root,
+		snapshots:     map[string]snapshot{},
+		externalNames: map[string]string{},
+		byUUID:        map[string]*item{"t1": buyMilk, "t2": shipIt, "b1": note, "q": q},
+	}
+	m := &Model{tree: tr} // db nil → in-memory only
+
+	names := func(ns []database.Node) map[string]bool {
+		s := map[string]bool{}
+		for _, n := range ns {
+			s[n.UUID] = true
+		}
+		return s
+	}
+
+	// pure type filter: both todos, not the bullet
+	q.name = ":type:todo"
+	got := names(m.queryMatches(q))
+	if !got["t1"] || !got["t2"] || got["b1"] {
+		t.Errorf("type filter matched wrong set: %v", got)
+	}
+
+	// type AND text: only the todo containing "buy"
+	q.name = "buy :type:todo"
+	got = names(m.queryMatches(q))
+	if !got["t1"] || got["t2"] || got["b1"] {
+		t.Errorf("text+type query matched wrong set: %v", got)
+	}
+}
+
