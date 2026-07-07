@@ -58,7 +58,7 @@ func (m *Model) handleArtifactsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) artifactListLines(maxLine int) []string {
 	lines := []string{clip(" "+cDim+"artifacts · space enable/disable · ctrl+d uninstall"+cReset, maxLine)}
 	if len(loadedArtifacts) == 0 {
-		return append(lines, clip(cDim+"   none installed · ask an agent for one (@Miso create an artifact …)"+cReset, maxLine))
+		return append(lines, clip(cDim+"   none installed · ask an agent for one (@Pi create an artifact …)"+cReset, maxLine))
 	}
 	if m.artSel >= len(loadedArtifacts) {
 		m.artSel = len(loadedArtifacts) - 1

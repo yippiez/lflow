@@ -58,11 +58,11 @@ type Agent struct {
 }
 
 // LoadAgents reads <configDir>/lflow/agents.json. With no file (or a broken
-// one) the built-in mock Miso is registered so @mentions work out of the box.
+// one) the built-in mock Pi is registered so @mentions work out of the box.
 func LoadAgents(configDir string) []Agent {
-	// Miso defaults to a real backend (the local pi CLI); ClientFor falls back to
+	// Pi defaults to a real backend (the local pi CLI); ClientFor falls back to
 	// the mock when pi is not installed, so @mentions still work offline.
-	fallback := []Agent{{Name: "Miso"}}
+	fallback := []Agent{{Name: "Pi"}}
 	b, err := os.ReadFile(filepath.Join(configDir, "lflow", "agents.json"))
 	if err != nil {
 		return fallback

@@ -15,10 +15,10 @@ type PiClient struct {
 	Cwd string // working directory for pi ("" = inherit the editor's)
 }
 
-// misoSystemPrompt frames pi as the note-app assistant. Kept deliberately small;
+// piSystemPrompt frames pi as the note-app assistant. Kept deliberately small;
 // the richer "base" skill (how to speak in chips) is future work.
-const misoSystemPrompt = "You are Miso, an assistant living inside a terminal " +
-	"outline note-taking app. A user mentioned you with @Miso in one of their " +
+const piSystemPrompt = "You are Pi, an assistant living inside a terminal " +
+	"outline note-taking app. A user mentioned you with @Pi in one of their " +
 	"outline nodes. You are given that node and its subtree as an indented " +
 	"outline; the line marked [ASKED] is the one to address. Reply with a single, " +
 	"concise, plain-text answer — no markdown headings or code fences, at most a " +
@@ -32,7 +32,7 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 	}
 	sess, err := agent.Run(ctx, agent.ProviderPi, renderThread(thread), agent.RunOptions{
 		SessionID:    sid,
-		SystemPrompt: misoSystemPrompt,
+		SystemPrompt: piSystemPrompt,
 		Cwd:          c.Cwd,
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func renderThread(thread []ThreadNode) string {
 			b.WriteString("[ASKED] ")
 		}
 		if n.Role == "agent" {
-			b.WriteString("(Miso earlier) ")
+			b.WriteString("(Pi earlier) ")
 		}
 		b.WriteString(strings.TrimSpace(n.Name))
 		b.WriteByte('\n')

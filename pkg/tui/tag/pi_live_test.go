@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TestPiClientLive drives the @Miso → local pi bridge end-to-end against the real
+// TestPiClientLive drives the @Pi → local pi bridge end-to-end against the real
 // CLI. Gated behind LFLOW_LIVE=1 (and skips when pi is not on PATH) so the normal
 // suite never shells out or spends tokens. Run with:
 //
@@ -25,10 +25,10 @@ func TestPiClientLive(t *testing.T) {
 
 	c := &PiClient{}
 	thread := []ThreadNode{
-		{UUID: "live-root", Depth: 0, Name: "@Miso reply with exactly the single word: pong", Type: "bullets", Role: "user", Asked: true},
+		{UUID: "live-root", Depth: 0, Name: "@Pi reply with exactly the single word: pong", Type: "bullets", Role: "user", Asked: true},
 	}
 
-	ch, err := c.Send(ctx, "Miso", "", thread)
+	ch, err := c.Send(ctx, "Pi", "", thread)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
