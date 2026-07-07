@@ -917,7 +917,7 @@ var lm29 = migration{
 }
 
 // lm30 adds the artifacts table — runtime-loaded node-type plugins, one JS
-// program per row (see docs/ARTIFACTS.md). Definitions live in the DB so they
+// program per row (see AGENTS.md). Definitions live in the DB so they
 // travel with the outline: installing an artifact is an INSERT, never a
 // migration; this table is the last type-related schema change.
 var lm30 = migration{

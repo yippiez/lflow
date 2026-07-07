@@ -10,7 +10,7 @@ import (
 
 // WSClient speaks the tag protocol to a Pi coding-agent service over a
 // websocket: one JSON object per message, a send request out, then a stream
-// of events back until done/error (see docs/ARTIFACTS.md for the shapes).
+// of events back until done/error (shapes documented in AGENTS.md).
 type WSClient struct {
 	URL string
 }

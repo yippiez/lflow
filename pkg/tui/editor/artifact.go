@@ -18,7 +18,7 @@ import (
 // an agent installs one). Each program runs in its own goja runtime and calls
 // lflow.registerType / lflow.registerChip; the bridge turns those into regular
 // nodeType descriptors appended to the compiled-in registry, so the picker,
-// glyphs and rendering treat both kinds identically. See docs/ARTIFACTS.md.
+// glyphs and rendering treat both kinds identically. See AGENTS.md.
 //
 // Artifact JS is TRUSTED — this is a single-user local tool, so hooks may call
 // lflow.exec (synchronous shell) even on the render path; a slow hook slows the

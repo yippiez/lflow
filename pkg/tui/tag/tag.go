@@ -1,7 +1,7 @@
 // Package tag is the @mention agent subsystem — the Claude-Tag model brought
 // to the outline: mentioning @AgentName in a node binds an agent session to
 // that node, the node's subtree becomes the conversation thread, and the agent
-// posts replies back as agent-type child nodes. See docs/ARTIFACTS.md.
+// posts replies back as agent-type child nodes. See AGENTS.md.
 //
 // The package owns agent configuration, the session-facing Client interface,
 // the websocket implementation that talks to a Pi coding-agent service, and

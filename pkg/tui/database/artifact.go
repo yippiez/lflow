@@ -10,7 +10,7 @@ import (
 // program stored in the DB so definitions travel with the outline — a node
 // whose type is an artifact renders correctly on any machine, and a
 // "forgotten" artifact keeps working years later because it is inseparable
-// from the data. See docs/ARTIFACTS.md.
+// from the data. See AGENTS.md.
 //
 // WARNING (invariant): an artifact is data, not schema — installing one is an
 // INSERT, never a DB migration. A node whose artifact is missing or disabled

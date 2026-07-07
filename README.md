@@ -20,7 +20,7 @@ lflow node list
 lflow node list "reading list" --format json | jq -r '.children[].name'
 ```
 
-See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command and flag reference.
+Run `--help` on any command for the full flag reference.
 
 ## License
 

@@ -38,6 +38,25 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
+## Artifacts + the @mention agent
+
+- **Artifacts = runtime-installed node types / chip kinds**: one JS program per
+  row in the `artifacts` table, evaluated at editor start via goja
+  (`pkg/tui/editor/artifact.go`). The JS calls `lflow.registerType({...})` /
+  `lflow.registerChip({...})`; the bridge appends a regular `nodeType`
+  descriptor, so `/type`, glyphs and rendering treat built-ins and artifacts
+  identically. Trusted, full access (`lflow.exec`). A node whose artifact is
+  disabled/missing falls back to bullets — never crashes. Seeded reference
+  artifact: `log`.
+- **@mention agent** (`pkg/tui/tag` + `pkg/tui/editor/agent.go`): typing `@`
+  completes configured agents; committing the node (Enter) sends — never mere
+  typing. Thread context = ancestor chain + the node's subtree (mirrors
+  expanded once, cycle-guarded);
+  replies land as red ✦ `agent` child nodes. Sessions persist in
+  `agent_sessions` (id ↔ thread node ↔ agent) and resume across editor runs.
+  Config `~/.config/lflow/agents.json`; without it a built-in mock **Pi** is
+  registered. Wire protocol: JSON over websocket, see `pkg/tui/tag/ws.go`.
+
 ## Key invariants
 
 The structural invariants now live as `// WARNING (invariant):` comments next to the

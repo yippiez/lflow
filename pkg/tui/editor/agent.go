@@ -11,7 +11,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
-// The @mention agent surface (see pkg/tui/tag and docs/ARTIFACTS.md).
+// The @mention agent surface (see pkg/tui/tag and AGENTS.md).
 //
 // Committing a node that mentions a configured agent (Enter) IS the send —
 // the keyboard gesture stands in for Slack's send button, so nothing fires
