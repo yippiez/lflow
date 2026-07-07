@@ -76,7 +76,7 @@ func TestArtifactRunAndChip(t *testing.T) {
 	}()
 
 	a := database.Artifact{
-		Key: "dice", Label: "Dice", Version: 1, CreatedBy: "Pi",
+		Key: "dice", Label: "Dice", Version: 1, CreatedBy: "Miso",
 		CreatedAt: time.Now().UnixNano(), Enabled: true,
 		Source: `
 lflow.registerType({

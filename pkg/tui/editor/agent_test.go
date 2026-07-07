@@ -10,7 +10,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
-// newAgentTestModel builds a DB-backed model with the mock Pi wired in. The
+// newAgentTestModel builds a DB-backed model with the mock Miso wired in. The
 // outline mirrors the Slack shape: root → disc (the note/channel) → n1 (the
 // first board message, a mention).
 func newAgentTestModel(t *testing.T) (*Model, *item, *item) {
@@ -27,14 +27,14 @@ func newAgentTestModel(t *testing.T) (*Model, *item, *item) {
 	disc := &item{uuid: "disc", name: "importer retries", parent: root}
 	root.children = append(root.children, disc)
 	tr.byUUID["disc"] = disc
-	n1 := &item{uuid: "n1", name: "@Pi how do i make importer retries safe?", parent: disc}
+	n1 := &item{uuid: "n1", name: "@Miso how do i make importer retries safe?", parent: disc}
 	disc.children = append(disc.children, n1)
 	tr.byUUID["n1"] = n1
 
 	m := &Model{
 		db: db, tree: tr, viewStack: []*item{root}, width: 100, height: 30,
-		agents:     []tag.Agent{{Name: "Pi", Mock: true}},
-		tagClients: map[string]tag.Client{"Pi": &tag.MockClient{Delay: time.Nanosecond}},
+		agents:     []tag.Agent{{Name: "Miso", Mock: true}},
+		tagClients: map[string]tag.Client{"Miso": &tag.MockClient{Delay: time.Nanosecond}},
 	}
 	m.refreshRows()
 	return m, disc, n1
@@ -103,7 +103,7 @@ func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
 	if len(n1.children) != 0 {
 		t.Fatal("a board answer must not nest under the question")
 	}
-	s, ok, err := database.GetThreadSession(m.db, "disc", "Pi")
+	s, ok, err := database.GetThreadSession(m.db, "disc", "Miso")
 	if err != nil || !ok {
 		t.Fatalf("session must persist on the note: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestBoardReviewAndReplyThread(t *testing.T) {
 func TestMentionCreatesArtifact(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
 	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
-	n1.name = "@Pi create a dice artifact for me"
+	n1.name = "@Miso create a dice artifact for me"
 
 	cmd, sent := m.mentionSendOnEnter(n1)
 	if !sent {

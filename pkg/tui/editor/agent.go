@@ -20,11 +20,11 @@ import (
 // visible world, replies land beneath it as agent nodes (red ✦, text + chips
 // only), and the session id persists so a later mention resumes the context.
 
-// agentGlyph is the agent reply marker: a red π — the agent's own initial as
-// the glyph, like the heading digits. (When a second agent exists, the author
-// will need to be recorded on the node so each agent can wear its own letter.)
+// agentGlyph is the agent reply marker: a red μ — a compact glyph for the
+// default agent Miso. (When a second agent exists, the author will need to be
+// recorded on the node so each agent can wear its own mark.)
 func agentGlyph(it *item) (string, string) {
-	return "π", cRed
+	return "μ", cRed
 }
 
 var mentionRe = regexp.MustCompile(`@([A-Za-z][A-Za-z0-9_-]*)`)
@@ -58,24 +58,15 @@ func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 	return it
 }
 
-// buildThread flattens the thread context: the root's ancestor chain (role
-// "context", orientation only), then the root and its subtree depth-first.
-// askedUUID marks the node this turn is about, so replies can target it.
-// Mirrors expand at most once via the visited set, so a mirror pointing back
-// at an ancestor can't loop the walk (the same guard the renderer uses).
+// buildThread flattens the thread context: the root and its subtree depth-first.
+// The agent owns only its own subtree — the ancestor chain (lineage) is
+// deliberately excluded, so a mention sees its node and everything below it,
+// nothing above. askedUUID marks the node this turn is about, so replies can
+// target it. Mirrors expand at most once via the visited set, so a mirror
+// pointing back at an ancestor can't loop the walk (the same guard the renderer
+// uses).
 func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 	var out []tag.ThreadNode
-
-	var ancestors []*item
-	for p := root.parent; p != nil; p = p.parent {
-		ancestors = append([]*item{p}, ancestors...)
-	}
-	for i, a := range ancestors {
-		out = append(out, tag.ThreadNode{
-			UUID: a.uuid, Depth: i, Name: displayAnchors(m.tree.displayName(a), m.chips),
-			Type: a.typ, Role: "context",
-		})
-	}
 
 	var walk func(it *item, depth int, seen map[*item]bool)
 	walk = func(it *item, depth int, seen map[*item]bool) {

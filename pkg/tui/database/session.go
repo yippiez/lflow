@@ -15,7 +15,7 @@ import (
 type AgentSession struct {
 	ID        string `json:"id"`        // remote session id
 	NodeUUID  string `json:"node_uuid"` // thread root node
-	Agent     string `json:"agent"`     // e.g. "Pi"
+	Agent     string `json:"agent"`     // e.g. "Miso"
 	State     string `json:"state"`     // idle | running | paused
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`

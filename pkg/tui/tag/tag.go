@@ -17,16 +17,15 @@ import (
 	"path/filepath"
 )
 
-// ThreadNode is one node of the thread context sent to the agent. Ancestors of
-// the thread root come first (role "context", for orientation only), then the
-// root and its subtree depth-first — an agent sees its own level and below,
-// never siblings elsewhere in the outline.
+// ThreadNode is one node of the thread context sent to the agent: the thread
+// root and its subtree depth-first. The agent sees its own level and below,
+// never its ancestors or siblings elsewhere in the outline.
 type ThreadNode struct {
 	UUID  string `json:"uuid"`
-	Depth int    `json:"depth"` // 0 = thread root; ancestors count up from 0 in their own run
+	Depth int    `json:"depth"` // 0 = thread root
 	Name  string `json:"name"`
 	Type  string `json:"type"`
-	Role  string `json:"role"`  // "context" | "user" | "agent"
+	Role  string `json:"role"`  // "user" | "agent"
 	Asked bool   `json:"asked"` // the node this turn is about — replies target it
 }
 
@@ -59,9 +58,9 @@ type Agent struct {
 }
 
 // LoadAgents reads <configDir>/lflow/agents.json. With no file (or a broken
-// one) the built-in mock Pi is registered so @mentions work out of the box.
+// one) the built-in mock Miso is registered so @mentions work out of the box.
 func LoadAgents(configDir string) []Agent {
-	fallback := []Agent{{Name: "Pi", Mock: true}}
+	fallback := []Agent{{Name: "Miso", Mock: true}}
 	b, err := os.ReadFile(filepath.Join(configDir, "lflow", "agents.json"))
 	if err != nil {
 		return fallback
