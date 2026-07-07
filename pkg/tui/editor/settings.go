@@ -39,8 +39,8 @@ var settingDefs = []settingDef{
 	},
 	{
 		key: "link.color", label: "Link color",
-		options: []settingOption{{"blue", "blue"}, {"gray", "gray"}},
-		def:     "blue",
+		options: []settingOption{{"gray", "gray"}, {"blue", "blue"}},
+		def:     "gray",
 		apply:   func(m *Model, v string) { linkColorMode = v },
 	},
 	{

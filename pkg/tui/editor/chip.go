@@ -168,7 +168,7 @@ func chipKindOf(kind string) (chipKind, bool) {
 
 // linkColorMode is the /settings "link.color" preference ("blue" or "gray"),
 // applied at render time so it tracks the active theme's palette.
-var linkColorMode = "blue"
+var linkColorMode = "gray"
 
 // linkChipColorCode is the SGR for a link chip: blue (accent) or muted gray, kept
 // underlined either way so a link stays visually a link.

@@ -7,8 +7,8 @@ func TestSettingDefault(t *testing.T) {
 	if got := m.setting("image.preview"); got != "compact" {
 		t.Errorf("default image.preview = %q, want compact", got)
 	}
-	if got := m.setting("link.color"); got != "blue" {
-		t.Errorf("default link.color = %q, want blue", got)
+	if got := m.setting("link.color"); got != "gray" {
+		t.Errorf("default link.color = %q, want gray", got)
 	}
 	m.settings = map[string]string{"image.preview": "true"}
 	if got := m.setting("image.preview"); got != "true" {
@@ -24,14 +24,14 @@ func TestCycleSetting(t *testing.T) {
 	if !ok {
 		t.Fatal("link.color setting missing")
 	}
-	if got := cycleSetting(d, "blue", 1); got != "gray" {
-		t.Errorf("cycle blue +1 = %q, want gray", got)
-	}
 	if got := cycleSetting(d, "gray", 1); got != "blue" {
-		t.Errorf("cycle gray +1 wraps to %q, want blue", got)
+		t.Errorf("cycle gray +1 = %q, want blue", got)
 	}
-	if got := cycleSetting(d, "blue", -1); got != "gray" {
-		t.Errorf("cycle blue -1 wraps to %q, want gray", got)
+	if got := cycleSetting(d, "blue", 1); got != "gray" {
+		t.Errorf("cycle blue +1 wraps to %q, want gray", got)
+	}
+	if got := cycleSetting(d, "gray", -1); got != "blue" {
+		t.Errorf("cycle gray -1 wraps to %q, want blue", got)
 	}
 }
 
