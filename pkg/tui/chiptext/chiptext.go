@@ -28,8 +28,9 @@ const (
 )
 
 // ReTag matches a #word tag at a left boundary (start of text or a non-word
-// char) so bare '#'s and mid-word hashes are ignored. Submatch 2 is the #word.
-var ReTag = regexp.MustCompile(`(^|[^\p{L}\p{N}_#])(#[\p{L}\p{N}_]+)`)
+// char) so bare '#'s and mid-word hashes are ignored. The word may contain inner
+// hyphens (#multi-word) but not a trailing one. Submatch 2 is the #word.
+var ReTag = regexp.MustCompile(`(^|[^\p{L}\p{N}_#])(#[\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*)`)
 
 // ReISO matches a canonical date: YYYY-MM-DD optionally followed by HH:MM.
 var ReISO = regexp.MustCompile(`(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?`)
