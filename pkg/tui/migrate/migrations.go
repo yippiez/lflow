@@ -1020,3 +1020,22 @@ var lm35 = migration{
 		return nil
 	},
 }
+
+// lm36 adds the node_spans table — the painter's partial-text styling. One row
+// per painted run (rune offsets into the node name), style = the same token
+// vocabulary as nodes.style. The text itself stays markup-free, always.
+var lm36 = migration{
+	name: "add-node-spans-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS node_spans (
+			node_uuid text NOT NULL,
+			start integer NOT NULL,
+			end integer NOT NULL,
+			style text NOT NULL DEFAULT '',
+			PRIMARY KEY (node_uuid, start)
+		);`); err != nil {
+			return errors.Wrap(err, "creating node_spans table")
+		}
+		return nil
+	},
+}

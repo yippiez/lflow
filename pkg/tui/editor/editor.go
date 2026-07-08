@@ -40,8 +40,10 @@ const (
 	modeComplete  // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit  // the alt+e link-chip editor: edit a link's name and target
 	modeCmdView   // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
-	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
-	modeTagColor // the alt+e tag color picker: assign a pill color to a tag
+	modeFlash      // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeTagColor   // the alt+e tag color picker: assign a pill color to a tag
+	modePaint      // the painter: select a run of the node's text (p inside /style)
+	modePaintStyle // the painter's style list, applied to the selected run
 )
 
 type finderAction int
@@ -699,7 +701,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.mode {
-	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor:
+	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modePaintStyle:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
@@ -709,6 +711,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCmdViewKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
+	case modePaint:
+		return m.handlePaintKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
 	case modeSettings:
@@ -987,6 +991,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		cur.name = string(runes[:target]) + string(runes[m.caret:])
+		shiftSpans(cur.uuid, target, target-m.caret)
+		m.persistSpans(cur.uuid)
 		m.caret = target
 		m.unsaved = true
 		return m, nil
@@ -1317,11 +1323,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if sp := spanEndingAt(anchorSpans(runes), m.caret); sp != nil {
 				m.deleteChipID(sp.id)
 				cur.name = string(runes[:sp.start]) + string(runes[sp.end:])
+				shiftSpans(cur.uuid, sp.start, sp.start-sp.end)
+				m.persistSpans(cur.uuid)
 				m.caret = sp.start
 				m.unsaved = true
 				return m, nil
 			}
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			shiftSpans(cur.uuid, m.caret-1, -1)
+			m.persistSpans(cur.uuid)
 			m.caret--
 			m.unsaved = true
 			return m, nil
@@ -1503,6 +1513,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.boundCaret(len(runes)) // chipify may have changed the name/caret
 		ins := []rune(text)
 		cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
+		if len(ins) > 0 {
+			shiftSpans(cur.uuid, m.caret, len(ins)) // painted runs ride along
+			m.persistSpans(cur.uuid)
+		}
 		m.caret += len(ins)
 		m.unsaved = true
 		m.maybeLinkToMirror(cur)
@@ -1735,6 +1749,10 @@ func (m *Model) deleteNode(it *item) {
 	var dropRunOut func(x *item)
 	dropRunOut = func(x *item) {
 		m.deleteRunOut(x.uuid)
+		delete(nodeSpans, x.uuid)
+		if m.db != nil {
+			_ = database.DeleteNodeSpans(m.db, x.uuid)
+		}
 		for _, c := range x.children {
 			dropRunOut(c)
 		}
@@ -3202,6 +3220,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 
 	if tc, err := database.AllTagColors(ctx.DB); err == nil {
 		tagColors = tc // package var, like linkColorMode: the render path is Model-free
+	}
+	if sp, err := database.AllNodeSpans(ctx.DB); err == nil {
+		nodeSpans = sp // painter runs (see paint.go)
 	}
 
 	m := &Model{

@@ -30,6 +30,8 @@ func (m *Model) listSource() pickerSource {
 		return completerSource{}
 	case modeTagColor:
 		return tagColorSource{}
+	case modePaintStyle:
+		return paintStyleSource{}
 	}
 	return nil
 }
@@ -300,6 +302,16 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeOutline
 	return m, nil
+}
+
+// onKey: p inside /style enters the painter — style a RUN of the node's text
+// instead of the whole line (see paint.go).
+func (styleSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
+	if key == "p" {
+		m.enterPaint()
+		return true
+	}
+	return false
 }
 
 // --- /theme ----------------------------------------------------------------

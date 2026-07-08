@@ -78,6 +78,13 @@ CREATE TABLE tag_colors (
 			tag text PRIMARY KEY,
 			color text NOT NULL DEFAULT ''
 		);
+CREATE TABLE node_spans (
+			node_uuid text NOT NULL,
+			start integer NOT NULL,
+			end integer NOT NULL,
+			style text NOT NULL DEFAULT '',
+			PRIMARY KEY (node_uuid, start)
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 35);
+INSERT INTO system (key, value) VALUES ('schema', 36);

@@ -935,6 +935,9 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	runes := []rune(name)
 	flags := inlineSpans(runes)
 	markKeywords(runes, flags, animFrame) // ultracode/ultraloop: render-time only
+	spanSGR := spanSGRFor(it.uuid, len(runes))
+	paintLive := paintUUID == it.uuid
+	paintLo, paintHi := paintBounds()
 	chipsp := anchorSpans(runes)          // inline chip anchors, drawn collapsed
 	if desc.muteFrom != nil {
 		// a type may mute a tail — the log artifact mutes from the first " · "
@@ -1053,7 +1056,16 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			i++
 			continue
 		}
-		if s := sgr(f); s != cur {
+		s := sgr(f)
+		// a painted run (see paint.go) overrides the cell's color/attrs; while
+		// the painter is live on this node its pending selection inverts
+		if spanSGR != nil && spanSGR[i] != "" {
+			s += spanSGR[i]
+		}
+		if paintLive && i >= paintLo && i < paintHi {
+			s += cInvert
+		}
+		if s != cur {
 			b.WriteString(s)
 			cur = s
 		}
