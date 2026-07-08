@@ -1055,6 +1055,9 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	if it.typ == database.TypeCode || it.typ == database.TypeBash {
 		b.WriteString(cReset + attrs + " ")
 	}
+	if it.starred {
+		b.WriteString(cReset + " " + cYellow + "★") // /star mark, render-only
+	}
 	b.WriteString(cReset)
 	return b.String()
 }

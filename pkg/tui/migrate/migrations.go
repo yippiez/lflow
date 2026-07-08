@@ -991,3 +991,16 @@ var lm33 = migration{
 		return nil
 	},
 }
+
+// lm34 adds nodes.starred — the /star flag that pins a node to the top of the
+// move/goto/mirror pickers. View-preference state like collapsed: toggled in
+// place, no edited_on churn.
+var lm34 = migration{
+	name: "add-node-starred",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec("ALTER TABLE nodes ADD COLUMN starred bool NOT NULL DEFAULT false"); err != nil {
+			return errors.Wrap(err, "adding nodes.starred")
+		}
+		return nil
+	},
+}

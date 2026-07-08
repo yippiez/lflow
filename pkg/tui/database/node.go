@@ -94,22 +94,23 @@ type Node struct {
 	Deleted     bool   `json:"deleted"`
 	Collapsed   bool   `json:"collapsed"` // local view-state
 	Readonly    bool   `json:"readonly"`  // node lock; persisted (like style)
+	Starred     bool   `json:"starred"`   // /star: pinned to the top of pickers
 }
 
-const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, readonly"
+const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, readonly, starred"
 
 func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 	var n Node
 	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Type,
-		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.Deleted, &n.Collapsed, &n.Readonly)
+		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.Deleted, &n.Collapsed, &n.Readonly, &n.Starred)
 	return n, err
 }
 
 // Insert inserts the node.
 func (n Node) Insert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly)
+		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly, n.Starred)
 	if err != nil {
 		return errors.Wrapf(err, "inserting node %s", n.UUID)
 	}
@@ -123,15 +124,15 @@ func (n Node) Insert(db *DB) error {
 // original added_on is preserved. FTS stays consistent via the AFTER UPDATE
 // trigger (which fires on the conflict branch).
 func (n Node) Upsert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
 		`ON CONFLICT(uuid) DO UPDATE SET
 			parent_uuid = excluded.parent_uuid, rank = excluded.rank, name = excluded.name,
 			note = excluded.note, type = excluded.type, style = excluded.style,
 			mirror_of = excluded.mirror_of, completed_at = excluded.completed_at,
 			edited_on = excluded.edited_on, collapsed = excluded.collapsed,
-			readonly = excluded.readonly, deleted = 0`,
+			readonly = excluded.readonly, starred = excluded.starred, deleted = 0`,
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly)
+		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly, n.Starred)
 	if err != nil {
 		return errors.Wrapf(err, "upserting node %s", n.UUID)
 	}
@@ -143,6 +144,15 @@ func (n Node) Upsert(db *DB) error {
 func SetCollapsed(db *DB, uuid string, collapsed bool) error {
 	if _, err := db.Exec("UPDATE nodes SET collapsed = ? WHERE uuid = ?", collapsed, uuid); err != nil {
 		return errors.Wrapf(err, "setting collapsed for %s", uuid)
+	}
+	return nil
+}
+
+// SetStarred persists a node's /star flag. Like collapse it is toggled in
+// place, so it writes immediately and leaves edited_on untouched.
+func SetStarred(db *DB, uuid string, starred bool) error {
+	if _, err := db.Exec("UPDATE nodes SET starred = ? WHERE uuid = ?", starred, uuid); err != nil {
+		return errors.Wrapf(err, "setting starred for %s", uuid)
 	}
 	return nil
 }

@@ -150,8 +150,12 @@ func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
 		if c := styleBaseColor(r.node.Style); c != "" {
 			base = c
 		}
+		star := ""
+		if r.node.Starred {
+			star = cYellow + "★ " + cReset
+		}
 		label := base + styleAttrs(r.node.Style) + fmt.Sprintf("%-28s", name) + cReset
-		line := mark + label + cDim + fmt.Sprintf(" %d nodes", r.count) + cReset
+		line := mark + star + label + cDim + fmt.Sprintf(" %d nodes", r.count) + cReset
 		lines = append(lines, clip(line, maxLine))
 	}
 	if overflow > 0 {

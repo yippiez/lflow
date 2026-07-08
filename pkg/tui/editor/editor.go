@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -62,6 +63,7 @@ var slashCommands = []slashCommand{
 	{"/artifacts", "Manage installed artifact node types"},
 	{"/bring", "Bring another node (or an agent) here"},
 	{"/complete", "Toggle done"},
+	{"/star", "Star this node — ranks first in pickers"},
 	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
 	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
 	{"/goto", "Jump the editor to another node"},
@@ -2029,6 +2031,19 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 			cur.completedAt = time.Now().Unix()
 		}
 		m.unsaved = true
+	case "/star":
+		// toggle the star on the real node (a mirror stars its original): starred
+		// nodes wear a yellow ★ and rank first in the move/goto/mirror pickers
+		cur = m.tree.resolve(cur)
+		cur.starred = !cur.starred
+		if m.db != nil {
+			_ = database.SetStarred(m.db, cur.uuid, cur.starred)
+		}
+		if cur.starred {
+			m.flash = "★ starred"
+		} else {
+			m.flash = "unstarred"
+		}
 	case "/duplicate":
 		// deep-copy this node (and its subtree) in as the next sibling, then
 		// land the cursor on the copy so it is ready to rename/edit
@@ -2189,6 +2204,11 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 		}
 		rows = append(temp, rows...)
 	}
+	// /star pins: starred nodes float to the top; the stable sort keeps the
+	// relevance/recency order intact inside each half
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].node.Starred && !rows[j].node.Starred
+	})
 	return rows
 }
 
@@ -2308,11 +2328,14 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		m.unsaved = true
 	case actMoveTo:
 		m.pushUndo("")
+		// after a move the cursor stays put visually: it lands on the row that
+		// slid up into the moved node's old place, so you keep working in flow
+		oldRow := m.rowIndexOf(cur)
 		if targetItem, inTree := m.tree.byUUID[target.UUID]; inTree {
 			if m.tree.reparent(cur, targetItem) {
 				m.unsaved = true
 				m.refreshRows()
-				m.cursor = m.rowIndexOf(cur)
+				m.cursor = clampRow(oldRow, len(m.rows))
 			}
 		} else {
 			// moving out of the open subtree: persist everything, then move in db
@@ -2320,6 +2343,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 				m.err = err
 				return m.quit()
 			}
+			m.cursor = clampRow(oldRow, len(m.rows))
 		}
 	case actGoto:
 		// save, then reopen on the target
@@ -2365,6 +2389,17 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 
 	m.refreshRows()
 	return m, nil
+}
+
+// clampRow bounds a row index into [0, n-1] (0 when the list is empty).
+func clampRow(i, n int) int {
+	if i >= n {
+		i = n - 1
+	}
+	if i < 0 {
+		i = 0
+	}
+	return i
 }
 
 func (m *Model) moveToDB(cur *item, target database.Node) error {

@@ -21,6 +21,7 @@ type item struct {
 	parent      *item
 	collapsed   bool
 	readonly    bool  // node lock: inline edits are no-ops (see canEdit)
+	starred     bool  // /star: pinned to the top of the node pickers
 	addedOn     int64 // creation time (UnixNano); shown by the log node's time chip
 	isNew       bool
 }
@@ -37,6 +38,7 @@ type snapshot struct {
 	completedAt int64
 	collapsed   bool
 	readonly    bool
+	starred     bool
 }
 
 // tree is the in-memory model of the subtree being edited.
@@ -70,6 +72,7 @@ func cloneItem(src, parent *item) *item {
 		completedAt: src.completedAt,
 		collapsed:   src.collapsed,
 		readonly:    src.readonly,
+		starred:     src.starred,
 		addedOn:     src.addedOn,
 		isNew:       src.isNew,
 		parent:      parent,
@@ -121,6 +124,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			completedAt: n.CompletedAt,
 			collapsed:   n.Collapsed,
 			readonly:    n.Readonly,
+			starred:     n.Starred,
 			addedOn:     n.AddedOn,
 		}
 		t.snapshots[n.UUID] = snapshot{
@@ -134,6 +138,7 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 			completedAt: n.CompletedAt,
 			collapsed:   n.Collapsed,
 			readonly:    n.Readonly,
+			starred:     n.Starred,
 		}
 	}
 
@@ -657,6 +662,7 @@ func (t *tree) save() (int, error) {
 				EditedOn:    now,
 				Collapsed:   it.collapsed,
 				Readonly:    it.readonly,
+				Starred:     it.starred,
 			}
 			if err := n.Upsert(tx); err != nil {
 				return err
@@ -671,11 +677,17 @@ func (t *tree) save() (int, error) {
 			written++
 		}
 
-		// collapse is local view-state: persist it on save as a backstop to the
-		// immediate SetCollapsed write (new nodes carry it via Insert).
+		// collapse and star are local view-state: persist them on save as a
+		// backstop to the immediate SetCollapsed/SetStarred writes (new nodes
+		// carry both via Insert).
 		if existed && s.collapsed != it.collapsed {
 			if _, err := tx.Exec("UPDATE nodes SET collapsed = ? WHERE uuid = ?", it.collapsed, it.uuid); err != nil {
 				return errors.Wrapf(err, "persisting collapsed for %s", it.uuid)
+			}
+		}
+		if existed && s.starred != it.starred {
+			if _, err := tx.Exec("UPDATE nodes SET starred = ? WHERE uuid = ?", it.starred, it.uuid); err != nil {
+				return errors.Wrapf(err, "persisting starred for %s", it.uuid)
 			}
 		}
 
