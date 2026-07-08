@@ -140,9 +140,17 @@ func (typeSource) initialSel(m *Model) int {
 
 func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	if it.value != "" {
-		if cur := m.cursorItem(); cur != nil {
+		targets := m.selectedItems() // multi-select: retype the whole range
+		if len(targets) == 0 {
+			if cur := m.cursorItem(); cur != nil {
+				targets = []*item{cur}
+			}
+		}
+		if len(targets) > 0 {
 			m.pushUndo("")
-			cur.typ = it.value
+			for _, t := range targets {
+				t.typ = it.value
+			}
 			m.unsaved = true
 		}
 	}
@@ -196,17 +204,26 @@ func (styleSource) initialSel(m *Model) int {
 }
 
 func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
-	if cur := m.cursorItem(); cur != nil && it.value != "" {
+	targets := m.selectedItems() // multi-select: restyle the whole range
+	if len(targets) == 0 {
+		if cur := m.cursorItem(); cur != nil {
+			targets = []*item{cur}
+		}
+	}
+	if len(targets) > 0 && it.value != "" {
 		m.pushUndo("")
 		for _, sp := range stylePickerItems {
-			if sp.value == it.value {
-				if sp.kind == "toggle" {
-					cur.style = styleToggle(cur.style, sp.value)
-				} else {
-					cur.style = styleSetColor(cur.style, sp.value)
-				}
-				break
+			if sp.value != it.value {
+				continue
 			}
+			for _, t := range targets {
+				if sp.kind == "toggle" {
+					t.style = styleToggle(t.style, sp.value)
+				} else {
+					t.style = styleSetColor(t.style, sp.value)
+				}
+			}
+			break
 		}
 		m.unsaved = true
 	}

@@ -228,6 +228,11 @@ type Model struct {
 
 	tagColorWord string // the tag word the alt+e color picker is assigning
 
+	// multi-select (see multisel.go): shift+up/down grows a row range from the
+	// anchor; structural ops act on the selection roots
+	selOn     bool
+	selAnchor int
+
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
 	undoMark  string
@@ -682,6 +687,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// esc-esc quits from outline mode — but not while a focused inline view is up
 	// (there esc defocuses; handled in the focused block below)
 	if m.mode == modeOutline && key == "esc" && !m.focused {
+		if m.selOn {
+			m.clearSel() // first esc releases the multi-selection
+			return m, nil
+		}
 		if m.escPending {
 			return m.quit()
 		}
@@ -740,6 +749,38 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// snapshot the tree before a mutating outline key so /undo can reverse it
 	m.snapshotForKey(key, k)
+
+	// multi-select lifecycle: shift+arrows grow the selection; any other plain
+	// movement, typing or esc drops it (structural ops below act on it instead)
+	if m.mode == modeOutline {
+		switch key {
+		case "shift+up":
+			m.startOrExtendSel()
+			if m.cursor > 0 {
+				m.cursor--
+			}
+			return m, nil
+		case "shift+down":
+			m.startOrExtendSel()
+			if m.cursor < len(m.rows)-1 {
+				m.cursor++
+			}
+			return m, nil
+		}
+		if m.selOn {
+			switch key {
+			case "tab", "shift+tab", "ctrl+d", "alt+d", "ctrl+shift+backspace",
+				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
+				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
+				"/": // the slash menu may apply /type //style //move to the selection
+			case "esc":
+				m.clearSel()
+				return m, nil
+			default:
+				m.clearSel()
+			}
+		}
+	}
 
 	switch key {
 	case "pgdown", "pgup":
@@ -860,6 +901,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// path chips are inserted via the /file fuzzy picker, and "#" is for tags,
 		// so Tab is free to just indent. The Temporary Domain edits exactly like the
 		// main outline, so indenting works there too.
+		if m.selOn {
+			m.selIndent()
+			return m, nil
+		}
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.indent(cur) {
@@ -875,6 +920,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "shift+tab":
+		if m.selOn {
+			m.selOutdent()
+			return m, nil
+		}
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.outdent(cur, mc.localRoot) {
@@ -892,7 +941,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+d", "alt+d", "ctrl+shift+backspace":
-		// delete the whole node (its subtree confirms inline first)
+		// delete the whole node/selection (subtrees confirm inline first)
+		if m.selOn {
+			if m.selHasChildren() {
+				m.mode = modeConfirm
+			} else {
+				m.selDelete()
+			}
+			return m, nil
+		}
 		if cur := m.cursorItem(); cur != nil {
 			if len(cur.children) > 0 {
 				// children go with the node: confirm inline first
@@ -954,6 +1011,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// every alt+arrow chord has a ctrl twin: terminals like windows
 	// terminal grab alt+arrows for pane focus and never deliver them
 	case "alt+shift+up", "ctrl+shift+up", "ctrl+alt+up":
+		if m.selOn {
+			m.selMove(-1)
+			return m, nil
+		}
 		cur := m.cursorItem()
 		if cur == nil {
 			return m, nil
@@ -972,6 +1033,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+shift+down", "ctrl+shift+down", "ctrl+alt+down":
+		if m.selOn {
+			m.selMove(1)
+			return m, nil
+		}
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
 			if m.tree.move(cur, 1, m.viewRoot()) {
@@ -1725,7 +1790,9 @@ func (m *Model) handleConfirmKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "enter", "y":
 		m.mode = modeOutline
-		if cur := m.cursorItem(); cur != nil {
+		if m.selOn {
+			m.selDelete()
+		} else if cur := m.cursorItem(); cur != nil {
 			m.deleteNode(cur)
 		}
 	case "esc", "n":
@@ -2341,17 +2408,34 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		// after a move the cursor stays put visually: it lands on the row that
 		// slid up into the moved node's old place, so you keep working in flow
 		oldRow := m.rowIndexOf(cur)
+		movers := []*item{cur}
+		if m.selOn {
+			movers = m.selectionRoots() // /move carries the whole selection
+			if row := m.rowIndexOf(movers[0]); row >= 0 {
+				oldRow = row
+			}
+			m.clearSel()
+		}
 		if targetItem, inTree := m.tree.byUUID[target.UUID]; inTree {
-			if m.tree.reparent(cur, targetItem) {
+			moved := false
+			// reparent prepends: reverse order preserves the block's own order
+			for i := len(movers) - 1; i >= 0; i-- {
+				if m.tree.reparent(movers[i], targetItem) {
+					moved = true
+				}
+			}
+			if moved {
 				m.unsaved = true
 				m.refreshRows()
 				m.cursor = clampRow(oldRow, len(m.rows))
 			}
 		} else {
 			// moving out of the open subtree: persist everything, then move in db
-			if err := m.moveToDB(cur, target); err != nil {
-				m.err = err
-				return m.quit()
+			for _, mv := range movers {
+				if err := m.moveToDB(mv, target); err != nil {
+					m.err = err
+					return m.quit()
+				}
 			}
 			m.cursor = clampRow(oldRow, len(m.rows))
 		}
@@ -2693,7 +2777,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		if m.tempActive && !r.mirrored {
 			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
 		}
-		if selected {
+		if selected || m.inSelection(i) {
 			glyphColor = cRed
 		}
 		name := m.tree.displayName(it)
@@ -3030,6 +3114,10 @@ func (m *Model) bottomBar(maxLine int) string {
 	state := ""
 	if m.unsaved {
 		state = " · unsaved"
+	}
+	if m.selOn {
+		lo, hi := m.selectionBounds()
+		state += fmt.Sprintf(" · "+cRed+"%d selected"+cDim, hi-lo+1)
 	}
 	// the ONE agent signal the bar carries: how many agents are thinking right
 	// now. No install/reply/progress chatter — the outline itself shows results.
