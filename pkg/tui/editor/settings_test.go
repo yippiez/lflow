@@ -48,3 +48,16 @@ func TestThemeSettingOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingValueColor(t *testing.T) {
+	for _, neg := range []string{"off", "false", "disabled", "none", "no"} {
+		if settingValueColor(neg) != cRed {
+			t.Errorf("%q must render red", neg)
+		}
+	}
+	for _, pos := range []string{"true", "gray", "dark", "compact", "on"} {
+		if settingValueColor(pos) != cGreen {
+			t.Errorf("%q must render green", pos)
+		}
+	}
+}

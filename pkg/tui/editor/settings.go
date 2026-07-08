@@ -149,3 +149,14 @@ func settingValueLabel(d settingDef, value string) string {
 	}
 	return value
 }
+
+// settingValueColor picks the value's color for the settings rows: negative
+// values (off/false/disabled/none) read red, everything else green — a chosen
+// value is an affirmative statement.
+func settingValueColor(value string) string {
+	switch value {
+	case "off", "false", "disabled", "none", "no":
+		return cRed
+	}
+	return cGreen
+}

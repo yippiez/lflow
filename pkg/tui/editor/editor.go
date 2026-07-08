@@ -2854,11 +2854,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 		lines = append(lines, m.artifactListLines(maxLine)...)
 	}
 
-	// the /settings picker: one row per preference, showing its current value
-	// between ‹ › carets (left/right cycles). The theme row previews the selected
-	// palette as a swatch strip so colors are visible before committing. It keeps
-	// its own bespoke mode (not a listPicker) because it cycles a value in place
-	// rather than picking one option and closing.
+	// the /settings picker: one row per preference as `label · value` — muted
+	// label, middle dot, value colored by settingValueColor (green affirmative,
+	// red negative). The theme row previews the selected palette as a swatch
+	// strip so colors are visible before committing. It keeps its own bespoke
+	// mode (not a listPicker) because left/right cycles a value in place rather
+	// than picking one option and closing.
 	if m.mode == modeSettings {
 		win := pickerMaxRows
 		s2 := scrollStart(m.settingsSel, len(settingDefs), win)
@@ -2873,7 +2874,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if i == m.settingsSel {
 				mark = cAccent + "▸ " + cReset
 			}
-			value := cAccent + "‹ " + cReset + cFG + fmt.Sprintf("%-16s", settingValueLabel(d, val)) + cReset + cAccent + "›" + cReset
+			value := settingValueColor(val) + settingValueLabel(d, val) + cReset
 			extra := ""
 			if d.key == "theme" {
 				if t, ok := themeByName(val); ok {
@@ -2881,7 +2882,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 						t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
 				}
 			}
-			line := " " + mark + cFG + fmt.Sprintf("%-14s", d.label) + cReset + " " + value + extra
+			line := " " + mark + cDim + fmt.Sprintf("%-14s", d.label) + "· " + cReset + value + extra
 			lines = append(lines, clip(line, maxLine))
 		}
 	}
