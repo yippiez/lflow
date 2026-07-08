@@ -120,6 +120,23 @@ func (m *Model) openLinkEdit(c database.Chip) {
 	m.linkEditName = c.Label
 	m.linkEditTarget = c.Value
 	m.linkEditField = 0
+	m.linkEditCaret = len([]rune(c.Label))
+}
+
+// linkEditActive returns the active field's text; set writes it back.
+func (m *Model) linkEditActive() string {
+	if m.linkEditField == 0 {
+		return m.linkEditName
+	}
+	return m.linkEditTarget
+}
+
+func (m *Model) setLinkEditActive(s string) {
+	if m.linkEditField == 0 {
+		m.linkEditName = s
+	} else {
+		m.linkEditTarget = s
+	}
 }
 
 // saveLinkEdit writes the edited name/target back to the chip store.
@@ -142,13 +159,21 @@ func (m *Model) saveLinkEdit() {
 	m.unsaved = true
 }
 
+// handleLinkEditKey edits the active field with the same caret vocabulary as
+// the outline editor: ←/→, ctrl+←/→ word jumps, ctrl+backspace word delete,
+// home/end — text editing is consistent everywhere.
 func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	runes := []rune(m.linkEditActive())
+	if m.linkEditCaret > len(runes) {
+		m.linkEditCaret = len(runes)
+	}
 	switch k.String() {
 	case "esc":
 		m.mode = modeOutline
 		return m, nil
 	case "tab", "shift+tab", "up", "down":
 		m.linkEditField = 1 - m.linkEditField
+		m.linkEditCaret = len([]rune(m.linkEditActive()))
 		return m, nil
 	case "enter":
 		m.saveLinkEdit()
@@ -156,26 +181,48 @@ func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refreshRows()
 		return m, nil
 	case "backspace":
-		if m.linkEditField == 0 {
-			if r := []rune(m.linkEditName); len(r) > 0 {
-				m.linkEditName = string(r[:len(r)-1])
-			}
-		} else {
-			if r := []rune(m.linkEditTarget); len(r) > 0 {
-				m.linkEditTarget = string(r[:len(r)-1])
-			}
+		if m.linkEditCaret > 0 {
+			m.setLinkEditActive(string(runes[:m.linkEditCaret-1]) + string(runes[m.linkEditCaret:]))
+			m.linkEditCaret--
 		}
+		return m, nil
+	case "ctrl+backspace", "ctrl+h", "ctrl+w":
+		if m.linkEditCaret > 0 {
+			from := prevWordBoundary(runes, m.linkEditCaret)
+			m.setLinkEditActive(string(runes[:from]) + string(runes[m.linkEditCaret:]))
+			m.linkEditCaret = from
+		}
+		return m, nil
+	case "left":
+		if m.linkEditCaret > 0 {
+			m.linkEditCaret--
+		}
+		return m, nil
+	case "right":
+		if m.linkEditCaret < len(runes) {
+			m.linkEditCaret++
+		}
+		return m, nil
+	case "ctrl+left":
+		m.linkEditCaret = prevWordBoundary(runes, m.linkEditCaret)
+		return m, nil
+	case "ctrl+right":
+		m.linkEditCaret = nextWordBoundary(runes, m.linkEditCaret)
+		return m, nil
+	case "home":
+		m.linkEditCaret = 0
+		return m, nil
+	case "end":
+		m.linkEditCaret = len(runes)
 		return m, nil
 	}
 	if k.Type == tea.KeySpace && !k.Alt {
 		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
 	}
 	if k.Type == tea.KeyRunes && !k.Alt {
-		if m.linkEditField == 0 {
-			m.linkEditName += string(k.Runes)
-		} else {
-			m.linkEditTarget += string(k.Runes)
-		}
+		ins := []rune(string(k.Runes))
+		m.setLinkEditActive(string(runes[:m.linkEditCaret]) + string(ins) + string(runes[m.linkEditCaret:]))
+		m.linkEditCaret += len(ins)
 	}
 	return m, nil
 }
@@ -185,10 +232,10 @@ func (m *Model) viewLinkEdit(maxLine int) []string {
 	target := m.linkEditTarget
 	nameLbl, targetLbl := cDim, cDim
 	if m.linkEditField == 0 {
-		name = withCaret(name, len([]rune(name)))
+		name = withCaret(name, m.linkEditCaret)
 		nameLbl = cAccent
 	} else {
-		target = withCaret(target, len([]rune(target)))
+		target = withCaret(target, m.linkEditCaret)
 		targetLbl = cAccent
 	}
 	var lines []string

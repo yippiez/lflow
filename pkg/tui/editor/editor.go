@@ -149,6 +149,7 @@ type Model struct {
 	linkEditName   string // working copy of the link's display name
 	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
 	linkEditField  int    // 0 = name field, 1 = target field
+	linkEditCaret  int    // caret inside the active field — same movement keys as the outline
 
 	cmdViewID  string // cmd chip id whose output the alt+e viewer is showing
 	cmdViewCmd string // that chip's command, for the viewer header
@@ -2097,6 +2098,16 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret--
 		}
 		return m, nil
+	// text editing is consistent everywhere: the note field honors the same
+	// movement/delete vocabulary as the outline editor
+	case "ctrl+backspace", "ctrl+h", "ctrl+w":
+		runes := []rune(cur.note)
+		if m.caret > 0 && m.caret <= len(runes) {
+			from := prevWordBoundary(runes, m.caret)
+			cur.note = string(runes[:from]) + string(runes[m.caret:])
+			m.caret = from
+		}
+		return m, nil
 	case "left":
 		if m.caret > 0 {
 			m.caret--
@@ -2106,6 +2117,18 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.caret < len([]rune(cur.note)) {
 			m.caret++
 		}
+		return m, nil
+	case "ctrl+left":
+		m.caret = prevWordBoundary([]rune(cur.note), m.caret)
+		return m, nil
+	case "ctrl+right":
+		m.caret = nextWordBoundary([]rune(cur.note), m.caret)
+		return m, nil
+	case "home":
+		m.caret = 0
+		return m, nil
+	case "end":
+		m.caret = len([]rune(cur.note))
 		return m, nil
 	}
 	if k.Type == tea.KeySpace && !k.Alt {
