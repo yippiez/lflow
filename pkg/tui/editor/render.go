@@ -855,7 +855,8 @@ func stripControlBytes(s string) string {
 // format in the plain text and chips those runes.
 type spanFlags struct {
 	date    bool   // part of a canonical YYYY-MM-DD[ HH:MM] date, painted as a chip
-	tag     bool   // part of a #tag, always painted muted gray
+	tag     bool   // part of a #tag, painted muted gray or its assigned pill color
+	tagWord string // the tag's word (no '#'), for the per-tag color lookup
 	mute    bool   // forced muted gray (log node's "· description" tail)
 	kwColor string // animated magic-keyword foreground (ultracode/ultraloop), "" = none
 }
@@ -872,8 +873,10 @@ func inlineSpans(runes []rune) []spanFlags {
 		}
 	}
 	for _, span := range detectTagSpans(name) {
+		word := strings.TrimPrefix(string(runes[span[0]:span[1]]), "#")
 		for k := span[0]; k < span[1] && k < len(flags); k++ {
 			flags[k].tag = true
+			flags[k].tagWord = word
 		}
 	}
 	return flags
@@ -953,9 +956,12 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			fg = f.kwColor
 		}
 		// #tags and date chips are structural tokens with a fixed color, so a
-		// node's /color never bleeds into them: tags stay muted gray, date chips
-		// keep a neutral foreground on their pill.
+		// node's /color never bleeds into them: tags stay muted gray (or their
+		// assigned pill color), date chips keep a neutral foreground on their pill.
 		if f.tag {
+			if pill := tagColorSGR(f.tagWord); pill != "" {
+				return cReset + attrs + pill
+			}
 			fg = cDim
 		}
 		if f.date {
@@ -1004,6 +1010,12 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			if c, ok := chips[sp.id]; ok {
 				if k, ok := chipKindOf(c.Kind); ok {
 					col = k.color
+				}
+				// a tag chip with an assigned color wears its pill
+				if c.Kind == chipKindTag {
+					if pill := tagColorSGR(c.Value); pill != "" {
+						col = pill
+					}
 				}
 				// a URL link chip emits an OSC 8 hyperlink so terminals that support
 				// it make the chip Ctrl+clickable. Node links can't — the terminal

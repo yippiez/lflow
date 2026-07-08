@@ -25,6 +25,8 @@ func (m *Model) listSource() pickerSource {
 		return themeSource{}
 	case modeComplete:
 		return completerSource{}
+	case modeTagColor:
+		return tagColorSource{}
 	}
 	return nil
 }

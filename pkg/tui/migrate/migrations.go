@@ -1004,3 +1004,19 @@ var lm34 = migration{
 		return nil
 	},
 }
+
+// lm35 adds the tag_colors table — manual per-tag colors (see editor/tagcolor.go).
+// One row per tag word; no row = the default muted gray. Assigned via alt+e on
+// a tag chip, rendered as a colored pill wherever the tag appears.
+var lm35 = migration{
+	name: "add-tag-colors-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS tag_colors (
+			tag text PRIMARY KEY,
+			color text NOT NULL DEFAULT ''
+		);`); err != nil {
+			return errors.Wrap(err, "creating tag_colors table")
+		}
+		return nil
+	},
+}

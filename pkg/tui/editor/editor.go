@@ -42,6 +42,7 @@ const (
 	modeCmdView   // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
 	modeFlash     // flash jump/act: every visible row's actions get a typed label (see flash.go)
 	modeArtifacts // the /artifacts management view: list, enable/disable, uninstall
+	modeTagColor  // the alt+e tag color picker: assign a pill color to a tag
 )
 
 type finderAction int
@@ -224,6 +225,8 @@ type Model struct {
 	// :tree: query breadcrumbs, memoized per source uuid (see query.go rowCrumb);
 	// cleared whenever a query re-runs
 	qCrumbs map[string]string
+
+	tagColorWord string // the tag word the alt+e color picker is assigning
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -690,7 +693,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.mode {
-	case modeSlash, modeType, modeStyle, modeTheme, modeComplete:
+	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
@@ -1082,6 +1085,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
+				return m, nil
+			} else if word, ok := m.tagWordAtCaret(cur); ok {
+				m.openTagColor(word) // ⌥e on a tag picks its pill color
 				return m, nil
 			} else if e := typeOf(cur.typ).expand; e != nil {
 				return m, e(m, cur)
@@ -3122,6 +3128,10 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	wfMap, err := database.AllWFNodes(ctx.DB)
 	if err != nil {
 		return errors.Wrap(err, "loading workflowy map")
+	}
+
+	if tc, err := database.AllTagColors(ctx.DB); err == nil {
+		tagColors = tc // package var, like linkColorMode: the render path is Model-free
 	}
 
 	m := &Model{

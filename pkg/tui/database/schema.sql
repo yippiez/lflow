@@ -74,6 +74,10 @@ CREATE TABLE wf_nodes (
 			wf_id text NOT NULL DEFAULT '',
 			synced_at integer NOT NULL DEFAULT 0
 		);
+CREATE TABLE tag_colors (
+			tag text PRIMARY KEY,
+			color text NOT NULL DEFAULT ''
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 34);
+INSERT INTO system (key, value) VALUES ('schema', 35);
