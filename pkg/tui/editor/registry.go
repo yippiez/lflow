@@ -178,8 +178,10 @@ func typeLabel(key string) string {
 }
 
 // WARNING (invariant): an artifact type is indistinguishable from a built-in
-// everywhere the user picks or reads types — /type shows one flat list with no
-// origin tags. Where a type came from only matters in /artifacts.
+// everywhere a type is READ (glyphs, rendering, storage). The /type picker is
+// the one management surface: artifact rows there carry the space/ctrl+d
+// enable/disable/uninstall chords and disabled artifacts list muted — there is
+// no separate /artifacts view or CLI.
 
 func todoGlyph(it *item) (string, string) {
 	if it.completedAt > 0 {

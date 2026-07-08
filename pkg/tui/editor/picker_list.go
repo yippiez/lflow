@@ -70,6 +70,13 @@ type pickerSource interface {
 // tag/query completer. When a pickerSource also satisfies this interface,
 // handleKey routes rune/space/backspace through it (so node text and popup stay
 // in sync) and honors its "close now" verdict. Static pickers don't implement it.
+// pickerKeySource lets a source claim extra keys (management chords like the
+// /type picker's space-toggle and ctrl+d on artifact rows) before the shared
+// space/rune handling runs.
+type pickerKeySource interface {
+	onKey(m *Model, p *listPicker, key string, items []pickerItem) (handled bool)
+}
+
 type inlineTextSource interface {
 	// onRune handles a typed rune: append to p.query, splice into the node text,
 	// and report whether the picker should now close (the slash menu closes when
@@ -142,6 +149,16 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 			}
 		}
 		return true, m, nil
+	}
+
+	if ks, ok := src.(pickerKeySource); ok {
+		key := k.String()
+		if k.Type == tea.KeySpace && !k.Alt {
+			key = " "
+		}
+		if ks.onKey(m, p, key, items) {
+			return true, m, nil
+		}
 	}
 
 	if k.Type == tea.KeySpace && !k.Alt {

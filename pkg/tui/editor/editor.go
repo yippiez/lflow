@@ -40,9 +40,8 @@ const (
 	modeComplete  // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit  // the alt+e link-chip editor: edit a link's name and target
 	modeCmdView   // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
-	modeFlash     // flash jump/act: every visible row's actions get a typed label (see flash.go)
-	modeArtifacts // the /artifacts management view: list, enable/disable, uninstall
-	modeTagColor  // the alt+e tag color picker: assign a pill color to a tag
+	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeTagColor // the alt+e tag color picker: assign a pill color to a tag
 )
 
 type finderAction int
@@ -61,7 +60,6 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/artifacts", "Manage installed artifact node types"},
 	{"/bring", "Bring another node (or an agent) here"},
 	{"/complete", "Toggle done"},
 	{"/star", "Star this node — ranks first in pickers"},
@@ -171,7 +169,6 @@ type Model struct {
 	settings    map[string]string
 
 	// /artifacts management view: selected row
-	artSel int
 
 	compl complState
 
@@ -714,8 +711,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNoteKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
-	case modeArtifacts:
-		return m.handleArtifactsKey(k)
 	case modeSettings:
 		return m.handleSettingsKey(k)
 	case modeFlash:
@@ -2070,9 +2065,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	}
 
 	switch name {
-	case "/artifacts":
-		m.mode = modeArtifacts
-		m.artSel = 0
 	case "/type":
 		// open the picker; pre-select the type already in effect (see typeSource)
 		m.mode = modeType
@@ -2894,12 +2886,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 		pickerItems, headerRows = m.list.counts(m, src)
 	} else if m.mode == modeSettings {
 		pickerItems = len(settingDefs)
-	} else if m.mode == modeArtifacts {
-		pickerItems = len(loadedArtifacts)
-		if pickerItems == 0 {
-			pickerItems = 1 // the "none installed" hint row
-		}
-		headerRows = 1 // the header row
 	}
 	pickerRows := 0
 	if pickerItems > 0 || headerRows > 0 {
@@ -3005,10 +2991,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 		lines = append(lines, m.list.render(m, src, maxLine)...)
 	}
 
-	// the /artifacts management view and its source pager
-	if m.mode == modeArtifacts {
-		lines = append(lines, m.artifactListLines(maxLine)...)
-	}
 
 	// the /settings picker: one row per preference as `label · value` — muted
 	// label, middle dot, value colored by settingValueColor (green affirmative,

@@ -125,3 +125,88 @@ lflow.registerChip({
 		t.Fatal("broken artifact's load error must be recorded")
 	}
 }
+
+// TestTypePickerManagesArtifacts drives the merged management surface: space
+// on an artifact row toggles it, a disabled artifact still lists (muted) and
+// re-enables on Enter, ctrl+d uninstalls — /artifacts is gone.
+func TestTypePickerManagesArtifacts(t *testing.T) {
+	db := database.InitTestMemoryDB(t)
+	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
+	a := database.Artifact{Key: "dice", Label: "Dice", Version: 1, Source: artifactSourceDice(t), CreatedBy: "user", Enabled: true}
+	if err := installArtifact(db, a); err != nil {
+		t.Fatal(err)
+	}
+
+	root := &item{uuid: "root"}
+	n := &item{uuid: "n1", name: "roll", parent: root}
+	root.children = []*item{n}
+	tr := &tree{db: db, root: root, byUUID: map[string]*item{"root": root, "n1": n},
+		externalNames: map[string]string{}, snapshots: map[string]snapshot{}}
+	m := &Model{db: db, tree: tr, viewStack: []*item{root}, width: 100, height: 30}
+	m.refreshRows()
+
+	src := typeSource{}
+	items := src.items(m, "")
+	sel := -1
+	for i, it := range items {
+		if it.value == "dice" {
+			sel = i
+		}
+	}
+	if sel < 0 {
+		t.Fatal("enabled artifact must list in /type")
+	}
+
+	// space disables it in place
+	m.list.sel = sel
+	p := &m.list
+	if !src.onKey(m, p, " ", items) {
+		t.Fatal("space on an artifact row must be handled")
+	}
+	if la, _ := artifactRowFor("dice"); la.Enabled {
+		t.Fatal("space must disable the artifact")
+	}
+	// disabled artifacts still list (muted) so they can come back
+	items = src.items(m, "")
+	found := false
+	for _, it := range items {
+		if it.value == "dice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("disabled artifact must still list in /type")
+	}
+	// Enter on the disabled row re-enables and applies the type
+	m.cursor = 0
+	src.onSelect(m, pickerItem{value: "dice"})
+	if la, _ := artifactRowFor("dice"); !la.Enabled {
+		t.Fatal("selecting a disabled artifact must re-enable it")
+	}
+	if n.typ != "dice" {
+		t.Fatalf("node type = %q, want dice", n.typ)
+	}
+
+	// ctrl+d uninstalls
+	items = src.items(m, "")
+	for i, it := range items {
+		if it.value == "dice" {
+			p.sel = i
+		}
+	}
+	if !src.onKey(m, p, "ctrl+d", items) {
+		t.Fatal("ctrl+d on an artifact row must be handled")
+	}
+	if _, ok := artifactRowFor("dice"); ok {
+		t.Fatal("ctrl+d must uninstall the artifact")
+	}
+	if _, err := database.GetArtifact(db, "dice"); err == nil {
+		t.Fatal("uninstall must delete the DB row")
+	}
+}
+
+// artifactSourceDice returns a minimal valid artifact program for tests.
+func artifactSourceDice(t *testing.T) string {
+	t.Helper()
+	return `lflow.registerType({key: "dice", label: "Dice", inlineEditable: true});`
+}
