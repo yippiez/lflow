@@ -974,3 +974,20 @@ var lm32 = migration{
 		return nil
 	},
 }
+
+// lm33 adds the wf_nodes table — the Workflowy mirror map. Each pulled node is
+// bound to its Workflowy id so a re-pull reconciles in place instead of
+// duplicating, and a future two-way sync can push edits back by id.
+var lm33 = migration{
+	name: "add-wf-nodes-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS wf_nodes (
+			node_uuid text PRIMARY KEY,
+			wf_id text NOT NULL DEFAULT '',
+			synced_at integer NOT NULL DEFAULT 0
+		);`); err != nil {
+			return errors.Wrap(err, "creating wf_nodes table")
+		}
+		return nil
+	},
+}

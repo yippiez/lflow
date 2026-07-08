@@ -24,6 +24,7 @@ const (
 	TypeDivider = "divider"
 	TypeLog     = "log"
 	TypeAgent   = "agent" // an agent-authored reply node: red ✦, text + chips only
+	TypeWF      = "wf"    // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
 )
 
 // TypeOrder is the canonical ordering of node types — the single source of
@@ -47,6 +48,7 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeAgent,
+	TypeWF,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.

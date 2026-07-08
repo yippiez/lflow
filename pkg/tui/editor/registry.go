@@ -106,6 +106,12 @@ var nodeTypes = []nodeType{
 		key: database.TypeQuery, label: "Query", sign: "⌕ ", inlineEditable: true,
 		run: runQuery,
 	},
+	// a Workflowy mirror root (see wf.go): paste a workflowy link, alt+r pulls
+	// the subtree in as readonly children, each one refreshable itself.
+	{
+		key: database.TypeWF, label: "Workflowy", glyph: wfGlyph, inlineEditable: true,
+		run: runWF,
+	},
 	// an agent reply (see agent.go): red ✦, body red, plain text + chips only,
 	// read-only inline — the agent's message is a record, not an editable note.
 	{

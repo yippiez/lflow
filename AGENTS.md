@@ -69,5 +69,6 @@ binary), and the status bar being the last rendered line.
 Remaining doc-level rules:
 
 - Never auto-run runnable nodes (alt+r only).
-- Secrets live in local config — Pi in `~/.pi/agent/settings.json` (a consolidated
-  `~/.config/lflow/credentials.json` is planned, not yet built).
+- Secrets live in local config — Pi in `~/.pi/agent/settings.json`, service keys
+  in `~/.config/lflow/credentials.json` (e.g. `{"workflowy":{"api_key":"…"}}`).
+  Never synced, never written into the DB.

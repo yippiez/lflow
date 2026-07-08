@@ -69,6 +69,11 @@ CREATE TABLE agent_sessions (
 			created_at integer NOT NULL DEFAULT 0,
 			updated_at integer NOT NULL DEFAULT 0
 		);
+CREATE TABLE wf_nodes (
+			node_uuid text PRIMARY KEY,
+			wf_id text NOT NULL DEFAULT '',
+			synced_at integer NOT NULL DEFAULT 0
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 32);
+INSERT INTO system (key, value) VALUES ('schema', 33);

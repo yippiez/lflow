@@ -18,6 +18,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/tag"
+	"github.com/lflow/lflow/pkg/tui/wf"
 	"github.com/lflow/lflow/pkg/utils/browser"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
@@ -209,6 +210,13 @@ type Model struct {
 	tagClients  map[string]tag.Client
 	agentBusy   map[string]bool
 	mentionSent map[string]bool
+
+	// Workflowy mirror (see wf.go and pkg/tui/wf): node uuid → workflowy id for
+	// every pulled node, busy flags per pull root, and the API client (lazy;
+	// tests inject one pointed at a mock server)
+	wfMap    map[string]string
+	wfBusy   map[string]bool
+	wfClient *wf.Client
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -540,6 +548,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleAgentEvent(msg)
 	case agentStreamEndMsg:
 		delete(m.agentBusy, msg.thread)
+		return m, nil
+	case wfDoneMsg:
+		m.handleWFDone(msg)
 		return m, nil
 	case fzfPickedMsg:
 		if it := m.tree.byUUID[msg.uuid]; it != nil {
@@ -1085,6 +1096,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if run := typeOf(cur.typ).run; run != nil {
 				return m, run(m, cur)
+			}
+			// any pulled Workflowy mirror refreshes its own branch — the
+			// recursive-mirror model: every pulled node is a wf handle too
+			if _, ok := m.wfMap[cur.uuid]; ok {
+				return m, runWF(m, cur)
 			}
 		}
 		return m, nil
@@ -3036,6 +3052,11 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		return errors.Wrap(err, "loading chips")
 	}
 
+	wfMap, err := database.AllWFNodes(ctx.DB)
+	if err != nil {
+		return errors.Wrap(err, "loading workflowy map")
+	}
+
 	m := &Model{
 		db:        ctx.DB,
 		ctx:       ctx,
@@ -3044,6 +3065,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
 		agents:    tag.LoadAgents(ctx.Paths.Config),
+		wfMap:     wfMap,
 	}
 	m.loadSettings() // apply persisted preferences (theme, …) before the first render
 	m.refreshAncestors()
