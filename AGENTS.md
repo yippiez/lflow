@@ -52,7 +52,7 @@ auto-run) and their output is ephemeral — never persisted or synced.
   completes configured agents; committing the node (Enter) sends — never mere
   typing. Thread context = ancestor chain + the node's subtree (mirrors
   expanded once, cycle-guarded);
-  replies land as red π `agent` child nodes; the agent owns only the mentioned
+  replies land as red ✦ `agent` child nodes; the agent owns only the mentioned
   node's subtree (its ancestors are never sent). Sessions persist in
   `agent_sessions` (id ↔ thread node ↔ agent) and resume across editor runs.
   Config `~/.config/lflow/agents.json`; without it a built-in mock **Pi** is

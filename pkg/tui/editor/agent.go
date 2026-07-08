@@ -20,11 +20,11 @@ import (
 // visible world, replies land beneath it as agent nodes (red ✦, text + chips
 // only), and the session id persists so a later mention resumes the context.
 
-// agentGlyph is the agent reply marker: a red π — a compact glyph for the
+// agentGlyph is the agent reply marker: a red ✦ — the general AI sparkle mark for the
 // default agent Pi. (When a second agent exists, the author will need to be
 // recorded on the node so each agent can wear its own mark.)
 func agentGlyph(it *item) (string, string) {
-	return "π", cRed
+	return "✦", cRed
 }
 
 var mentionRe = regexp.MustCompile(`@([A-Za-z][A-Za-z0-9_-]*)`)
