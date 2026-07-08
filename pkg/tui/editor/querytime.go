@@ -16,10 +16,12 @@ import (
 
 // timeQuery is the parsed time filter plus the leftover text query. It also
 // carries a ":type:<key>" filter (any number, OR'd) so a query can select node
-// types alongside its time window and words.
+// types alongside its time window and words, and the ":tree:" display flag —
+// group hits under muted ancestor breadcrumbs instead of a flat list.
 type timeQuery struct {
 	after, before *time.Time
 	types         []string
+	tree          bool
 	text          string
 }
 
@@ -91,6 +93,10 @@ func parseTimeQuery(raw string, now time.Time) timeQuery {
 			if rest != "" {
 				tq.types = append(tq.types, rest)
 			}
+			continue
+		}
+		if lf == ":tree:" || lf == ":tree" {
+			tq.tree = true
 			continue
 		}
 		kept = append(kept, f)

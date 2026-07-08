@@ -22,6 +22,7 @@ func runQuery(m *Model, it *item) tea.Cmd {
 	matches := m.queryMatches(it)
 	m.reconcileQueryMirrors(it, matches)
 	m.nodeStore(it.uuid)["queryRunAt"] = time.Now().Unix()
+	m.qCrumbs = nil // ancestor names may have changed — recompute breadcrumbs
 	m.unsaved = true
 	m.refreshRows()
 	return nil
@@ -121,7 +122,80 @@ func (m *Model) queryMatches(q *item) []database.Node {
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
+	// :tree: groups hits by their ancestor path, so same-parent matches sit
+	// together and the render can show one breadcrumb per group
+	if tq.tree {
+		m.qCrumbs = nil
+		sort.SliceStable(out, func(i, j int) bool {
+			return m.crumbOf(out[i].UUID) < m.crumbOf(out[j].UUID)
+		})
+	}
 	return out
+}
+
+// crumbOf is a node's muted ancestor breadcrumb ("inbox › work › "), memoized
+// in m.qCrumbs. In-memory ancestry wins; a hit outside the loaded subtree walks
+// parent uuids through the DB (bounded, so a cycle cannot hang the render).
+func (m *Model) crumbOf(uuid string) string {
+	if c, ok := m.qCrumbs[uuid]; ok {
+		return c
+	}
+	var parts []string
+	if it, ok := m.tree.byUUID[uuid]; ok {
+		for p := it.parent; p != nil && p.parent != nil; p = p.parent {
+			if n := displayAnchors(m.tree.displayName(p), m.chips); n != "" {
+				parts = append([]string{n}, parts...)
+			}
+		}
+	} else if m.db != nil {
+		cur, err := database.GetNode(m.db, uuid)
+		for hops := 0; err == nil && cur.ParentUUID != "" && hops < 6; hops++ {
+			p, perr := database.GetNode(m.db, cur.ParentUUID)
+			if perr != nil || p.ParentUUID == "" { // stop before the forest root
+				break
+			}
+			if n := displayAnchors(p.Name, m.chips); n != "" {
+				parts = append([]string{n}, parts...)
+			}
+			cur = p
+		}
+	}
+	if len(parts) > 3 {
+		parts = parts[len(parts)-3:] // keep the nearest ancestors when deep
+	}
+	crumb := ""
+	if len(parts) > 0 {
+		crumb = strings.Join(parts, " › ") + " › "
+	}
+	if m.qCrumbs == nil {
+		m.qCrumbs = map[string]string{}
+	}
+	m.qCrumbs[uuid] = crumb
+	return crumb
+}
+
+// rowCrumb is the breadcrumb a row displays: only mirror children of a :tree:
+// query show one, and only the first hit of each same-path group — the crumb
+// is the group header, never repeated per node.
+func (m *Model) rowCrumb(rows []row, i int) string {
+	it := rows[i].it
+	if it.mirrorOf == "" || it.parent == nil || it.parent.typ != database.TypeQuery {
+		return ""
+	}
+	raw := strings.ToLower(database.ExpandAnchors(it.parent.name, m.chips))
+	if !strings.Contains(raw, ":tree:") && !strings.HasSuffix(raw, ":tree") {
+		return ""
+	}
+	crumb := m.crumbOf(m.tree.sourceUUID(it))
+	if crumb == "" {
+		return ""
+	}
+	if i > 0 && rows[i-1].it.parent == it.parent && rows[i-1].it.mirrorOf != "" {
+		if m.crumbOf(m.tree.sourceUUID(rows[i-1].it)) == crumb {
+			return "" // same group as the hit above — the header is already shown
+		}
+	}
+	return crumb
 }
 
 // reconcileQueryMirrors brings the query node's mirror children in line with the

@@ -171,3 +171,70 @@ func TestQueryMatchesTypeFilter(t *testing.T) {
 	}
 }
 
+
+// TestQueryTreeBreadcrumbs drives the :tree: display flag: hits sort by
+// ancestor path, and only the first hit of each group renders the breadcrumb.
+func TestQueryTreeBreadcrumbs(t *testing.T) {
+	root := &item{uuid: "root"}
+	work := &item{uuid: "work", name: "work", parent: root}
+	home := &item{uuid: "home", name: "home", parent: root}
+	w1 := &item{uuid: "w1", name: "fix deploy", parent: work}
+	w2 := &item{uuid: "w2", name: "fix tests", parent: work}
+	h1 := &item{uuid: "h1", name: "fix the sink", parent: home}
+	work.children = []*item{w1, w2}
+	home.children = []*item{h1}
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root, name: "fix :tree:"}
+	root.children = []*item{work, home, q}
+	tr := &tree{
+		root:          root,
+		snapshots:     map[string]snapshot{},
+		externalNames: map[string]string{},
+		byUUID: map[string]*item{"root": root, "work": work, "home": home,
+			"w1": w1, "w2": w2, "h1": h1, "q": q},
+	}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 100, height: 40}
+
+	runQuery(m, q)
+
+	// hits grouped by parent: home's hit and work's two hits are contiguous
+	var srcs []string
+	for _, c := range q.children {
+		if c.mirrorOf != "" {
+			srcs = append(srcs, c.mirrorOf)
+		}
+	}
+	if len(srcs) != 3 {
+		t.Fatalf("want 3 hits, got %v", srcs)
+	}
+	if !(srcs[0] == "h1" && srcs[1] == "w1" && srcs[2] == "w2") {
+		t.Fatalf("hits not grouped by path: %v", srcs)
+	}
+
+	// crumbs: first of each group shows one, the second work hit shows none
+	m.refreshRows()
+	crumbs := map[string]string{}
+	for i, r := range m.rows {
+		if r.it.mirrorOf != "" {
+			crumbs[r.it.mirrorOf] = m.rowCrumb(m.rows, i)
+		}
+	}
+	if crumbs["h1"] != "home › " {
+		t.Errorf("h1 crumb = %q, want 'home › '", crumbs["h1"])
+	}
+	if crumbs["w1"] != "work › " {
+		t.Errorf("w1 crumb = %q, want 'work › '", crumbs["w1"])
+	}
+	if crumbs["w2"] != "" {
+		t.Errorf("w2 crumb = %q, want suppressed (same group)", crumbs["w2"])
+	}
+
+	// without :tree: no crumbs render at all
+	q.name = "fix"
+	runQuery(m, q)
+	m.refreshRows()
+	for i, r := range m.rows {
+		if r.it.mirrorOf != "" && m.rowCrumb(m.rows, i) != "" {
+			t.Fatal("flat query must not render crumbs")
+		}
+	}
+}

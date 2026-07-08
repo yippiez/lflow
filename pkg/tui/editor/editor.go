@@ -221,6 +221,10 @@ type Model struct {
 	wfBusy   map[string]bool
 	wfClient *wf.Client
 
+	// :tree: query breadcrumbs, memoized per source uuid (see query.go rowCrumb);
+	// cleared whenever a query re-runs
+	qCrumbs map[string]string
+
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
 	undoMark  string
@@ -2695,6 +2699,10 @@ func (m *Model) viewOutline(maxLine int) []string {
 		body := renderBody(it, name, caret, selected, m.chips)
 		if rm := typeOf(it.typ).renderM; rm != nil {
 			body = rm(m, it) // Model-aware override (voice waveform)
+		}
+		// a :tree: query hit leads its group with a muted ancestor breadcrumb
+		if crumb := m.rowCrumb(rows, i); crumb != "" {
+			body = cDim + crumb + cReset + body
 		}
 
 		suffix := m.typeSuffix(it)
