@@ -3,6 +3,7 @@ package editor
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,14 +43,15 @@ func (m *Model) wfIDFor(it *item) (string, bool) {
 }
 
 // wfEnsureClient builds the API client from credentials.json on first use.
-// Tests inject m.wfClient directly, pointed at a mock server.
+// Tests inject m.wfClient directly; LFLOW_WF_BASE_URL points the client at a
+// local mock service for demos and manual testing.
 func (m *Model) wfEnsureClient() *wf.Client {
 	if m.wfClient == nil {
 		key := ""
 		if m.ctx.Paths.Config != "" {
 			key = wf.LoadAPIKey(m.ctx.Paths.Config)
 		}
-		m.wfClient = &wf.Client{APIKey: key}
+		m.wfClient = &wf.Client{APIKey: key, BaseURL: os.Getenv("LFLOW_WF_BASE_URL")}
 	}
 	return m.wfClient
 }
