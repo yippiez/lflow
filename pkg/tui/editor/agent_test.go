@@ -231,6 +231,47 @@ func TestAgentReplyChips(t *testing.T) {
 	}
 }
 
+// TestBlurSendsTypedFollowUp: typing inside an active thread and moving the
+// cursor away sends the node — Enter stays required only for fresh @mentions.
+func TestBlurSendsTypedFollowUp(t *testing.T) {
+	m, disc, n1 := newAgentTestModel(t)
+	cmd, _ := m.mentionSendOnEnter(n1)
+	drain(t, m, cmd) // bind the session to the note
+
+	f := addChild(m, disc, "f1", "how many retries then?", database.TypeBullets)
+	m.refreshRows()
+	m.focusUUID, m.typedUUID = f.uuid, f.uuid
+	m.cursor = m.rowIndexOf(n1) // the cursor left the typed follow-up
+	if cmd := m.blurSendCheck(); cmd == nil {
+		t.Fatal("leaving a typed follow-up inside a thread must send it")
+	}
+	if !m.mentionSent[f.uuid] {
+		t.Fatal("blur send must mark the node sent")
+	}
+
+	// a second blur never resends
+	m.focusUUID, m.typedUUID = f.uuid, f.uuid
+	if cmd := m.blurSendCheck(); cmd != nil {
+		t.Fatal("an already-sent node must not resend on blur")
+	}
+
+	// a fresh @mention keeps Enter as the deliberate send
+	g := addChild(m, disc, "g1", "@Pi a new question", database.TypeBullets)
+	m.refreshRows()
+	m.focusUUID, m.typedUUID = g.uuid, g.uuid
+	if cmd := m.blurSendCheck(); cmd != nil {
+		t.Fatal("a fresh mention must not blur-send")
+	}
+
+	// a node typed OUTSIDE any active thread stays silent
+	o := addChild(m, m.tree.root, "o1", "plain note", database.TypeBullets)
+	m.refreshRows()
+	m.focusUUID, m.typedUUID = o.uuid, o.uuid
+	if cmd := m.blurSendCheck(); cmd != nil {
+		t.Fatal("nodes outside a thread must not blur-send")
+	}
+}
+
 func TestBuildThreadGuardsMirrorCycles(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
 	// child mirrors the message — a naive walk would recurse forever

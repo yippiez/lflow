@@ -210,6 +210,11 @@ type Model struct {
 	tagClients  map[string]tag.Client
 	agentBusy   map[string]bool
 	mentionSent map[string]bool
+	// blur-send state (see blurSendCheck): the item the cursor sat on at the
+	// last key, and the item last typed into — leaving a typed node inside an
+	// active thread ships it without waiting for Enter
+	focusUUID string
+	typedUUID string
 
 	// Workflowy mirror (see wf.go and pkg/tui/wf): node uuid → workflowy id for
 	// every pulled node, busy flags per pull root, and the API client (lazy;
@@ -533,6 +538,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		_, cmd := m.handleKey(msg)
+		// the key may have moved the cursor off a typed follow-up inside an
+		// active agent thread — leaving the node sends it (Enter still owns
+		// fresh @mentions)
+		if bc := m.blurSendCheck(); bc != nil {
+			cmd = tea.Batch(cmd, bc)
+		}
 		// a keyword may have just been typed (or scrolled into view) — kick the
 		// animation tick if it isn't already running.
 		return m, m.startAnim(cmd)
@@ -1513,6 +1524,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(ins) > 0 {
 			shiftSpans(cur.uuid, m.caret, len(ins)) // painted runs ride along
 			m.persistSpans(cur.uuid)
+			m.typedUUID = cur.uuid // blur-send candidate (see blurSendCheck)
 		}
 		m.caret += len(ins)
 		m.unsaved = true

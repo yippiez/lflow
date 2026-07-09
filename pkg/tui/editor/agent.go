@@ -319,6 +319,44 @@ func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
 	return nil, false
 }
 
+// blurSendCheck ships a typed-into node when the cursor leaves it: inside an
+// active thread, typing a follow-up and moving away is as deliberate as Enter.
+// Fresh @mentions are exempt — starting a conversation stays an explicit
+// Enter. Runs after every key (see Update); cheap when the cursor sat still.
+func (m *Model) blurSendCheck() tea.Cmd {
+	uuid := ""
+	if cur := m.cursorItem(); cur != nil {
+		uuid = cur.uuid
+	}
+	if uuid == m.focusUUID {
+		return nil
+	}
+	prevUUID := m.focusUUID
+	m.focusUUID = uuid
+	if prevUUID == "" || prevUUID != m.typedUUID {
+		return nil
+	}
+	m.typedUUID = ""
+	prev := m.tree.byUUID[prevUUID]
+	if prev == nil || prev.name == "" || prev.typ == database.TypeAgent {
+		return nil
+	}
+	if m.mentionSent == nil {
+		m.mentionSent = map[string]bool{}
+	}
+	if m.mentionSent[prevUUID] {
+		return nil // Enter (or an earlier blur) already sent it
+	}
+	if _, ok := m.mentionedAgent(expandAnchors(prev.name, m.chips)); ok {
+		return nil // a fresh @mention sends on Enter only
+	}
+	if ag, ok := m.activeThreadAgent(prev); ok {
+		m.mentionSent[prevUUID] = true
+		return m.sendThread(prev, ag)
+	}
+	return nil
+}
+
 // activeThreadAgent finds the agent whose session covers this node — the
 // nearest ancestor (or the node itself) bound to a session. Nodes outside
 // active threads reach no agent, ever.
