@@ -95,11 +95,9 @@ var nodeTypes = []nodeType{
 		render: func(it *item, name string) string { return renderJSONPreview(name) },
 		view:   jsonView{},
 	},
-	{
-		key: database.TypeBash, label: "Bash", sign: "$ ", inlineEditable: true,
-		run:  runBash,
-		view: bashView{}, // alt+e: scrollable, color-preserving output viewer
-	},
+	// there is deliberately NO bash node type: inline runnable shell is the cmd
+	// chip ("$cmd" + double space, see cmdchip.go) — legacy "bash"-typed nodes
+	// fall back to bullets like any unknown type, text intact.
 	{
 		key: database.TypeQuery, label: "Query", sign: "⌕ ", inlineEditable: true,
 		run: runQuery,

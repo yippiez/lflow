@@ -383,7 +383,7 @@ func registerJSType(vm *goja.Runtime, desc *goja.Object) {
 			}
 			return runShell(m, it, cmd)
 		}
-		nt.view = bashView{} // alt+e: the generic scrollable run-output viewer
+		nt.view = runOutView{} // alt+e: the generic scrollable run-output viewer
 	}
 
 	modTypes = append(modTypes, nt)

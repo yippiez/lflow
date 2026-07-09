@@ -32,14 +32,9 @@ type bashDoneMsg struct {
 	exit int
 }
 
-// runBash runs a bash node's command. Output is ephemeral (in-memory, keyed by
-// uuid) and streams in; a second alt+r while running cancels it.
-func runBash(m *Model, it *item) tea.Cmd {
-	return runShell(m, it, expandAnchors(it.name, m.chips)) // chips → full paths
-}
-
 // runShell streams an arbitrary shell command through the shared run machinery
-// — the bash node and every runnable genui type go through here.
+// — every runnable mod type goes through here (cmd chips mirror it in
+// runCmdChip, keyed by chip id instead of node uuid).
 func runShell(m *Model, it *item, cmd string) tea.Cmd {
 	if m.runCancel == nil {
 		m.runCancel = map[string]func(){}
@@ -186,22 +181,23 @@ collect:
 	send(bashDoneMsg{uuid, exit})
 }
 
-// bashView is a bash node's inline expanded output viewer (alt+e): the full
-// captured run band, scrollable and read-only, with the program's colors
-// preserved (see styleOutLine). It is stateless — the only state is the shared
-// focusScroll offset, which the central render loop clamps each frame.
-type bashView struct{}
+// runOutView is the generic inline run-output viewer (alt+e) for runnable
+// node types (mods with a `run` hook): the full captured band, scrollable and
+// read-only, with the program's colors preserved (see styleOutLine). It is
+// stateless — the only state is the shared focusScroll offset, which the
+// central render loop clamps each frame.
+type runOutView struct{}
 
-func (bashView) Enter(m *Model, it *item) bool {
+func (runOutView) Enter(m *Model, it *item) bool {
 	m.ensureRunOutLoaded(it.uuid)
 	m.focusScroll = 0
 	return true // focus even when empty so the placeholder explains how to run
 }
 
-func (bashView) Leave(m *Model, it *item) {}
+func (runOutView) Leave(m *Model, it *item) {}
 
 // Lines is a header plus one row per output line (or a placeholder when empty).
-func (bashView) Lines(m *Model, it *item, width int) int {
+func (runOutView) Lines(m *Model, it *item, width int) int {
 	m.ensureRunOutLoaded(it.uuid)
 	n := len(m.runOut[it.uuid])
 	if n == 0 {
@@ -211,7 +207,7 @@ func (bashView) Lines(m *Model, it *item, width int) int {
 }
 
 // Key scrolls the viewer; esc/ctrl+c fall through to central defocus.
-func (bashView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (runOutView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "down", "j", "pgdown":
 		step := 1
@@ -241,7 +237,7 @@ func (bashView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 }
 
 // Bands renders the header and output lines, self-windowed to [scroll, scroll+winH).
-func (bashView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (runOutView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	m.ensureRunOutLoaded(it.uuid)
 	out := m.runOut[it.uuid]
 	_, running := m.runCancel[it.uuid]

@@ -137,17 +137,18 @@ func TestCmdChipFoldsInPathChip(t *testing.T) {
 	}
 }
 
-// TestCmdChipNotInBashNode: inside a bash node the whole node is the command, so
-// "$" stays literal and no inline cmd chip forms.
-func TestCmdChipNotInBashNode(t *testing.T) {
+// TestCmdChipInLegacyBashNode: the bash node type is gone — a legacy
+// "bash"-typed row falls back to bullets, so cmd chips form there like in any
+// text node.
+func TestCmdChipInLegacyBashNode(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "", Type: database.TypeBash})
 	cursorOn(m, "edit")
 	m.caret = 0
 	m.press("$ls -la")
 	m.press(" ")
 	m.press(" ")
-	if _, ok := cmdChipOf(m); ok {
-		t.Fatal("a bash node must not form an inline cmd chip")
+	if c, ok := cmdChipOf(m); !ok || c.Value != "ls -la" {
+		t.Fatalf("legacy bash-typed nodes chip like bullets, got ok=%v", ok)
 	}
 }
 

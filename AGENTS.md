@@ -32,7 +32,7 @@ per-feature column — and no scattered `switch typ`:
    field doc-comments there list every hook (`sign`, `glyph`, `render`,
    `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e).
 3. Put the behavior in its own `pkg/tui/editor/<type>.go` (see `json.go`,
-   `bash.go`, `voice.go`, `worker.go`). A rich alt+e editor implements the
+   `voice.go`, `worker.go`; `bash.go` holds the shared shell-run machinery). A rich alt+e editor implements the
    stateless `nodeView` interface, keeping per-node state in `m.nodeStore(it.uuid)`.
 
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never

@@ -1580,7 +1580,7 @@ func pathChipTrigger(typ string) bool {
 // "[" is real syntax (bash test brackets, code, query, quote, json).
 func linkChipTrigger(typ string) bool {
 	switch typ {
-	case database.TypeBash, database.TypeCode, database.TypeQuery, database.TypeQuote, database.TypeJSON:
+	case database.TypeCode, database.TypeQuery, database.TypeQuote, database.TypeJSON:
 		return false
 	}
 	return typeOf(typ).inlineEditable
@@ -1608,7 +1608,7 @@ func atWordStart(cur *item, caret int) bool {
 // since it is a comment there.
 func tagPickerTrigger(typ string) bool {
 	switch typ {
-	case database.TypeBash, database.TypeCode:
+	case database.TypeCode:
 		return false
 	}
 	return typeOf(typ).inlineEditable

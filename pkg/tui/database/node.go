@@ -17,8 +17,11 @@ const (
 	TypeCode    = "code"
 	TypeQuote   = "quote"
 	TypeJSON    = "json"
-	TypeBash    = "bash"
-	TypeQuery   = "query"
+	// TypeBash is LEGACY: the bash node type was removed 2026-07-09 in favor of
+	// inline cmd chips ("$cmd" + double space). Old rows keep the value and
+	// render as bullets; it is no longer in TypeOrder/ValidTypes.
+	TypeBash  = "bash"
+	TypeQuery = "query"
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
@@ -41,7 +44,6 @@ var TypeOrder = []string{
 	TypeCode,
 	TypeQuote,
 	TypeJSON,
-	TypeBash,
 	TypeQuery,
 	TypeVoice,
 	TypeImage,

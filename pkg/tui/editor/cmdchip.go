@@ -25,10 +25,6 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly {
 		return false
 	}
-	// inside a bash node the whole node already IS the command; "$" stays literal.
-	if cur.typ == database.TypeBash {
-		return false
-	}
 	runes := []rune(cur.name)
 	// the caret sits just after the first of the two spaces.
 	if m.caret < 2 || m.caret > len(runes) || runes[m.caret-1] != ' ' {

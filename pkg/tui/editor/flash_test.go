@@ -84,28 +84,34 @@ func TestFlashJumpFires(t *testing.T) {
 	}
 }
 
-// A bash node offers run and expand actions on top of jump, straight from the
-// registry — no per-type wiring in flash.
-func TestFlashOffersBashActions(t *testing.T) {
-	m := newTestModel(80, "note", "echo hi")
-	m.tree.root.children[1].typ = database.TypeBash
+// A runnable type offers its run action straight from the registry — no
+// per-type wiring in flash. Query carries run; the legacy bash type is gone
+// (falls back to bullets), so it offers neither run nor expand.
+func TestFlashOffersRegistryActions(t *testing.T) {
+	m := newTestModel(80, "note", "grep foo")
+	m.tree.root.children[1].typ = database.TypeQuery
 	m.refreshRows()
 	m.cursor = 0
 	m.enterFlash()
-	var run, expand bool
+	var run bool
 	for _, tg := range m.flashTargets {
-		if tg.row != 1 {
-			continue
-		}
-		switch tg.verb {
-		case "run":
+		if tg.row == 1 && tg.verb == "run" {
 			run = true
-		case "expand":
-			expand = true
 		}
 	}
-	if !run || !expand {
-		t.Fatalf("bash actions: run=%v expand=%v, want both true", run, expand)
+	if !run {
+		t.Fatal("a query node must offer the run flash action")
+	}
+
+	// legacy bash-typed rows are plain bullets now: no run, no expand
+	m.mode = modeOutline
+	m.tree.root.children[1].typ = database.TypeBash
+	m.refreshRows()
+	m.enterFlash()
+	for _, tg := range m.flashTargets {
+		if tg.row == 1 && (tg.verb == "run" || tg.verb == "expand") {
+			t.Fatalf("legacy bash node must offer no %q action", tg.verb)
+		}
 	}
 }
 

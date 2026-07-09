@@ -1019,13 +1019,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		prefix = cAccent + glyphQuoteBar + cReset + " "
 	case database.TypeCode:
 		attrs += bgCode
-	case database.TypeBash:
-		attrs += bgTerm // dark terminal block; the "$ " prompt is folded into the pad
 	}
 	if desc.prefix != nil {
 		prefix = desc.prefix(it) // per-type prefix, e.g. a log mod's time chip
 	}
-	if s := desc.sign; s != "" && it.typ != database.TypeBash {
+	if s := desc.sign; s != "" {
 		prefix = cDim + s + cReset // type sign as prefix, e.g. "⌕ " for query
 	}
 	// /bold, /italic, /underline layer on top of the layout's own attributes
@@ -1085,27 +1083,27 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	switch it.typ {
 	case database.TypeCode:
 		b.WriteString(cReset + attrs + " ") // pad the code block
-	case database.TypeBash:
-		b.WriteString(cReset + attrs + cDim + "$ " + cReset + attrs) // prompt on the tint
 	}
 	for i := 0; i < len(runes); {
 		// a chip anchor renders collapsed: the chip kind's color + compact display,
 		// atomic. The caret only ever sits at its boundaries (see snapCaret).
 		if sp := spanStartingAt(chipsp, i); sp != nil {
-			// a cmd chip renders like a bash node: "$ cmd" on the dark terminal
-			// tint (a code cell), and the run-output preview muted gray after the →.
+			// a cmd chip is a code cell: "$ cmd" on the dark terminal tint — "$"
+			// red, the command in the normal text color — and the run-output
+			// preview muted gray after the →. The caret-on-chip cursor adds
+			// reverse video ON TOP of those colors: the wrap machinery drops
+			// cInvert (a cursor never spans lines) but carries the colors, so a
+			// chip that wraps stays tinted on every continuation line.
 			if c, ok := chips[sp.id]; ok && c.Kind == chipKindCmd {
 				b.WriteString(cReset)
 				if caret == sp.start {
-					b.WriteString(cInvert + chipDisplay(c) + cReset) // cursor on the chip
-				} else {
-					// the whole chip sits on the terminal tint; "$" red, the rest muted gray.
-					b.WriteString(bgTerm + cRed + "$ " + cDim + c.Value)
-					if c.Label != "" {
-						b.WriteString(cDim + " → " + c.Label)
-					}
-					b.WriteString(cReset)
+					b.WriteString(cInvert)
 				}
+				b.WriteString(bgTerm + cRed + "$ " + cFG + c.Value)
+				if c.Label != "" {
+					b.WriteString(cDim + " → " + c.Label)
+				}
+				b.WriteString(cReset)
 				cur = ""
 				i = sp.end
 				continue
@@ -1190,7 +1188,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		// past the last rune: paint one trailing cell
 		b.WriteString(cReset + cFG + cInvert + " ")
 	}
-	if it.typ == database.TypeCode || it.typ == database.TypeBash {
+	if it.typ == database.TypeCode {
 		b.WriteString(cReset + attrs + " ")
 	}
 	if it.starred {
