@@ -74,16 +74,28 @@ func addChild(m *Model, parent *item, uuid, name, typ string) *item {
 	return it
 }
 
+// startThread sends a mention node's thread the way the editor now does it:
+// alt+r (Enter no longer starts sessions).
+func startThread(t *testing.T, m *Model, it *item) tea.Cmd {
+	t.Helper()
+	ag, ok := m.mentionedAgent(expandAnchors(it.name, m.chips))
+	if !ok {
+		t.Fatalf("node %q mentions no configured agent", it.name)
+	}
+	return m.sendThread(it, ag)
+}
+
 func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
 	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
-	cmd, consumed := m.mentionSendOnEnter(n1)
-	if !consumed || cmd == nil {
-		t.Fatal("a fresh mention on Enter must send and consume the Enter")
+	// Enter on a fresh mention just edits — alt+r is the deliberate send
+	if cmd, consumed := m.mentionSendOnEnter(n1); consumed || cmd != nil {
+		t.Fatal("Enter must not start a session; alt+r does")
 	}
-	if cmd2, c2 := m.mentionSendOnEnter(n1); c2 || cmd2 != nil {
-		t.Fatal("a second Enter must not re-send")
+	cmd := startThread(t, m, n1)
+	if cmd == nil {
+		t.Fatal("alt+r on a fresh mention must send")
 	}
 	// the session binds to the mention's PARENT — the note is the channel
 	if !m.agentBusy["disc"] {
@@ -118,9 +130,8 @@ func TestBoardReviewAndReplyThread(t *testing.T) {
 	m, disc, _ := newAgentTestModel(t)
 	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
-	// establish the session with the mention turn
-	cmd, _ := m.mentionSendOnEnter(disc.children[0])
-	drain(t, m, cmd)
+	// establish the session with the mention turn (alt+r)
+	drain(t, m, startThread(t, m, disc.children[0]))
 
 	// a plain note on the board: seen, no reply
 	note := addChild(m, disc, "note1", "retry only transient curl exits", database.TypeBullets)
@@ -171,11 +182,7 @@ func TestMentionCreatesNodeMod(t *testing.T) {
 	dir := setModTestDir(t)
 	n1.name = "@Pi create a dice artifact for me"
 
-	cmd, sent := m.mentionSendOnEnter(n1)
-	if !sent {
-		t.Fatal("mention must send")
-	}
-	drain(t, m, cmd)
+	drain(t, m, startThread(t, m, n1))
 
 	if _, err := os.Stat(filepath.Join(dir, "dice.js")); err != nil {
 		t.Fatalf("dice.js not written to the nodes dir: %v", err)
@@ -232,11 +239,10 @@ func TestAgentReplyChips(t *testing.T) {
 }
 
 // TestBlurSendsTypedFollowUp: typing inside an active thread and moving the
-// cursor away sends the node — Enter stays required only for fresh @mentions.
+// cursor away sends the node — alt+r stays required only for fresh @mentions.
 func TestBlurSendsTypedFollowUp(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
-	cmd, _ := m.mentionSendOnEnter(n1)
-	drain(t, m, cmd) // bind the session to the note
+	drain(t, m, startThread(t, m, n1)) // bind the session to the note (alt+r)
 
 	f := addChild(m, disc, "f1", "how many retries then?", database.TypeBullets)
 	m.refreshRows()

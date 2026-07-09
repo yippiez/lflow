@@ -14,12 +14,13 @@ import (
 
 // The @mention agent surface (see pkg/tui/tag and AGENTS.md).
 //
-// Committing a node that mentions a configured agent (Enter) IS the send —
-// the keyboard gesture stands in for Slack's send button, so nothing fires
-// from mere typing; alt+r on the node re-sends the thread. The mentioned node
-// becomes the thread root: its ancestors + subtree are the session's whole
-// visible world, replies land beneath it as agent nodes (red ✦, text + chips
-// only), and the session id persists so a later mention resumes the context.
+// alt+r on a node that mentions a configured agent IS the send — a deliberate
+// gesture, so nothing fires from mere typing or from Enter (which just edits
+// text); alt+r again re-sends the thread. The mentioned node becomes the
+// thread root: its ancestors + subtree are the session's whole visible world,
+// replies land beneath it as agent nodes (red ✦, text + chips only), and the
+// session id persists so a later mention resumes the context. Follow-ups
+// inside a live thread still ship on Enter or on cursor-leave (blurSendCheck).
 
 // agentGlyph is the agent reply marker: a red ✦ — the general AI sparkle mark for the
 // default agent Pi. (When a second agent exists, the author will need to be
@@ -287,13 +288,11 @@ func (m *Model) touchSession(id, nodeUUID, agent, state string) {
 	_ = s.Upsert(m.db)
 }
 
-// mentionSendOnEnter fires the send when Enter commits a node the agent
-// should see. Two cases, mirroring Claude Tag:
-//   - a fresh @mention: Enter IS the send and is consumed (no split — the
-//     reply arrives at this node);
-//   - an untagged node inside a subtree that already has a session: it is
-//     shipped for consideration (the agent answers only if it judges the node
-//     a question) and Enter continues to behave normally.
+// mentionSendOnEnter ships an untagged node committed inside an active
+// thread for consideration (the agent answers only if it judges the node a
+// question); Enter always continues to behave normally. Starting a session
+// is deliberate: alt+r on the @mention node — Enter near a mention just
+// edits text, wherever the caret sits.
 func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
 	if cur == nil || cur.name == "" || cur.typ == database.TypeAgent {
 		return nil, false
@@ -302,12 +301,10 @@ func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
 		m.mentionSent = map[string]bool{}
 	}
 	if m.mentionSent[cur.uuid] {
-		return nil, false // already sent — Enter behaves normally; alt+r re-sends
+		return nil, false // already sent — alt+r re-sends
 	}
-
-	if ag, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
-		m.mentionSent[cur.uuid] = true
-		return m.sendThread(cur, ag), true
+	if _, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
+		return nil, false // a fresh mention starts its session on alt+r only
 	}
 
 	// no mention: inside an active thread, committing still shows the node to
@@ -321,7 +318,7 @@ func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
 
 // blurSendCheck ships a typed-into node when the cursor leaves it: inside an
 // active thread, typing a follow-up and moving away is as deliberate as Enter.
-// Fresh @mentions are exempt — starting a conversation stays an explicit
+// Fresh @mentions are exempt — starting a conversation stays an explicit alt+r.
 // Enter. Runs after every key (see Update); cheap when the cursor sat still.
 func (m *Model) blurSendCheck() tea.Cmd {
 	uuid := ""
@@ -348,7 +345,7 @@ func (m *Model) blurSendCheck() tea.Cmd {
 		return nil // Enter (or an earlier blur) already sent it
 	}
 	if _, ok := m.mentionedAgent(expandAnchors(prev.name, m.chips)); ok {
-		return nil // a fresh @mention sends on Enter only
+		return nil // a fresh @mention sends on alt+r only
 	}
 	if ag, ok := m.activeThreadAgent(prev); ok {
 		m.mentionSent[prevUUID] = true

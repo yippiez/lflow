@@ -62,8 +62,10 @@ auto-run) and their output is ephemeral — never persisted or synced.
   materialized to `~/.local/share/lflow/skills` at editor start and passed to
   pi via `--skill` each turn — skills only, never a pi extension.
 - **@mention agent** (`pkg/tui/tag` + `pkg/tui/editor/agent.go`): typing `@`
-  completes configured agents; committing the node (Enter) sends — never mere
-  typing. Thread context = ancestor chain + the node's subtree (mirrors
+  completes configured agents; alt+r on the mention node starts (or re-sends)
+  the session — never mere typing, and Enter just edits text. Follow-ups
+  committed inside a live thread still ship for consideration. Thread context
+  = ancestor chain + the node's subtree (mirrors
   expanded once, cycle-guarded);
   replies land as red ✦ `agent` child nodes; the agent owns only the mentioned
   node's subtree (its ancestors are never sent). Replies may speak chips:

@@ -208,7 +208,7 @@ type Model struct {
 
 	// @mention agent sessions (see agent.go and pkg/tui/tag): configured
 	// agents, one client per agent, busy flags per thread root, and the nodes
-	// whose mention already sent this session (Enter sends once; alt+r re-sends)
+	// whose mention already sent this session (alt+r starts/re-sends; Enter never starts a session)
 	agents      []tag.Agent
 	tagClients  map[string]tag.Client
 	agentBusy   map[string]bool
@@ -569,6 +569,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.persistRunOut(msg.uuid) // cache the finished band so it survives a restart
 		m.setCmdPreview(msg.uuid) // a cmd chip: refresh its inline "→ preview"
 		return m, nil
+	case agentModelsMsg:
+		// the background pi --list-models fetch landed — fill the /settings row
+		for i := range settingDefs {
+			if settingDefs[i].key == "agent.model" {
+				settingDefs[i].options = msg.options
+			}
+		}
+		return m, nil
 	case agentEvMsg:
 		return m.handleAgentEvent(msg)
 	case agentStreamEndMsg:
@@ -834,11 +842,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur != nil {
 			m.chipifyBeforeCaret(cur)
 		}
-		// a node with a fresh @AgentName mention: Enter IS the send (the
-		// keyboard stand-in for Slack's send button) — the reply lands at this
-		// node instead of a sibling opening. An untagged commit inside an
-		// active thread also ships for consideration (agentCmd) while Enter
-		// carries on normally. alt+r re-sends any time.
+		// an untagged commit inside an active thread ships for consideration
+		// (agentCmd) while Enter carries on normally. A fresh @mention does
+		// NOT send here — alt+r starts the session deliberately, so Enter at
+		// the end of (or anywhere in) a mention just edits text.
 		agentCmd, consumed := m.mentionSendOnEnter(cur)
 		if consumed {
 			return m, agentCmd
@@ -1180,7 +1187,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
 			}
-			// a node mentioning an agent re-sends its thread to the session
+			// a node mentioning an agent starts (or re-sends) its thread session
 			if ag, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
 				return m, m.sendThread(cur, ag)
 			}
@@ -2111,11 +2118,15 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeTheme
 		m.list.open(m, themeSource{}, false)
 	case "/settings":
-		// open the global-preferences picker; the agent model list comes from
-		// the pi CLI and is queried on first open, not at editor start
-		seedAgentModelOptions()
+		// open the global-preferences picker; the agent model list execs the
+		// pi CLI, so it fetches in the background on first open — the picker
+		// must never freeze waiting on it
 		m.mode = modeSettings
 		m.settingsSel = 0
+		if !agentModelsSeeded {
+			agentModelsSeeded = true
+			return m, fetchAgentModelsCmd()
+		}
 	case "/lock":
 		// toggle the read-only lock: locked nodes ignore inline text edits (a file
 		// node locks itself on Enter); unlock to edit, Enter re-locks a file node.
