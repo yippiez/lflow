@@ -19,6 +19,7 @@ func TestRunOutPersistsAcrossReload(t *testing.T) {
 		{text: "hello"},
 		{text: "boom", err: true},
 	}}
+	m.runPWD = map[string]string{"b1": "/tmp/project"}
 	m.persistRunOut("b1")
 
 	// simulate a restart: fresh maps, nothing in memory, same DB
@@ -34,6 +35,13 @@ func TestRunOutPersistsAcrossReload(t *testing.T) {
 	}
 	if got[1].text != "boom" || !got[1].err {
 		t.Errorf("line 1 (stderr) wrong: %+v", got[1])
+	}
+	if pwd := reopened.runPWD["b1"]; pwd != "/tmp/project" {
+		t.Fatalf("pwd = %q, want /tmp/project", pwd)
+	}
+	bands := (runOutView{}).Bands(reopened, &item{uuid: "b1", typ: "bash"}, "", 80, 0, 10, true)
+	if len(bands) < 2 || !strings.Contains(bands[1], "pwd: /tmp/project") {
+		t.Fatalf("alt+e band should show pwd, got %q", bands)
 	}
 }
 
@@ -121,6 +129,7 @@ func TestAltXStopsThenClears(t *testing.T) {
 	m.runCancel = map[string]func(){"u1": func() { stopped = true }}
 	m.runCh = map[string]chan tea.Msg{"u1": make(chan tea.Msg)}
 	m.runDropped = map[string]int{"u1": 42}
+	m.runPWD = map[string]string{"u1": "/tmp/project"}
 
 	altX := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x"), Alt: true}
 	m.handleKey(altX)
@@ -140,6 +149,9 @@ func TestAltXStopsThenClears(t *testing.T) {
 	}
 	if _, ok := m.runDropped["u1"]; ok {
 		t.Fatal("second alt+x did not reset the dropped counter")
+	}
+	if _, ok := m.runPWD["u1"]; ok {
+		t.Fatal("second alt+x did not clear the captured pwd")
 	}
 }
 

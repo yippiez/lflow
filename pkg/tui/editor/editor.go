@@ -186,6 +186,7 @@ type Model struct {
 	runCh        map[string]chan tea.Msg // stream channel for a running command
 	runOutLoaded map[string]bool         // uuids whose run band is hydrated (see runout.go)
 	runDropped   map[string]int          // lines dropped off a band's head (see maxRunLines)
+	runPWD       map[string]string       // cwd captured when the band was run
 
 	// Temporary Domain — a scratch outline region (a second root, 7-day retention)
 	tempActive bool
@@ -1220,6 +1221,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if len(m.runOut[id]) > 0 {
 				m.runOut[id] = nil
 				delete(m.runDropped, id)
+				delete(m.runPWD, id)
 				m.persistRunOut(id) // an empty band deletes the row
 				m.setCmdPreview(id)
 			}

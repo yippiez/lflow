@@ -52,6 +52,13 @@ type outLineDisk struct {
 	Err  bool   `json:"e,omitempty"`
 }
 
+// runOutDisk is the persisted local-only run band. Older rows were a bare
+// []outLineDisk; ensureRunOutLoaded keeps that shape readable.
+type runOutDisk struct {
+	PWD   string        `json:"pwd,omitempty"`
+	Lines []outLineDisk `json:"lines"`
+}
+
 // ensureRunOutLoaded lazily hydrates a node's run band from node_output the first
 // time it is rendered, so persisted output shows after a restart. A node that is
 // currently running already has its lines in memory and is left untouched.
@@ -74,15 +81,25 @@ func (m *Model) ensureRunOutLoaded(uuid string) {
 	if raw == "" {
 		return
 	}
-	var disk []outLineDisk
-	if json.Unmarshal([]byte(raw), &disk) != nil {
-		return
+	var row runOutDisk
+	if err := json.Unmarshal([]byte(raw), &row); err != nil {
+		var legacy []outLineDisk
+		if json.Unmarshal([]byte(raw), &legacy) != nil {
+			return
+		}
+		row.Lines = legacy
 	}
 	if m.runOut == nil {
 		m.runOut = map[string][]outLine{}
 	}
-	out := make([]outLine, len(disk))
-	for i, l := range disk {
+	if row.PWD != "" {
+		if m.runPWD == nil {
+			m.runPWD = map[string]string{}
+		}
+		m.runPWD[uuid] = row.PWD
+	}
+	out := make([]outLine, len(row.Lines))
+	for i, l := range row.Lines {
 		out[i] = outLine{text: l.Text, err: l.Err}
 	}
 	m.runOut[uuid] = out
@@ -117,7 +134,7 @@ func (m *Model) persistRunOut(uuid string) {
 	for i, l := range out {
 		disk[i] = outLineDisk{Text: l.text, Err: l.err}
 	}
-	data, err := json.Marshal(disk)
+	data, err := json.Marshal(runOutDisk{PWD: m.runPWD[uuid], Lines: disk})
 	if err != nil {
 		return
 	}
@@ -129,6 +146,10 @@ func (m *Model) persistRunOut(uuid string) {
 // deleteRunOut drops a node's persisted run band — called when the node itself
 // is removed so the row does not outlive it.
 func (m *Model) deleteRunOut(uuid string) {
+	delete(m.runOut, uuid)
+	delete(m.runDropped, uuid)
+	delete(m.runPWD, uuid)
+	delete(m.runOutLoaded, uuid)
 	if m.ctx.DB == nil {
 		return
 	}

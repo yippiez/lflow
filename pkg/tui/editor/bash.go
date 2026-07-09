@@ -58,6 +58,7 @@ func runShell(m *Model, it *item, cmd string) tea.Cmd {
 	}
 	m.runOutLoaded[it.uuid] = true
 	m.runOut[it.uuid] = nil
+	m.captureRunPWD(it.uuid)
 	ch := make(chan tea.Msg, 1024)
 	m.runCh[it.uuid] = ch
 	go startBash(it.uuid, cmd, ctx, ch)
@@ -66,6 +67,21 @@ func runShell(m *Model, it *item, cmd string) tea.Cmd {
 
 func waitBashCmd(ch chan tea.Msg) tea.Cmd {
 	return func() tea.Msg { return <-ch }
+}
+
+// captureRunPWD remembers the working directory a run was launched from, so the
+// alt+e output menu can say exactly where the command ran. Commands inherit the
+// editor process cwd (startBash leaves Cmd.Dir empty), so os.Getwd is the source
+// of truth at launch time.
+func (m *Model) captureRunPWD(id string) {
+	pwd, err := os.Getwd()
+	if err != nil || pwd == "" {
+		return
+	}
+	if m.runPWD == nil {
+		m.runPWD = map[string]string{}
+	}
+	m.runPWD[id] = pwd
 }
 
 // finishRun closes out a run band — the stream ended (done, canceled, or
@@ -196,12 +212,16 @@ func (runOutView) Enter(m *Model, it *item) bool {
 
 func (runOutView) Leave(m *Model, it *item) {}
 
-// Lines is a header plus one row per output line (or a placeholder when empty).
+// Lines is a header plus optional pwd row plus one row per output line (or a
+// placeholder when empty).
 func (runOutView) Lines(m *Model, it *item, width int) int {
 	m.ensureRunOutLoaded(it.uuid)
 	n := len(m.runOut[it.uuid])
 	if n == 0 {
 		n = 1 // the "no output" placeholder
+	}
+	if m.runPWD[it.uuid] != "" {
+		n++
 	}
 	return 1 + n
 }
@@ -253,6 +273,9 @@ func (runOutView) Bands(m *Model, it *item, rail string, width, scroll, winH int
 	}
 	hdr += " · ↑↓ scroll · esc close"
 	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}
+	if pwd := m.runPWD[it.uuid]; pwd != "" {
+		content = append(content, clip(rail+cReset+cDim+"  pwd: "+pwd+cReset, width))
+	}
 
 	if len(out) == 0 {
 		content = append(content, clip(rail+cReset+cDim+"  no output yet · ⌥r runs"+cReset, width))

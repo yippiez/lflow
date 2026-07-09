@@ -114,6 +114,7 @@ func (m *Model) runCmdChip(c database.Chip) tea.Cmd {
 	}
 	m.runOutLoaded[c.ID] = true // a fresh run owns the band; memory is authoritative
 	m.runOut[c.ID] = nil
+	m.captureRunPWD(c.ID)
 	ch := make(chan tea.Msg, 1024)
 	m.runCh[c.ID] = ch
 	go startBash(c.ID, c.Value, ctx, ch)
@@ -191,12 +192,16 @@ func (cmdChipView) Enter(m *Model, it *item) bool { return m.focusChip != "" }
 
 func (cmdChipView) Leave(m *Model, it *item) { m.focusChip = "" }
 
-// Lines is a header plus one row per output line (or a placeholder when empty).
+// Lines is a header plus optional pwd row plus one row per output line (or a
+// placeholder when empty).
 func (cmdChipView) Lines(m *Model, it *item, width int) int {
 	m.ensureRunOutLoaded(m.focusChip)
 	n := len(m.runOut[m.focusChip])
 	if n == 0 {
 		n = 1 // the "no output" placeholder
+	}
+	if m.runPWD[m.focusChip] != "" {
+		n++
 	}
 	return 1 + n
 }
@@ -257,6 +262,9 @@ func (cmdChipView) Bands(m *Model, it *item, rail string, width, scroll, winH in
 	}
 	hdr += " · ↑↓ scroll · esc close"
 	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}
+	if pwd := m.runPWD[m.focusChip]; pwd != "" {
+		content = append(content, clip(rail+cReset+cDim+"  pwd: "+pwd+cReset, width))
+	}
 
 	if len(out) == 0 {
 		content = append(content, clip(rail+cReset+cDim+"  no output yet · ⌥r runs"+cReset, width))
