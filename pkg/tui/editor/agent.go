@@ -46,6 +46,33 @@ func (m *Model) mentionedAgent(text string) (tag.Agent, bool) {
 	return tag.Agent{}, false
 }
 
+// mentionsName reports whether the text mentions exactly this agent name.
+func mentionsName(text, name string) bool {
+	for _, match := range mentionRe.FindAllStringSubmatch(text, -1) {
+		if match[1] == name {
+			return true
+		}
+	}
+	return false
+}
+
+// threadSessionAt reports whether a VALID session binds this node to the
+// agent. Valid means the node still mentions the agent — a session lives on
+// the @-chipped node and nowhere else, so rows left by the earlier
+// parent-binding scheme (or a mention edited away) must not keep an invisible
+// thread alive, silently swallowing every new node beneath them. Stale rows
+// are deleted on sight: the DB self-heals as it is read.
+func (m *Model) threadSessionAt(p *item, agentName string) bool {
+	if _, ok, _ := database.GetThreadSession(m.db, p.uuid, agentName); !ok {
+		return false
+	}
+	if mentionsName(expandAnchors(p.name, m.chips), agentName) {
+		return true
+	}
+	_ = database.DeleteThreadSession(m.db, p.uuid, agentName)
+	return false
+}
+
 // threadRootFor resolves the conversation a message belongs to: an existing
 // session on the node or any ancestor wins (follow-ups continue it), and a
 // fresh mention roots ITS OWN thread — the session binds to the mention node,
@@ -56,7 +83,7 @@ func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 		if p.uuid == "" {
 			break
 		}
-		if _, ok, _ := database.GetThreadSession(m.db, p.uuid, ag.Name); ok {
+		if m.threadSessionAt(p, ag.Name) {
 			return p
 		}
 	}
@@ -387,12 +414,12 @@ func (m *Model) blurSendCheck() tea.Cmd {
 }
 
 // activeThreadAgent finds the agent whose session covers this node — the
-// nearest ancestor (or the node itself) bound to a session. Nodes outside
-// active threads reach no agent, ever.
+// nearest ancestor (or the node itself) that is a session-bound @mention
+// node. Nodes outside active threads reach no agent, ever.
 func (m *Model) activeThreadAgent(it *item) (tag.Agent, bool) {
 	for p := it; p != nil; p = p.parent {
 		for _, a := range m.agents {
-			if _, ok, _ := database.GetThreadSession(m.db, p.uuid, a.Name); ok {
+			if m.threadSessionAt(p, a.Name) {
 				return a, true
 			}
 		}

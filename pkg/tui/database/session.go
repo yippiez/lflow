@@ -55,6 +55,15 @@ func GetThreadSession(db *DB, nodeUUID, agent string) (AgentSession, bool, error
 	return s, true, nil
 }
 
+// DeleteThreadSession drops the session bound to a thread node + agent — used
+// to self-heal stale bindings (e.g. the node no longer mentions the agent).
+func DeleteThreadSession(db *DB, nodeUUID, agent string) error {
+	if _, err := db.Exec("DELETE FROM agent_sessions WHERE node_uuid = ? AND agent = ?", nodeUUID, agent); err != nil {
+		return errors.Wrapf(err, "deleting session for node %s", nodeUUID)
+	}
+	return nil
+}
+
 // PauseRunningSessions marks every running session paused — called when the
 // editor closes, since the bridge (and any in-flight work) dies with it.
 func PauseRunningSessions(db *DB) error {

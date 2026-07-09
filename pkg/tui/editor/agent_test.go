@@ -386,6 +386,28 @@ func TestThreadRootSkipsInvisibleRoot(t *testing.T) {
 	}
 }
 
+// TestStaleParentSessionSelfHeals: a session row bound to a node that does NOT
+// mention the agent (the pre-2026-07-09 parent-binding scheme left these) must
+// never make its subtree "think" — the row is deleted on sight instead.
+func TestStaleParentSessionSelfHeals(t *testing.T) {
+	m, disc, _ := newAgentTestModel(t)
+	// simulate the legacy scheme: session bound to the NOTE (mention's parent)
+	s := database.AgentSession{ID: "disc", NodeUUID: "disc", Agent: "Pi", State: "idle"}
+	if err := s.Upsert(m.db); err != nil {
+		t.Fatal(err)
+	}
+
+	// a new node under the note must not reach any agent…
+	note := addChild(m, disc, "note1", "just a note", database.TypeBullets)
+	if _, ok := m.activeThreadAgent(note); ok {
+		t.Fatal("a session on a non-mention node must not cover its subtree")
+	}
+	// …and the stale row is gone afterwards (self-healed)
+	if _, ok, _ := database.GetThreadSession(m.db, "disc", "Pi"); ok {
+		t.Fatal("the stale session row must be deleted on sight")
+	}
+}
+
 // TestAgentReplyEditable: agent replies are plain nodes — inline editable.
 func TestAgentReplyEditable(t *testing.T) {
 	if !typeOf(database.TypeAgent).inlineEditable {
