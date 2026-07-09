@@ -121,6 +121,19 @@ func clip(s string, width int) string {
 	return b.String()
 }
 
+// selFill paints the multi-select background under an already-styled line,
+// padded with spaces to width so the bar runs edge to edge. Real cells, not an
+// \x1b[K flood: the renderer appends its own end-of-line erase after each
+// line, which would repaint a flood back to the default background. Every
+// reset inside the content re-arms the background so mixed-color rows keep
+// the highlight; the frame wrapper's trailing cReset closes it.
+func selFill(s string, width int) string {
+	if pad := width - visibleWidth(s); pad > 0 {
+		s += strings.Repeat(" ", pad)
+	}
+	return bgPill + strings.ReplaceAll(s, cReset, cReset+bgPill)
+}
+
 // elideMiddle shortens plain text s to at most width display cells, dropping the
 // middle and joining the kept ends with a "…" marker so both the start and end
 // of the name stay legible. s must carry no SGR sequences. When s already fits
@@ -1058,12 +1071,14 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 		s := sgr(f)
 		// a painted run (see paint.go) overrides the cell's color/attrs; while
-		// the painter is live on this node its pending selection inverts
+		// the painter is live on this node its pending selection sits on the
+		// blue selection bar — NOT inverse video, which swaps fg/bg and makes
+		// an already-red run read as a red background
 		if spanSGR != nil && spanSGR[i] != "" {
 			s += spanSGR[i]
 		}
 		if paintLive && i >= paintLo && i < paintHi {
-			s += cInvert
+			s += bgPill
 		}
 		if s != cur {
 			b.WriteString(s)

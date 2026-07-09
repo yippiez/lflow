@@ -2773,6 +2773,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 		if it.typ == database.TypeDivider {
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
 			groups[i] = []string{dividerLine(r, maxLine, selected && m.mode != modeFlash)} // single line, never wrapped
+			if m.inSelection(i) {
+				groups[i][0] = selFill(groups[i][0], maxLine)
+			}
 			noteCaret := -1
 			if selected && m.mode == modeNote {
 				noteCaret = m.caret
@@ -2822,6 +2825,13 @@ func (m *Model) viewOutline(maxLine int) []string {
 
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
 		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
+		// the shift+↑/↓ selection reads as one solid block: every selected row
+		// (wrapped continuations included) gets the full-width blue bar
+		if m.inSelection(i) {
+			for j, l := range groups[i] {
+				groups[i][j] = selFill(l, maxLine)
+			}
+		}
 		// the note hangs beneath the node as a tinted band; on the selected row in
 		// note mode that same band becomes the editing surface (block cursor)
 		noteCaret := -1
