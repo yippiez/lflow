@@ -28,8 +28,6 @@ func (m *Model) listSource() pickerSource {
 		return completerSource{}
 	case modeTagColor:
 		return tagColorSource{}
-	case modePaintStyle:
-		return paintStyleSource{}
 	}
 	return nil
 }
@@ -247,7 +245,9 @@ func (styleSource) items(m *Model, q string) []pickerItem {
 	return out
 }
 
-func (styleSource) header(*Model, *listPicker) string { return "" }
+func (styleSource) header(*Model, *listPicker) string {
+	return " " + cDim + "enter apply to all · p paint a portion" + cReset
+}
 
 func (styleSource) initialSel(m *Model) int {
 	cur := m.cursorItem()
@@ -296,11 +296,15 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// onKey: p inside /style enters the painter — style a RUN of the node's text
-// instead of the whole line (see paint.go).
+// onKey: p inside /style takes the HIGHLIGHTED style into the painter — a
+// window over the node's text picks where that style lands (see paint.go).
 func (styleSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
 	if key == "p" {
-		m.enterPaint()
+		value := ""
+		if p.sel >= 0 && p.sel < len(items) {
+			value = items[p.sel].value
+		}
+		m.enterPaint(value)
 		return true
 	}
 	return false

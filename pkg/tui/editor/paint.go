@@ -7,44 +7,57 @@ import (
 	"github.com/lflow/lflow/pkg/tui/style"
 )
 
-// The painter: style a RUN of a node's text instead of the whole line. Enter
-// it with p inside /style; shift+←/→ grow the selection from the caret (plain
-// ←/→ move its edge); Enter opens the familiar style list applied to the run;
-// u unpaints it; esc leaves. Spans persist in node_spans as [start,end)+style —
-// the stored text stays markup-free (the no-markup invariant holds; spans are a
-// parallel annotation, like chips).
+// The painter: apply a /style choice to a RUN of the node's text instead of
+// the whole line. In /style, enter applies the highlighted style to the whole
+// node; p takes that same highlighted style into the painter instead: a small
+// window appears over the text — ←/→ slide it, shift+←/→ resize it by one
+// rune, enter paints the window with the chosen style, u unpaints it, esc
+// leaves. Spans persist in node_spans as [start,end)+style — the stored text
+// stays markup-free (the no-markup invariant holds; spans are a parallel
+// annotation, like chips).
 
 // nodeSpans is the whole outline's span map (uuid → ordered spans), hydrated at
 // editor start like tagColors so the render path stays Model-free.
 var nodeSpans = map[string][]database.NodeSpan{}
 
-// paint selection state: which node is being painted and the pending [lo,hi)
-// rune run, mirrored into package vars so renderBody can invert the run.
+// paint window state: which node is being painted, the [start, start+width)
+// rune window, and the /style row captured when p was pressed — mirrored into
+// package vars so renderBody can highlight the window.
 var (
-	paintUUID   string
-	paintAnchor int
-	paintCaret  int
+	paintUUID  string
+	paintStart int
+	paintWidth int
+	paintValue string // the pending style ("red", "bold", …) enter applies
 )
 
 func paintBounds() (int, int) {
-	lo, hi := paintAnchor, paintCaret
-	if lo > hi {
-		lo, hi = hi, lo
-	}
-	return lo, hi
+	return paintStart, paintStart + paintWidth
 }
 
-// enterPaint starts painter mode on the cursor node, anchored at the caret.
-func (m *Model) enterPaint() {
+// enterPaint starts painter mode on the cursor node: a one-rune window at the
+// caret, carrying the /style row highlighted when p was pressed.
+func (m *Model) enterPaint(value string) {
 	cur := m.cursorItem()
 	if cur == nil || cur.mirrorOf != "" {
 		return
 	}
+	n := len([]rune(cur.name))
+	if n == 0 {
+		return
+	}
 	m.mode = modePaint
 	paintUUID = cur.uuid
-	paintAnchor = m.caret
-	paintCaret = m.caret
-	m.flash = "paint · shift+←/→ select · enter style · u unpaint · esc done"
+	paintStart = m.caret
+	if paintStart > n-1 {
+		paintStart = n - 1
+	}
+	if paintStart < 0 {
+		paintStart = 0
+	}
+	paintWidth = 1
+	paintValue = value
+	label := stylePickerLabels[value]
+	m.flash = "paint " + label + " · ←/→ move · shift+←/→ resize · enter paint · u unpaint · esc done"
 }
 
 func (m *Model) leavePaint() {
@@ -52,62 +65,98 @@ func (m *Model) leavePaint() {
 	paintUUID = ""
 }
 
-// handlePaintKey drives the run selection.
+// handlePaintKey drives the window: plain arrows slide it, shift arrows grow
+// and shrink it, enter paints it with the pending style.
 func (m *Model) handlePaintKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	cur := m.cursorItem()
 	if cur == nil || cur.uuid != paintUUID {
 		m.leavePaint()
 		return m, nil
 	}
-	n := len([]rune(cur.name))
-	clamp := func(v int) int {
-		if v < 0 {
-			return 0
-		}
-		if v > n {
-			return n
-		}
-		return v
-	}
+	runes := []rune(cur.name)
+	n := len(runes)
 	switch k.String() {
 	case "esc", "q":
 		m.leavePaint()
 		return m, nil
-	case "shift+left", "left":
-		paintCaret = clamp(paintCaret - 1)
+	case "left":
+		if paintStart > 0 {
+			paintStart--
+		}
 		return m, nil
-	case "shift+right", "right":
-		paintCaret = clamp(paintCaret + 1)
+	case "right":
+		if paintStart+paintWidth < n {
+			paintStart++
+		}
+		return m, nil
+	case "shift+left":
+		if paintWidth > 1 {
+			paintWidth--
+		}
+		return m, nil
+	case "shift+right":
+		if paintStart+paintWidth < n {
+			paintWidth++
+		}
 		return m, nil
 	case "ctrl+left", "ctrl+shift+left":
-		paintCaret = prevWordBoundary([]rune(cur.name), paintCaret)
+		paintStart = prevWordBoundary(runes, paintStart)
 		return m, nil
 	case "ctrl+right", "ctrl+shift+right":
-		paintCaret = nextWordBoundary([]rune(cur.name), paintCaret)
+		paintStart = nextWordBoundary(runes, paintStart)
+		if paintStart > n-paintWidth {
+			paintStart = n - paintWidth
+		}
 		return m, nil
 	case "home":
-		paintCaret = 0
+		paintStart = 0
 		return m, nil
 	case "end":
-		paintCaret = n
+		paintStart = n - paintWidth
 		return m, nil
 	case "u":
 		lo, hi := paintBounds()
-		if hi > lo {
-			m.pushUndo("")
-			m.setSpanStyle(cur, lo, hi, "") // unpaint the run
-			m.flash = "unpainted"
-		}
+		m.pushUndo("")
+		m.setSpanStyle(cur, lo, hi, "") // unpaint the window
+		m.flash = "unpainted"
 		return m, nil
 	case "enter":
-		if lo, hi := paintBounds(); hi > lo {
-			m.mode = modePaintStyle
-			m.list = listPicker{}
-			m.list.sel = 0
-		}
+		m.applyPaint(cur)
+		m.leavePaint()
+		m.refreshRows()
 		return m, nil
 	}
 	return m, nil
+}
+
+// applyPaint styles the window with the pending /style choice. The window's
+// existing style composes: painting bold over a red run keeps both.
+func (m *Model) applyPaint(cur *item) {
+	lo, hi := paintBounds()
+	if paintValue == "" || hi <= lo {
+		return
+	}
+	m.pushUndo("")
+	existing := ""
+	for _, sp := range nodeSpans[cur.uuid] {
+		if sp.Start <= lo && sp.End >= hi {
+			existing = sp.Style
+			break
+		}
+	}
+	tok := existing
+	for _, sp := range stylePickerItems {
+		if sp.value == paintValue {
+			if sp.kind == "toggle" {
+				tok = style.Toggle(tok, sp.value)
+			} else {
+				tok = style.SetColor(tok, sp.value)
+			}
+			break
+		}
+	}
+	m.setSpanStyle(cur, lo, hi, tok)
+	m.unsaved = true
 }
 
 // setSpanStyle rewrites the node's spans so [lo,hi) carries exactly the given
@@ -233,63 +282,4 @@ func spanSGRFor(uuid string, n int) []string {
 		}
 	}
 	return out
-}
-
-// --- the painter's style list (modePaintStyle) --------------------------------
-
-// paintStyleSource is the /style list re-aimed at the pending run: same rows,
-// but the choice styles the painted span instead of the node.
-type paintStyleSource struct{}
-
-func (paintStyleSource) items(m *Model, q string) []pickerItem {
-	out := make([]pickerItem, 0, len(stylePickerItems))
-	for _, sp := range stylePickerItems {
-		sp := sp
-		out = append(out, pickerItem{value: sp.value, render: func(bool) string {
-			if sp.kind == "toggle" {
-				return cFG + stylePickerLabels[sp.value] + cReset
-			}
-			swatch := styleColorCode[sp.value] + "●" + cReset
-			return swatch + " " + styleColorCode[sp.value] + stylePickerLabels[sp.value] + cReset
-		}})
-	}
-	return out
-}
-
-func (paintStyleSource) header(m *Model, p *listPicker) string {
-	return " " + cDim + "paint the selection" + cReset
-}
-
-func (paintStyleSource) initialSel(*Model) int { return 0 }
-
-func (paintStyleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
-	cur := m.cursorItem()
-	lo, hi := paintBounds()
-	if cur != nil && cur.uuid == paintUUID && it.value != "" && hi > lo {
-		m.pushUndo("")
-		// the run's existing style composes: picking bold then red keeps both
-		existing := ""
-		for _, sp := range nodeSpans[cur.uuid] {
-			if sp.Start <= lo && sp.End >= hi {
-				existing = sp.Style
-				break
-			}
-		}
-		tok := existing
-		for _, sp := range stylePickerItems {
-			if sp.value == it.value {
-				if sp.kind == "toggle" {
-					tok = style.Toggle(tok, sp.value)
-				} else {
-					tok = style.SetColor(tok, sp.value)
-				}
-				break
-			}
-		}
-		m.setSpanStyle(cur, lo, hi, tok)
-		m.unsaved = true
-	}
-	m.leavePaint()
-	m.refreshRows()
-	return m, nil
 }

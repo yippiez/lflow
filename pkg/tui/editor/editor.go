@@ -42,8 +42,7 @@ const (
 	modeCmdView   // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
 	modeFlash      // flash jump/act: every visible row's actions get a typed label (see flash.go)
 	modeTagColor   // the alt+e tag color picker: assign a pill color to a tag
-	modePaint      // the painter: select a run of the node's text (p inside /style)
-	modePaintStyle // the painter's style list, applied to the selected run
+	modePaint // the painter: a window over the node's text places a /style choice (p inside /style)
 )
 
 type finderAction int
@@ -699,7 +698,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.mode {
-	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modePaintStyle:
+	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
