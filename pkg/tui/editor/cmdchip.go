@@ -11,10 +11,11 @@ import (
 
 // A cmd chip is inline runnable shell: type "$<command>" inside any text node and
 // commit it with a DOUBLE space (single spaces stay part of the command, so
-// "$ls -la" keeps typing). The command lives in the chip value (persisted); its
-// run output is ephemeral (node_output, keyed by chip id — local-only, never
-// synced, exactly like a bash node). alt+r runs the chip the caret sits on, and
-// the chip then renders "$cmd → <first line>"; alt+e opens the full output.
+// "$ls -la" keeps typing; a bare "$" still chips, empty). The command lives in
+// the chip value (persisted); its run output is ephemeral (node_output, keyed by
+// chip id — local-only, never synced, exactly like a bash node). alt+r runs the
+// chip the caret sits on, and the chip then renders "$cmd → <first line>";
+// alt+e expands the full output as an inline band.
 
 // bashCmdBeforeCaret converts a "$<command>" token terminated by a double space
 // into a cmd chip. It is called from the space-typed path only when the rune
@@ -55,11 +56,9 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 		return false
 	}
 	// expand any chips folded into the command (e.g. a path chip → its full path)
-	// so the cmd chip's stored command is plain, runnable shell.
+	// so the cmd chip's stored command is plain, runnable shell. An EMPTY
+	// command still chips: "$" + double space lands a blank $ chip to fill in.
 	cmd := strings.TrimSpace(expandAnchors(string(runes[start+1:end]), m.chips))
-	if cmd == "" {
-		return false
-	}
 	// those inner chips are now baked into the cmd value; drop their records before
 	// their anchors are removed from the name, so no orphan chip rows are left.
 	for _, sp := range spans {
