@@ -65,7 +65,6 @@ var slashCommands = []slashCommand{
 	{"/complete", "Toggle done"},
 	{"/star", "Star this node — ranks first in pickers"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
-	{"/file", "Insert a file path chip via fuzzy fzf picker"},
 	{"/goto", "Jump the editor to another node"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
@@ -2144,13 +2143,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.unsaved = true
 		m.refreshRows()
 		m.cursor = m.findRow(clone, ctx)
-	case "/file":
-		// fuzzy-pick a file with fzf, then splice a path chip in at the caret
-		cmd := m.openFilePicker(cur, "")
-		if cmd == nil {
-			m.flash = "fzf not found — install it to pick files"
-		}
-		return m, cmd
 	case "/note":
 		// a mirror is the same node everywhere: edit the original's note
 		cur = m.tree.resolve(cur)

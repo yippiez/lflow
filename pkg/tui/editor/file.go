@@ -12,7 +12,7 @@ import (
 // fzfPickedMsg carries the file the fzf picker selected, to splice a path chip
 // into the node at the caret position captured when the picker opened. onCancel
 // is the literal text to type when the picker is dismissed without a selection —
-// ">" for the ">" gesture (so a bash redirect still works), "" for /file.
+// ">" for the ">" gesture (so a bash redirect still works).
 type fzfPickedMsg struct {
 	uuid     string
 	caret    int
@@ -114,7 +114,7 @@ func openPathInEditor(m *Model, path string) tea.Cmd {
 	return tea.ExecProcess(c, func(error) tea.Msg { return nil })
 }
 
-// Path helpers for the path chip (created by the /file fzf picker above; opened in
+// Path helpers for the path chip (created by the ">" fzf picker above; opened in
 // $EDITOR by ⌥e). expandHome/normalizeFilePath/absolutizePath resolve the picked
 // path to an absolute value before it is stored in the chip record.
 
