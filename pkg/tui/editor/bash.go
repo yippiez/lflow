@@ -35,7 +35,7 @@ func runBash(m *Model, it *item) tea.Cmd {
 }
 
 // runShell streams an arbitrary shell command through the shared run machinery
-// — the bash node and every runnable artifact type go through here.
+// — the bash node and every runnable genui type go through here.
 func runShell(m *Model, it *item, cmd string) tea.Cmd {
 	if m.runCancel == nil {
 		m.runCancel = map[string]func(){}

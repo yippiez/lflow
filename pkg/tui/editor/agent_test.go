@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -74,7 +76,7 @@ func addChild(m *Model, parent *item, uuid, name, typ string) *item {
 
 func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
-	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
+	defer func() { genUITypes, genUIByKey, loadedGenUI = nil, map[string]nodeType{}, nil }()
 
 	cmd, consumed := m.mentionSendOnEnter(n1)
 	if !consumed || cmd == nil {
@@ -114,7 +116,7 @@ func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
 
 func TestBoardReviewAndReplyThread(t *testing.T) {
 	m, disc, _ := newAgentTestModel(t)
-	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
+	defer func() { genUITypes, genUIByKey, loadedGenUI = nil, map[string]nodeType{}, nil }()
 
 	// establish the session with the mention turn
 	cmd, _ := m.mentionSendOnEnter(disc.children[0])
@@ -164,9 +166,9 @@ func TestBoardReviewAndReplyThread(t *testing.T) {
 	}
 }
 
-func TestMentionCreatesArtifact(t *testing.T) {
+func TestMentionCreatesGenUINode(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
-	defer func() { artifactTypes, artifactByKey, loadedArtifacts = nil, map[string]nodeType{}, nil }()
+	dir := setGenUITestDir(t)
 	n1.name = "@Pi create a dice artifact for me"
 
 	cmd, sent := m.mentionSendOnEnter(n1)
@@ -175,15 +177,15 @@ func TestMentionCreatesArtifact(t *testing.T) {
 	}
 	drain(t, m, cmd)
 
-	if _, err := database.GetArtifact(m.db, "dice"); err != nil {
-		t.Fatalf("dice artifact not installed: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "dice.js")); err != nil {
+		t.Fatalf("dice.js not written to the nodes dir: %v", err)
 	}
 	if typeOf("dice").label != "Dice" || typeOf("dice").run == nil {
-		t.Fatal("dice artifact must hot-load into the registry, runnable")
+		t.Fatal("dice type must hot-load into the registry, runnable")
 	}
 	// the install confirmation is a threaded reply on the request message
 	if len(n1.children) != 1 || n1.children[0].typ != database.TypeAgent {
-		t.Fatal("artifact confirmation must nest under the request message")
+		t.Fatal("install confirmation must nest under the request message")
 	}
 }
 

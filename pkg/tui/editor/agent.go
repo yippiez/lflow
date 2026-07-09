@@ -160,12 +160,10 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 	case "message":
 		m.placeAgentNode(msg.thread, msg.asked, msg.ev.Text, msg.ev.Placement)
 	case "artifact":
-		a := database.Artifact{
-			Key: msg.ev.Key, Label: msg.ev.Label, Version: 1, Source: msg.ev.Source,
-			CreatedBy: msg.agent, CreatedAt: time.Now().UnixNano(), Enabled: true,
-		}
-		if err := installArtifact(m.db, a); err != nil {
-			m.placeAgentNode(msg.thread, msg.asked, "failed to install artifact "+a.Key+": "+err.Error(), "thread")
+		// the offline mock's install path — a real agent writes the file into
+		// the nodes dir itself and the after-turn reload picks it up
+		if err := installGenUINode(msg.ev.Key, msg.ev.Source); err != nil {
+			m.placeAgentNode(msg.thread, msg.asked, "failed to install node type "+msg.ev.Key+": "+err.Error(), "thread")
 		}
 	case "error":
 		m.placeAgentNode(msg.thread, msg.asked, "error: "+msg.ev.Text, "thread")
@@ -230,8 +228,10 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	}
 }
 
-// finishThread clears the busy flag and parks the session.
+// finishThread clears the busy flag and parks the session. The agent may have
+// created or edited node-type files during its turn — reload them now.
 func (m *Model) finishThread(threadUUID, agent string) {
+	loadGenUINodes()
 	delete(m.agentBusy, threadUUID)
 	if s, ok, _ := database.GetThreadSession(m.db, threadUUID, agent); ok {
 		m.touchSession(s.ID, threadUUID, agent, "idle")

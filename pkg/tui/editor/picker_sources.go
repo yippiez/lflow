@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // listSource maps the current mode to its pickerSource. Returns nil outside the
@@ -112,70 +110,66 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 
 type typeSource struct{}
 
-// artifactRowFor returns the installed-artifact record behind a type key, so
+// genUIRowFor returns the installed genui-node record behind a type key, so
 // the picker knows which rows take the management chords.
-func artifactRowFor(key string) (loadedArtifact, bool) {
-	for _, la := range loadedArtifacts {
-		if la.Key == key {
-			return la, true
+func genUIRowFor(key string) (genUINode, bool) {
+	for _, gn := range loadedGenUI {
+		if gn.Key == key {
+			return gn, true
 		}
 	}
-	return loadedArtifact{}, false
+	return genUINode{}, false
 }
 
-// items lists the pickable types, then any DISABLED artifacts as muted rows —
-// /type is also where artifacts are managed (space toggles, ctrl+d uninstalls;
-// the old /artifacts view is gone).
+// items lists the pickable types, then any DISABLED genui nodes as muted rows
+// — /type is also where they are managed (space toggles the .disabled filename
+// suffix, ctrl+d deletes the file).
 func (typeSource) items(m *Model, q string) []pickerItem {
 	var out []pickerItem
 	for _, t := range m.filteredTypes(q) {
 		t := t
-		if _, isArt := artifactRowFor(t); isArt {
+		if _, isGen := genUIRowFor(t); isGen {
 			out = append(out, pickerItem{value: t, render: func(bool) string {
-				return cFG + fmt.Sprintf("%-14s", typeLabel(t)) + cDim + " artifact · space disable · ctrl+d uninstall" + cReset
+				return cFG + fmt.Sprintf("%-14s", typeLabel(t)) + cDim + " node · space disable · ctrl+d uninstall" + cReset
 			}})
 			continue
 		}
 		out = append(out, pickerItem{label: typeLabel(t), value: t})
 	}
 	lq := strings.ToLower(q)
-	for _, la := range loadedArtifacts {
-		if la.Enabled {
+	for _, gn := range loadedGenUI {
+		if gn.Enabled {
 			continue
 		}
-		la := la
-		if lq != "" && !fuzzyMatch(strings.ToLower(la.Label), lq) && !fuzzyMatch(la.Key, lq) {
+		gn := gn
+		if lq != "" && !fuzzyMatch(strings.ToLower(gn.Label), lq) && !fuzzyMatch(gn.Key, lq) {
 			continue
 		}
-		out = append(out, pickerItem{value: la.Key, render: func(bool) string {
-			return cDim + fmt.Sprintf("%-14s", la.Label) + "artifact · disabled · space enable" + cReset
+		out = append(out, pickerItem{value: gn.Key, render: func(bool) string {
+			return cDim + fmt.Sprintf("%-14s", gn.Label) + "node · disabled · space enable" + cReset
 		}})
 	}
 	return out
 }
 
-// onKey claims the management chords on artifact rows: space toggles
+// onKey claims the management chords on genui rows: space toggles
 // enabled/disabled in place, ctrl+d uninstalls. Built-in rows ignore both.
 func (typeSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
 	if p.sel < 0 || p.sel >= len(items) {
 		return false
 	}
-	la, isArt := artifactRowFor(items[p.sel].value)
-	if !isArt {
+	gn, isGen := genUIRowFor(items[p.sel].value)
+	if !isGen {
 		return false
 	}
 	switch key {
 	case " ":
-		if err := database.SetArtifactEnabled(m.db, la.Key, !la.Enabled); err == nil {
-			loadArtifacts(m.db)
-		}
+		setGenUINodeEnabled(gn.Key, !gn.Enabled)
 		return true
 	case "ctrl+d":
-		if err := database.DeleteArtifact(m.db, la.Key); err == nil {
-			loadArtifacts(m.db)
-			if n := len(typeSource{}.items(m, p.query)); p.sel >= n && p.sel > 0 {
-				p.sel--
-			}
+		deleteGenUINode(gn.Key)
+		if n := len(typeSource{}.items(m, p.query)); p.sel >= n && p.sel > 0 {
+			p.sel--
 		}
 		return true
 	}
@@ -206,11 +200,9 @@ func (typeSource) initialSel(m *Model) int {
 }
 
 func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
-	// picking a disabled artifact re-enables it on the way — Enter means "use it"
-	if la, ok := artifactRowFor(it.value); ok && !la.Enabled {
-		if err := database.SetArtifactEnabled(m.db, la.Key, true); err == nil {
-			loadArtifacts(m.db)
-		}
+	// picking a disabled genui node re-enables it on the way — Enter means "use it"
+	if gn, ok := genUIRowFor(it.value); ok && !gn.Enabled {
+		setGenUINodeEnabled(gn.Key, true)
 	}
 	if it.value != "" {
 		targets := m.selectedItems() // multi-select: retype the whole range

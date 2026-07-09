@@ -38,9 +38,12 @@ type Event struct {
 	// Claude-Tag surfaces: "below" posts it like a message-board reply (next
 	// sibling), "thread" nests it as the asked node's child. Default: thread.
 	Placement string `json:"placement"`
-	Key       string `json:"key"`    // op=artifact
-	Label     string `json:"label"`  // op=artifact
-	Source    string `json:"source"` // op=artifact: the JS program to install
+	// op=artifact installs a genui node type — kept for the offline mock; a
+	// real agent writes the <key>.js file into the nodes dir itself and the
+	// editor reloads the directory when the turn ends.
+	Key    string `json:"key"`    // op=artifact
+	Label  string `json:"label"`  // op=artifact
+	Source string `json:"source"` // op=artifact: the JS program to install
 }
 
 // Client drives agent conversations. Send delivers the thread to the session

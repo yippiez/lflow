@@ -170,8 +170,6 @@ type Model struct {
 	settingsSel int
 	settings    map[string]string
 
-	// /artifacts management view: selected row
-
 	compl complState
 
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure the
@@ -2084,6 +2082,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 
 	switch name {
 	case "/type":
+		// reload the nodes dir first — the user (or an agent) may have edited
+		// the type files out-of-band since the last load
+		loadGenUINodes()
 		// open the picker; pre-select the type already in effect (see typeSource)
 		m.mode = modeType
 		m.list.open(m, typeSource{}, true)
@@ -3196,7 +3197,7 @@ func (m *Model) viewFinder(maxLine int) []string {
 
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
-	loadArtifacts(ctx.DB) // runtime node types must exist before the first render
+	initGenUINodes(ctx.Paths.Config, ctx.DB) // runtime node types must exist before the first render
 
 	t, err := loadTree(ctx.DB, nodeUUID)
 	if err != nil {

@@ -38,16 +38,21 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
-## Artifacts + the @mention agent
+## GenUI nodes + the @mention agent
 
-- **Artifacts = runtime-installed node types / chip kinds**: one JS program per
-  row in the `artifacts` table, evaluated at editor start via goja
-  (`pkg/tui/editor/artifact.go`). The JS calls `lflow.registerType({...})` /
-  `lflow.registerChip({...})`; the bridge appends a regular `nodeType`
-  descriptor, so `/type`, glyphs and rendering treat built-ins and artifacts
-  identically. Trusted, full access (`lflow.exec`). A node whose artifact is
-  disabled/missing falls back to bullets — never crashes. Seeded reference
-  artifact: `log`.
+- **GenUI nodes = runtime-installed node types / chip kinds** ("nodes" to the
+  user, "artifacts" historically): one JS file per type in
+  `~/.config/lflow/nodes` — `log.js` serves the type `log`; renaming it
+  `log.js.disabled` turns it off (space in `/type` does exactly that,
+  ctrl+d deletes the file). The directory is evaluated at editor start via
+  goja (`pkg/tui/editor/genui.go`) and reloaded when `/type` opens and after
+  every agent turn, so an agent (or the user) edits the files directly. The JS
+  calls `lflow.registerType({...})` / `lflow.registerChip({...})`; the bridge
+  appends a regular `nodeType` descriptor, so `/type`, glyphs and rendering
+  treat built-ins and genui types identically. Trusted, full access
+  (`lflow.exec`). A node whose type file is disabled/missing falls back to
+  bullets — never crashes. Seeded reference: `log.js`. The legacy `artifacts`
+  table is exported to files once (first run) and never read again.
 - **@mention agent** (`pkg/tui/tag` + `pkg/tui/editor/agent.go`): typing `@`
   completes configured agents; committing the node (Enter) sends — never mere
   typing. Thread context = ancestor chain + the node's subtree (mirrors
