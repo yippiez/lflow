@@ -245,7 +245,12 @@ func (styleSource) items(m *Model, q string) []pickerItem {
 	return out
 }
 
-func (styleSource) header(*Model, *listPicker) string {
+func (styleSource) header(m *Model, _ *listPicker) string {
+	if m.selOn {
+		// a multi-select styles whole nodes; painting a text portion needs a
+		// single node, so p is not offered
+		return " " + cDim + "enter apply to selection" + cReset
+	}
 	return " " + cDim + "enter apply to all · p paint a portion" + cReset
 }
 
@@ -298,8 +303,9 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 
 // onKey: p inside /style takes the HIGHLIGHTED style into the painter — a
 // window over the node's text picks where that style lands (see paint.go).
+// Not with a multi-select: painting targets one node's text.
 func (styleSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
-	if key == "p" {
+	if key == "p" && !m.selOn {
 		value := ""
 		if p.sel >= 0 && p.sel < len(items) {
 			value = items[p.sel].value
