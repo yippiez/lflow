@@ -59,6 +59,18 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 	if sid == "" && len(thread) > 0 {
 		sid = thread[0].UUID // stable, resumable id = the thread root's uuid
 	}
+	// Where the reply lands mirrors the ask: a fresh @mention owns its thread,
+	// so the reply nests under it as a child; an untagged follow-up inside the
+	// thread reads as chat, so the reply posts BELOW it (next sibling) and the
+	// conversation stays flat — until another @mention opens a sub-thread.
+	placement := "below"
+	for _, n := range thread {
+		if n.Asked && strings.Contains(n.Name, "@"+agentName) {
+			placement = "thread"
+			break
+		}
+	}
+
 	sess, err := agent.Run(ctx, agent.ProviderPi, renderThread(thread), agent.RunOptions{
 		SessionID:    sid,
 		SystemPrompt: piSystemPrompt(),
@@ -95,9 +107,7 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 					return
 				}
 				if txt := strings.TrimSpace(reply.String()); txt != "" {
-					// the reply nests UNDER the asked node — the mention owns its
-					// conversation as children, it never spills into the parent level
-					out <- Event{Op: "message", Placement: "thread", Text: txt}
+					out <- Event{Op: "message", Placement: placement, Text: txt}
 				}
 				out <- Event{Op: "done"}
 				return
