@@ -2,7 +2,6 @@ package tag
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -25,7 +24,7 @@ func (m *MockClient) delay() time.Duration {
 // Send answers one turn. A thread asking to create an artifact/node type gets
 // a generated artifact installed; anything else gets a short read of the
 // thread plus a canned suggestion.
-func (m *MockClient) Send(ctx context.Context, agent, sessionID string, thread []ThreadNode) (<-chan Event, error) {
+func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode) (<-chan Event, error) {
 	ch := make(chan Event, 16)
 	go func() {
 		defer close(ch)
@@ -40,13 +39,6 @@ func (m *MockClient) Send(ctx context.Context, agent, sessionID string, thread [
 				return true
 			case <-ctx.Done():
 				return false
-			}
-		}
-
-		if sessionID == "" {
-			sessionID = fmt.Sprintf("s_%x", time.Now().UnixNano())
-			if !emit(Event{Op: "session", ID: sessionID}) {
-				return
 			}
 		}
 

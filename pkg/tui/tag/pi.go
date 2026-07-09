@@ -8,9 +8,9 @@ import (
 )
 
 // PiClient bridges @mentions to the local `pi` coding agent (pkg/agent's RPC
-// backend). Each Send runs exactly one turn: pi resumes the on-disk conversation
-// by session id, so the transport stays connectionless between turns like
-// WSClient — the editor closes and a later mention picks the thread back up.
+// backend). Launch-and-forget: each Send spawns a FRESH pi turn fed the whole
+// rendered thread and saves nothing — the thread in the outline is the only
+// conversation state, so edits to past nodes are always honored.
 type PiClient struct {
 	Cwd string // working directory for pi ("" = inherit the editor's)
 }
@@ -81,12 +81,10 @@ func piSystemPrompt() string {
 	return p
 }
 
-// Send runs one pi turn over the thread and streams the reply as tag events.
-func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread []ThreadNode) (<-chan Event, error) {
-	sid := sessionID
-	if sid == "" && len(thread) > 0 {
-		sid = thread[0].UUID // stable, resumable id = the thread root's uuid
-	}
+// Send runs one fresh pi turn over the thread and streams the reply as tag
+// events. No session id, --no-session: nothing accumulates in pi's storage,
+// and pi's context every turn is exactly the thread as it reads right now.
+func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNode) (<-chan Event, error) {
 	// Where the reply lands mirrors the ask: a fresh @mention owns its thread,
 	// so the reply nests under it as a child; an untagged follow-up inside the
 	// thread reads as chat, so the reply posts BELOW it (next sibling) and the
@@ -100,7 +98,7 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 	}
 
 	opts := agent.RunOptions{
-		SessionID:    sid,
+		NoSession:    true, // launch-and-forget: the thread IS the memory
 		SystemPrompt: piSystemPrompt(),
 		Cwd:          c.Cwd,
 	}
@@ -121,11 +119,8 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 	out := make(chan Event, 16)
 	go func() {
 		defer close(out)
-		defer sess.Stop() // one turn; release pi (the session id resumes it later)
+		defer sess.Stop() // one turn, one process — nothing to come back to
 
-		if sessionID == "" && sid != "" {
-			out <- Event{Op: "session", ID: sid}
-		}
 		var reply strings.Builder
 		for ev := range sess.Events() {
 			switch ev.Kind {

@@ -17,22 +17,22 @@ type WSClient struct {
 
 // sendReq is the one request shape.
 type sendReq struct {
-	Op      string       `json:"op"` // always "send"
-	Session string       `json:"session"`
-	Agent   string       `json:"agent"`
-	Thread  []ThreadNode `json:"thread"`
+	Op     string       `json:"op"` // always "send"
+	Agent  string       `json:"agent"`
+	Thread []ThreadNode `json:"thread"`
 }
 
-// Send dials per turn — the service holds the durable session state keyed by
-// the session id, so the transport can stay connectionless between turns
-// (which is what lets the editor close and resume later).
-func (c *WSClient) Send(ctx context.Context, agent, sessionID string, thread []ThreadNode) (<-chan Event, error) {
+// Send dials per turn and ships the WHOLE thread — the request is stateless,
+// so the transport stays connectionless and the service needs no memory
+// between turns (a service that wants continuity anyway can key off
+// thread[0].UUID).
+func (c *WSClient) Send(ctx context.Context, agent string, thread []ThreadNode) (<-chan Event, error) {
 	conn, _, err := websocket.Dial(ctx, c.URL, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "dialing agent service %s", c.URL)
 	}
 
-	req, err := json.Marshal(sendReq{Op: "send", Session: sessionID, Agent: agent, Thread: thread})
+	req, err := json.Marshal(sendReq{Op: "send", Agent: agent, Thread: thread})
 	if err != nil {
 		conn.Close(websocket.StatusInternalError, "marshal")
 		return nil, errors.Wrap(err, "marshalling send request")

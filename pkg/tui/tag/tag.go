@@ -3,11 +3,13 @@
 // that node, the node's subtree becomes the conversation thread, and the agent
 // posts replies back as agent-type child nodes. See AGENTS.md.
 //
-// The package owns agent configuration, the session-facing Client interface,
-// the websocket implementation that talks to a Pi coding-agent service, and
-// the offline mock that stands in for it. The bridge lives inside the editor
-// process: closing the editor pauses in-flight sessions (ids persist in the
-// agent_sessions table, so a later mention resumes the remote context).
+// The package owns agent configuration, the launch-and-forget Client
+// interface, the websocket implementation that talks to a Pi coding-agent
+// service, and the offline mock that stands in for it. Agents hold NO durable
+// state: every turn re-sends the whole thread, so the outline itself is the
+// conversation memory (edited past nodes are always honored). The editor
+// keeps only a local thread binding (agent_sessions: node ↔ agent) so
+// follow-ups inside a subtree keep reaching the agent across restarts.
 package tag
 
 import (
@@ -31,26 +33,29 @@ type ThreadNode struct {
 
 // Event is one message streamed back from the agent service.
 type Event struct {
-	Op   string `json:"op"`   // "session" | "message" | "artifact" | "done" | "error"
-	ID   string `json:"id"`   // op=session: the assigned session id
+	Op   string `json:"op"`   // "message" | "artifact" | "done" | "error"
 	Text string `json:"text"` // op=message/error
 	// Placement is where a message lands relative to the asked node — the two
 	// Claude-Tag surfaces: "below" posts it like a message-board reply (next
 	// sibling), "thread" nests it as the asked node's child. Default: thread.
 	Placement string `json:"placement"`
-	// op=artifact installs a genui node type — kept for the offline mock; a
-	// real agent writes the <key>.js file into the nodes dir itself and the
-	// editor reloads the directory when the turn ends.
+	// op=artifact installs a NodeMod — kept for the offline mock; a real
+	// agent writes the <key>.js file into the mods dir itself and the editor
+	// reloads the directory when the turn ends.
 	Key    string `json:"key"`    // op=artifact
 	Label  string `json:"label"`  // op=artifact
 	Source string `json:"source"` // op=artifact: the JS program to install
 }
 
-// Client drives agent conversations. Send delivers the thread to the session
-// (empty id = start a new one) and streams events until a done or error event
-// closes the channel.
+// Client runs agent turns, launch-and-forget: every Send is a FRESH agent fed
+// the whole rendered thread, streaming events until done/error closes the
+// channel. There is deliberately no session to resume — the outline is the
+// user's and changes between turns (nodes edited, moved, deleted), so any
+// remembered context would drift from what the thread actually says now. The
+// thread root's uuid (thread[0].UUID) is the stable conversation identity for
+// anything that needs one.
 type Client interface {
-	Send(ctx context.Context, agent, sessionID string, thread []ThreadNode) (<-chan Event, error)
+	Send(ctx context.Context, agent string, thread []ThreadNode) (<-chan Event, error)
 }
 
 // Agent is one configured @name.

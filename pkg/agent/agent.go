@@ -93,6 +93,11 @@ type RunOptions struct {
 	// uuid. SessionDir pins where the backend stores sessions (pi --session-dir).
 	SessionID  string
 	SessionDir string
+	// NoSession runs the turn launch-and-forget (pi --no-session): nothing is
+	// written to the backend's session storage and there is nothing to resume.
+	// Wins over SessionID. The @mention agent uses this — its thread is re-sent
+	// whole every turn, so the outline itself is the conversation memory.
+	NoSession bool
 }
 
 // Run starts a fresh turn on provider p (pir's run()). The provided context scopes

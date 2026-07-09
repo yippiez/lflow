@@ -116,8 +116,10 @@ func waitAgentCmd(thread, asked, agent string, ch <-chan tag.Event) tea.Cmd {
 	}
 }
 
-// sendThread ships the thread to the agent's session; asked is the node this
-// turn is about (the mention, or a detected follow-up question).
+// sendThread ships the thread to the agent, launch-and-forget: every turn is
+// a fresh agent fed the whole thread as it reads NOW (no remote session to
+// drift from edited nodes). asked is the node this turn is about (the
+// mention, or a detected follow-up question).
 func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	root := m.threadRootFor(asked, ag)
 	if m.agentBusy == nil {
@@ -125,11 +127,6 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	}
 	if m.agentBusy[root.uuid] {
 		return nil
-	}
-
-	sessionID := ""
-	if s, ok, _ := database.GetThreadSession(m.db, root.uuid, ag.Name); ok {
-		sessionID = s.ID
 	}
 
 	if m.tagClients == nil {
@@ -141,15 +138,15 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 		m.tagClients[ag.Name] = client
 	}
 
-	ch, err := client.Send(context.Background(), ag.Name, sessionID, m.buildThread(root, asked.uuid))
+	ch, err := client.Send(context.Background(), ag.Name, m.buildThread(root, asked.uuid))
 	if err != nil {
 		m.flash = "@" + ag.Name + " · " + err.Error()
 		return nil
 	}
 	m.agentBusy[root.uuid] = true
-	if sessionID != "" {
-		m.touchSession(sessionID, root.uuid, ag.Name, "running")
-	}
+	// record the LOCAL thread binding (node ↔ agent) — what makes follow-ups
+	// inside this subtree reach the agent, across editor restarts too
+	m.touchThread(root.uuid, ag.Name, "running")
 	return waitAgentCmd(root.uuid, asked.uuid, ag.Name, ch)
 }
 
@@ -157,8 +154,6 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 	rearm := waitAgentCmd(msg.thread, msg.asked, msg.agent, msg.ch)
 	switch msg.ev.Op {
-	case "session":
-		m.touchSession(msg.ev.ID, msg.thread, msg.agent, "running")
 	case "message":
 		m.placeAgentNode(msg.thread, msg.asked, msg.ev.Text, msg.ev.Placement)
 	case "artifact":
@@ -268,21 +263,21 @@ func (m *Model) chipifyAgentText(text string) string {
 	})
 }
 
-// finishThread clears the busy flag and parks the session. The agent may have
-// created or edited node-type files during its turn — reload them now.
+// finishThread clears the busy flag and parks the thread. The agent may have
+// created or edited mod files during its turn — reload them now.
 func (m *Model) finishThread(threadUUID, agent string) {
 	loadNodeMods()
 	delete(m.agentBusy, threadUUID)
-	if s, ok, _ := database.GetThreadSession(m.db, threadUUID, agent); ok {
-		m.touchSession(s.ID, threadUUID, agent, "idle")
-	}
+	m.touchThread(threadUUID, agent, "idle")
 }
 
-// touchSession upserts the session row.
-func (m *Model) touchSession(id, nodeUUID, agent, state string) {
+// touchThread upserts the LOCAL thread binding (agent_sessions row, id =
+// thread root uuid). This is editor bookkeeping only — which subtree talks to
+// which agent — never a remote session; the agent itself is launch-and-forget.
+func (m *Model) touchThread(nodeUUID, agent, state string) {
 	now := time.Now().UnixNano()
 	s := database.AgentSession{
-		ID: id, NodeUUID: nodeUUID, Agent: agent, State: state,
+		ID: nodeUUID, NodeUUID: nodeUUID, Agent: agent, State: state,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	_ = s.Upsert(m.db)

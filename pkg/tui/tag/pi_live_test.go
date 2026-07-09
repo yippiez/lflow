@@ -28,18 +28,15 @@ func TestPiClientLive(t *testing.T) {
 		{UUID: "live-root", Depth: 0, Name: "@Pi reply with exactly the single word: pong", Type: "bullets", Role: "user", Asked: true},
 	}
 
-	ch, err := c.Send(ctx, "Pi", "", thread)
+	ch, err := c.Send(ctx, "Pi", thread)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
-	var gotSession, gotMessage, gotDone, gotError bool
+	var gotMessage, gotDone, gotError bool
 	var message, errText string
 	for ev := range ch {
 		switch ev.Op {
-		case "session":
-			gotSession = true
-			t.Logf("session id = %q", ev.ID)
 		case "message":
 			gotMessage = true
 			message = ev.Text
@@ -53,12 +50,9 @@ func TestPiClientLive(t *testing.T) {
 		}
 	}
 
-	t.Logf("summary: session=%v message=%v done=%v error=%v", gotSession, gotMessage, gotDone, gotError)
+	t.Logf("summary: message=%v done=%v error=%v", gotMessage, gotDone, gotError)
 	if gotError {
 		t.Fatalf("pi bridge returned an error: %s", errText)
-	}
-	if !gotSession {
-		t.Error("expected a session event assigning the thread-root id")
 	}
 	if !gotMessage || message == "" {
 		t.Error("expected a non-empty message reply from pi")

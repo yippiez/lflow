@@ -72,8 +72,11 @@ auto-run) and their output is ephemeral — never persisted or synced.
   `{{cmd:…}}` / `{{path:…}}` / `{{link:label|url}}` / `{{tag:…}}` / `{{date:…}}`
   tokens land as real chips (`{{cmd:…}}` is the runnable yellow $ chip); plain
   #tags and dates auto-convert. The pi system prompt (`pkg/tui/tag/pi.go`)
-  teaches the tokens and points at the genui nodes dir. Sessions persist in
-  `agent_sessions` (id ↔ thread node ↔ agent) and resume across editor runs.
+  teaches the tokens and points at the mods dir. Agents are launch-and-forget:
+  every turn is a fresh pi run (--no-session) fed the whole thread as it reads
+  now — no remote session to drift from edited nodes. `agent_sessions` holds
+  only the LOCAL thread binding (node ↔ agent), so follow-ups keep reaching
+  the agent across editor restarts.
   Config `~/.config/lflow/agents.json`; without it a built-in mock **Pi** is
   registered. Wire protocol: JSON over websocket, see `pkg/tui/tag/ws.go`.
 
