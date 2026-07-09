@@ -167,6 +167,7 @@ func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
 
 	lines = append(lines, "")
 	lines = append(lines, clip(cDim+" "+be.hint(m)+" - esc back to outline"+cReset, maxLine))
+	m.pageRows = len(lines) // page bg covers everything above the status bar
 	lines = append(lines, m.bottomBar(maxLine)...)
 
 	return lines

@@ -19,6 +19,9 @@ type theme struct {
 	fg, dim, accent, red, orange, yellow, green, cyan, purple string
 	// background blocks behind code rows, bash rows, and date pills.
 	bgCode, bgTerm, bgPill string
+	// page background for the main region ("" = transparent / terminal
+	// default). Never covers the status bar or the temp panel below it.
+	bgPage string
 }
 
 // fg / bg build truecolor SGR sequences so theme definitions read as plain RGB.
@@ -35,6 +38,16 @@ var themes = []theme{
 		red: fg(244, 71, 71), orange: fg(206, 145, 120), yellow: fg(255, 215, 95),
 		green: fg(106, 153, 85), cyan: fg(78, 201, 176), purple: fg(197, 134, 192),
 		bgCode: bg(31, 31, 31), bgTerm: bg(30, 34, 48), bgPill: bg(38, 79, 120),
+	},
+	{
+		// "gray" is system with a gray page behind the main region instead of
+		// the terminal's own background; bar + temp panel stay transparent.
+		name: "gray",
+		fg:   fg(212, 212, 212), dim: fg(122, 122, 122), accent: fg(86, 156, 214),
+		red: fg(244, 71, 71), orange: fg(206, 145, 120), yellow: fg(255, 215, 95),
+		green: fg(106, 153, 85), cyan: fg(78, 201, 176), purple: fg(197, 134, 192),
+		bgCode: bg(31, 31, 31), bgTerm: bg(30, 34, 48), bgPill: bg(38, 79, 120),
+		bgPage: bg(38, 38, 38),
 	},
 	{
 		name: "nord",
@@ -74,7 +87,7 @@ func applyTheme(t theme) {
 	cFG, cDim, cAccent = t.fg, t.dim, t.accent
 	cRed, cYellow, cGreen = t.red, t.yellow, t.green
 	cCyan, cMagenta = t.cyan, t.purple
-	bgCode, bgTerm, bgPill = t.bgCode, t.bgTerm, t.bgPill
+	bgCode, bgTerm, bgPill, bgPage = t.bgCode, t.bgTerm, t.bgPill, t.bgPage
 	styleColorCode = map[string]string{
 		"red": t.red, "orange": t.orange, "yellow": t.yellow,
 		"green": t.green, "cyan": t.cyan, "blue": t.accent,

@@ -244,5 +244,6 @@ func (m *Model) viewLinkEdit(maxLine int) []string {
 	lines = append(lines, clip(targetLbl+" target "+cReset+cFG+target+cReset, maxLine))
 	lines = append(lines, "")
 	lines = append(lines, clip(cDim+" tab switch field · enter save · esc cancel"+cReset, maxLine))
+	m.pageRows = len(lines) // no status bar here — the whole frame is main region
 	return lines
 }

@@ -128,6 +128,10 @@ type Model struct {
 
 	width  int
 	height int
+	// pageRows counts the frame's leading MAIN-region lines — the rows above
+	// the status bar. A theme's page background (bgPage) paints exactly these;
+	// the bar (divider) and the temp panel below it always stay transparent.
+	pageRows int
 
 	mode mode
 
@@ -2704,7 +2708,21 @@ func (m *Model) View() string {
 	// full-width row is truncated to the terminal width by the renderer, and that
 	// truncation drops any escape bytes past the cut — a trailing cClearEOL would
 	// be silently discarded on exactly the wide rows that need clearing.
+	//
+	// A themed page background (bgPage) rides the same erase: setting the bg
+	// BEFORE cClearEOL floods the whole row with it, and re-arming it after
+	// every interior reset (the selFill trick) keeps mixed-color rows on the
+	// page. Only the main region gets it — the first pageRows lines; the
+	// status bar and the temp panel below always keep the terminal background.
+	pageEnd := 0
+	if bgPage != "" {
+		pageEnd = min(m.pageRows, len(lines))
+	}
 	for i, l := range lines {
+		if i < pageEnd {
+			lines[i] = bgPage + cClearEOL + strings.ReplaceAll(l, cReset, cReset+bgPage) + cReset
+			continue
+		}
 		lines[i] = cClearEOL + l + cReset
 	}
 
@@ -3077,6 +3095,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
 		}
 		body := mainLines
+		m.pageRows = len(body) // page bg stops at the divider; temp stays bare
 		body = append(body, bar...) // the status bar is the divider
 		body = append(body, tempLines...)
 		total := rowBudget + len(bar) // main + status + temp, fixed for a stable frame
@@ -3105,6 +3124,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
+	m.pageRows = len(lines) // page bg covers everything above the status bar
 	lines = append(lines, bar...)
 
 	return lines
