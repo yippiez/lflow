@@ -62,13 +62,16 @@ auto-run) and their output is ephemeral — never persisted or synced.
   materialized to `~/.local/share/lflow/skills` at editor start and passed to
   pi via `--skill` each turn — skills only, never a pi extension.
 - **@mention agent** (`pkg/tui/tag` + `pkg/tui/editor/agent.go`): typing `@`
-  completes configured agents; alt+r on the mention node starts (or re-sends)
-  the session — never mere typing, and Enter just edits text. Follow-ups
-  committed inside a live thread still ship for consideration. Thread context
-  = ancestor chain + the node's subtree (mirrors
-  expanded once, cycle-guarded);
-  replies land as red ✦ `agent` child nodes; the agent owns only the mentioned
-  node's subtree (its ancestors are never sent). Replies may speak chips:
+  completes configured agents and lands a red **agent chip** (expands to plain
+  `@Name`, so every mention detector reads it like typed text); alt+r on the
+  mention node starts (or re-sends) the session — never mere typing, and Enter
+  just edits text. Follow-ups committed inside a live thread still ship for
+  consideration. Thread context = the mention's PARENT (one level above) +
+  everything beneath it, the mention's children included (mirrors expanded
+  once, cycle-guarded) — nothing further up; the rest of the outline the agent
+  searches itself via the lflow CLI (`lflow node grep/list`, taught by the
+  skill and system prompt). Replies land as red ✦ `agent` nodes — normal,
+  editable nodes; only the glyph marks authorship. Replies may speak chips:
   `{{cmd:…}}` / `{{path:…}}` / `{{link:label|url}}` / `{{tag:…}}` / `{{date:…}}`
   tokens land as real chips (`{{cmd:…}}` is the runnable yellow $ chip); plain
   #tags and dates auto-convert. The pi system prompt (`pkg/tui/tag/pi.go`)

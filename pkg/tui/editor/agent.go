@@ -48,22 +48,30 @@ func (m *Model) mentionedAgent(text string) (tag.Agent, bool) {
 // message's children are that message's reply thread. So an existing session
 // on any ancestor wins (follow-ups continue it), and a fresh mention binds
 // the session to the mention's PARENT: the note, covering the whole board.
+// This is what guarantees the agent's context reaches ONE level above the
+// mentioned node as well as its children. The invisible tree root never
+// becomes a thread root — a top-level mention roots its own thread.
 func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 	for p := it; p != nil; p = p.parent {
+		if p.uuid == "" {
+			break
+		}
 		if _, ok, _ := database.GetThreadSession(m.db, p.uuid, ag.Name); ok {
 			return p
 		}
 	}
-	if it.parent != nil {
+	if it.parent != nil && it.parent.uuid != "" {
 		return it.parent
 	}
 	return it
 }
 
 // buildThread flattens the thread context: the root and its subtree depth-first.
-// The agent owns only its own subtree — the ancestor chain (lineage) is
-// deliberately excluded, so a mention sees its node and everything below it,
-// nothing above. askedUUID marks the node this turn is about, so replies can
+// Via threadRootFor the root is the mentioned node's PARENT, so the agent sees
+// one level above the mention plus everything beneath the root — the mention's
+// children included — and nothing further up. Anything else in the outline the
+// agent fetches itself through the lflow CLI (see piSystemPrompt).
+// askedUUID marks the node this turn is about, so replies can
 // target it. Mirrors expand at most once via the visited set, so a mirror
 // pointing back at an ancestor can't loop the walk (the same guard the renderer
 // uses).
@@ -216,7 +224,7 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 
 	// a reply arrives asynchronously: re-anchor the cursor to the ITEM it was
 	// on, or an insertion above it shifts every row and typing lands on the
-	// wrong node (worst case the read-only reply itself)
+	// wrong node
 	var curIt, curCtx *item
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		curIt, curCtx = m.rows[m.cursor].it, m.rows[m.cursor].ctx

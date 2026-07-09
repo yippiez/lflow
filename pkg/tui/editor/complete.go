@@ -129,16 +129,27 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) {
 	if end > len(runes) {
 		end = len(runes)
 	}
-	if m.compl.kind == complQueryCmd || m.compl.kind == complAgent {
+	if m.compl.kind == complQueryCmd {
 		if chosen.value == "" {
 			return // leave the typed text as-is
 		}
-		token := chosen.value
-		if m.compl.kind == complAgent {
-			token = "@" + token + " " // a mention stays plain text; Enter later sends
+		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
+		m.caret = m.compl.start + len([]rune(chosen.value))
+		m.unsaved = true
+		return
+	}
+	if m.compl.kind == complAgent {
+		if chosen.value == "" {
+			return // leave the typed text as-is
 		}
-		cur.name = string(runes[:m.compl.start]) + token + string(runes[end:])
-		m.caret = m.compl.start + len([]rune(token))
+		// a mention lands as an agent chip — the structured red @Name token that
+		// binds the node to its agent; alt+r later starts the thread (agent.go)
+		anchor := m.createChip(chipKindAgent, chosen.value)
+		if anchor == "" {
+			return
+		}
+		cur.name = string(runes[:m.compl.start]) + anchor + " " + string(runes[end:])
+		m.caret = m.compl.start + len([]rune(anchor)) + 1
 		m.unsaved = true
 		return
 	}

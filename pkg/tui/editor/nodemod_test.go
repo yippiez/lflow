@@ -10,6 +10,23 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
+// testLogMod is a log-shaped fixture mod: the same shape as the external log
+// mod (github.com/yippiez/lflow-log). It exercises every descriptor hook the
+// nodemod bridge exposes — sign, glyph, baseColor, prefix, muteFrom.
+const testLogMod = `lflow.registerType({
+    key: "log",
+    label: "Log",
+    inlineEditable: true,
+    sign: "-> ",
+    glyph: function (node) { return ["→", node.color || "dim"]; },
+    baseColor: function (node) { return node.color || "dim"; },
+    prefix: function (node) {
+        return lflow.style("(" + lflow.time(node.addedOn) + ") ", "dim");
+    },
+    muteFrom: function (name) { return name.indexOf(" · "); },
+});
+`
+
 // setModTestDir points the mod registry at a temp dir and restores (and
 // clears) the package state when the test ends.
 func setModTestDir(t *testing.T) string {
@@ -33,10 +50,10 @@ func writeModFile(t *testing.T, name, source string) {
 
 func TestNodeModLogType(t *testing.T) {
 	setModTestDir(t)
-	writeModFile(t, "log.js", database.SeedLogArtifactSource)
+	writeModFile(t, "log.js", testLogMod)
 	loadNodeMods()
 
-	nt := typeOf(database.TypeLog)
+	nt := typeOf("log")
 	if nt.label != "Log" {
 		t.Fatalf("log type not registered: got label %q", nt.label)
 	}
@@ -44,7 +61,16 @@ func TestNodeModLogType(t *testing.T) {
 		t.Fatal("log type must stay inline-editable")
 	}
 
-	it := &item{typ: database.TypeLog, name: "deploy · went fine", addedOn: time.Date(2026, 7, 1, 14, 30, 0, 0, time.Local).UnixNano()}
+	// a mod-declared sign drives convertBySign: typing "->" then the trigger
+	// space (consumed, not stored) converts and strips the sign.
+	it := &item{uuid: "c", typ: "bullets", name: "->deployed"}
+	tr := &tree{byUUID: map[string]*item{"c": it}}
+	m := &Model{tree: tr, caret: 2}
+	if !m.convertBySign(it) || it.typ != "log" || it.name != "deployed" {
+		t.Fatalf("mod sign '-> ' must convert to log: typ=%q name=%q", it.typ, it.name)
+	}
+
+	it = &item{typ: "log", name: "deploy · went fine", addedOn: time.Date(2026, 7, 1, 14, 30, 0, 0, time.Local).UnixNano()}
 
 	// glyph: → tinted dim by default, by the /color otherwise
 	g, col := nt.glyph(it)
@@ -71,7 +97,7 @@ func TestNodeModLogType(t *testing.T) {
 
 	// the picker lists it after the built-ins, indistinguishable from them
 	order := typeOrder()
-	if order[len(order)-1] != database.TypeLog {
+	if order[len(order)-1] != "log" {
 		t.Fatalf("typeOrder tail = %v, want log last", order[len(order)-3:])
 	}
 }
@@ -123,7 +149,7 @@ lflow.registerChip({
 
 // TestNodeModMigrationExportsLegacyRows drives the one-time artifacts-table →
 // files export: rows become <key>.js (or .js.disabled), and a DB with nothing
-// to export seeds the reference log.js instead.
+// to export leaves the mods dir empty.
 func TestNodeModMigrationExportsLegacyRows(t *testing.T) {
 	db := database.InitTestMemoryDB(t)
 	old := modsDir
@@ -157,12 +183,12 @@ func TestNodeModMigrationExportsLegacyRows(t *testing.T) {
 		t.Fatal("re-init must not re-export deleted types")
 	}
 
-	// a fresh install (no legacy rows) seeds the reference log.js
+	// a fresh install (no legacy rows) leaves the mods dir empty — no built-ins
 	fresh := database.InitTestMemoryDB(t)
 	cfg2 := t.TempDir()
 	initNodeMods(cfg2, fresh)
-	if typeOf(database.TypeLog).label != "Log" {
-		t.Fatal("fresh install must seed log.js")
+	if len(loadedMods) != 0 {
+		t.Fatalf("fresh install must seed nothing, got %d mods", len(loadedMods))
 	}
 }
 
@@ -183,11 +209,11 @@ func TestNodeModDirMigrationAndDirMods(t *testing.T) {
 	if err := os.MkdirAll(oldDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(oldDir, "log.js"), []byte(database.SeedLogArtifactSource), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(oldDir, "log.js"), []byte(testLogMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	initNodeMods(cfg, db)
-	if typeOf(database.TypeLog).label != "Log" {
+	if typeOf("log").label != "Log" {
 		t.Fatal("nodes/ content must survive the rename to mods/")
 	}
 	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {

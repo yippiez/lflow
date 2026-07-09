@@ -22,7 +22,6 @@ const (
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
-	TypeLog     = "log"
 	TypeAgent   = "agent" // an agent-authored reply node: red ✦, text + chips only
 	TypeWF      = "wf"    // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
 )
@@ -36,7 +35,6 @@ var TypeOrder = []string{
 	TypeBullets,
 	TypeTodo,
 	TypeDivider,
-	TypeLog,
 	TypeH1,
 	TypeH2,
 	TypeH3,

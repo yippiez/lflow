@@ -74,8 +74,8 @@ var (
 
 // initNodeMods points the registry at <configDir>/lflow/mods and loads it.
 // The first run migrates, oldest form first: the pre-rename "nodes" dir moves
-// wholesale; failing that, legacy artifacts-table rows export as files; a
-// fresh install seeds the reference log.js.
+// wholesale; failing that, legacy artifacts-table rows export as files. A fresh
+// install starts empty — every node type is an external mod (lflow node install).
 func initNodeMods(configDir string, db *database.DB) {
 	base := filepath.Join(configDir, consts.LflowDirName)
 	modsDir = filepath.Join(base, "mods")
@@ -94,21 +94,16 @@ func initNodeMods(configDir string, db *database.DB) {
 }
 
 // exportLegacyArtifacts writes the pre-file artifacts table out as one file
-// per row, preserving each row's enabled state in the filename.
+// per row, preserving each row's enabled state in the filename. A DB with no
+// such rows leaves the mods dir empty — fresh installs ship no built-in mods.
 func exportLegacyArtifacts(db *database.DB) {
-	rows, _ := database.ListArtifacts(db) // no table / no rows → seed below
-	wrote := false
+	rows, _ := database.ListArtifacts(db) // no table / no rows → nothing to export
 	for _, a := range rows {
 		name := a.Key + ".js"
 		if !a.Enabled {
 			name += modDisabledExt
 		}
-		if os.WriteFile(filepath.Join(modsDir, name), []byte(a.Source), 0o644) == nil {
-			wrote = true
-		}
-	}
-	if !wrote {
-		_ = os.WriteFile(filepath.Join(modsDir, "log.js"), []byte(database.SeedLogArtifactSource), 0o644)
+		_ = os.WriteFile(filepath.Join(modsDir, name), []byte(a.Source), 0o644)
 	}
 }
 

@@ -910,8 +910,8 @@ func inlineSpans(runes []rune) []spanFlags {
 // every row — selection is carried by the red glyph alone. Unselected rows
 // hide the markdown markers; the selected row shows them and the block
 // cursor inverts the cell under the rune at the caret index (-1 for none).
-// logTime/logDescStart moved into the seeded log artifact (lflow.time and a JS
-// muteFrom hook) — see database.SeedLogArtifactSource.
+// A per-type prefix/color/muteFrom comes from the descriptor hooks (built-in or
+// a JS mod via the nodemod bridge), not a switch here.
 
 func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip) string {
 	name = stripControlBytes(name)
@@ -920,7 +920,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	}
 	desc := typeOf(it.typ)
 	base := cFG
-	// a type may set its own body color (the log artifact returns dim/its /color)
+	// a type may set its own body color (e.g. a mod returning dim/its /color)
 	if desc.baseColor != nil {
 		if c := desc.baseColor(it); c != "" {
 			base = c
@@ -945,10 +945,13 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		attrs += bgTerm // dark terminal block; the "$ " prompt is folded into the pad
 	}
 	if desc.prefix != nil {
-		prefix = desc.prefix(it) // per-type prefix, e.g. the log artifact's time chip
+		prefix = desc.prefix(it) // per-type prefix, e.g. a log mod's time chip
 	}
-	if s := desc.sign; s != "" && it.typ != database.TypeBash {
-		prefix = cDim + s + cReset // type sign, e.g. "⌕ " for query
+	// a bare sign (no prefix hook) renders as its own dim prefix, e.g. "⌕ " for
+	// query; a type with a prefix hook keeps that instead (its sign is only a
+	// keyboard trigger — see convertBySign).
+	if s := desc.sign; s != "" && desc.prefix == nil && it.typ != database.TypeBash {
+		prefix = cDim + s + cReset
 	}
 	// /bold, /italic, /underline layer on top of the layout's own attributes
 	attrs += styleAttrs(it.style)

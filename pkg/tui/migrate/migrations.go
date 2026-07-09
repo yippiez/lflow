@@ -938,21 +938,13 @@ var lm30 = migration{
 	},
 }
 
-// lm31 seeds the "log" artifact — the one built-in node type that moved to the
-// artifact model, doubling as the reference program agent-generated artifacts
-// imitate. Its compiled-in registry entry and render branches are gone; the
-// TypeLog constant stays for data compatibility.
+// lm31 once seeded a built-in "log" node type into the artifacts table. The log
+// type is now a fully external mod (installed from its own repo), so nothing is
+// seeded — but the slot stays a no-op: LocalSequence is applied by index, so
+// dropping it would renumber every later migration and re-run them on live DBs.
 var lm31 = migration{
 	name: "seed-log-artifact",
-	run: func(ctx context.DnoteCtx, tx *database.DB) error {
-		if _, err := tx.Exec(`INSERT INTO artifacts (key, label, version, source, created_by, created_at, enabled)
-			VALUES ('log', 'Log', 1, ?, 'seed', ?, true)
-			ON CONFLICT(key) DO NOTHING`,
-			database.SeedLogArtifactSource, time.Now().UnixNano()); err != nil {
-			return errors.Wrap(err, "seeding log artifact")
-		}
-		return nil
-	},
+	run:  func(ctx context.DnoteCtx, tx *database.DB) error { return nil },
 }
 
 // lm32 adds the agent_sessions table — one row per @mention thread, binding a

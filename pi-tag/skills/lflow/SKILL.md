@@ -6,8 +6,10 @@ description: Work inside the lflow terminal outline app — query and edit the o
 # lflow
 
 You are running inside lflow, a terminal outline editor. Everything is a node
-in one tree; a conversation thread is a node's subtree, and your replies land
-back in the outline as nodes.
+in one tree. A conversation thread hands you the mentioned node's parent (one
+level above, for context), the node, and everything beneath them; your replies
+land back in the outline as nodes. That slice is all you are given — search
+the rest of the outline yourself with the CLI below whenever it would help.
 
 ## Chips — how to speak
 

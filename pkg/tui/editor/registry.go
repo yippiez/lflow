@@ -34,9 +34,9 @@ type nodeType struct {
 	// generic "run"/"expand"). See flashActionsFor. jump and fold stay universal.
 	flashActions func(m *Model, it *item) []flashAction
 
-	// hooks below exist for the artifact bridge (see artifact.go): granular
-	// enough that an editable type like log keeps caret editing while a JS
-	// program decides its look. Built-ins may use them too.
+	// hooks below exist for the mod bridge (see nodemod.go): granular enough
+	// that an editable type keeps caret editing while a JS program decides its
+	// look (glyph, prefix, muted tail). Built-ins may use them too.
 	prefix    func(it *item) string // styled prefix before the body, e.g. the log time chip
 	baseColor func(it *item) string // body foreground SGR; "" keeps the default
 	muteFrom  func(name string) int // rune index the muted tail starts at; -1 = none
@@ -85,8 +85,6 @@ var nodeTypes = []nodeType{
 	// rule (see dividerLine), hiding the glyph. It is otherwise a normal node: it
 	// nests, moves, takes a /note, and is removed with ctrl+d.
 	{key: database.TypeDivider, label: "Divider", inlineEditable: false},
-	// log is NOT here: it moved to the mod model (the seeded log.js in
-	// ~/.config/lflow/mods renders the → glyph, muted time chip and · tail).
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},
@@ -112,10 +110,11 @@ var nodeTypes = []nodeType{
 		key: database.TypeWF, label: "Workflowy", glyph: wfGlyph, inlineEditable: true,
 		run: runWF,
 	},
-	// an agent reply (see agent.go): red ✦, body red, plain text + chips only,
-	// read-only inline — the agent's message is a record, not an editable note.
+	// an agent reply (see agent.go): red ✦, body red, plain text + chips. A
+	// normal, editable node — only the glyph marks its authorship, so the user
+	// reshapes replies like any other note.
 	{
-		key: database.TypeAgent, label: "Agent", glyph: agentGlyph, inlineEditable: false,
+		key: database.TypeAgent, label: "Agent", glyph: agentGlyph, inlineEditable: true,
 		baseColor: func(it *item) string { return cRed },
 	},
 	{

@@ -20,8 +20,9 @@ import (
 )
 
 // ThreadNode is one node of the thread context sent to the agent: the thread
-// root and its subtree depth-first. The agent sees its own level and below,
-// never its ancestors or siblings elsewhere in the outline.
+// root and its subtree depth-first. The root is the mentioned node's parent,
+// so the agent sees one level above the mention plus everything beneath —
+// nothing further up; the rest of the outline it searches via the lflow CLI.
 type ThreadNode struct {
 	UUID  string `json:"uuid"`
 	Depth int    `json:"depth"` // 0 = thread root

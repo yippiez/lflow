@@ -34,21 +34,3 @@ func ListArtifacts(db *DB) ([]Artifact, error) {
 	}
 	return ret, rows.Err()
 }
-
-// SeedLogArtifactSource is the JS for the seeded "log" type — the one built-in
-// that migrated to the genui model, and the reference program an
-// agent-generated node type is expected to look like. It reproduces the old
-// compiled-in behavior exactly: → glyph tinted by /color, a muted
-// "(YYYY-MM-DD HH:MM)" time chip, and a muted " · description" tail.
-const SeedLogArtifactSource = `lflow.registerType({
-    key: "log",
-    label: "Log",
-    inlineEditable: true,
-    glyph: function (node) { return ["→", node.color || "dim"]; },
-    baseColor: function (node) { return node.color || "dim"; },
-    prefix: function (node) {
-        return lflow.style("(" + lflow.time(node.addedOn) + ") ", "dim");
-    },
-    muteFrom: function (name) { return name.indexOf(" · "); },
-});
-`

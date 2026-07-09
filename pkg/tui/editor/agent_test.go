@@ -3,6 +3,7 @@ package editor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,5 +289,83 @@ func TestBuildThreadGuardsMirrorCycles(t *testing.T) {
 	thread := m.buildThread(n1, n1.uuid)
 	if len(thread) < 2 || len(thread) > 10 {
 		t.Fatalf("mirror cycle not guarded: %d nodes", len(thread))
+	}
+}
+
+// TestAgentChipCompletion: picking an agent in the @ completer lands a real
+// agent chip — red @Name token — whose expansion every mention detector reads
+// as a typed "@Pi".
+func TestAgentChipCompletion(t *testing.T) {
+	m, _, _ := newAgentTestModel(t)
+	it := addChild(m, m.tree.byUUID["disc"], "n2", "", "")
+	m.refreshRows()
+	m.cursor = m.findRow(it, nil)
+	m.caret = 0
+
+	m.compl = complState{kind: complAgent, start: 0}
+	m.applyCompletion(it, pickerItem{value: "Pi"})
+
+	if !hasAnchor(it.name) {
+		t.Fatalf("completion left plain text, want a chip anchor: %q", it.name)
+	}
+	spans := anchorSpans([]rune(it.name))
+	if len(spans) != 1 {
+		t.Fatalf("want 1 chip anchor, got %d", len(spans))
+	}
+	c := m.chips[spans[0].id]
+	if c.Kind != chipKindAgent || c.Value != "Pi" {
+		t.Fatalf("chip = %+v, want kind=agent value=Pi", c)
+	}
+	if got := expandAnchors(it.name, m.chips); !strings.Contains(got, "@Pi") {
+		t.Fatalf("expansion %q must read as a typed mention", got)
+	}
+	if ag, ok := m.mentionedAgent(expandAnchors(it.name, m.chips)); !ok || ag.Name != "Pi" {
+		t.Fatal("mention detection must see the agent chip")
+	}
+}
+
+// TestThreadContextParentAndChildren pins the context contract: the agent gets
+// the mentioned node's children AND one level above it (the parent), which
+// roots the thread.
+func TestThreadContextParentAndChildren(t *testing.T) {
+	m, disc, n1 := newAgentTestModel(t)
+	kid := addChild(m, n1, "k1", "importer is in packages/importer", "")
+
+	root := m.threadRootFor(n1, tag.Agent{Name: "Pi"})
+	if root != disc {
+		t.Fatalf("thread root = %q, want the mention's parent", root.uuid)
+	}
+	thread := m.buildThread(root, n1.uuid)
+	byUUID := map[string]tag.ThreadNode{}
+	for _, n := range thread {
+		byUUID[n.UUID] = n
+	}
+	if n, ok := byUUID["disc"]; !ok || n.Depth != 0 {
+		t.Fatalf("parent must open the thread at depth 0, got %+v", byUUID["disc"])
+	}
+	if _, ok := byUUID[kid.uuid]; !ok {
+		t.Fatal("the mention's children must be in the thread")
+	}
+	if n := byUUID["n1"]; !n.Asked {
+		t.Fatal("the mention must be marked asked")
+	}
+}
+
+// TestThreadRootSkipsInvisibleRoot: a top-level mention roots its own thread —
+// the uuid-less tree root never becomes a session binding.
+func TestThreadRootSkipsInvisibleRoot(t *testing.T) {
+	m, _, _ := newAgentTestModel(t)
+	m.tree.root.uuid = "" // the invisible root
+	top := addChild(m, m.tree.root, "t1", "@Pi hello", "")
+
+	if root := m.threadRootFor(top, tag.Agent{Name: "Pi"}); root != top {
+		t.Fatalf("thread root = %q, want the mention itself", root.uuid)
+	}
+}
+
+// TestAgentReplyEditable: agent replies are plain nodes — inline editable.
+func TestAgentReplyEditable(t *testing.T) {
+	if !typeOf(database.TypeAgent).inlineEditable {
+		t.Fatal("agent nodes must be editable — they are just nodes")
 	}
 }
