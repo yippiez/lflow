@@ -556,31 +556,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.animTicking = false // nothing animating — stop redrawing
 		return m, nil
-	case bashLineMsg:
+	case bashLinesMsg:
 		if _, running := m.runCancel[msg.uuid]; !running {
 			return m, nil // canceled — stop streaming
 		}
-		m.appendRunOut(msg.uuid, outLine{text: msg.text, err: msg.err})
-		// drain whatever the producer already buffered so a torrent of output
-		// costs one render per batch, not one render per line — a huge rg must
-		// not freeze the UI
-		for {
-			select {
-			case next, ok := <-m.runCh[msg.uuid]:
-				if !ok {
-					return m, nil // channel closed after a cancel
-				}
-				switch nm := next.(type) {
-				case bashLineMsg:
-					m.appendRunOut(nm.uuid, outLine{text: nm.text, err: nm.err})
-				case bashDoneMsg:
-					m.finishRun(nm.uuid)
-					return m, nil
-				}
-			default:
-				return m, waitBashCmd(m.runCh[msg.uuid])
-			}
+		// one bounded batch per ~50ms window (see startBash) — a torrential
+		// command costs the UI a handful of renders a second, never a freeze
+		for _, l := range msg.lines {
+			m.appendRunOut(msg.uuid, l)
 		}
+		return m, waitBashCmd(m.runCh[msg.uuid])
 	case bashDoneMsg:
 		m.finishRun(msg.uuid) // cache the finished band so it survives a restart
 		return m, nil
@@ -1217,17 +1202,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+x":
-		// stop a running node's command, keeping what was captured; on a node
-		// that is not running, clear its output band
+		// stop a running command, keeping what was captured; when nothing is
+		// running, clear the output band. A cmd chip under the caret takes the
+		// key (its band is keyed by chip id); otherwise the node's own band.
 		if cur := m.cursorItem(); cur != nil {
-			if cancel, running := m.runCancel[cur.uuid]; running {
+			id := cur.uuid
+			if c, ok := m.cmdChipAtCaret(cur); ok {
+				id = c.ID
+			}
+			if cancel, running := m.runCancel[id]; running {
 				cancel()
-				m.finishRun(cur.uuid)
-			} else if len(m.runOut[cur.uuid]) > 0 {
-				m.runOut[cur.uuid] = nil
-				delete(m.runDropped, cur.uuid)
-				m.persistRunOut(cur.uuid) // an empty band deletes the row
-				m.setCmdPreview(cur.uuid)
+				m.finishRun(id)
+			} else if len(m.runOut[id]) > 0 {
+				m.runOut[id] = nil
+				delete(m.runDropped, id)
+				m.persistRunOut(id) // an empty band deletes the row
+				m.setCmdPreview(id)
 			}
 		}
 		return m, nil
@@ -1516,8 +1506,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cur.typ == database.TypeQuery && atWordStart(cur, m.caret) {
 			return m.openCompleter(cur, complQueryCmd, ":")
 		}
-		// "@" opens the agent picker at a word boundary — the mention stays
-		// plain text; Enter on the node later sends the thread (see agent.go)
+		// "@" opens the agent picker at a word boundary — picking lands an
+		// agent chip; alt+r on the node later starts the thread (see agent.go)
 		if string(k.Runes) == "@" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			len(m.agents) > 0 && tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
 			return m.openCompleter(cur, complAgent, "@")
@@ -1624,10 +1614,12 @@ func tagPickerTrigger(typ string) bool {
 
 // convertBySign turns a sign typed at the very start of a node into that node's
 // type — the keyboard-only counterpart to /type. It fires on the space after the
-// sign (so the whole pre-caret text IS the sign), converts, and strips the sign
-// (a bash node renders its own "$ " prefix; a log node its own "→"), leaving the
-// caret at the start of the remaining text. Works from any type, so it doubles as
-// the reverse conversion (type "$ " on a log node to make it bash, and vice versa).
+// sign (so the whole pre-caret text IS the sign, minus its trailing space) and
+// strips it, leaving the caret at the start of the remaining text. Every trigger
+// comes from a type's registry `sign` field — built-in ("$ " → bash, "⌕ " →
+// query) or a mod's own (e.g. a log mod declaring `sign: "-> "`), so no type is
+// named here. Works from any type, so it doubles as the reverse conversion (type
+// "$ " on a signed node to make it bash, and vice versa).
 func (m *Model) convertBySign(cur *item) bool {
 	if cur == nil || cur.mirrorOf != "" || cur.readonly {
 		return false
@@ -1636,17 +1628,19 @@ func (m *Model) convertBySign(cur *item) bool {
 	if m.caret > len(runes) {
 		return false
 	}
-	var newType string
-	switch string(runes[:m.caret]) {
-	case "$":
-		newType = database.TypeBash
-	case "->", "→":
-		newType = database.TypeLog
-	default:
+	typed := string(runes[:m.caret])
+	if typed == "" {
 		return false
 	}
-	if cur.typ == newType {
-		return false // already that type — let the space type normally
+	newType := ""
+	for _, key := range typeOrder() {
+		if s := typeOf(key).sign; s != "" && typed == strings.TrimRight(s, " ") {
+			newType = key
+			break
+		}
+	}
+	if newType == "" || cur.typ == newType {
+		return false // no matching sign, or already that type — type the space normally
 	}
 	m.pushUndo("")
 	cur.typ = newType

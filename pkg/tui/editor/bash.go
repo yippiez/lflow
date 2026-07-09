@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -18,10 +19,13 @@ type outLine struct {
 	err  bool
 }
 
-type bashLineMsg struct {
-	uuid string
-	text string
-	err  bool
+// bashLinesMsg carries a BATCH of captured lines. Batching happens in the
+// producer on a ~50ms window (see startBash), so a torrential command costs
+// the UI at most ~20 bounded messages a second — one message per line would
+// pin the update loop for the whole run and freeze the editor.
+type bashLinesMsg struct {
+	uuid  string
+	lines []outLine
 }
 type bashDoneMsg struct {
 	uuid string
@@ -78,7 +82,17 @@ func (m *Model) finishRun(uuid string) {
 	m.setCmdPreview(uuid)
 }
 
-// startBash spawns `bash -c <cmd>` and streams each output line onto ch.
+// Producer-side batching knobs: a batch ships when the flush window elapses
+// (so a trickle still appears promptly) or when it hits the size cap (so a
+// torrent cannot grow an unbounded transient batch — the capped send then
+// backpressures the scanner through the channel).
+const (
+	runFlushEvery = 50 * time.Millisecond
+	runBatchCap   = 4096
+)
+
+// startBash spawns `bash -c <cmd>` and streams its output onto ch in
+// time-batched bashLinesMsg chunks.
 func startBash(uuid, cmd string, ctx context.Context, ch chan tea.Msg) {
 	// send delivers onto ch unless the run was canceled — the editor stops
 	// draining after a cancel, so an unconditional send on a full buffer would
@@ -101,17 +115,21 @@ func startBash(uuid, cmd string, ctx context.Context, ch chan tea.Msg) {
 	stdout, _ := c.StdoutPipe()
 	stderr, _ := c.StderrPipe()
 	if err := c.Start(); err != nil {
-		send(bashLineMsg{uuid, err.Error(), true})
+		send(bashLinesMsg{uuid, []outLine{{text: err.Error(), err: true}}})
 		send(bashDoneMsg{uuid, 1})
 		return
 	}
+
+	lines := make(chan outLine, 1024)
 	var wg sync.WaitGroup
 	scan := func(r io.Reader, isErr bool) {
 		defer wg.Done()
 		sc := bufio.NewScanner(r)
 		sc.Buffer(make([]byte, 64*1024), 1<<20)
 		for sc.Scan() {
-			if !send(bashLineMsg{uuid, sc.Text(), isErr}) {
+			select {
+			case lines <- outLine{text: sc.Text(), err: isErr}:
+			case <-ctx.Done():
 				return // canceled — CommandContext is killing the process
 			}
 		}
@@ -119,7 +137,44 @@ func startBash(uuid, cmd string, ctx context.Context, ch chan tea.Msg) {
 	wg.Add(2)
 	go scan(stdout, false)
 	go scan(stderr, true)
-	wg.Wait()
+	go func() {
+		wg.Wait()
+		close(lines)
+	}()
+
+	// the batcher: collect lines, flush a bounded batch per window
+	var batch []outLine
+	flush := func() bool {
+		if len(batch) == 0 {
+			return true
+		}
+		ok := send(bashLinesMsg{uuid, batch})
+		batch = nil
+		return ok
+	}
+	tick := time.NewTicker(runFlushEvery)
+	defer tick.Stop()
+collect:
+	for {
+		select {
+		case l, open := <-lines:
+			if !open {
+				break collect
+			}
+			batch = append(batch, l)
+			if len(batch) >= runBatchCap && !flush() {
+				return
+			}
+		case <-tick.C:
+			if !flush() {
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+	flush()
+
 	exit := 0
 	if err := c.Wait(); err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
