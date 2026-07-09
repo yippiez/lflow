@@ -3121,14 +3121,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 			// read-only temp panel: the dashed-glyph Temporary Domain look
 			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
 		}
-		// with a page background, the main region fills its whole budget so the
-		// gray block runs 100% of the way down to the divider — not just the
-		// rows that hold content (blank filler rows paint gray like any other)
-		if bgPage != "" {
-			for len(mainLines) < mainBudget {
-				mainLines = append(mainLines, "")
-			}
-		}
+		// NOTE: the page background never adds filler rows — the layout (where
+		// the divider sits) must be identical across themes; gray paints
+		// exactly the rows the main region already has, edge to edge.
 		body := mainLines
 		m.pageRows = len(body) // page bg stops at the divider; temp stays bare
 		body = append(body, bar...) // the status bar is the divider
@@ -3159,12 +3154,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	// same 100%-fill under a page background as the showTemp path above
-	if bgPage != "" {
-		for len(lines) < rowBudget {
-			lines = append(lines, "")
-		}
-	}
 	m.pageRows = len(lines) // page bg covers everything above the status bar
 	lines = append(lines, bar...)
 
