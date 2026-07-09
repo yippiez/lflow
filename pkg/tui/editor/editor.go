@@ -62,18 +62,18 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/bring", "Bring another node (or an agent) here"},
+	{"/bring", "Bring another node here"},
 	{"/complete", "Toggle done"},
 	{"/star", "Star this node — ranks first in pickers"},
-	{"/duplicate", "Duplicate this node (and its subtree) next to it"},
-	{"/file", "Insert a file path chip (fuzzy fzf picker)"},
+	{"/duplicate", "Duplicate this node and its subtree next to it"},
+	{"/file", "Insert a file path chip via fuzzy fzf picker"},
 	{"/goto", "Jump the editor to another node"},
-	{"/link", "Insert an inline link to a node or URL ([[)"},
-	{"/lock", "Lock or unlock this node (read-only)"},
+	{"/link", "Insert an inline [[ link to a node or URL"},
+	{"/lock", "Lock or unlock this node as read-only"},
 	{"/mirror", "Mirror a node here via the fuzzy finder"},
 	{"/move", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
-	{"/settings", "Editor preferences (theme, image preview)"},
+	{"/settings", "Editor preferences: theme, image preview"},
 	{"/style", "Set this node's text style or color"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
@@ -3028,7 +3028,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			val := m.setting(d.key)
 			mark := "  "
 			if i == m.settingsSel {
-				mark = cRed + "● " + cReset // the red cursor dot, same language as the outline
+				mark = cAccent + "→ " + cReset // one joined arrow, not "-" + ">"
 			}
 			value := settingValueColor(val) + settingValueLabel(d, val) + cReset
 			extra := ""
