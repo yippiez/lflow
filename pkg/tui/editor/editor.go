@@ -179,6 +179,7 @@ type Model struct {
 	runCancel    map[string]func()       // cancel a running command
 	runCh        map[string]chan tea.Msg // stream channel for a running command
 	runOutLoaded map[string]bool         // uuids whose run band is hydrated (see runout.go)
+	runDropped   map[string]int          // lines dropped off a band's head (see maxRunLines)
 
 	// Temporary Domain — a scratch outline region (a second root, 7-day retention)
 	tempActive bool
@@ -559,13 +560,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if _, running := m.runCancel[msg.uuid]; !running {
 			return m, nil // canceled — stop streaming
 		}
-		m.runOut[msg.uuid] = append(m.runOut[msg.uuid], outLine{text: msg.text, err: msg.err})
-		return m, waitBashCmd(m.runCh[msg.uuid])
+		m.appendRunOut(msg.uuid, outLine{text: msg.text, err: msg.err})
+		// drain whatever the producer already buffered so a torrent of output
+		// costs one render per batch, not one render per line — a huge rg must
+		// not freeze the UI
+		for {
+			select {
+			case next, ok := <-m.runCh[msg.uuid]:
+				if !ok {
+					return m, nil // channel closed after a cancel
+				}
+				switch nm := next.(type) {
+				case bashLineMsg:
+					m.appendRunOut(nm.uuid, outLine{text: nm.text, err: nm.err})
+				case bashDoneMsg:
+					m.finishRun(nm.uuid)
+					return m, nil
+				}
+			default:
+				return m, waitBashCmd(m.runCh[msg.uuid])
+			}
+		}
 	case bashDoneMsg:
-		delete(m.runCancel, msg.uuid)
-		delete(m.runCh, msg.uuid)
-		m.persistRunOut(msg.uuid) // cache the finished band so it survives a restart
-		m.setCmdPreview(msg.uuid) // a cmd chip: refresh its inline "→ preview"
+		m.finishRun(msg.uuid) // cache the finished band so it survives a restart
 		return m, nil
 	case agentModelsMsg:
 		// the background pi --list-models fetch landed — fill the /settings row
@@ -1196,6 +1213,21 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// recursive-mirror model: every pulled node is a wf handle too
 			if _, ok := m.wfMap[cur.uuid]; ok {
 				return m, runWF(m, cur)
+			}
+		}
+		return m, nil
+	case "alt+x":
+		// stop a running node's command, keeping what was captured; on a node
+		// that is not running, clear its output band
+		if cur := m.cursorItem(); cur != nil {
+			if cancel, running := m.runCancel[cur.uuid]; running {
+				cancel()
+				m.finishRun(cur.uuid)
+			} else if len(m.runOut[cur.uuid]) > 0 {
+				m.runOut[cur.uuid] = nil
+				delete(m.runDropped, cur.uuid)
+				m.persistRunOut(cur.uuid) // an empty band deletes the row
+				m.setCmdPreview(cur.uuid)
 			}
 		}
 		return m, nil

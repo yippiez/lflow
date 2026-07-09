@@ -544,14 +544,18 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	shown := out
 	const capN = 3
 	if len(shown) > capN {
-		lines = append(lines, clip(rail+cReset+cDim+fmt.Sprintf("  ⋯ %d more", len(shown)-capN)+cReset, maxLine))
+		more := fmt.Sprintf("  ⋯ %d more", len(shown)-capN)
+		if d := m.runDropped[uuid]; d > 0 {
+			more += fmt.Sprintf(" · %d dropped", d)
+		}
+		lines = append(lines, clip(rail+cReset+cDim+more+cReset, maxLine))
 		shown = shown[len(shown)-capN:]
 	}
 	for _, l := range shown {
 		lines = append(lines, clip(rail+cReset+"  "+styleOutLine(l), maxLine))
 	}
 	if running {
-		lines = append(lines, clip(rail+cReset+cDim+"  running…"+cReset, maxLine))
+		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥x stop"+cReset, maxLine))
 	}
 	return lines
 }

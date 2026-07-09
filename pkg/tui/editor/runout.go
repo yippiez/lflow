@@ -1,6 +1,41 @@
 package editor
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"unicode/utf8"
+)
+
+// Guards so a runaway command (a huge rg, a catted binary) cannot balloon
+// memory, the DB, or the render loop: a band keeps only the newest maxRunLines
+// lines — the head is dropped and counted (m.runDropped) — every captured line
+// is clipped to maxRunLineLen bytes, and the persisted row is byte-budgeted
+// from the tail.
+const (
+	maxRunLines        = 5000
+	maxRunLineLen      = 4096
+	maxRunPersistBytes = 512 << 10
+)
+
+// appendRunOut adds one captured line to a node's run band, enforcing the line
+// and band caps above. Every streamed line goes through here.
+func (m *Model) appendRunOut(uuid string, l outLine) {
+	if len(l.text) > maxRunLineLen {
+		cut := maxRunLineLen
+		for cut > 0 && !utf8.RuneStart(l.text[cut]) {
+			cut--
+		}
+		l.text = l.text[:cut] + "…"
+	}
+	out := append(m.runOut[uuid], l)
+	if over := len(out) - maxRunLines; over > 0 {
+		out = out[over:]
+		if m.runDropped == nil {
+			m.runDropped = map[string]int{}
+		}
+		m.runDropped[uuid] += over
+	}
+	m.runOut[uuid] = out
+}
 
 // A runnable node's captured output (bash/query stdout/stderr) is ephemeral in
 // memory, but it is also mirrored into the node_output DB table so it survives a
@@ -70,6 +105,14 @@ func (m *Model) persistRunOut(uuid string) {
 		_, _ = m.ctx.DB.Exec("DELETE FROM node_output WHERE uuid = ?", uuid)
 		return
 	}
+	// byte-budget the row from the tail — the newest lines are the ones worth
+	// keeping, and one giant run must not bloat the DB
+	start, budget := len(out), maxRunPersistBytes
+	for start > 0 && budget >= len(out[start-1].text)+16 {
+		budget -= len(out[start-1].text) + 16
+		start--
+	}
+	out = out[start:]
 	disk := make([]outLineDisk, len(out))
 	for i, l := range out {
 		disk[i] = outLineDisk{Text: l.text, Err: l.err}

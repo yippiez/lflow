@@ -1,8 +1,10 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	tuictx "github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 )
@@ -51,6 +53,93 @@ func TestRunOutEmptyClearsCache(t *testing.T) {
 	reopened.ensureRunOutLoaded("b1")
 	if len(reopened.runOut["b1"]) != 0 {
 		t.Errorf("stale output should be cleared, got %+v", reopened.runOut["b1"])
+	}
+}
+
+// TestAppendRunOutCapsBand: a band holds at most maxRunLines lines — the head
+// is dropped and counted, the tail kept (the guard a huge rg needed).
+func TestAppendRunOutCapsBand(t *testing.T) {
+	m := &Model{runOut: map[string][]outLine{}}
+	for i := 0; i < maxRunLines+100; i++ {
+		m.appendRunOut("u1", outLine{text: "x"})
+	}
+	if got := len(m.runOut["u1"]); got != maxRunLines {
+		t.Fatalf("band length = %d, want %d", got, maxRunLines)
+	}
+	if got := m.runDropped["u1"]; got != 100 {
+		t.Fatalf("dropped = %d, want 100", got)
+	}
+}
+
+// TestAppendRunOutClipsLongLine: a single huge line is clipped to
+// maxRunLineLen bytes at a rune boundary.
+func TestAppendRunOutClipsLongLine(t *testing.T) {
+	m := &Model{runOut: map[string][]outLine{}}
+	m.appendRunOut("u1", outLine{text: strings.Repeat("é", maxRunLineLen)}) // 2 bytes/rune
+	got := m.runOut["u1"][0].text
+	if len(got) > maxRunLineLen+len("…") {
+		t.Fatalf("line kept %d bytes, want <= %d", len(got), maxRunLineLen+len("…"))
+	}
+	if !strings.HasSuffix(got, "…") || !strings.HasSuffix(strings.TrimSuffix(got, "…"), "é") {
+		t.Fatalf("clip broke the rune boundary near %q", got[len(got)-8:])
+	}
+}
+
+// TestPersistRunOutByteBudget: only the newest lines that fit the byte budget
+// reach the DB — one giant run cannot bloat a node_output row.
+func TestPersistRunOutByteBudget(t *testing.T) {
+	db := database.InitTestMemoryDB(t)
+	m := &Model{ctx: tuictx.DnoteCtx{DB: db}, runOut: map[string][]outLine{}}
+	line := strings.Repeat("x", maxRunLineLen)
+	for i := 0; i < 1000; i++ { // ~4MB raw, budget is 512KB
+		m.appendRunOut("b1", outLine{text: line})
+	}
+	m.persistRunOut("b1")
+
+	reopened := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	reopened.ensureRunOutLoaded("b1")
+	got := len(reopened.runOut["b1"])
+	if got == 0 || got >= 1000 {
+		t.Fatalf("persisted %d lines, want a budgeted tail (0 < n < 1000)", got)
+	}
+	if got > maxRunPersistBytes/maxRunLineLen+1 {
+		t.Fatalf("persisted %d lines, over the %dB budget", got, maxRunPersistBytes)
+	}
+}
+
+// TestAltXStopsThenClears: alt+x on a running node stops it (output kept);
+// alt+x again clears the band.
+func TestAltXStopsThenClears(t *testing.T) {
+	m := newTestModel(80, "yes")
+	it := m.tree.root.children[0]
+	it.uuid = "u1"
+	it.typ = "bash"
+	m.tree.byUUID["u1"] = it
+
+	stopped := false
+	m.runOut = map[string][]outLine{"u1": {{text: "line"}}}
+	m.runCancel = map[string]func(){"u1": func() { stopped = true }}
+	m.runCh = map[string]chan tea.Msg{"u1": make(chan tea.Msg)}
+	m.runDropped = map[string]int{"u1": 42}
+
+	altX := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x"), Alt: true}
+	m.handleKey(altX)
+	if !stopped {
+		t.Fatal("alt+x did not cancel the running command")
+	}
+	if _, running := m.runCancel["u1"]; running {
+		t.Fatal("alt+x left the run marked running")
+	}
+	if len(m.runOut["u1"]) != 1 {
+		t.Fatal("alt+x stop discarded the captured output")
+	}
+
+	m.handleKey(altX)
+	if len(m.runOut["u1"]) != 0 {
+		t.Fatal("second alt+x did not clear the band")
+	}
+	if _, ok := m.runDropped["u1"]; ok {
+		t.Fatal("second alt+x did not reset the dropped counter")
 	}
 }
 

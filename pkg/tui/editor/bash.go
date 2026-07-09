@@ -44,12 +44,14 @@ func runShell(m *Model, it *item, cmd string) tea.Cmd {
 	}
 	if cancel, running := m.runCancel[it.uuid]; running {
 		cancel()
-		delete(m.runCancel, it.uuid)
-		m.persistRunOut(it.uuid) // keep whatever was captured before the cancel
+		m.finishRun(it.uuid) // keep whatever was captured before the cancel
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.runCancel[it.uuid] = cancel
+	if m.runDropped != nil {
+		delete(m.runDropped, it.uuid) // a fresh run starts its drop count over
+	}
 	// a fresh run owns the band now: memory is authoritative, so don't reload the
 	// old on-disk output over the incoming stream.
 	if m.runOutLoaded == nil {
@@ -67,8 +69,31 @@ func waitBashCmd(ch chan tea.Msg) tea.Cmd {
 	return func() tea.Msg { return <-ch }
 }
 
+// finishRun closes out a run band — the stream ended (done, canceled, or
+// stopped) — persisting what memory holds and dropping the live bookkeeping.
+func (m *Model) finishRun(uuid string) {
+	delete(m.runCancel, uuid)
+	delete(m.runCh, uuid)
+	m.persistRunOut(uuid)
+	m.setCmdPreview(uuid)
+}
+
 // startBash spawns `bash -c <cmd>` and streams each output line onto ch.
 func startBash(uuid, cmd string, ctx context.Context, ch chan tea.Msg) {
+	// send delivers onto ch unless the run was canceled — the editor stops
+	// draining after a cancel, so an unconditional send on a full buffer would
+	// strand this goroutine forever.
+	send := func(msg tea.Msg) bool {
+		select {
+		case ch <- msg:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	// closing wakes any reader still blocked in waitBashCmd; the resulting nil
+	// msg is ignored by bubbletea
+	defer close(ch)
 	c := exec.CommandContext(ctx, "bash", "-c", cmd)
 	// coax color out of tools that suppress it when stdout isn't a TTY; captured
 	// ANSI is then rendered faithfully (see styleOutLine).
@@ -76,8 +101,8 @@ func startBash(uuid, cmd string, ctx context.Context, ch chan tea.Msg) {
 	stdout, _ := c.StdoutPipe()
 	stderr, _ := c.StderrPipe()
 	if err := c.Start(); err != nil {
-		ch <- bashLineMsg{uuid, err.Error(), true}
-		ch <- bashDoneMsg{uuid, 1}
+		send(bashLineMsg{uuid, err.Error(), true})
+		send(bashDoneMsg{uuid, 1})
 		return
 	}
 	var wg sync.WaitGroup
@@ -86,7 +111,9 @@ func startBash(uuid, cmd string, ctx context.Context, ch chan tea.Msg) {
 		sc := bufio.NewScanner(r)
 		sc.Buffer(make([]byte, 64*1024), 1<<20)
 		for sc.Scan() {
-			ch <- bashLineMsg{uuid, sc.Text(), isErr}
+			if !send(bashLineMsg{uuid, sc.Text(), isErr}) {
+				return // canceled — CommandContext is killing the process
+			}
 		}
 	}
 	wg.Add(2)
@@ -101,7 +128,7 @@ func startBash(uuid, cmd string, ctx context.Context, ch chan tea.Msg) {
 			exit = 1
 		}
 	}
-	ch <- bashDoneMsg{uuid, exit}
+	send(bashDoneMsg{uuid, exit})
 }
 
 // bashView is a bash node's inline expanded output viewer (alt+e): the full
@@ -165,8 +192,13 @@ func (bashView) Bands(m *Model, it *item, rail string, width, scroll, winH int, 
 	_, running := m.runCancel[it.uuid]
 
 	hdr := fmt.Sprintf("  %s · %d lines", it.typ, len(out))
+	if d := m.runDropped[it.uuid]; d > 0 {
+		hdr += fmt.Sprintf(" · %d dropped", d)
+	}
 	if running {
-		hdr += " · running…"
+		hdr += " · running… · ⌥x stop"
+	} else if len(out) > 0 {
+		hdr += " · ⌥x clear"
 	}
 	hdr += " · ↑↓ scroll · esc close"
 	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}

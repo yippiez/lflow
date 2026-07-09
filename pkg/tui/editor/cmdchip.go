@@ -106,13 +106,14 @@ func (m *Model) runCmdChip(c database.Chip) tea.Cmd {
 	}
 	if cancel, running := m.runCancel[c.ID]; running {
 		cancel()
-		delete(m.runCancel, c.ID)
-		m.persistRunOut(c.ID)
-		m.setCmdPreview(c.ID)
+		m.finishRun(c.ID)
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.runCancel[c.ID] = cancel
+	if m.runDropped != nil {
+		delete(m.runDropped, c.ID)
+	}
 	if m.runOutLoaded == nil {
 		m.runOutLoaded = map[string]bool{}
 	}
