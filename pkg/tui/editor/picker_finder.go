@@ -138,7 +138,7 @@ func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
 	for i, r := range shown {
 		mark := "   "
 		if i == f.sel {
-			mark = cAccent + " ▸ " + cReset
+			mark = cAccent + " → " + cReset
 		}
 		name := displayAnchors(finderRowName(r.node, func(uuid string) (database.Node, bool) {
 			n, err := database.GetNode(m.db, uuid)

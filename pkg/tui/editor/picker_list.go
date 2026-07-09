@@ -197,7 +197,7 @@ func (p *listPicker) counts(m *Model, src pickerSource) (items, header int) {
 }
 
 // render draws src.header (if any) plus a scrollStart-windowed slice of items —
-// each via item.render or the default label+desc formatting, with the "▸"/"  "
+// each via item.render or the default label+desc formatting, with the "→"/"  "
 // selection mark — clipped to maxLine. Replaces the five copy-pasted blocks in
 // View; trusts sel is in range (handleKey guarantees it).
 func (p *listPicker) render(m *Model, src pickerSource, maxLine int) []string {
@@ -218,7 +218,7 @@ func (p *listPicker) render(m *Model, src pickerSource, maxLine int) []string {
 	for i := s; i < e; i++ {
 		mark := "  "
 		if i == p.sel {
-			mark = cAccent + "▸ " + cReset
+			mark = cAccent + "→ " + cReset
 		}
 		var content string
 		if items[i].render != nil {
