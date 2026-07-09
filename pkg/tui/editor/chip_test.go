@@ -3,6 +3,7 @@ package editor
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 )
@@ -63,5 +64,38 @@ func TestSavedSummaryResolvesChipAnchors(t *testing.T) {
 	}
 	if !strings.Contains(out, "Günü Notları") {
 		t.Errorf("summary dropped the node name: %q", out)
+	}
+}
+
+// TestChipVisualRowsOversizedChipTerminates pins the freeze fix: a chip whose
+// display is wider than the whole line is atomic and can never fit — the wrap
+// walk must consume it (clipped by the renderer), not re-emit the same line
+// start forever. Cursor-on-node hung the editor on long cmd chips before.
+func TestChipVisualRowsOversizedChipTerminates(t *testing.T) {
+	chips := map[string]database.Chip{
+		"c1": {ID: "c1", Kind: "cmd", Value: "rg '^\\s*processing_' " + strings.Repeat("/long/path", 12)},
+	}
+	name := "reply " + chipAnchor("c1") + " tail"
+	done := make(chan []int, 1)
+	go func() { done <- chipVisualRows(name, 40, 4, 4, chips) }()
+	select {
+	case starts := <-done:
+		if len(starts) < 2 || len(starts) > 10 {
+			t.Fatalf("suspicious wrap: %d visual rows", len(starts))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("chipVisualRows hung on an oversized chip")
+	}
+}
+
+// TestVisualRowsWideRuneNarrowLineTerminates: the plain wrapper has the same
+// hazard — a 2-cell rune on a 1-cell line must be consumed, not retried.
+func TestVisualRowsWideRuneNarrowLineTerminates(t *testing.T) {
+	done := make(chan []int, 1)
+	go func() { done <- visualRows(strings.Repeat("界", 5), 1, 0, 0) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("visualRows hung on a wide rune in a 1-cell line")
 	}
 }

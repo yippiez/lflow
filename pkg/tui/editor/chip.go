@@ -508,9 +508,18 @@ func chipVisualRows(name string, width, firstCol, hang int, chips map[string]dat
 				next := lastSpace + 1
 				emit(next)
 				curWidth = chipDispWidth(runes, next, i, spans, chips)
-			} else {
-				emit(i)
+				continue
 			}
+			if i > lineStart {
+				emit(i)
+				continue
+			}
+			// the cluster ALONE is wider than a whole line — an oversized chip
+			// anchor is atomic and can never fit, so it owns this line and the
+			// walk moves past it (the renderer clips the overflow); re-testing
+			// it in place would emit the same start forever and hang the UI.
+			curWidth += rw
+			i = clEnd
 			continue
 		}
 		if r == ' ' && !isAnchor && curWidth >= bodyCol {

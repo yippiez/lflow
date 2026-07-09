@@ -814,10 +814,17 @@ func visualRows(name string, width, firstCol, hang int) []int {
 				next := lastSpace + 1
 				emit(next)
 				curWidth = visibleWidth(string(runes[next:i]))
-			} else {
-				emit(i)
+				continue // re-check the same cluster on the new line
 			}
-			continue // re-check the same cluster on the new line
+			if i > lineStart {
+				emit(i)
+				continue // re-check the same cluster on the new line
+			}
+			// a cluster wider than a whole line (a wide rune on a 1-cell line)
+			// can never fit — consume it or the loop re-emits this start forever
+			curWidth += rw
+			i = clEnd
+			continue
 		}
 		if r == ' ' && curWidth >= bodyCol {
 			lastSpace = i
@@ -947,11 +954,8 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	if desc.prefix != nil {
 		prefix = desc.prefix(it) // per-type prefix, e.g. a log mod's time chip
 	}
-	// a bare sign (no prefix hook) renders as its own dim prefix, e.g. "⌕ " for
-	// query; a type with a prefix hook keeps that instead (its sign is only a
-	// keyboard trigger — see convertBySign).
-	if s := desc.sign; s != "" && desc.prefix == nil && it.typ != database.TypeBash {
-		prefix = cDim + s + cReset
+	if s := desc.sign; s != "" && it.typ != database.TypeBash {
+		prefix = cDim + s + cReset // type sign as prefix, e.g. "⌕ " for query
 	}
 	// /bold, /italic, /underline layer on top of the layout's own attributes
 	attrs += styleAttrs(it.style)
