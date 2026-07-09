@@ -189,6 +189,48 @@ func TestMentionCreatesGenUINode(t *testing.T) {
 	}
 }
 
+// TestAgentReplyChips lands a reply speaking the {{kind:value}} tokens and
+// checks each becomes a real chip: anchor in the node name + a record of the
+// right kind, with the cmd chip runnable-ready (its value is the command).
+func TestAgentReplyChips(t *testing.T) {
+	m, _, n1 := newAgentTestModel(t)
+	m.placeAgentNode("disc", "n1",
+		"run {{cmd:go test ./...}} then read {{link:docs|https://go.dev}} and {{path:/tmp/out.log}}", "thread")
+
+	if len(n1.children) != 1 {
+		t.Fatalf("want one reply node, got %d", len(n1.children))
+	}
+	reply := n1.children[0]
+	spans := anchorSpans([]rune(reply.name))
+	if len(spans) != 3 {
+		t.Fatalf("want 3 chip anchors, got %d in %q", len(spans), reply.name)
+	}
+	byKind := map[string]database.Chip{}
+	for _, sp := range spans {
+		c, ok := m.chips[sp.id]
+		if !ok {
+			t.Fatalf("anchor %s has no chip record", sp.id)
+		}
+		byKind[c.Kind] = c
+	}
+	if c := byKind[chipKindCmd]; c.Value != "go test ./..." {
+		t.Fatalf("cmd chip value = %q", c.Value)
+	}
+	if c := byKind[chipKindLink]; c.Value != "https://go.dev" || c.Label != "docs" {
+		t.Fatalf("link chip = %q %q", c.Label, c.Value)
+	}
+	if c := byKind[chipKindPath]; c.Value != "/tmp/out.log" {
+		t.Fatalf("path chip value = %q", c.Value)
+	}
+
+	// a malformed or unknown token stays literal text, never a half-chip
+	m.placeAgentNode("disc", "n1", "see {{frob:x}} for details", "thread")
+	lit := n1.children[1]
+	if hasAnchor(lit.name) || lit.name != "see {{frob:x}} for details" {
+		t.Fatalf("unknown token must stay literal, got %q", lit.name)
+	}
+}
+
 func TestBuildThreadGuardsMirrorCycles(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
 	// child mirrors the message — a naive walk would recurse forever

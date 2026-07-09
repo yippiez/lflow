@@ -17,6 +17,7 @@ import (
 
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
 // GenUI nodes are runtime-installed node types (and chip kinds), "nodes" to
@@ -63,6 +64,7 @@ var (
 // fresh install gets the reference log.js instead.
 func initGenUINodes(configDir string, db *database.DB) {
 	genUIDir = filepath.Join(configDir, consts.LflowDirName, "nodes")
+	tag.SetNodesDir(genUIDir) // pi's system prompt points at the same dir
 	if _, err := os.Stat(genUIDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(genUIDir, 0o755); err == nil {
 			exportLegacyArtifacts(db)

@@ -58,7 +58,11 @@ auto-run) and their output is ephemeral — never persisted or synced.
   typing. Thread context = ancestor chain + the node's subtree (mirrors
   expanded once, cycle-guarded);
   replies land as red ✦ `agent` child nodes; the agent owns only the mentioned
-  node's subtree (its ancestors are never sent). Sessions persist in
+  node's subtree (its ancestors are never sent). Replies may speak chips:
+  `{{cmd:…}}` / `{{path:…}}` / `{{link:label|url}}` / `{{tag:…}}` / `{{date:…}}`
+  tokens land as real chips (`{{cmd:…}}` is the runnable yellow $ chip); plain
+  #tags and dates auto-convert. The pi system prompt (`pkg/tui/tag/pi.go`)
+  teaches the tokens and points at the genui nodes dir. Sessions persist in
   `agent_sessions` (id ↔ thread node ↔ agent) and resume across editor runs.
   Config `~/.config/lflow/agents.json`; without it a built-in mock **Pi** is
   registered. Wire protocol: JSON over websocket, see `pkg/tui/tag/ws.go`.

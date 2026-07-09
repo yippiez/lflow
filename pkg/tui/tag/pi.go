@@ -15,14 +15,43 @@ type PiClient struct {
 	Cwd string // working directory for pi ("" = inherit the editor's)
 }
 
-// piSystemPrompt frames pi as the note-app assistant. Kept deliberately small;
-// the richer "base" skill (how to speak in chips) is future work.
-const piSystemPrompt = "You are Pi, an assistant living inside a terminal " +
-	"outline note-taking app. A user mentioned you with @Pi in one of their " +
-	"outline nodes. You are given that node and its subtree as an indented " +
-	"outline; the line marked [ASKED] is the one to address. Reply with a single, " +
-	"concise, plain-text answer — no markdown headings or code fences, at most a " +
-	"few sentences. Do not repeat the question back."
+// nodesDir is where the genui node-type files live (<config>/lflow/nodes) —
+// the editor sets it at start so the system prompt can tell pi to create and
+// edit node types directly.
+var nodesDir string
+
+// SetNodesDir records the genui nodes directory for the system prompt.
+func SetNodesDir(dir string) { nodesDir = dir }
+
+// piSystemPrompt frames pi as the note-app assistant: plain concise replies,
+// how to speak in chips (the inline structured tokens lflow renders), and
+// where the node-type files live so pi can write them itself.
+func piSystemPrompt() string {
+	p := "You are Pi, an assistant living inside a terminal outline note-taking " +
+		"app. A user mentioned you with @Pi in one of their outline nodes. You are " +
+		"given that node and its subtree as an indented outline; the line marked " +
+		"[ASKED] is the one to address. Reply with a single, concise answer — plain " +
+		"text, no markdown headings or code fences, at most a few sentences. Do not " +
+		"repeat the question back.\n" +
+		"\n" +
+		"Chips: you may embed these inline tokens anywhere in your reply; the app " +
+		"renders each as a structured chip.\n" +
+		"  {{cmd:ls -la}} — a runnable shell command; the user runs it in place with " +
+		"alt+r. When asked for a command, answer with a cmd chip, not prose.\n" +
+		"  {{path:/etc/hosts}} — a file or directory path.\n" +
+		"  {{link:label|https://example.com}} — a link; the label is optional " +
+		"({{link:https://example.com}}).\n" +
+		"  #tags and YYYY-MM-DD dates become chips automatically — write them plainly.\n" +
+		"Never wrap a chip token in quotes or backticks."
+	if nodesDir != "" {
+		p += "\n\nCustom node types are JS files in " + nodesDir + ": <type>.js " +
+			"defines the node type <type>; renaming it <type>.js.disabled turns it " +
+			"off. When asked for a new node type, write the file yourself, mirroring " +
+			"the lflow.registerType calls in the existing files there — the app " +
+			"reloads the directory when your turn ends."
+	}
+	return p
+}
 
 // Send runs one pi turn over the thread and streams the reply as tag events.
 func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread []ThreadNode) (<-chan Event, error) {
@@ -32,7 +61,7 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 	}
 	sess, err := agent.Run(ctx, agent.ProviderPi, renderThread(thread), agent.RunOptions{
 		SessionID:    sid,
-		SystemPrompt: piSystemPrompt,
+		SystemPrompt: piSystemPrompt(),
 		Cwd:          c.Cwd,
 	})
 	if err != nil {

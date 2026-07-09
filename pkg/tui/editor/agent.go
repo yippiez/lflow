@@ -3,6 +3,7 @@ package editor
 import (
 	"context"
 	"regexp"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -194,7 +195,7 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 		return
 	}
 	it.typ = database.TypeAgent
-	it.name = text
+	it.name = m.chipifyAgentText(text)
 
 	if placement == "below" && asked.parent != nil {
 		it.parent = asked.parent
@@ -208,9 +209,13 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 		asked.children = append(asked.children, it)
 		asked.collapsed = false
 	}
-	// agent replies carry chips like any node: #tags and canonical dates in
-	// the text become real chips via the same detection the backfill uses
-	m.backfillName(it)
+	// agent replies carry chips like any node: spoken {{…}} tokens converted
+	// above, and #tags / canonical dates via the same detection the backfill
+	// uses. Skip the backfill once anchors exist — its span detection is not
+	// anchor-aware; a skipped plain #tag still renders via inlineSpans.
+	if !hasAnchor(it.name) {
+		m.backfillName(it)
+	}
 	m.unsaved = true
 
 	// a reply arrives asynchronously: re-anchor the cursor to the ITEM it was
@@ -226,6 +231,40 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 			m.cursor = r
 		}
 	}
+}
+
+// agentChipRe matches the {{kind:value}} chip tokens an agent may speak — see
+// piSystemPrompt in pkg/tui/tag. A link value may carry a "label|" prefix.
+var agentChipRe = regexp.MustCompile(`\{\{(cmd|path|link|tag|date):([^{}]+)\}\}`)
+
+// chipifyAgentText converts a reply's chip tokens into real chips (anchor in
+// the text + chip record), so a spoken {{cmd:…}} lands as the same runnable
+// chip the user would have typed. Unknown kinds stay literal text.
+func (m *Model) chipifyAgentText(text string) string {
+	return agentChipRe.ReplaceAllStringFunc(text, func(tok string) string {
+		sub := agentChipRe.FindStringSubmatch(tok)
+		kind, val := sub[1], strings.TrimSpace(sub[2])
+		if val == "" {
+			return ""
+		}
+		switch kind {
+		case chipKindLink:
+			label, target := "", val
+			if i := strings.IndexByte(val, '|'); i >= 0 {
+				label, target = strings.TrimSpace(val[:i]), strings.TrimSpace(val[i+1:])
+			}
+			if target == "" {
+				return ""
+			}
+			return m.createLabeledChip(chipKindLink, target, label)
+		case chipKindTag:
+			val = strings.TrimPrefix(val, "#")
+		}
+		if val == "" {
+			return ""
+		}
+		return m.createChip(kind, val)
+	})
 }
 
 // finishThread clears the busy flag and parks the session. The agent may have
