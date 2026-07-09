@@ -57,10 +57,11 @@ auto-run) and their output is ephemeral — never persisted or synced.
   reference: `log.js` (external twin: github.com/yippiez/lflow-log). Legacy
   migrations run once: the old `nodes/` dir renames to `mods/`; before that,
   `artifacts`-table rows export as files.
-- **pi-tag** (repo root): the embedded pi skill (`skills/lflow/` — SKILL.md,
-  cli.md, mods.md, examples/) teaching pi the CLI, chips, and NodeMods. It is
-  materialized to `~/.local/share/lflow/skills` at editor start and passed to
-  pi via `--skill` each turn — skills only, never a pi extension.
+- **embedded skill** (`pkg/agent/skills/lflow/` — SKILL.md, cli.md, mods.md,
+  examples/, embedded by `pkg/agent/skills.go`) teaching the CLI agent the
+  lflow CLI, chips, and NodeMods. It is materialized to
+  `~/.local/share/lflow/skills` at editor start and passed to pi via `--skill`
+  each turn — skills only, never a pi extension.
 - **@mention agent** (`pkg/tui/tag` + `pkg/tui/editor/agent.go`): typing `@`
   completes configured agents and lands a red **agent chip** (expands to plain
   `@Name`, so every mention detector reads it like typed text); alt+r on the

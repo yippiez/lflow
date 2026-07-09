@@ -15,7 +15,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	pitag "github.com/lflow/lflow/pi-tag"
+	"github.com/lflow/lflow/pkg/agent"
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
@@ -3216,9 +3216,9 @@ func (m *Model) viewFinder(maxLine int) []string {
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	initNodeMods(ctx.Paths.Config, ctx.DB) // runtime node types must exist before the first render
 
-	// materialize the embedded lflow pi skill (pi-tag at the repo root) into
-	// the data dir; every agent turn passes it to pi via --skill
-	if dir, err := pitag.Materialize(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
+	// materialize the embedded lflow skill (pkg/agent/skills) into the data
+	// dir; every agent turn passes it to the CLI agent (pi --skill)
+	if dir, err := agent.MaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
 		tag.SetSkillDir(dir)
 	}
 
