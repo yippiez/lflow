@@ -46,6 +46,3 @@ func DefaultModel() (Model, string) {
 	return m, thinking
 }
 
-// ThinkingLevels is the cycle ctrl+t steps through. "off" is a real override
-// (distinct from "" = use config); it maps to no --thinking flag at run.
-var ThinkingLevels = []string{"off", "low", "medium", "high"}

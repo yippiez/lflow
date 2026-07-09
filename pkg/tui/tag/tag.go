@@ -42,8 +42,7 @@ type Event struct {
 	// op=artifact installs a NodeMod — kept for the offline mock; a real
 	// agent writes the <key>.js file into the mods dir itself and the editor
 	// reloads the directory when the turn ends.
-	Key    string `json:"key"`    // op=artifact
-	Label  string `json:"label"`  // op=artifact
+	Key    string `json:"key"`    // op=artifact: the node type key
 	Source string `json:"source"` // op=artifact: the JS program to install
 }
 

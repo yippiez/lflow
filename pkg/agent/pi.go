@@ -10,9 +10,8 @@ import (
 	"strings"
 )
 
-// piBackend drives pi in RPC mode (`pi --mode rpc`): a JSON-RPC stream over the
-// process's stdin/stdout, kept alive across turns so Steer pushes follow-up
-// messages into the same conversation. Ported from the editor's startWorker.
+// piBackend drives pi in RPC mode (`pi --mode rpc`): one prompt in over
+// stdin, a JSON event stream back over stdout until the turn ends.
 type piBackend struct{}
 
 func (piBackend) Name() Provider  { return ProviderPi }
@@ -129,8 +128,7 @@ func (piBackend) Run(ctx context.Context, task string, opts RunOptions) (Session
 	stdout, _ := c.StdoutPipe()
 	stderr, _ := c.StderrPipe()
 
-	steerCh := make(chan string, 16)
-	s := newSession(1024, func(m string) error { steerCh <- m; return nil }, cancel)
+	s := newSession(1024, cancel)
 
 	if err := c.Start(); err != nil {
 		cancel()
@@ -138,22 +136,11 @@ func (piBackend) Run(ctx context.Context, task string, opts RunOptions) (Session
 	}
 	piSendPrompt(stdin, task)
 
-	// forward steering messages until the conversation is stopped (ctx cancelled);
-	// select on ctx.Done so this goroutine never leaks waiting on an idle worker.
+	// one prompt per run — close stdin when the run is cancelled so pi never
+	// sits waiting on a pipe that will not speak again
 	go func() {
-		for {
-			select {
-			case msg, ok := <-steerCh:
-				if !ok {
-					stdin.Close()
-					return
-				}
-				piSendPrompt(stdin, msg)
-			case <-ctx.Done():
-				stdin.Close()
-				return
-			}
-		}
+		<-ctx.Done()
+		stdin.Close()
 	}()
 
 	// collect stderr — pi errors (rate limits, crashes, bad config) land here and

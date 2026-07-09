@@ -11,8 +11,7 @@ import (
 // record the terminal error/state and close the channel.
 type session struct {
 	events chan Event
-	steer  func(string) error // push a follow-up; nil if the backend can't steer
-	stop   func()             // cancel the process (idempotent)
+	stop   func() // cancel the process (idempotent)
 
 	mu    sync.Mutex
 	state SessionState
@@ -20,23 +19,15 @@ type session struct {
 	done  bool
 }
 
-func newSession(buf int, steer func(string) error, stop func()) *session {
+func newSession(buf int, stop func()) *session {
 	return &session{
 		events: make(chan Event, buf),
-		steer:  steer,
 		stop:   stop,
 		state:  StateWorking,
 	}
 }
 
 func (s *session) Events() <-chan Event { return s.events }
-
-func (s *session) Steer(message string) error {
-	if s.steer == nil {
-		return &Error{Message: "session does not support steering"}
-	}
-	return s.steer(message)
-}
 
 func (s *session) Stop() {
 	s.setState(StateStopped)

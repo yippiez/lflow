@@ -11,9 +11,7 @@ import (
 // backend). Launch-and-forget: each Send spawns a FRESH pi turn fed the whole
 // rendered thread and saves nothing — the thread in the outline is the only
 // conversation state, so edits to past nodes are always honored.
-type PiClient struct {
-	Cwd string // working directory for pi ("" = inherit the editor's)
-}
+type PiClient struct{}
 
 // modsDir is where the NodeMod files live (<config>/lflow/mods) — the editor
 // sets it at start so the system prompt can tell pi to create and edit mods
@@ -100,7 +98,6 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 	opts := agent.RunOptions{
 		NoSession:    true, // launch-and-forget: the thread IS the memory
 		SystemPrompt: piSystemPrompt(),
-		Cwd:          c.Cwd,
 	}
 	if skillDir != "" {
 		opts.Skills = []string{skillDir} // the lflow skill: CLI, chips, NodeMods

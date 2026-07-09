@@ -227,9 +227,13 @@ type styleSource struct{}
 
 func (styleSource) items(m *Model, q string) []pickerItem {
 	cur := m.cursorItem()
+	ql := strings.ToLower(q)
 	out := make([]pickerItem, 0, len(stylePickerItems))
 	for _, sp := range stylePickerItems {
 		sp := sp
+		if ql != "" && !fuzzyMatch(strings.ToLower(stylePickerLabels[sp.value]), ql) && !fuzzyMatch(sp.value, ql) {
+			continue
+		}
 		out = append(out, pickerItem{value: sp.value, render: func(bool) string {
 			if sp.kind == "toggle" {
 				active := ""
@@ -245,13 +249,18 @@ func (styleSource) items(m *Model, q string) []pickerItem {
 	return out
 }
 
-func (styleSource) header(m *Model, _ *listPicker) string {
+func (styleSource) header(m *Model, p *listPicker) string {
 	if m.selOn {
 		// a multi-select styles whole nodes; painting a text portion needs a
 		// single node, so p is not offered
 		return " " + cDim + "enter apply to selection" + cReset
 	}
-	return " " + cDim + "enter apply to all · p paint a portion" + cReset
+	// p paints a portion only while nothing is typed (see onKey); once a search
+	// query starts, p is a filter rune, so the hint drops away.
+	if p.query != "" {
+		return " " + cDim + "style: " + cReset + cFG + p.query + cReset
+	}
+	return " " + cDim + "enter apply to all · p paint a portion · type to filter" + cReset
 }
 
 func (styleSource) initialSel(m *Model) int {
@@ -303,9 +312,10 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 
 // onKey: p inside /style takes the HIGHLIGHTED style into the painter — a
 // window over the node's text picks where that style lands (see paint.go).
-// Not with a multi-select: painting targets one node's text.
+// Not with a multi-select: painting targets one node's text. Only while the
+// search query is empty, so a typed filter (e.g. "purple") keeps every rune.
 func (styleSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
-	if key == "p" && !m.selOn {
+	if key == "p" && !m.selOn && p.query == "" {
 		value := ""
 		if p.sel >= 0 && p.sel < len(items) {
 			value = items[p.sel].value

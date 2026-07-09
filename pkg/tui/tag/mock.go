@@ -54,7 +54,7 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 		// "below"; plain notes stay silent.
 		asked, mentioned := askedNode(thread, agent)
 		if key, label, source, ok := artifactFor(asked.Name); ok {
-			if !emit(Event{Op: "artifact", Key: key, Label: label, Source: source}) {
+			if !emit(Event{Op: "artifact", Key: key, Source: source}) {
 				return
 			}
 			emit(Event{Op: "message", Placement: "thread", Text: "Installed the " + label + " artifact — set it on any node via /type; alt+r runs it. Tagged #" + key + " so it stays findable."})

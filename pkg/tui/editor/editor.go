@@ -8,14 +8,12 @@ package editor
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
-	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	pitag "github.com/lflow/lflow/pi-tag"
 	"github.com/lflow/lflow/pkg/tui/consts"
@@ -1752,16 +1750,6 @@ func (m *Model) resolveSourceNode(n database.Node) database.Node {
 	return n
 }
 
-// copyToClipboard puts s on the system clipboard via OSC 52, written to
-// stderr so it bypasses the bubbletea renderer owning stdout.
-func copyToClipboard(s string) {
-	seq := osc52.New(s)
-	if os.Getenv("TMUX") != "" {
-		seq = seq.Tmux()
-	}
-	_, _ = seq.WriteTo(os.Stderr)
-}
-
 // deleteNode removes the node and its subtree from the tree.
 func (m *Model) deleteNode(it *item) {
 	// drop each removed node's persisted run-output cache so it doesn't outlive it
@@ -2112,7 +2100,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/style":
 		// open the picker; pre-select the active toggle/color (see styleSource)
 		m.mode = modeStyle
-		m.list.open(m, styleSource{}, false)
+		m.list.open(m, styleSource{}, true)
 	case "/theme":
 		// open the palette picker; pre-select the active theme (see themeSource)
 		m.mode = modeTheme

@@ -49,10 +49,9 @@ type Event struct {
 
 // Usage is a running token/cost total for a session.
 type Usage struct {
-	Model     string // "provider/model" reported by the CLI
-	In, Out   int
-	Cost      float64
-	Estimated bool // Cost is an estimate (e.g. grok — see EstimateCost), not CLI-reported
+	Model   string // "provider/model" reported by the CLI
+	In, Out int
+	Cost    float64
 }
 
 // SessionState is the live lifecycle of a conversation (pir's SessionState).
@@ -65,14 +64,11 @@ const (
 	StateStopped SessionState = "stopped"
 )
 
-// Session is a live, steerable agent conversation. The underlying process stays
-// alive across turns; Steer pushes a follow-up message into the same conversation
-// (pir's AgentSession.steer). Events is closed when the process exits, after which
-// Err reports the terminal error (nil = clean exit).
+// Session is one live agent run. Events is closed when the process exits,
+// after which Err reports the terminal error (nil = clean exit).
 type Session interface {
-	Events() <-chan Event       // normalized stream; closed when the process exits
-	Steer(message string) error // follow-up into the running conversation
-	Stop()                      // intentional cancel (not an error)
+	Events() <-chan Event // normalized stream; closed when the process exits
+	Stop()                // intentional cancel (not an error)
 	State() SessionState
 	Err() error
 }
@@ -118,7 +114,7 @@ var (
 // ListModels aggregates the selectable models across all available backends,
 // degrading gracefully when a CLI is missing or fails (pir's parallel listModels).
 // The result is cached after the first non-empty fetch so the model picker can
-// filter per-keystroke without re-shelling the CLIs; call RefreshModels to clear.
+// filter per-keystroke without re-shelling the CLIs.
 func ListModels() []Model {
 	modelsMu.Lock()
 	defer modelsMu.Unlock()
@@ -142,12 +138,6 @@ func ListModels() []Model {
 	return out
 }
 
-// RefreshModels clears the ListModels cache so the next call re-queries the CLIs.
-func RefreshModels() {
-	modelsMu.Lock()
-	modelsCached = nil
-	modelsMu.Unlock()
-}
 
 // Error is a typed provider failure (pir's ProviderError).
 type Error struct {
