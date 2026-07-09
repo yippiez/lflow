@@ -9,6 +9,7 @@ package editor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -16,6 +17,8 @@ import (
 
 	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
+	pitag "github.com/lflow/lflow/pi-tag"
+	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/tag"
@@ -3221,6 +3224,12 @@ func (m *Model) viewFinder(maxLine int) []string {
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	initNodeMods(ctx.Paths.Config, ctx.DB) // runtime node types must exist before the first render
+
+	// materialize the embedded lflow pi skill (pi-tag at the repo root) into
+	// the data dir; every agent turn passes it to pi via --skill
+	if dir, err := pitag.Materialize(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
+		tag.SetSkillDir(dir)
+	}
 
 	t, err := loadTree(ctx.DB, nodeUUID)
 	if err != nil {

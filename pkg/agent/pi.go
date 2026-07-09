@@ -105,6 +105,11 @@ func (piBackend) Run(ctx context.Context, task string, opts RunOptions) (Session
 			args = append(args, "--extension", ext)
 		}
 	}
+	for _, sk := range opts.Skills {
+		if sk != "" {
+			args = append(args, "--skill", sk)
+		}
+	}
 	if v := opts.Model.FlagValue(); v != "" {
 		args = append(args, "--model", v)
 	}

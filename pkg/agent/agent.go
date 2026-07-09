@@ -85,6 +85,7 @@ type RunOptions struct {
 	Tools        []string // tool allowlist
 	SystemPrompt string   // appended system prompt
 	Extensions   []string // pi --extension paths (pi only)
+	Skills       []string // pi --skill paths (pi only): skill files or directories
 	Cwd          string   // working directory ("" = inherit)
 	// SessionID is a stable, resumable conversation id. Sessions are the default:
 	// re-running with the same id RESUMES the real on-disk conversation (the agent

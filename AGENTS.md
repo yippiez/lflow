@@ -38,21 +38,29 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
-## GenUI nodes + the @mention agent
+## NodeMods + the @mention agent
 
-- **GenUI nodes = runtime-installed node types / chip kinds** ("nodes" to the
-  user, "artifacts" historically): one JS file per type in
-  `~/.config/lflow/nodes` — `log.js` serves the type `log`; renaming it
-  `log.js.disabled` turns it off (space in `/type` does exactly that,
-  ctrl+d deletes the file). The directory is evaluated at editor start via
-  goja (`pkg/tui/editor/genui.go`) and reloaded when `/type` opens and after
-  every agent turn, so an agent (or the user) edits the files directly. The JS
-  calls `lflow.registerType({...})` / `lflow.registerChip({...})`; the bridge
-  appends a regular `nodeType` descriptor, so `/type`, glyphs and rendering
-  treat built-ins and genui types identically. Trusted, full access
-  (`lflow.exec`). A node whose type file is disabled/missing falls back to
-  bullets — never crashes. Seeded reference: `log.js`. The legacy `artifacts`
-  table is exported to files once (first run) and never read again.
+- **NodeMods = runtime-installed node types / chip kinds** ("mod" in the UI;
+  "artifacts", then "GenUI nodes" historically): one mod per entry in
+  `~/.config/lflow/mods` — a flat `<key>.js`, or a `<key>/` directory
+  installed from git via `lflow node install <git-url>` whose `mod.json`
+  (`{name, description, entry, version}`) names the entry JS. A `.disabled`
+  suffix on either form turns the mod off (space in `/type` does the rename,
+  ctrl+d deletes). The directory is evaluated at editor start via goja
+  (`pkg/tui/editor/nodemod.go`) and reloaded when `/type` opens and after
+  every agent turn, so an agent (or the user) edits the files directly. The
+  JS calls `lflow.registerType({...})` / `lflow.registerChip({...})`; the
+  bridge appends a regular `nodeType` descriptor, so `/type`, glyphs and
+  rendering treat built-ins and mods identically. Trusted, full access
+  (`lflow.exec`). A node OF a mod type is a normal node row — disable or
+  delete the mod and it renders as a plain bullet, text intact. Seeded
+  reference: `log.js` (external twin: github.com/yippiez/lflow-log). Legacy
+  migrations run once: the old `nodes/` dir renames to `mods/`; before that,
+  `artifacts`-table rows export as files.
+- **pi-tag** (repo root): the embedded pi skill (`skills/lflow/` — SKILL.md,
+  cli.md, mods.md, examples/) teaching pi the CLI, chips, and NodeMods. It is
+  materialized to `~/.local/share/lflow/skills` at editor start and passed to
+  pi via `--skill` each turn — skills only, never a pi extension.
 - **@mention agent** (`pkg/tui/tag` + `pkg/tui/editor/agent.go`): typing `@`
   completes configured agents; committing the node (Enter) sends — never mere
   typing. Thread context = ancestor chain + the node's subtree (mirrors

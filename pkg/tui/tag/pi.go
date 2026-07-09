@@ -23,6 +23,13 @@ var modsDir string
 // SetModsDir records the mods directory for the system prompt.
 func SetModsDir(dir string) { modsDir = dir }
 
+// skillDir is the materialized lflow pi skill (see pi-tag at the repo root);
+// the editor sets it at start and every turn passes it via --skill.
+var skillDir string
+
+// SetSkillDir records the lflow skill path for pi turns.
+func SetSkillDir(dir string) { skillDir = dir }
+
 // Model and thinking preferences from /settings. "" or "default" leaves the
 // choice to pi's own config (~/.pi settings); anything else is passed through
 // on every turn.
@@ -96,6 +103,9 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 		SessionID:    sid,
 		SystemPrompt: piSystemPrompt(),
 		Cwd:          c.Cwd,
+	}
+	if skillDir != "" {
+		opts.Skills = []string{skillDir} // the lflow skill: CLI, chips, NodeMods
 	}
 	if modelPref != "" && modelPref != "default" {
 		opts.Model = agent.ParseModel(modelPref)
