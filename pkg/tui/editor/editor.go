@@ -1612,14 +1612,13 @@ func tagPickerTrigger(typ string) bool {
 	return typeOf(typ).inlineEditable
 }
 
-// convertBySign turns a sign typed at the very start of a node into that node's
-// type — the keyboard-only counterpart to /type. It fires on the space after the
-// sign (so the whole pre-caret text IS the sign, minus its trailing space) and
-// strips it, leaving the caret at the start of the remaining text. Every trigger
-// comes from a type's registry `sign` field — built-in ("$ " → bash, "⌕ " →
-// query) or a mod's own (e.g. a log mod declaring `sign: "-> "`), so no type is
-// named here. Works from any type, so it doubles as the reverse conversion (type
-// "$ " on a signed node to make it bash, and vice versa).
+// convertBySign turns a "$" typed at the very start of a node into a bash node
+// — the keyboard-only counterpart to /type. It fires on the space after the "$"
+// (so the whole pre-caret text IS the sign), converts, and strips the sign (a
+// bash node renders its own "$ " prompt), leaving the caret at the start of the
+// remaining text. Works from any type, so it doubles as the reverse conversion
+// (type "$ " on any node to make it bash). Bash is the only built-in with a
+// keyboard sign; every other type — including mods like log — is set via /type.
 func (m *Model) convertBySign(cur *item) bool {
 	if cur == nil || cur.mirrorOf != "" || cur.readonly {
 		return false
@@ -1628,23 +1627,12 @@ func (m *Model) convertBySign(cur *item) bool {
 	if m.caret > len(runes) {
 		return false
 	}
-	typed := string(runes[:m.caret])
-	if typed == "" {
-		return false
-	}
-	newType := ""
-	for _, key := range typeOrder() {
-		if s := typeOf(key).sign; s != "" && typed == strings.TrimRight(s, " ") {
-			newType = key
-			break
-		}
-	}
-	if newType == "" || cur.typ == newType {
-		return false // no matching sign, or already that type — type the space normally
+	if string(runes[:m.caret]) != "$" || cur.typ == database.TypeBash {
+		return false // not the bash sign, or already bash — type the space normally
 	}
 	m.pushUndo("")
-	cur.typ = newType
-	cur.name = string(runes[m.caret:]) // drop the sign; the type renders its own
+	cur.typ = database.TypeBash
+	cur.name = string(runes[m.caret:]) // drop the "$"; bash renders its own prompt
 	m.caret = 0
 	m.unsaved = true
 	return true

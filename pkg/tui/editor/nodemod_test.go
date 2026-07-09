@@ -11,13 +11,12 @@ import (
 )
 
 // testLogMod is a log-shaped fixture mod: the same shape as the external log
-// mod (github.com/yippiez/lflow-log). It exercises every descriptor hook the
-// nodemod bridge exposes — sign, glyph, baseColor, prefix, muteFrom.
+// mod (github.com/yippiez/lflow-log). It exercises the descriptor hooks the
+// nodemod bridge exposes — glyph, baseColor, prefix, muteFrom.
 const testLogMod = `lflow.registerType({
     key: "log",
     label: "Log",
     inlineEditable: true,
-    sign: "-> ",
     glyph: function (node) { return ["→", node.color || "dim"]; },
     baseColor: function (node) { return node.color || "dim"; },
     prefix: function (node) {
@@ -61,16 +60,7 @@ func TestNodeModLogType(t *testing.T) {
 		t.Fatal("log type must stay inline-editable")
 	}
 
-	// a mod-declared sign drives convertBySign: typing "->" then the trigger
-	// space (consumed, not stored) converts and strips the sign.
-	it := &item{uuid: "c", typ: "bullets", name: "->deployed"}
-	tr := &tree{byUUID: map[string]*item{"c": it}}
-	m := &Model{tree: tr, caret: 2}
-	if !m.convertBySign(it) || it.typ != "log" || it.name != "deployed" {
-		t.Fatalf("mod sign '-> ' must convert to log: typ=%q name=%q", it.typ, it.name)
-	}
-
-	it = &item{typ: "log", name: "deploy · went fine", addedOn: time.Date(2026, 7, 1, 14, 30, 0, 0, time.Local).UnixNano()}
+	it := &item{typ: "log", name: "deploy · went fine", addedOn: time.Date(2026, 7, 1, 14, 30, 0, 0, time.Local).UnixNano()}
 
 	// glyph: → tinted dim by default, by the /color otherwise
 	g, col := nt.glyph(it)
