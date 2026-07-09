@@ -128,6 +128,73 @@ func clip(s string, width int) string {
 	return b.String()
 }
 
+// wrapSGR wraps a styled line to at most width visible columns per line,
+// breaking at spaces where possible and carrying the active SGR state onto each
+// continuation line so a color span survives the break. Used by the status bar,
+// which wraps instead of truncating.
+func wrapSGR(s string, width int) []string {
+	if width <= 0 || visibleWidth(s) <= width {
+		return []string{s}
+	}
+	var lines []string
+	var cur strings.Builder
+	curStyle := "" // SGR state carried onto the current line's start
+	style := ""    // live SGR state as escapes are consumed
+	w := 0
+	spIdx, spStyle := -1, "" // byte offset in cur of the last breakable space + style there
+	inEsc := false
+	var esc strings.Builder
+	for _, r := range s {
+		if inEsc {
+			esc.WriteRune(r)
+			if r == 'm' {
+				inEsc = false
+				seq := esc.String()
+				esc.Reset()
+				cur.WriteString(seq)
+				if seq == cReset {
+					style = ""
+				} else {
+					style += seq
+				}
+			}
+			continue
+		}
+		if r == '\x1b' {
+			inEsc = true
+			esc.WriteRune(r)
+			continue
+		}
+		rw := runewidth.RuneWidth(r)
+		if w+rw > width {
+			line, rest, restStyle := cur.String(), "", style
+			if spIdx >= 0 {
+				rest = line[spIdx+1:] // past the space
+				line = line[:spIdx]
+				restStyle = spStyle
+			}
+			lines = append(lines, curStyle+line+cReset)
+			cur.Reset()
+			cur.WriteString(rest)
+			curStyle = restStyle
+			w = visibleWidth(rest)
+			spIdx, spStyle = -1, ""
+			if r == ' ' {
+				continue // the breaking space itself never leads the next line
+			}
+		}
+		if r == ' ' && w > 0 {
+			spIdx, spStyle = cur.Len(), style
+		}
+		cur.WriteRune(r)
+		w += rw
+	}
+	if cur.Len() > 0 {
+		lines = append(lines, curStyle+cur.String())
+	}
+	return lines
+}
+
 // selFill paints the multi-select background under an already-styled line,
 // padded with spaces to width so the bar runs edge to edge. Real cells, not an
 // \x1b[K flood: the renderer appends its own end-of-line erase after each

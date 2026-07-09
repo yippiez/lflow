@@ -441,9 +441,13 @@ func TestNarrowWidthRendersDeepNodeText(t *testing.T) {
 	render := func(cursor int) []string {
 		m.cursor = cursor
 		lines := m.viewOutline(m.width - 1)
-		out := make([]string, len(lines))
-		for i, l := range lines {
-			out[i] = stripSGR(l)
+		out := make([]string, 0, len(lines))
+		for _, l := range lines {
+			s := stripSGR(l)
+			if strings.Contains(s, "untitled") {
+				break // the status bar (which wraps) carries the cursor counter
+			}
+			out = append(out, s)
 		}
 		return out
 	}

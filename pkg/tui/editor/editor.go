@@ -2888,6 +2888,14 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// always-visible Temporary Domain panel below it. Below ~3 body rows there is
 	// no room for that stack, so fall back to the plain outline.
 	rowBudget := m.rowBudget()
+	// The status bar wraps instead of truncating (see bottomBar), so its extra
+	// lines come out of the body budget — the frame must never exceed the
+	// terminal height, or the height cap would cut the bar off the bottom.
+	bar := m.bottomBar(maxLine)
+	rowBudget -= len(bar) - 1
+	if rowBudget < 1 {
+		rowBudget = 1
+	}
 	// A focused inline view takes the whole body (like a picker) — the temp split
 	// is suppressed so a tall view (e.g. bash output) isn't crammed into the panel.
 	showTemp := (m.mode == modeOutline || m.mode == modeNote) && rowBudget >= 3 && !m.focused
@@ -3105,9 +3113,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
 		}
 		body := mainLines
-		body = append(body, m.bottomBar(maxLine)) // the status bar is the divider
+		body = append(body, bar...) // the status bar is the divider
 		body = append(body, tempLines...)
-		total := rowBudget + 1 // main + status + temp, fixed for a stable frame
+		total := rowBudget + len(bar) // main + status + temp, fixed for a stable frame
 		for len(body) < total {
 			body = append(body, "")
 		}
@@ -3133,15 +3141,17 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
-	lines = append(lines, m.bottomBar(maxLine))
+	lines = append(lines, bar...)
 
 	return lines
 }
 
 // WARNING (invariant): the bottom/status bar is the LAST rendered line of every
 // frame — tooling and the inline renderer treat the final line as the status line.
-// Always append it last (see viewOutline); never emit content below it.
-func (m *Model) bottomBar(maxLine int) string {
+// Always append it last (see viewOutline); never emit content below it. The bar
+// wraps instead of truncating, so it may span several lines; callers must budget
+// for len(bottomBar(...)) lines, keeping the wrapped tail the frame's last line.
+func (m *Model) bottomBar(maxLine int) []string {
 	total := len(m.rows)
 	pos := m.cursor + 1
 	if len(m.rows) == 0 {
@@ -3200,7 +3210,7 @@ func (m *Model) bottomBar(maxLine int) string {
 	}
 	bar := fmt.Sprintf(" %s · %d/%d", title, pos, total)
 	bar += state
-	return clip(cDim+bar+cReset, maxLine)
+	return wrapSGR(cDim+bar+cReset, maxLine)
 }
 
 // finderRowName resolves the name shown for a finder row. A mirror node

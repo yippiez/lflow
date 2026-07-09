@@ -167,7 +167,7 @@ func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
 
 	lines = append(lines, "")
 	lines = append(lines, clip(cDim+" "+be.hint(m)+" - esc back to outline"+cReset, maxLine))
-	lines = append(lines, m.bottomBar(maxLine))
+	lines = append(lines, m.bottomBar(maxLine)...)
 
 	return lines
 }
