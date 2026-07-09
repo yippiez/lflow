@@ -4,7 +4,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lflow/lflow/pkg/agent"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
 // Global editor preferences, edited via /settings and persisted in the DB
@@ -51,6 +53,46 @@ var settingDefs = []settingDef{
 		},
 		def: "compact",
 	},
+	// The @Pi agent's model and thinking level, passed on every turn. "default"
+	// leaves both to pi's own config (~/.pi/agent/settings.json). The model
+	// options are filled from `pi --list-models` when /settings opens — see
+	// seedAgentModelOptions; never on the editor start path.
+	{
+		key: "agent.model", label: "Agent model",
+		options: []settingOption{{"default", "default · pi config"}},
+		def:     "default",
+		apply:   func(m *Model, v string) { tag.SetModelPref(v) },
+	},
+	{
+		key: "agent.thinking", label: "Agent thinking",
+		options: []settingOption{
+			{"default", "default · pi config"},
+			{"off", "off"}, {"low", "low"}, {"medium", "medium"}, {"high", "high"},
+		},
+		def:   "default",
+		apply: func(m *Model, v string) { tag.SetThinkingPref(v) },
+	},
+}
+
+// seedAgentModelOptions fills the agent.model options from the installed pi's
+// model list, once, when /settings first opens — it execs pi, so it must stay
+// off the editor start path. Without pi only "default" is offered.
+var agentModelsSeeded bool
+
+func seedAgentModelOptions() {
+	if agentModelsSeeded {
+		return
+	}
+	agentModelsSeeded = true
+	opts := []settingOption{{"default", "default · pi config"}}
+	for _, mo := range agent.ListModels() {
+		opts = append(opts, settingOption{mo.String(), mo.String()})
+	}
+	for i := range settingDefs {
+		if settingDefs[i].key == "agent.model" {
+			settingDefs[i].options = opts
+		}
+	}
 }
 
 // themeOptions derives the theme setting's options from the theme registry so

@@ -23,6 +23,20 @@ var nodesDir string
 // SetNodesDir records the genui nodes directory for the system prompt.
 func SetNodesDir(dir string) { nodesDir = dir }
 
+// Model and thinking preferences from /settings. "" or "default" leaves the
+// choice to pi's own config (~/.pi settings); anything else is passed through
+// on every turn.
+var (
+	modelPref    string
+	thinkingPref string
+)
+
+// SetModelPref records the /settings agent.model choice ("upstream/model").
+func SetModelPref(v string) { modelPref = v }
+
+// SetThinkingPref records the /settings agent.thinking choice.
+func SetThinkingPref(v string) { thinkingPref = v }
+
 // piSystemPrompt frames pi as the note-app assistant: plain concise replies,
 // how to speak in chips (the inline structured tokens lflow renders), and
 // where the node-type files live so pi can write them itself.
@@ -71,11 +85,18 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 		}
 	}
 
-	sess, err := agent.Run(ctx, agent.ProviderPi, renderThread(thread), agent.RunOptions{
+	opts := agent.RunOptions{
 		SessionID:    sid,
 		SystemPrompt: piSystemPrompt(),
 		Cwd:          c.Cwd,
-	})
+	}
+	if modelPref != "" && modelPref != "default" {
+		opts.Model = agent.ParseModel(modelPref)
+	}
+	if thinkingPref != "" && thinkingPref != "default" {
+		opts.Thinking = thinkingPref
+	}
+	sess, err := agent.Run(ctx, agent.ProviderPi, renderThread(thread), opts)
 	if err != nil {
 		return nil, err
 	}

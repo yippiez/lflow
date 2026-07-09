@@ -2108,7 +2108,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeTheme
 		m.list.open(m, themeSource{}, false)
 	case "/settings":
-		// open the global-preferences picker
+		// open the global-preferences picker; the agent model list comes from
+		// the pi CLI and is queried on first open, not at editor start
+		seedAgentModelOptions()
 		m.mode = modeSettings
 		m.settingsSel = 0
 	case "/lock":
