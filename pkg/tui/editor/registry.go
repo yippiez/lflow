@@ -85,8 +85,8 @@ var nodeTypes = []nodeType{
 	// rule (see dividerLine), hiding the glyph. It is otherwise a normal node: it
 	// nests, moves, takes a /note, and is removed with ctrl+d.
 	{key: database.TypeDivider, label: "Divider", inlineEditable: false},
-	// log is NOT here: it moved to the genui model (the seeded log.js in
-	// ~/.config/lflow/nodes renders the → glyph, muted time chip and · tail).
+	// log is NOT here: it moved to the mod model (the seeded log.js in
+	// ~/.config/lflow/mods renders the → glyph, muted time chip and · tail).
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},
@@ -146,27 +146,27 @@ var byType = func() map[string]nodeType {
 }()
 
 // typeOf returns the descriptor for a type key — compiled-in first, then
-// runtime genui types; unknown keys fall back to bullets, which is what keeps
-// a node whose type file was disabled or deleted rendering instead of crashing.
+// runtime mods; unknown keys fall back to bullets, which is what keeps
+// a node whose mod was disabled or deleted rendering instead of crashing.
 func typeOf(key string) nodeType {
 	if nt, ok := byType[key]; ok {
 		return nt
 	}
-	if nt, ok := genUIByKey[key]; ok {
+	if nt, ok := modByKey[key]; ok {
 		return nt
 	}
 	return byType[database.TypeBullets]
 }
 
 // typeOrder drives the /type picker: built-ins in their fixed order, then
-// installed genui types in load order. Recomputed per call because they
+// installed mods in load order. Recomputed per call because they
 // hot-load at runtime (an agent install shows up immediately).
 func typeOrder() []string {
-	out := make([]string, 0, len(nodeTypes)+len(genUITypes))
+	out := make([]string, 0, len(nodeTypes)+len(modTypes))
 	for _, nt := range nodeTypes {
 		out = append(out, nt.key)
 	}
-	for _, nt := range genUITypes {
+	for _, nt := range modTypes {
 		out = append(out, nt.key)
 	}
 	return out

@@ -2095,7 +2095,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/type":
 		// reload the nodes dir first — the user (or an agent) may have edited
 		// the type files out-of-band since the last load
-		loadGenUINodes()
+		loadNodeMods()
 		// open the picker; pre-select the type already in effect (see typeSource)
 		m.mode = modeType
 		m.list.open(m, typeSource{}, true)
@@ -3220,7 +3220,7 @@ func (m *Model) viewFinder(maxLine int) []string {
 
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
-	initGenUINodes(ctx.Paths.Config, ctx.DB) // runtime node types must exist before the first render
+	initNodeMods(ctx.Paths.Config, ctx.DB) // runtime node types must exist before the first render
 
 	t, err := loadTree(ctx.DB, nodeUUID)
 	if err != nil {

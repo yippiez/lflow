@@ -10,31 +10,31 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// setGenUITestDir points the genui registry at a temp dir and restores (and
+// setModTestDir points the mod registry at a temp dir and restores (and
 // clears) the package state when the test ends.
-func setGenUITestDir(t *testing.T) string {
+func setModTestDir(t *testing.T) string {
 	t.Helper()
-	old := genUIDir
-	genUIDir = t.TempDir()
+	old := modsDir
+	modsDir = t.TempDir()
 	t.Cleanup(func() {
-		genUIDir = old
-		genUITypes, genUIByKey, loadedGenUI = nil, map[string]nodeType{}, nil
+		modsDir = old
+		modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil
 	})
-	return genUIDir
+	return modsDir
 }
 
-// writeGenUIFile drops one node-type file into the test dir.
-func writeGenUIFile(t *testing.T, name, source string) {
+// writeModFile drops one node-type file into the test dir.
+func writeModFile(t *testing.T, name, source string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(genUIDir, name), []byte(source), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(modsDir, name), []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestGenUILogType(t *testing.T) {
-	setGenUITestDir(t)
-	writeGenUIFile(t, "log.js", database.SeedLogArtifactSource)
-	loadGenUINodes()
+func TestNodeModLogType(t *testing.T) {
+	setModTestDir(t)
+	writeModFile(t, "log.js", database.SeedLogArtifactSource)
+	loadNodeMods()
 
 	nt := typeOf(database.TypeLog)
 	if nt.label != "Log" {
@@ -76,11 +76,11 @@ func TestGenUILogType(t *testing.T) {
 	}
 }
 
-func TestGenUIRunAndChip(t *testing.T) {
-	setGenUITestDir(t)
+func TestNodeModRunAndChip(t *testing.T) {
+	setModTestDir(t)
 	t.Cleanup(func() { delete(chipKinds, "stamp") })
 
-	writeGenUIFile(t, "dice.js", `
+	writeModFile(t, "dice.js", `
 lflow.registerType({
     key: "dice", label: "Dice", sign: "⚂ ", inlineEditable: true,
     run: function (node) { return "echo rolled"; },
@@ -89,7 +89,7 @@ lflow.registerChip({
     key: "stamp", marker: "◷", color: "cyan",
     display: function (v) { return "◷ " + v; },
 });`)
-	loadGenUINodes()
+	loadNodeMods()
 
 	nt := typeOf("dice")
 	if nt.label != "Dice" || nt.sign != "⚂ " || nt.run == nil || nt.view == nil {
@@ -105,13 +105,13 @@ lflow.registerChip({
 	}
 
 	// a broken file is listed with its error and falls back to bullets
-	writeGenUIFile(t, "broken.js", "syntax error(")
-	loadGenUINodes()
+	writeModFile(t, "broken.js", "syntax error(")
+	loadNodeMods()
 	if typeOf("broken").key != database.TypeBullets {
 		t.Fatal("broken type must fall back to bullets")
 	}
 	var found bool
-	for _, gn := range loadedGenUI {
+	for _, gn := range loadedMods {
 		if gn.Key == "broken" && gn.loadErr != "" {
 			found = true
 		}
@@ -121,15 +121,15 @@ lflow.registerChip({
 	}
 }
 
-// TestGenUIMigrationExportsLegacyRows drives the one-time artifacts-table →
+// TestNodeModMigrationExportsLegacyRows drives the one-time artifacts-table →
 // files export: rows become <key>.js (or .js.disabled), and a DB with nothing
 // to export seeds the reference log.js instead.
-func TestGenUIMigrationExportsLegacyRows(t *testing.T) {
+func TestNodeModMigrationExportsLegacyRows(t *testing.T) {
 	db := database.InitTestMemoryDB(t)
-	old := genUIDir
+	old := modsDir
 	t.Cleanup(func() {
-		genUIDir = old
-		genUITypes, genUIByKey, loadedGenUI = nil, map[string]nodeType{}, nil
+		modsDir = old
+		modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil
 	})
 
 	if _, err := db.Exec(`INSERT INTO artifacts (key, label, version, source, created_by, created_at, enabled)
@@ -138,12 +138,12 @@ func TestGenUIMigrationExportsLegacyRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := t.TempDir()
-	initGenUINodes(cfg, db)
+	initNodeMods(cfg, db)
 
-	if _, err := os.Stat(filepath.Join(cfg, "lflow", "nodes", "dice.js")); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg, "lflow", "mods", "dice.js")); err != nil {
 		t.Fatal("enabled row must export as dice.js")
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "lflow", "nodes", "off.js.disabled")); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg, "lflow", "mods", "off.js.disabled")); err != nil {
 		t.Fatal("disabled row must export as off.js.disabled")
 	}
 	if typeOf("dice").label != "Dice" {
@@ -151,29 +151,89 @@ func TestGenUIMigrationExportsLegacyRows(t *testing.T) {
 	}
 
 	// the export runs once: a second init must not resurrect deleted files
-	deleteGenUINode("dice")
-	initGenUINodes(cfg, db)
-	if _, ok := genUIRowFor("dice"); ok {
+	deleteNodeMod("dice")
+	initNodeMods(cfg, db)
+	if _, ok := modRowFor("dice"); ok {
 		t.Fatal("re-init must not re-export deleted types")
 	}
 
 	// a fresh install (no legacy rows) seeds the reference log.js
 	fresh := database.InitTestMemoryDB(t)
 	cfg2 := t.TempDir()
-	initGenUINodes(cfg2, fresh)
+	initNodeMods(cfg2, fresh)
 	if typeOf(database.TypeLog).label != "Log" {
 		t.Fatal("fresh install must seed log.js")
 	}
 }
 
-// TestTypePickerManagesGenUINodes drives the merged management surface: space
-// on a genui row renames the file to .disabled, a disabled type still lists
-// (muted) and re-enables on Enter, ctrl+d deletes the file.
-func TestTypePickerManagesGenUINodes(t *testing.T) {
+// TestNodeModDirMigrationAndDirMods: the pre-rename nodes/ dir moves to mods/
+// wholesale, and a git-installed <key>/ directory (mod.json + entry) loads,
+// disables by directory rename, and deletes recursively.
+func TestNodeModDirMigrationAndDirMods(t *testing.T) {
 	db := database.InitTestMemoryDB(t)
-	dir := setGenUITestDir(t)
-	writeGenUIFile(t, "dice.js", `lflow.registerType({key: "dice", label: "Dice", inlineEditable: true});`)
-	loadGenUINodes()
+	old := modsDir
+	t.Cleanup(func() {
+		modsDir = old
+		modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil
+	})
+
+	// the old nodes/ dir migrates to mods/ with its files intact
+	cfg := t.TempDir()
+	oldDir := filepath.Join(cfg, "lflow", "nodes")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldDir, "log.js"), []byte(database.SeedLogArtifactSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	initNodeMods(cfg, db)
+	if typeOf(database.TypeLog).label != "Log" {
+		t.Fatal("nodes/ content must survive the rename to mods/")
+	}
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Fatal("the old nodes/ dir must be gone after migration")
+	}
+
+	// a directory mod: mod.json names the entry; the manifest name wins
+	dice := filepath.Join(modsDir, "lflow-dice")
+	if err := os.MkdirAll(dice, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeModFile(t, "lflow-dice/mod.json", `{"name":"dice","description":"roll","entry":"dice.js","version":"0.1.0"}`)
+	writeModFile(t, "lflow-dice/dice.js", `lflow.registerType({key: "dice", label: "Dice", inlineEditable: true});`)
+	loadNodeMods()
+	if typeOf("dice").label != "Dice" {
+		t.Fatal("directory mod must register via its mod.json entry")
+	}
+
+	// disable renames the DIRECTORY; the type falls back to bullets
+	setNodeModEnabled("dice", false)
+	if _, err := os.Stat(dice + ".disabled"); err != nil {
+		t.Fatal("disabling a dir mod must rename the directory")
+	}
+	if typeOf("dice").key != database.TypeBullets {
+		t.Fatal("disabled dir mod must fall back to bullets")
+	}
+	setNodeModEnabled("dice", true)
+	if typeOf("dice").label != "Dice" {
+		t.Fatal("re-enabling a dir mod must restore it")
+	}
+
+	// delete removes the whole directory
+	deleteNodeMod("dice")
+	if _, err := os.Stat(dice); !os.IsNotExist(err) {
+		t.Fatal("deleting a dir mod must remove the directory")
+	}
+}
+
+// TestTypePickerManagesNodeMods drives the merged management surface: space
+// on a mod row renames the file to .disabled, a disabled type still lists
+// (muted) and re-enables on Enter, ctrl+d deletes the file.
+func TestTypePickerManagesNodeMods(t *testing.T) {
+	db := database.InitTestMemoryDB(t)
+	dir := setModTestDir(t)
+	writeModFile(t, "dice.js", `lflow.registerType({key: "dice", label: "Dice", inlineEditable: true});`)
+	loadNodeMods()
 
 	root := &item{uuid: "root"}
 	n := &item{uuid: "n1", name: "roll", parent: root}
@@ -192,16 +252,16 @@ func TestTypePickerManagesGenUINodes(t *testing.T) {
 		}
 	}
 	if sel < 0 {
-		t.Fatal("enabled genui node must list in /type")
+		t.Fatal("enabled mod node must list in /type")
 	}
 
 	// space disables it in place — the file gains the .disabled suffix
 	m.list.sel = sel
 	p := &m.list
 	if !src.onKey(m, p, " ", items) {
-		t.Fatal("space on a genui row must be handled")
+		t.Fatal("space on a mod row must be handled")
 	}
-	if gn, _ := genUIRowFor("dice"); gn.Enabled {
+	if gn, _ := modRowFor("dice"); gn.Enabled {
 		t.Fatal("space must disable the type")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "dice.js.disabled")); err != nil {
@@ -216,12 +276,12 @@ func TestTypePickerManagesGenUINodes(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("disabled genui node must still list in /type")
+		t.Fatal("disabled mod node must still list in /type")
 	}
 	// Enter on the disabled row re-enables and applies the type
 	m.cursor = 0
 	src.onSelect(m, pickerItem{value: "dice"})
-	if gn, _ := genUIRowFor("dice"); !gn.Enabled {
+	if gn, _ := modRowFor("dice"); !gn.Enabled {
 		t.Fatal("selecting a disabled type must re-enable it")
 	}
 	if n.typ != "dice" {
@@ -236,9 +296,9 @@ func TestTypePickerManagesGenUINodes(t *testing.T) {
 		}
 	}
 	if !src.onKey(m, p, "ctrl+d", items) {
-		t.Fatal("ctrl+d on a genui row must be handled")
+		t.Fatal("ctrl+d on a mod row must be handled")
 	}
-	if _, ok := genUIRowFor("dice"); ok {
+	if _, ok := modRowFor("dice"); ok {
 		t.Fatal("ctrl+d must uninstall the type")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "dice.js")); !os.IsNotExist(err) {

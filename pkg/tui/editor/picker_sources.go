@@ -108,34 +108,34 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 
 type typeSource struct{}
 
-// genUIRowFor returns the installed genui-node record behind a type key, so
+// modRowFor returns the installed mod-node record behind a type key, so
 // the picker knows which rows take the management chords.
-func genUIRowFor(key string) (genUINode, bool) {
-	for _, gn := range loadedGenUI {
+func modRowFor(key string) (nodeMod, bool) {
+	for _, gn := range loadedMods {
 		if gn.Key == key {
 			return gn, true
 		}
 	}
-	return genUINode{}, false
+	return nodeMod{}, false
 }
 
-// items lists the pickable types, then any DISABLED genui nodes as muted rows
+// items lists the pickable types, then any DISABLED mod nodes as muted rows
 // — /type is also where they are managed (space toggles the .disabled filename
 // suffix, ctrl+d deletes the file).
 func (typeSource) items(m *Model, q string) []pickerItem {
 	var out []pickerItem
 	for _, t := range m.filteredTypes(q) {
 		t := t
-		if _, isGen := genUIRowFor(t); isGen {
+		if _, isGen := modRowFor(t); isGen {
 			out = append(out, pickerItem{value: t, render: func(bool) string {
-				return cFG + fmt.Sprintf("%-14s", typeLabel(t)) + cDim + " node · space disable · ctrl+d uninstall" + cReset
+				return cFG + fmt.Sprintf("%-14s", typeLabel(t)) + cDim + " mod · space disable · ctrl+d uninstall" + cReset
 			}})
 			continue
 		}
 		out = append(out, pickerItem{label: typeLabel(t), value: t})
 	}
 	lq := strings.ToLower(q)
-	for _, gn := range loadedGenUI {
+	for _, gn := range loadedMods {
 		if gn.Enabled {
 			continue
 		}
@@ -144,28 +144,28 @@ func (typeSource) items(m *Model, q string) []pickerItem {
 			continue
 		}
 		out = append(out, pickerItem{value: gn.Key, render: func(bool) string {
-			return cDim + fmt.Sprintf("%-14s", gn.Label) + "node · disabled · space enable" + cReset
+			return cDim + fmt.Sprintf("%-14s", gn.Label) + "mod · disabled · space enable" + cReset
 		}})
 	}
 	return out
 }
 
-// onKey claims the management chords on genui rows: space toggles
+// onKey claims the management chords on mod rows: space toggles
 // enabled/disabled in place, ctrl+d uninstalls. Built-in rows ignore both.
 func (typeSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
 	if p.sel < 0 || p.sel >= len(items) {
 		return false
 	}
-	gn, isGen := genUIRowFor(items[p.sel].value)
+	gn, isGen := modRowFor(items[p.sel].value)
 	if !isGen {
 		return false
 	}
 	switch key {
 	case " ":
-		setGenUINodeEnabled(gn.Key, !gn.Enabled)
+		setNodeModEnabled(gn.Key, !gn.Enabled)
 		return true
 	case "ctrl+d":
-		deleteGenUINode(gn.Key)
+		deleteNodeMod(gn.Key)
 		if n := len(typeSource{}.items(m, p.query)); p.sel >= n && p.sel > 0 {
 			p.sel--
 		}
@@ -198,9 +198,9 @@ func (typeSource) initialSel(m *Model) int {
 }
 
 func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
-	// picking a disabled genui node re-enables it on the way — Enter means "use it"
-	if gn, ok := genUIRowFor(it.value); ok && !gn.Enabled {
-		setGenUINodeEnabled(gn.Key, true)
+	// picking a disabled mod node re-enables it on the way — Enter means "use it"
+	if gn, ok := modRowFor(it.value); ok && !gn.Enabled {
+		setNodeModEnabled(gn.Key, true)
 	}
 	if it.value != "" {
 		targets := m.selectedItems() // multi-select: retype the whole range

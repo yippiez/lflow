@@ -2,6 +2,7 @@ package editor
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,57 +21,76 @@ import (
 	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
-// GenUI nodes are runtime-installed node types (and chip kinds), "nodes" to
-// the user: one JS file per type in <config>/lflow/nodes — log.js serves the
-// type "log"; renaming it log.js.disabled turns the type off without losing
-// it. The directory is evaluated at editor start via goja, and reloaded when
-// /type opens and after every agent turn — an agent (or the user) edits the
-// files directly and the running editor picks the change up. Each program runs
-// in its own goja runtime and calls lflow.registerType / lflow.registerChip;
-// the bridge turns those into regular nodeType descriptors appended to the
-// compiled-in registry, so the picker, glyphs and rendering treat both kinds
-// identically. See AGENTS.md.
+// NodeMods are runtime-installed node types (and chip kinds) — "mod" in the
+// UI. One mod per entry in <config>/lflow/mods: either a flat <key>.js (hand-
+// or agent-written) or a <key>/ directory installed from git ("lflow node
+// install <url>") whose mod.json names the entry JS. A ".disabled" suffix on
+// either form turns the mod off without losing it. The directory is evaluated
+// at editor start via goja and reloaded when /type opens and after every
+// agent turn — an agent (or the user) edits the files directly and the
+// running editor picks the change up. Each program runs in its own goja
+// runtime and calls lflow.registerType / lflow.registerChip; the bridge turns
+// those into regular nodeType descriptors appended to the compiled-in
+// registry, so the picker, glyphs and rendering treat both kinds identically.
+// See AGENTS.md.
 //
-// WARNING (invariant): a genui node is a file, never schema — installing one
-// is a file write, never a DB migration. A node whose type file is missing or
-// disabled falls back to bullets via typeOf, so the outline always loads.
+// WARNING (invariant): a mod is a file, never schema — and a node OF a mod
+// type is a normal node row whose type is a free string. Removing the mod
+// leaves its nodes rendering as plain bullets (text intact, via typeOf's
+// fallback); reinstalling lights them back up. Installing a mod is a file
+// write, never a DB migration.
 //
-// GenUI JS is TRUSTED — this is a single-user local tool, so hooks may call
+// NodeMod JS is TRUSTED — this is a single-user local tool, so hooks may call
 // lflow.exec (synchronous shell) even on the render path; a slow hook slows
-// the frame and that is the file's own problem. All hooks run on the bubbletea
+// the frame and that is the mod's own problem. All hooks run on the bubbletea
 // goroutine, so no locking is needed anywhere in the bridge.
 
-const genUIDisabledExt = ".disabled"
+const modDisabledExt = ".disabled"
 
-// genUINode pairs one <key>.js file with its load state for the /type rows.
-type genUINode struct {
-	Key     string // filename without extension — the nodes.type it serves
+// modManifest is a directory mod's mod.json.
+type modManifest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Entry       string `json:"entry"`
+	Version     string `json:"version"`
+}
+
+// nodeMod pairs one mods-dir entry with its load state for the /type rows.
+type nodeMod struct {
+	Key     string // the nodes.type it serves — the filename, or mod.json's name
 	Label   string // the registered label (the key, title-cased, until eval)
 	Source  string
 	Enabled bool
-	loadErr string // non-empty when the JS failed to evaluate (file kept, hooks off)
+	path    string // the file or directory behind it — the rename/delete target
+	loadErr string // non-empty when the JS failed to evaluate (files kept, hooks off)
 }
 
 var (
-	genUIDir    string     // <config>/lflow/nodes — set in Run; tests point it at a temp dir
-	genUITypes  []nodeType // runtime-registered node types, in load order
-	genUIByKey  = map[string]nodeType{}
-	loadedGenUI []genUINode
+	modsDir    string     // <config>/lflow/mods — set in Run; tests point it at a temp dir
+	modTypes   []nodeType // runtime-registered node types, in load order
+	modByKey   = map[string]nodeType{}
+	loadedMods []nodeMod
 )
 
-// initGenUINodes points the registry at <configDir>/lflow/nodes and loads it.
-// The first run creates the directory and migrates: any rows in the legacy
-// artifacts table are exported as files (the table is never read again); a
-// fresh install gets the reference log.js instead.
-func initGenUINodes(configDir string, db *database.DB) {
-	genUIDir = filepath.Join(configDir, consts.LflowDirName, "nodes")
-	tag.SetNodesDir(genUIDir) // pi's system prompt points at the same dir
-	if _, err := os.Stat(genUIDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(genUIDir, 0o755); err == nil {
+// initNodeMods points the registry at <configDir>/lflow/mods and loads it.
+// The first run migrates, oldest form first: the pre-rename "nodes" dir moves
+// wholesale; failing that, legacy artifacts-table rows export as files; a
+// fresh install seeds the reference log.js.
+func initNodeMods(configDir string, db *database.DB) {
+	base := filepath.Join(configDir, consts.LflowDirName)
+	modsDir = filepath.Join(base, "mods")
+	tag.SetModsDir(modsDir) // pi's system prompt points at the same dir
+	if _, err := os.Stat(modsDir); os.IsNotExist(err) {
+		if fi, err := os.Stat(filepath.Join(base, "nodes")); err == nil && fi.IsDir() {
+			_ = os.Rename(filepath.Join(base, "nodes"), modsDir)
+		}
+	}
+	if _, err := os.Stat(modsDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(modsDir, 0o755); err == nil {
 			exportLegacyArtifacts(db)
 		}
 	}
-	loadGenUINodes()
+	loadNodeMods()
 }
 
 // exportLegacyArtifacts writes the pre-file artifacts table out as one file
@@ -81,103 +101,154 @@ func exportLegacyArtifacts(db *database.DB) {
 	for _, a := range rows {
 		name := a.Key + ".js"
 		if !a.Enabled {
-			name += genUIDisabledExt
+			name += modDisabledExt
 		}
-		if os.WriteFile(filepath.Join(genUIDir, name), []byte(a.Source), 0o644) == nil {
+		if os.WriteFile(filepath.Join(modsDir, name), []byte(a.Source), 0o644) == nil {
 			wrote = true
 		}
 	}
 	if !wrote {
-		_ = os.WriteFile(filepath.Join(genUIDir, "log.js"), []byte(database.SeedLogArtifactSource), 0o644)
+		_ = os.WriteFile(filepath.Join(modsDir, "log.js"), []byte(database.SeedLogArtifactSource), 0o644)
 	}
 }
 
-// loadGenUINodes (re)builds the runtime registry from the nodes directory.
-// A broken file never blocks the editor: its row is listed with the error in
+// loadNodeMods (re)builds the runtime registry from the mods directory.
+// A broken mod never blocks the editor: its row is listed with the error in
 // /type and its nodes fall back to bullets.
-func loadGenUINodes() {
-	if genUIDir == "" {
+func loadNodeMods() {
+	if modsDir == "" {
 		return // not initialized (bare test models) — keep the registry as-is
 	}
-	genUITypes = nil
-	genUIByKey = map[string]nodeType{}
-	loadedGenUI = nil
+	modTypes = nil
+	modByKey = map[string]nodeType{}
+	loadedMods = nil
 
-	entries, err := os.ReadDir(genUIDir)
+	entries, err := os.ReadDir(modsDir)
 	if err != nil {
 		return
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, e := range entries {
 		name := e.Name()
-		enabled := strings.HasSuffix(name, ".js")
-		if !enabled && !strings.HasSuffix(name, ".js"+genUIDisabledExt) {
-			continue
+		if strings.HasPrefix(name, ".") {
+			continue // dotfiles and half-finished install stages
 		}
-		key := strings.TrimSuffix(strings.TrimSuffix(name, genUIDisabledExt), ".js")
-		if key == "" {
-			continue
-		}
-		n := genUINode{Key: key, Label: titleKey(key), Enabled: enabled}
-		if b, err := os.ReadFile(filepath.Join(genUIDir, name)); err != nil {
-			n.loadErr = err.Error()
+		enabled := !strings.HasSuffix(name, modDisabledExt)
+		base := strings.TrimSuffix(name, modDisabledExt)
+		path := filepath.Join(modsDir, name)
+
+		var n nodeMod
+		if e.IsDir() {
+			n = loadDirMod(base, path)
 		} else {
-			n.Source = string(b)
-			if enabled {
-				if err := evalGenUINode(key, n.Source); err != nil {
-					n.loadErr = err.Error()
-				}
+			key := strings.TrimSuffix(base, ".js")
+			if key == "" || key == base { // not a .js file
+				continue
+			}
+			n = nodeMod{Key: key, Label: titleKey(key), path: path}
+			if b, err := os.ReadFile(path); err != nil {
+				n.loadErr = err.Error()
+			} else {
+				n.Source = string(b)
 			}
 		}
-		if nt, ok := genUIByKey[key]; ok {
+		if n.Key == "" {
+			continue
+		}
+		n.Enabled = enabled
+		if enabled && n.loadErr == "" {
+			if err := evalNodeMod(n.Key, n.Source); err != nil {
+				n.loadErr = err.Error()
+			}
+		}
+		if nt, ok := modByKey[n.Key]; ok {
 			n.Label = nt.label
 		}
-		loadedGenUI = append(loadedGenUI, n)
+		loadedMods = append(loadedMods, n)
 	}
 }
 
-// installGenUINode writes <key>.js and hot-loads it — the new type is usable
+// loadDirMod reads a git-installed mod: <dir>/mod.json names the entry JS.
+func loadDirMod(base, path string) nodeMod {
+	n := nodeMod{Key: base, Label: titleKey(base), path: path}
+	b, err := os.ReadFile(filepath.Join(path, "mod.json"))
+	if err != nil {
+		n.loadErr = "mod.json: " + err.Error()
+		return n
+	}
+	var mf modManifest
+	if err := json.Unmarshal(b, &mf); err != nil {
+		n.loadErr = "mod.json: " + err.Error()
+		return n
+	}
+	if mf.Name != "" {
+		n.Key = mf.Name
+		n.Label = titleKey(mf.Name)
+	}
+	if mf.Entry == "" {
+		n.loadErr = "mod.json: no entry"
+		return n
+	}
+	src, err := os.ReadFile(filepath.Join(path, mf.Entry))
+	if err != nil {
+		n.loadErr = err.Error()
+		return n
+	}
+	n.Source = string(src)
+	return n
+}
+
+// installNodeMod writes <key>.js and hot-loads it — the new type is usable
 // in /type immediately. This is the offline mock's install path; a real agent
 // writes the file itself and the after-turn reload picks it up.
-func installGenUINode(key, source string) error {
-	if key == "" || genUIDir == "" {
-		return fmt.Errorf("genui: no key or nodes dir")
+func installNodeMod(key, source string) error {
+	if key == "" || modsDir == "" {
+		return fmt.Errorf("nodemod: no key or mods dir")
 	}
-	_ = os.Remove(filepath.Join(genUIDir, key+".js"+genUIDisabledExt))
-	if err := os.WriteFile(filepath.Join(genUIDir, key+".js"), []byte(source), 0o644); err != nil {
+	_ = os.Remove(filepath.Join(modsDir, key+".js"+modDisabledExt))
+	if err := os.WriteFile(filepath.Join(modsDir, key+".js"), []byte(source), 0o644); err != nil {
 		return err
 	}
-	loadGenUINodes()
+	loadNodeMods()
 	return nil
 }
 
-// setGenUINodeEnabled renames <key>.js ↔ <key>.js.disabled — the on/off state
-// lives in the filename, visible to anything that can list the directory.
-func setGenUINodeEnabled(key string, enabled bool) {
-	on := filepath.Join(genUIDir, key+".js")
-	if enabled {
-		_ = os.Rename(on+genUIDisabledExt, on)
-	} else {
-		_ = os.Rename(on, on+genUIDisabledExt)
+// setNodeModEnabled toggles a mod by renaming its file or directory with the
+// .disabled suffix — the on/off state lives in the filename, visible to
+// anything that can list the directory.
+func setNodeModEnabled(key string, enabled bool) {
+	for _, mod := range loadedMods {
+		if mod.Key != key {
+			continue
+		}
+		if enabled {
+			_ = os.Rename(mod.path, strings.TrimSuffix(mod.path, modDisabledExt))
+		} else if !strings.HasSuffix(mod.path, modDisabledExt) {
+			_ = os.Rename(mod.path, mod.path+modDisabledExt)
+		}
+		break
 	}
-	loadGenUINodes()
+	loadNodeMods()
 }
 
-// deleteGenUINode removes the type's file. Nodes of its type stay untouched
-// and render as bullets until the type is reinstalled.
-func deleteGenUINode(key string) {
-	on := filepath.Join(genUIDir, key+".js")
-	_ = os.Remove(on)
-	_ = os.Remove(on + genUIDisabledExt)
-	loadGenUINodes()
+// deleteNodeMod removes the mod's file or directory. Nodes of its type stay
+// untouched and render as bullets until the mod is reinstalled.
+func deleteNodeMod(key string) {
+	for _, mod := range loadedMods {
+		if mod.Key == key {
+			_ = os.RemoveAll(mod.path)
+			break
+		}
+	}
+	loadNodeMods()
 }
 
-// evalGenUINode runs one program in a fresh runtime and registers what it
+// evalNodeMod runs one program in a fresh runtime and registers what it
 // declares.
-func evalGenUINode(key, source string) (err error) {
+func evalNodeMod(key, source string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("node type %s panicked: %v", key, r)
+			err = fmt.Errorf("mod %s panicked: %v", key, r)
 		}
 	}()
 	vm := goja.New()
@@ -185,7 +256,7 @@ func evalGenUINode(key, source string) (err error) {
 		return err
 	}
 	if _, err := vm.RunScript(key, source); err != nil {
-		return fmt.Errorf("node type %s: %v", key, err)
+		return fmt.Errorf("mod %s: %v", key, err)
 	}
 	return nil
 }
@@ -320,8 +391,8 @@ func registerJSType(vm *goja.Runtime, desc *goja.Object) {
 		nt.view = bashView{} // alt+e: the generic scrollable run-output viewer
 	}
 
-	genUITypes = append(genUITypes, nt)
-	genUIByKey[key] = nt
+	modTypes = append(modTypes, nt)
+	modByKey[key] = nt
 }
 
 // registerJSChip converts a JS chip descriptor into a chipKind. Built-in kinds

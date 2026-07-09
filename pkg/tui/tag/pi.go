@@ -15,13 +15,13 @@ type PiClient struct {
 	Cwd string // working directory for pi ("" = inherit the editor's)
 }
 
-// nodesDir is where the genui node-type files live (<config>/lflow/nodes) —
-// the editor sets it at start so the system prompt can tell pi to create and
-// edit node types directly.
-var nodesDir string
+// modsDir is where the NodeMod files live (<config>/lflow/mods) — the editor
+// sets it at start so the system prompt can tell pi to create and edit mods
+// directly.
+var modsDir string
 
-// SetNodesDir records the genui nodes directory for the system prompt.
-func SetNodesDir(dir string) { nodesDir = dir }
+// SetModsDir records the mods directory for the system prompt.
+func SetModsDir(dir string) { modsDir = dir }
 
 // Model and thinking preferences from /settings. "" or "default" leaves the
 // choice to pi's own config (~/.pi settings); anything else is passed through
@@ -56,13 +56,20 @@ func piSystemPrompt() string {
 		"  {{link:label|https://example.com}} — a link; the label is optional " +
 		"({{link:https://example.com}}).\n" +
 		"  #tags and YYYY-MM-DD dates become chips automatically — write them plainly.\n" +
-		"Never wrap a chip token in quotes or backticks."
-	if nodesDir != "" {
-		p += "\n\nCustom node types are JS files in " + nodesDir + ": <type>.js " +
-			"defines the node type <type>; renaming it <type>.js.disabled turns it " +
-			"off. When asked for a new node type, write the file yourself, mirroring " +
-			"the lflow.registerType calls in the existing files there — the app " +
-			"reloads the directory when your turn ends."
+		"Never wrap a chip token in quotes or backticks.\n" +
+		"\n" +
+		"Not every turn needs an answer. When the [ASKED] line does not mention " +
+		"@you, the user may still be mid-thought — writing a multi-part answer to " +
+		"your question, or notes that need no reply. If the line is clearly " +
+		"addressed to you and complete, answer; otherwise reply with exactly PASS " +
+		"and nothing else, and wait for the next turn."
+	if modsDir != "" {
+		p += "\n\nCustom node types (NodeMods) live in " + modsDir + ": <type>.js " +
+			"defines the node type <type>, and a <type>/ directory with a mod.json " +
+			"({name, description, entry}) holds a git-installed mod. A .disabled " +
+			"suffix on either turns it off. When asked for a new node type, write " +
+			"the file yourself, mirroring the lflow.registerType calls in the " +
+			"existing files there — the app reloads the directory when your turn ends."
 	}
 	return p
 }
@@ -127,7 +134,9 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 					out <- Event{Op: "error", Text: firstNonEmpty(strings.TrimSpace(reply.String()), "pi turn failed")}
 					return
 				}
-				if txt := strings.TrimSpace(reply.String()); txt != "" {
+				// "PASS" is pi declining a discretionary turn (the user is
+				// mid-thought) — the turn ran, no reply node lands
+				if txt := strings.TrimSpace(reply.String()); txt != "" && txt != "PASS" {
 					out <- Event{Op: "message", Placement: placement, Text: txt}
 				}
 				out <- Event{Op: "done"}

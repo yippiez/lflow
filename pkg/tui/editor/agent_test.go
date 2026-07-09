@@ -76,7 +76,7 @@ func addChild(m *Model, parent *item, uuid, name, typ string) *item {
 
 func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
-	defer func() { genUITypes, genUIByKey, loadedGenUI = nil, map[string]nodeType{}, nil }()
+	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
 	cmd, consumed := m.mentionSendOnEnter(n1)
 	if !consumed || cmd == nil {
@@ -116,7 +116,7 @@ func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
 
 func TestBoardReviewAndReplyThread(t *testing.T) {
 	m, disc, _ := newAgentTestModel(t)
-	defer func() { genUITypes, genUIByKey, loadedGenUI = nil, map[string]nodeType{}, nil }()
+	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
 	// establish the session with the mention turn
 	cmd, _ := m.mentionSendOnEnter(disc.children[0])
@@ -166,9 +166,9 @@ func TestBoardReviewAndReplyThread(t *testing.T) {
 	}
 }
 
-func TestMentionCreatesGenUINode(t *testing.T) {
+func TestMentionCreatesNodeMod(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
-	dir := setGenUITestDir(t)
+	dir := setModTestDir(t)
 	n1.name = "@Pi create a dice artifact for me"
 
 	cmd, sent := m.mentionSendOnEnter(n1)
