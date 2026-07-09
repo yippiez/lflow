@@ -166,26 +166,53 @@ func stripSGR(s string) string {
 	return b.String()
 }
 
-// ── alt+e cmd-output viewer (modeCmdView) ───────────────────────────────────
+// ── alt+e inline cmd-output view ─────────────────────────────────────────────
 
-// openCmdView opens the scrollable full-output viewer for a cmd chip.
-func (m *Model) openCmdView(c database.Chip) {
-	m.mode = modeCmdView
-	m.cmdViewID = c.ID
-	m.cmdViewCmd = c.Value
-	m.ensureRunOutLoaded(c.ID)
+// cmdChipView is a cmd chip's inline expanded output viewer: the same
+// band-beneath-the-node surface as a focused bash node (see bashView), keyed by
+// the focused chip id (m.focusChip) instead of the node uuid. Stateless like
+// every nodeView; it is reached through m.activeView, never the type registry —
+// the chip lives inside a plain text node whose type has no view of its own.
+type cmdChipView struct{}
+
+// focusCmdChip focuses the chip's inline output band (alt+e on a cmd chip).
+func (m *Model) focusCmdChip(c database.Chip) {
+	m.focusChip = c.ID
+	m.focused = true
 	m.focusScroll = 0
+	m.ensureRunOutLoaded(c.ID)
 }
 
-func (m *Model) handleCmdViewKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+// activeView resolves the focused inline view: the cmd-chip band when a chip
+// is focused, else the node type's own view.
+func (m *Model) activeView(it *item) nodeView {
+	if m.focusChip != "" {
+		return cmdChipView{}
+	}
+	return nodeViewOf(it)
+}
+
+func (cmdChipView) Enter(m *Model, it *item) bool { return m.focusChip != "" }
+
+func (cmdChipView) Leave(m *Model, it *item) { m.focusChip = "" }
+
+// Lines is a header plus one row per output line (or a placeholder when empty).
+func (cmdChipView) Lines(m *Model, it *item, width int) int {
+	m.ensureRunOutLoaded(m.focusChip)
+	n := len(m.runOut[m.focusChip])
+	if n == 0 {
+		n = 1 // the "no output" placeholder
+	}
+	return 1 + n
+}
+
+// Key scrolls the band; alt+r re-runs (or cancels) the chip in place; esc/alt+e
+// fall through to central defocus.
+func (cmdChipView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
-	case "esc", "ctrl+c", "alt+e", "q":
-		m.mode = modeOutline
-		return m, nil
 	case "alt+r":
-		// re-run the command straight from the viewer
-		if c, ok := m.chips[m.cmdViewID]; ok {
-			return m, m.runCmdChip(c)
+		if c, ok := m.chips[m.focusChip]; ok && c.Kind == chipKindCmd {
+			return m.runCmdChip(c), true
 		}
 	case "down", "j", "pgdown":
 		step := 1
@@ -193,6 +220,7 @@ func (m *Model) handleCmdViewKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			step = 10
 		}
 		m.focusScroll += step
+		return nil, true
 	case "up", "k", "pgup":
 		step := 1
 		if k.String() == "pgup" {
@@ -202,37 +230,55 @@ func (m *Model) handleCmdViewKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focusScroll < 0 {
 			m.focusScroll = 0
 		}
+		return nil, true
 	case "home", "g":
 		m.focusScroll = 0
+		return nil, true
 	case "end", "G":
-		m.focusScroll = 1 << 30
+		m.focusScroll = 1 << 30 // central clamp pins it to the last page
+		return nil, true
 	}
-	return m, nil
+	return nil, false
 }
 
-func (m *Model) viewCmdView(maxLine int) []string {
-	out := m.runOut[m.cmdViewID]
-	_, running := m.runCancel[m.cmdViewID]
+// Bands renders the header and output lines, self-windowed to [scroll, scroll+winH).
+func (cmdChipView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+	m.ensureRunOutLoaded(m.focusChip)
+	out := m.runOut[m.focusChip]
+	_, running := m.runCancel[m.focusChip]
 
-	hdr := fmt.Sprintf(" $ %s · %d lines", m.cmdViewCmd, len(out))
-	if running {
-		hdr += " · running…"
+	cmd := ""
+	if c, ok := m.chips[m.focusChip]; ok {
+		cmd = c.Value
 	}
-	content := []string{clip(cDim+hdr+cReset, maxLine)}
+	hdr := fmt.Sprintf("  $ %s · %d lines", cmd, len(out))
+	if d := m.runDropped[m.focusChip]; d > 0 {
+		hdr += fmt.Sprintf(" · %d dropped", d)
+	}
+	if running {
+		hdr += " · running… · ⌥r stop"
+	} else {
+		hdr += " · ⌥r re-run"
+	}
+	hdr += " · ↑↓ scroll · esc close"
+	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}
+
 	if len(out) == 0 {
-		content = append(content, clip(cDim+" no output yet · ⌥r runs"+cReset, maxLine))
+		content = append(content, clip(rail+cReset+cDim+"  no output yet · ⌥r runs"+cReset, width))
 	}
 	for _, l := range out {
-		content = append(content, clip(cReset+" "+styleOutLine(l), maxLine))
+		content = append(content, clip(rail+cReset+"  "+styleOutLine(l), width))
 	}
-	content = append(content, "", clip(cDim+" ↑↓ scroll · ⌥r re-run · esc close"+cReset, maxLine))
 
-	scroll := m.focusScroll
 	if scroll < 0 {
 		scroll = 0
 	}
 	if scroll > len(content) {
 		scroll = len(content)
 	}
-	return content[scroll:]
+	end := scroll + winH
+	if end > len(content) {
+		end = len(content)
+	}
+	return content[scroll:end]
 }

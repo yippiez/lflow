@@ -150,3 +150,38 @@ func TestCmdChipNotInBashNode(t *testing.T) {
 		t.Fatal("a bash node must not form an inline cmd chip")
 	}
 }
+
+// TestCmdChipAltEFocusesInlineBand: alt+e on a cmd chip focuses its inline
+// output band (the bash-node surface) instead of a separate page — the editor
+// stays in modeOutline — and alt+e (or esc) defocuses it again.
+func TestCmdChipAltEFocusesInlineBand(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
+	cursorOn(m, "edit")
+	m.caret = 0
+	m.press("$echo hi")
+	m.press(" ")
+	m.press(" ")
+	c, ok := cmdChipOf(m)
+	if !ok {
+		t.Fatal("no cmd chip created")
+	}
+	// park the caret right after the chip anchor so cmdChipAtCaret finds it
+	spans := anchorSpans([]rune(m.tree.byUUID["edit"].name))
+	if len(spans) != 1 {
+		t.Fatalf("want 1 anchor span, got %d", len(spans))
+	}
+	m.caret = spans[0].end
+
+	m.press("alt+e")
+	if !m.focused || m.focusChip != c.ID {
+		t.Fatalf("alt+e should focus the chip band: focused=%v focusChip=%q", m.focused, m.focusChip)
+	}
+	if m.mode != modeOutline {
+		t.Fatalf("chip band must stay inline: mode=%v", m.mode)
+	}
+
+	m.press("alt+e")
+	if m.focused || m.focusChip != "" {
+		t.Fatalf("alt+e again should defocus: focused=%v focusChip=%q", m.focused, m.focusChip)
+	}
+}

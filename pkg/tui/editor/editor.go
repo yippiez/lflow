@@ -40,7 +40,6 @@ const (
 	modeSettings  // the /settings picker: global preferences (theme, image preview, …)
 	modeComplete  // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit  // the alt+e link-chip editor: edit a link's name and target
-	modeCmdView   // the alt+e cmd-chip viewer: scroll a cmd chip's full run output
 	modeFlash      // flash jump/act: every visible row's actions get a typed label (see flash.go)
 	modeTagColor   // the alt+e tag color picker: assign a pill color to a tag
 	modePaint // the painter: a window over the node's text places a /style choice (p inside /style)
@@ -154,8 +153,9 @@ type Model struct {
 	linkEditField  int    // 0 = name field, 1 = target field
 	linkEditCaret  int    // caret inside the active field — same movement keys as the outline
 
-	cmdViewID  string // cmd chip id whose output the alt+e viewer is showing
-	cmdViewCmd string // that chip's command, for the viewer header
+	// the focused cmd chip (alt+e): its output renders as an inline band beneath
+	// the node — the same surface as a focused bash node — keyed by this chip id.
+	focusChip string
 
 	// flash mode (modeFlash): each visible row's actions carry a typed label;
 	// typing a label narrows (matched prefix grays, the rest stays lit) until one
@@ -726,8 +726,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
 	case modeLinkEdit:
 		return m.handleLinkEditKey(k)
-	case modeCmdView:
-		return m.handleCmdViewKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modePaint:
@@ -741,17 +739,17 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// A focused inline node view captures input first (it stays inside the outline,
-	// so we're still modeOutline). The view handles its own keys; esc defocuses
-	// (flushing edits); ctrl+c/ctrl+q fall through to quit; everything else is
-	// swallowed so it can't leak into outline navigation.
+	// so we're still modeOutline). The view handles its own keys; esc or alt+e
+	// defocuses (flushing edits); ctrl+c/ctrl+q fall through to quit; everything
+	// else is swallowed so it can't leak into outline navigation.
 	if m.focused && m.mode == modeOutline {
 		cur := m.cursorItem()
-		if v := nodeViewOf(cur); v != nil {
+		if v := m.activeView(cur); v != nil {
 			if cmd, handled := v.Key(m, cur, k); handled {
 				return m, cmd
 			}
 			switch key {
-			case "esc":
+			case "esc", "alt+e":
 				v.Leave(m, cur)
 				m.focused = false
 				return m, nil
@@ -1165,7 +1163,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.focusScroll = 0
 				}
 			} else if c, ok := m.cmdChipAtCaret(cur); ok {
-				m.openCmdView(c) // ⌥e on a cmd chip shows its full run output
+				m.focusCmdChip(c) // ⌥e on a cmd chip: its run output as an inline band
 				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
@@ -2719,8 +2717,6 @@ func (m *Model) View() string {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)
-	} else if m.mode == modeCmdView {
-		lines = m.viewCmdView(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
@@ -2871,7 +2867,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		// runnable nodes (bash/query) hang their ephemeral output beneath them.
 		// the focused bash node shows its full scrollable viewer (the nodeView band
 		// below) instead of this capped inline band, so don't render both
-		focusedView := m.focused && i == m.cursor && nodeViewOf(it) != nil
+		focusedView := m.focused && i == m.cursor && m.activeView(it) != nil
 		if !focusedView {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
 			if it.typ == database.TypeImage {
@@ -2915,7 +2911,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// while a tall view (e.g. long bash output) scrolls within its window.
 	if m.focused && m.cursor >= 0 && m.cursor < len(rows) {
 		cur := rows[m.cursor].it
-		if v := nodeViewOf(cur); v != nil {
+		if v := m.activeView(cur); v != nil {
 			r := rows[m.cursor]
 			below := m.cursor+1 < len(rows) && rows[m.cursor+1].depth > r.depth
 			winH := focusedBudget - len(groups[m.cursor]) - 1

@@ -161,6 +161,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyTab}
 	case "shift+tab":
 		return tea.KeyMsg{Type: tea.KeyShiftTab}
+	case "alt+e":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e"), Alt: true}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "backspace":
