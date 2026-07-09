@@ -1533,12 +1533,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// shorter node) — slicing runes[:m.caret] would otherwise panic
 		m.boundCaret(len([]rune(cur.name)))
 
-		// typing a space commits a sign prefix ("$ "→bash, "-> "/"→ "→log) into the
-		// node's type, or a #tag / date token before it into a chip.
+		// typing a space commits a "$cmd" + double space into a cmd chip, or a
+		// #tag / date token before it into a chip. A leading "$" never converts
+		// the node's type — bash nodes are made via /type; "$" is chip territory.
 		if text == " " && !k.Paste {
-			if m.convertBySign(cur) {
-				return m, nil // the sign became the type; the space is consumed
-			}
 			if m.bashCmdBeforeCaret(cur) {
 				return m, nil // a "$cmd" + double space committed a cmd chip
 			}
@@ -1608,32 +1606,6 @@ func tagPickerTrigger(typ string) bool {
 		return false
 	}
 	return typeOf(typ).inlineEditable
-}
-
-// convertBySign turns a "$" typed at the very start of a node into a bash node
-// — the keyboard-only counterpart to /type. It fires on the space after the "$"
-// (so the whole pre-caret text IS the sign), converts, and strips the sign (a
-// bash node renders its own "$ " prompt), leaving the caret at the start of the
-// remaining text. Works from any type, so it doubles as the reverse conversion
-// (type "$ " on any node to make it bash). Bash is the only built-in with a
-// keyboard sign; every other type — including mods like log — is set via /type.
-func (m *Model) convertBySign(cur *item) bool {
-	if cur == nil || cur.mirrorOf != "" || cur.readonly {
-		return false
-	}
-	runes := []rune(cur.name)
-	if m.caret > len(runes) {
-		return false
-	}
-	if string(runes[:m.caret]) != "$" || cur.typ == database.TypeBash {
-		return false // not the bash sign, or already bash — type the space normally
-	}
-	m.pushUndo("")
-	cur.typ = database.TypeBash
-	cur.name = string(runes[m.caret:]) // drop the "$"; bash renders its own prompt
-	m.caret = 0
-	m.unsaved = true
-	return true
 }
 
 // pasteLines normalizes pasted text into one line per logical row. tmux ONLCR

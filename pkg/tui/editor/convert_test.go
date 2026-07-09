@@ -1,28 +1,31 @@
 package editor
 
-import "testing"
+import (
+	"testing"
 
-// convertBySign is the one keyboard sign: "$" at the node start becomes bash.
-// No other prefix converts — log and every other mod are set via /type only.
-func TestConvertBySign(t *testing.T) {
-	// "$" converts to bash and drops the sign
-	it := &item{uuid: "n", typ: "bullets", name: "$ls -la"}
-	tr := &tree{byUUID: map[string]*item{"n": it}}
-	m := &Model{tree: tr, caret: 1}
-	if !m.convertBySign(it) {
-		t.Fatal("'$' must convert to bash")
-	}
-	if it.typ != "bash" || it.name != "ls -la" || m.caret != 0 {
-		t.Fatalf("bash convert = typ %q name %q caret %d", it.typ, it.name, m.caret)
-	}
+	"github.com/lflow/lflow/pkg/tui/database"
+)
 
-	// "->" / "→" are plain text now: log owns no keyboard trigger
-	for _, sign := range []string{"->", "→"} {
-		it := &item{uuid: "n", typ: "bullets", name: sign + "deployed"}
-		tr := &tree{byUUID: map[string]*item{"n": it}}
-		m := &Model{tree: tr, caret: len([]rune(sign))}
-		if m.convertBySign(it) {
-			t.Fatalf("%q must not convert — log is a plain mod", sign)
-		}
+// No keyboard sign converts a node's type: "$" is cmd-chip territory (double
+// space commits the chip — see cmdchip_test.go) and a bare "$ " stays literal
+// text; bash and every other type are set via /type only.
+func TestDollarSignStaysText(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
+	cursorOn(m, "edit")
+	m.caret = 0
+
+	m.press("$")
+	m.press(" ")
+	m.press(" ")
+
+	edit := m.tree.byUUID["edit"]
+	if edit.typ == database.TypeBash {
+		t.Fatal("'$ ' must not convert the node to bash")
+	}
+	if _, ok := cmdChipOf(m); ok {
+		t.Fatal("an empty '$' must not commit a cmd chip")
+	}
+	if edit.name != "$  " {
+		t.Fatalf("name = %q, want literal %q", edit.name, "$  ")
 	}
 }
