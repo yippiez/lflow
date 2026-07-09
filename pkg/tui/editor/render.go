@@ -46,6 +46,13 @@ var (
 	bgPill   = "\x1b[48;2;38;79;120m"   // #264f78 behind date pills
 )
 
+// The painter's window: a white bar (not themed — white is white) with dark
+// text for unpainted runes; painted runes keep their color on it.
+const (
+	bgPaintSel = "\x1b[48;2;255;255;255m"
+	fgPaintSel = "\x1b[38;2;30;30;30m"
+)
+
 // glyphs (locked)
 const (
 	glyphOpen      = "○"
@@ -1077,14 +1084,18 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 		s := sgr(f)
 		// a painted run (see paint.go) overrides the cell's color/attrs; while
-		// the painter is live on this node its pending selection sits on the
-		// blue selection bar — NOT inverse video, which swaps fg/bg and makes
-		// an already-red run read as a red background
+		// the painter is live on this node its window sits on a white bar —
+		// dark text for plain runes, painted runes keep their color on it.
+		// NOT inverse video, which swaps fg/bg and makes an already-red run
+		// read as a red background.
 		if spanSGR != nil && spanSGR[i] != "" {
 			s += spanSGR[i]
 		}
 		if paintLive && i >= paintLo && i < paintHi {
-			s += bgPill
+			if spanSGR == nil || spanSGR[i] == "" {
+				s += fgPaintSel
+			}
+			s += bgPaintSel
 		}
 		if s != cur {
 			b.WriteString(s)
