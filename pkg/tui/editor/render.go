@@ -1062,8 +1062,14 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		r := runes[i]
 		f := flags[i]
 		if i == caret {
-			// the block cursor sits ON the rune: same colors, dark red cell
-			b.WriteString(sgr(f) + cInvert)
+			// the block cursor sits ON the rune: same colors as the cell —
+			// including its painted span — so the block wears the character's
+			// real color, then inverts
+			s := sgr(f)
+			if spanSGR != nil && spanSGR[i] != "" {
+				s += spanSGR[i]
+			}
+			b.WriteString(s + cInvert)
 			b.WriteRune(r)
 			cur = "" // force a state re-emit after the caret cell
 			i++
