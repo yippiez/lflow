@@ -2712,18 +2712,24 @@ func (m *Model) View() string {
 	// truncation drops any escape bytes past the cut — a trailing cClearEOL would
 	// be silently discarded on exactly the wide rows that need clearing.
 	//
-	// A themed page background (bgPage) rides the same erase: setting the bg
-	// BEFORE cClearEOL floods the whole row with it, and re-arming it after
-	// every interior reset (the selFill trick) keeps mixed-color rows on the
-	// page. Only the main region gets it — the first pageRows lines; the
-	// status bar and the temp panel below always keep the terminal background.
+	// A themed page background (bgPage) must paint REAL cells edge to edge —
+	// the selFill trick: the renderer appends its own end-of-line erase after
+	// each row, which would repaint an \x1b[K flood back to the terminal
+	// default, leaving gray only behind the text. So each main-region line is
+	// padded with spaces to full width under the bg, re-arming it after every
+	// interior reset so mixed-color rows stay on the page. Only the main
+	// region gets it — the first pageRows lines; the status bar and the temp
+	// panel below always keep the terminal background.
 	pageEnd := 0
 	if bgPage != "" {
 		pageEnd = min(m.pageRows, len(lines))
 	}
 	for i, l := range lines {
 		if i < pageEnd {
-			lines[i] = bgPage + cClearEOL + strings.ReplaceAll(l, cReset, cReset+bgPage) + cReset
+			if pad := maxLine - visibleWidth(l); pad > 0 {
+				l += strings.Repeat(" ", pad)
+			}
+			lines[i] = cClearEOL + bgPage + strings.ReplaceAll(l, cReset, cReset+bgPage) + cReset
 			continue
 		}
 		lines[i] = cClearEOL + l + cReset
@@ -3115,6 +3121,14 @@ func (m *Model) viewOutline(maxLine int) []string {
 			// read-only temp panel: the dashed-glyph Temporary Domain look
 			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
 		}
+		// with a page background, the main region fills its whole budget so the
+		// gray block runs 100% of the way down to the divider — not just the
+		// rows that hold content (blank filler rows paint gray like any other)
+		if bgPage != "" {
+			for len(mainLines) < mainBudget {
+				mainLines = append(mainLines, "")
+			}
+		}
 		body := mainLines
 		m.pageRows = len(body) // page bg stops at the divider; temp stays bare
 		body = append(body, bar...) // the status bar is the divider
@@ -3145,6 +3159,12 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 
+	// same 100%-fill under a page background as the showTemp path above
+	if bgPage != "" {
+		for len(lines) < rowBudget {
+			lines = append(lines, "")
+		}
+	}
 	m.pageRows = len(lines) // page bg covers everything above the status bar
 	lines = append(lines, bar...)
 
