@@ -9,13 +9,13 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// A cmd chip is inline runnable shell: type "$<command>" inside any text node and
-// commit it with a DOUBLE space (single spaces stay part of the command, so
-// "$ls -la" keeps typing; a bare "$" still chips, empty). The command lives in
-// the chip value (persisted); its run output is ephemeral (node_output, keyed by
-// chip id — local-only, never synced, exactly like a bash node). alt+r runs the
-// chip the caret sits on, and the chip then renders "$cmd → <first line>";
-// alt+e expands the full output as an inline band.
+// A cmd chip is inline runnable shell: a standalone "$" starts a live gray
+// command draft inside any text node, and a DOUBLE space commits it (single
+// spaces stay part of the command; a bare "$" still chips, empty). The command
+// lives in the chip value (persisted); its run output is ephemeral (node_output,
+// keyed by chip id — local-only, never synced, exactly like a bash node). alt+r
+// runs the chip the caret sits on, and the chip then renders "$ cmd → <first
+// line>"; alt+e expands the full output as an inline band.
 
 // bashCmdBeforeCaret converts a "$<command>" token terminated by a double space
 // into a cmd chip. It is called from the space-typed path only when the rune

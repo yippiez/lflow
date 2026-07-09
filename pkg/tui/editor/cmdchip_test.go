@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lflow/lflow/pkg/tui/database"
@@ -68,6 +69,24 @@ func TestCmdChipMidSentence(t *testing.T) {
 	}
 }
 
+// TestCmdChipDraftColorsImmediately: a standalone "$" starts a live cmd-chip
+// draft before it is committed, so the prompt is red and the command area is
+// already on the same gray background the final chip will use.
+func TestCmdChipDraftColorsImmediately(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
+	cursorOn(m, "edit")
+	m.caret = 0
+
+	m.press("$ls")
+	rendered := renderBody(m.tree.byUUID["edit"], m.tree.byUUID["edit"].name, m.caret, true, m.chips)
+	if !strings.Contains(rendered, bgCode) || !strings.Contains(rendered, cRed+"$") {
+		t.Fatalf("live cmd draft should have gray bg and red prompt, got %q", rendered)
+	}
+	if _, ok := cmdChipOf(m); ok {
+		t.Fatal("draft must not become a chip until double space")
+	}
+}
+
 // TestCmdChipPreviewIsEphemeral: a run preview lands in the in-memory chip label
 // (shown as "$cmd → preview") but is never written to the chips table — the
 // command persists, the output does not.
@@ -88,6 +107,11 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 
 	if got := chipDisplay(m.chips[c.ID]); got != "$ ls → file-a" {
 		t.Errorf("chip display = %q, want %q", got, "$ ls → file-a")
+	}
+	rendered := renderCmdChip(m.chips[c.ID], false)
+	preview := cDim + " → file-a"
+	if !strings.Contains(rendered, bgCode+cRed+"$ "+cFG+"ls"+cReset+preview) {
+		t.Errorf("preview should be muted after a background reset, got %q", rendered)
 	}
 	// the persisted chip row must keep an empty label (output never persisted)
 	stored, err := database.GetChip(db, c.ID)

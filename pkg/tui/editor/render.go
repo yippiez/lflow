@@ -984,6 +984,49 @@ func inlineSpans(runes []rune) []spanFlags {
 	return flags
 }
 
+// renderCmdChip paints a committed cmd chip. The prompt+command sits on a gray
+// code cell; the ephemeral output preview is muted text after the cell, with no
+// background, so "$ ls" reads as the runnable part and "→ result" as output.
+func renderCmdChip(c database.Chip, caretOn bool) string {
+	var b strings.Builder
+	b.WriteString(cReset)
+	if caretOn {
+		b.WriteString(cInvert)
+	}
+	b.WriteString(bgCode + cRed + "$ " + cFG + c.Value + cReset)
+	if c.Label != "" {
+		b.WriteString(cDim + " → " + c.Label + cReset)
+	}
+	return b.String()
+}
+
+// activeCmdDraftRange returns the not-yet-committed cmd chip range that contains
+// the caret. A standalone "$" starts the draft immediately; single spaces stay
+// in the command, while a double space means the draft has ended (and normally
+// commits before render). Anchor interiors are ignored so path chips can still
+// be folded into the command when the double space arrives.
+func activeCmdDraftRange(runes []rune, caret int, spans []anchorSpan) (int, int) {
+	if caret <= 0 || caret > len(runes) {
+		return -1, -1
+	}
+	for i := caret - 1; i >= 0; {
+		if sp := spanEndingAt(spans, i+1); sp != nil {
+			i = sp.start - 1
+			continue
+		}
+		if runes[i] == '$' && (i == 0 || runes[i-1] == ' ') {
+			for j := i + 1; j < caret; j++ {
+				if runes[j] == ' ' && j+1 < caret && runes[j+1] == ' ' {
+					return -1, -1
+				}
+			}
+			return i, caret
+		}
+		i--
+	}
+	return -1, -1
+}
+
 // renderBody renders a node name wysiwyg. Text keeps its normal color on
 // every row — selection is carried by the red glyph alone. Unselected rows
 // hide the markdown markers; the selected row shows them and the block
@@ -1038,7 +1081,8 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	spanSGR := spanSGRFor(it.uuid, len(runes))
 	paintLive := paintUUID == it.uuid
 	paintLo, paintHi := paintBounds()
-	chipsp := anchorSpans(runes)          // inline chip anchors, drawn collapsed
+	chipsp := anchorSpans(runes) // inline chip anchors, drawn collapsed
+	cmdDraftStart, cmdDraftEnd := activeCmdDraftRange(runes, caret, chipsp)
 	if desc.muteFrom != nil {
 		// a type may mute a tail — the log artifact mutes from the first " · "
 		if d := desc.muteFrom(name); d >= 0 && d < len(runes) {
@@ -1088,22 +1132,14 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		// a chip anchor renders collapsed: the chip kind's color + compact display,
 		// atomic. The caret only ever sits at its boundaries (see snapCaret).
 		if sp := spanStartingAt(chipsp, i); sp != nil {
-			// a cmd chip is a code cell: "$ cmd" on the dark terminal tint — "$"
-			// red, the command in the normal text color — and the run-output
-			// preview muted gray after the →. The caret-on-chip cursor adds
-			// reverse video ON TOP of those colors: the wrap machinery drops
-			// cInvert (a cursor never spans lines) but carries the colors, so a
-			// chip that wraps stays tinted on every continuation line.
+			// a cmd chip is a code cell: "$ cmd" on the gray code tint — "$"
+			// red, the command in the normal text color — while the run-output
+			// preview after the → is muted gray outside the background. The
+			// caret-on-chip cursor adds reverse video ON TOP of those colors: the
+			// wrap machinery drops cInvert (a cursor never spans lines) but carries
+			// the colors, so a chip that wraps stays tinted on every continuation.
 			if c, ok := chips[sp.id]; ok && c.Kind == chipKindCmd {
-				b.WriteString(cReset)
-				if caret == sp.start {
-					b.WriteString(cInvert)
-				}
-				b.WriteString(bgTerm + cRed + "$ " + cFG + c.Value)
-				if c.Label != "" {
-					b.WriteString(cDim + " → " + c.Label)
-				}
-				b.WriteString(cReset)
+				b.WriteString(renderCmdChip(c, caret == sp.start))
 				cur = ""
 				i = sp.end
 				continue
@@ -1148,6 +1184,30 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 		r := runes[i]
 		f := flags[i]
+		if i >= cmdDraftStart && i < cmdDraftEnd {
+			// Live cmd-chip draft: as soon as a standalone "$" is typed, the
+			// not-yet-committed command wears the same gray cell as the final chip.
+			// A double space commits it; until then the stored text remains plain.
+			s := cReset + bgCode
+			if r == '$' && i == cmdDraftStart {
+				s += cRed
+			} else {
+				s += cFG + attrs
+			}
+			if spanSGR != nil && spanSGR[i] != "" {
+				s += spanSGR[i]
+			}
+			if i == caret {
+				s += cInvert
+			}
+			if s != cur {
+				b.WriteString(s)
+				cur = s
+			}
+			b.WriteRune(r)
+			i++
+			continue
+		}
 		if i == caret {
 			// the block cursor sits ON the rune: same colors as the cell —
 			// including its painted span — so the block wears the character's
@@ -1185,8 +1245,13 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		i++
 	}
 	if caret >= len(runes) && caret >= 0 {
-		// past the last rune: paint one trailing cell
-		b.WriteString(cReset + cFG + cInvert + " ")
+		// past the last rune: paint one trailing cell; keep a live cmd draft's
+		// cursor inside the gray cell until the double-space commits it.
+		if cmdDraftStart >= 0 && cmdDraftEnd == len(runes) {
+			b.WriteString(cReset + bgCode + cFG + cInvert + " ")
+		} else {
+			b.WriteString(cReset + cFG + cInvert + " ")
+		}
 	}
 	if it.typ == database.TypeCode {
 		b.WriteString(cReset + attrs + " ")
