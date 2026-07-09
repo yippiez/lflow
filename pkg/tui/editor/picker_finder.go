@@ -152,7 +152,7 @@ func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
 		}
 		star := ""
 		if r.node.Starred {
-			star = cYellow + "★ " + cReset
+			star = cDim + "★ " + cReset
 		}
 		label := base + styleAttrs(r.node.Style) + fmt.Sprintf("%-28s", name) + cReset
 		line := mark + star + label + cDim + fmt.Sprintf(" %d nodes", r.count) + cReset
