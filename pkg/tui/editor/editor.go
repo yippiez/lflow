@@ -3030,7 +3030,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			prefix := " " + cRed + "delete " + cReset
 			suffix := cDim + fmt.Sprintf(" - %s - enter delete - esc keep", nodeNoun(subtreeSize(cur))) + cReset
 			room := maxLine - visibleWidth(prefix) - visibleWidth(suffix) - 2 // 2 for the quotes
-			name := elideMiddle(m.tree.displayName(cur), room)
+			name := elideMiddle(displayAnchors(m.tree.displayName(cur), m.chips), room)
 			line := prefix + cYellow + fmt.Sprintf("%q", name) + cReset + suffix
 			lines = append(lines, clip(line, maxLine))
 		}
