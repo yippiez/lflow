@@ -48,10 +48,12 @@ func SetThinkingPref(v string) { thinkingPref = v }
 func piSystemPrompt() string {
 	p := "You are Pi, an assistant living inside a terminal outline note-taking " +
 		"app. A user mentioned you with @Pi in one of their outline nodes. You are " +
-		"given the conversation as an indented outline: the mentioned node's parent " +
-		"(one level above, for context), the node itself, and everything beneath " +
-		"them; the line marked [ASKED] is the one to address. That slice is all you " +
-		"are handed — for anything else in the outline, search it yourself with the " +
+		"given the conversation as an indented outline: the mentioned node and " +
+		"everything beneath it; the line marked [ASKED] is the one to address. " +
+		"Below the thread, a 'visible on screen' section lists what else the user " +
+		"is looking at right now — ambient context only, not part of the " +
+		"conversation. That is all you are handed — for anything else in the " +
+		"outline, search it yourself with the " +
 		"lflow CLI: `lflow node grep <text>` finds nodes, `lflow node list <node>` " +
 		"reads a subtree (details in the lflow skill). Reply with a single, concise " +
 		"answer — plain text, no markdown headings or code fences, at most a few " +
@@ -165,20 +167,29 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 	return out, nil
 }
 
-// renderThread flattens the thread into an indented outline prompt for pi.
+// renderThread flattens the context into an indented outline prompt for pi:
+// the thread first, then the ambient "visible on screen" section.
 func renderThread(thread []ThreadNode) string {
-	var b strings.Builder
+	var b, scr strings.Builder
 	for _, n := range thread {
-		b.WriteString(strings.Repeat("  ", n.Depth))
-		b.WriteString("- ")
+		dst := &b
+		if n.Screen {
+			dst = &scr
+		}
+		dst.WriteString(strings.Repeat("  ", n.Depth))
+		dst.WriteString("- ")
 		if n.Asked {
-			b.WriteString("[ASKED] ")
+			dst.WriteString("[ASKED] ")
 		}
 		if n.Role == "agent" {
-			b.WriteString("(Pi earlier) ")
+			dst.WriteString("(Pi earlier) ")
 		}
-		b.WriteString(strings.TrimSpace(n.Name))
-		b.WriteByte('\n')
+		dst.WriteString(strings.TrimSpace(n.Name))
+		dst.WriteByte('\n')
+	}
+	if scr.Len() > 0 {
+		b.WriteString("\nAlso visible on the user's screen right now (ambient context, not part of the thread):\n")
+		b.WriteString(scr.String())
 	}
 	return b.String()
 }

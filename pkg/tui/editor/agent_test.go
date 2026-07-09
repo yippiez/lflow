@@ -86,7 +86,7 @@ func startThread(t *testing.T, m *Model, it *item) tea.Cmd {
 	return m.sendThread(it, ag)
 }
 
-func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
+func TestMentionBindsItselfAndReplyNests(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
 	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
@@ -98,29 +98,29 @@ func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("alt+r on a fresh mention must send")
 	}
-	// the session binds to the mention's PARENT — the note is the channel
-	if !m.agentBusy["disc"] {
-		t.Fatal("the note (mention's parent) must own the busy flag")
+	// the session binds to the MENTION node itself — it is the thread root
+	if !m.agentBusy["n1"] {
+		t.Fatal("the mention node must own the busy flag")
 	}
 	drain(t, m, cmd)
 
-	// exactly one reply, placed BELOW the mention as the next board message
-	if len(disc.children) != 2 {
-		t.Fatalf("want [question, reply] on the board, got %d children", len(disc.children))
+	// exactly one reply, nested under the mention — never outside its subtree
+	if len(n1.children) != 1 {
+		t.Fatalf("want one reply under the mention, got %d children", len(n1.children))
 	}
-	reply := disc.children[1]
+	reply := n1.children[0]
 	if reply.typ != database.TypeAgent {
-		t.Fatalf("board reply type = %q, want agent", reply.typ)
+		t.Fatalf("reply type = %q, want agent", reply.typ)
 	}
 	if !hasAnchor(reply.name) {
 		t.Fatalf("reply must carry chips, got plain %q", reply.name)
 	}
-	if len(n1.children) != 0 {
-		t.Fatal("a board answer must not nest under the question")
+	if len(disc.children) != 1 {
+		t.Fatal("nothing may land outside the mention's subtree")
 	}
-	s, ok, err := database.GetThreadSession(m.db, "disc", "Pi")
+	s, ok, err := database.GetThreadSession(m.db, "n1", "Pi")
 	if err != nil || !ok {
-		t.Fatalf("session must persist on the note: %v", err)
+		t.Fatalf("session must persist on the mention: %v", err)
 	}
 	if s.State != "idle" {
 		t.Fatalf("session state = %q, want idle", s.State)
@@ -128,26 +128,27 @@ func TestMentionBindsNoteAndRepliesBelow(t *testing.T) {
 }
 
 func TestBoardReviewAndReplyThread(t *testing.T) {
-	m, disc, _ := newAgentTestModel(t)
+	m, disc, n1 := newAgentTestModel(t)
 	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
-	// establish the session with the mention turn (alt+r)
-	drain(t, m, startThread(t, m, disc.children[0]))
+	// establish the session with the mention turn (alt+r) — the mention node
+	// itself is the channel; its children are the board
+	drain(t, m, startThread(t, m, n1))
 
 	// a plain note on the board: seen, no reply
-	note := addChild(m, disc, "note1", "retry only transient curl exits", database.TypeBullets)
+	note := addChild(m, n1, "note1", "retry only transient curl exits", database.TypeBullets)
 	cmd, consumed := m.mentionSendOnEnter(note)
 	if consumed || cmd == nil {
 		t.Fatal("a note in the channel is considered without consuming Enter")
 	}
-	before := len(disc.children)
+	before := len(n1.children)
 	drain(t, m, cmd)
-	if len(disc.children) != before || len(note.children) != 0 {
+	if len(n1.children) != before || len(note.children) != 0 {
 		t.Fatal("a plain note must not earn a reply")
 	}
 
 	// committed CODE earns an unprompted review comment, nested ON the code
-	sh := addChild(m, disc, "sh1", "./retry.sh upload 3", database.TypeBash)
+	sh := addChild(m, n1, "sh1", "./retry.sh upload 3", database.TypeBash)
 	cmd, _ = m.mentionSendOnEnter(sh)
 	drain(t, m, cmd)
 	if len(sh.children) != 1 || sh.children[0].typ != database.TypeAgent {
@@ -171,10 +172,16 @@ func TestBoardReviewAndReplyThread(t *testing.T) {
 		t.Fatal("the thread answer must be my reply's next sibling")
 	}
 
-	// a node OUTSIDE the note reaches no agent
+	// a SIBLING of the mention (the old parent-bound scope) reaches no agent —
+	// only the mention's own descendants are in-thread
+	sib := addChild(m, disc, "sib1", "is this watched?", database.TypeBullets)
+	if cmd, _ := m.mentionSendOnEnter(sib); cmd != nil {
+		t.Fatal("the mention's siblings must never reach an agent")
+	}
+	// and a node in a different tree entirely stays silent too
 	out := addChild(m, m.tree.root, "out1", "is this watched?", database.TypeBullets)
 	if cmd, _ := m.mentionSendOnEnter(out); cmd != nil {
-		t.Fatal("nodes outside the session's note must never reach an agent")
+		t.Fatal("nodes outside the thread must never reach an agent")
 	}
 }
 
@@ -243,9 +250,9 @@ func TestAgentReplyChips(t *testing.T) {
 // cursor away sends the node — alt+r stays required only for fresh @mentions.
 func TestBlurSendsTypedFollowUp(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
-	drain(t, m, startThread(t, m, n1)) // bind the session to the note (alt+r)
+	drain(t, m, startThread(t, m, n1)) // bind the session to the mention (alt+r)
 
-	f := addChild(m, disc, "f1", "how many retries then?", database.TypeBullets)
+	f := addChild(m, n1, "f1", "how many retries then?", database.TypeBullets)
 	m.refreshRows()
 	m.focusUUID, m.typedUUID = f.uuid, f.uuid
 	m.cursor = m.rowIndexOf(n1) // the cursor left the typed follow-up
@@ -262,20 +269,21 @@ func TestBlurSendsTypedFollowUp(t *testing.T) {
 		t.Fatal("an already-sent node must not resend on blur")
 	}
 
-	// a fresh @mention keeps Enter as the deliberate send
-	g := addChild(m, disc, "g1", "@Pi a new question", database.TypeBullets)
+	// a fresh @mention keeps alt+r as the deliberate send
+	g := addChild(m, n1, "g1", "@Pi a new question", database.TypeBullets)
 	m.refreshRows()
 	m.focusUUID, m.typedUUID = g.uuid, g.uuid
 	if cmd := m.blurSendCheck(); cmd != nil {
 		t.Fatal("a fresh mention must not blur-send")
 	}
 
-	// a node typed OUTSIDE any active thread stays silent
-	o := addChild(m, m.tree.root, "o1", "plain note", database.TypeBullets)
+	// a node typed OUTSIDE the mention's subtree stays silent — the mention's
+	// sibling (under the old parent-bound scope) included
+	o := addChild(m, disc, "o1", "plain note", database.TypeBullets)
 	m.refreshRows()
 	m.focusUUID, m.typedUUID = o.uuid, o.uuid
 	if cmd := m.blurSendCheck(); cmd != nil {
-		t.Fatal("nodes outside a thread must not blur-send")
+		t.Fatal("nodes outside the mention's subtree must not blur-send")
 	}
 }
 
@@ -324,30 +332,45 @@ func TestAgentChipCompletion(t *testing.T) {
 	}
 }
 
-// TestThreadContextParentAndChildren pins the context contract: the agent gets
-// the mentioned node's children AND one level above it (the parent), which
-// roots the thread.
-func TestThreadContextParentAndChildren(t *testing.T) {
+// TestThreadContextChildrenAndScreen pins the context contract: the agent gets
+// the mention node (thread root, depth 0) and its children, and everything
+// else visible on screen arrives ONLY as the Screen-marked ambient section —
+// the parent is never part of the thread.
+func TestThreadContextChildrenAndScreen(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
 	kid := addChild(m, n1, "k1", "importer is in packages/importer", "")
+	m.refreshRows()
+	m.View() // populate screenRows — the Screen section reads the drawn window
 
 	root := m.threadRootFor(n1, tag.Agent{Name: "Pi"})
-	if root != disc {
-		t.Fatalf("thread root = %q, want the mention's parent", root.uuid)
+	if root != n1 {
+		t.Fatalf("thread root = %q, want the mention itself", root.uuid)
 	}
 	thread := m.buildThread(root, n1.uuid)
 	byUUID := map[string]tag.ThreadNode{}
 	for _, n := range thread {
 		byUUID[n.UUID] = n
 	}
-	if n, ok := byUUID["disc"]; !ok || n.Depth != 0 {
-		t.Fatalf("parent must open the thread at depth 0, got %+v", byUUID["disc"])
+	if n := byUUID["n1"]; !n.Asked || n.Depth != 0 || n.Screen {
+		t.Fatalf("the mention must root the thread at depth 0, asked: %+v", byUUID["n1"])
 	}
-	if _, ok := byUUID[kid.uuid]; !ok {
-		t.Fatal("the mention's children must be in the thread")
+	if n, ok := byUUID[kid.uuid]; !ok || n.Screen {
+		t.Fatal("the mention's children must be in the thread proper")
 	}
-	if n := byUUID["n1"]; !n.Asked {
-		t.Fatal("the mention must be marked asked")
+	// the parent is visible on screen, so it arrives — but ONLY as ambient
+	// Screen context, never as a thread node
+	if n, ok := byUUID[disc.uuid]; !ok || !n.Screen {
+		t.Fatalf("the visible parent must be Screen-marked ambient context, got %+v ok=%v", n, ok)
+	}
+	// screen nodes never duplicate thread nodes
+	count := map[string]int{}
+	for _, n := range thread {
+		count[n.UUID]++
+	}
+	for uuid, c := range count {
+		if c > 1 {
+			t.Fatalf("node %s appears %d times in the context", uuid, c)
+		}
 	}
 }
 

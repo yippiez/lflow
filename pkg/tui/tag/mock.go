@@ -46,12 +46,11 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 		// bar's "N thinking" count is the only progress signal; no narration
 		// nodes ever land in the conversation.
 		//
-		// The Slack shape decides placement: a note is the channel, its
-		// children are board messages, a message's children are its reply
-		// thread. Mentions and detected questions get board replies ("below");
-		// a review comment on committed code nests on the code node
-		// ("thread"); inside a reply thread the conversation continues
-		// "below"; plain notes stay silent.
+		// Placement: the mention node is the channel (thread root, depth 0) —
+		// replies to it nest as its children ("thread"). Deeper in, detected
+		// questions get board replies ("below"), a review comment on committed
+		// code nests on the code node ("thread"), inside a reply thread the
+		// conversation continues "below", and plain notes stay silent.
 		asked, mentioned := askedNode(thread, agent)
 		if key, label, source, ok := artifactFor(asked.Name); ok {
 			if !emit(Event{Op: "artifact", Key: key, Source: source}) {
@@ -69,6 +68,10 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 		case parentType(thread, asked) == "agent":
 			// continuing a conversation inside a message's reply thread
 			emit(Event{Op: "message", Placement: "below", Text: "Yes — 3 attempts with exponential backoff (2s, 4s, 8s) is plenty; past that it's an outage, not flakiness. Tag it #decided."})
+		case mentioned && asked.Depth == 0:
+			// answering the thread root itself: nest under the mention
+			followup := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
+			emit(Event{Op: "message", Placement: "thread", Text: "Retry only the transient failures, log each attempt as a log node, and revisit on " + followup + " if it is still flaky."})
 		case mentioned || looksLikeQuestion(asked.Name):
 			followup := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
 			emit(Event{Op: "message", Placement: "below", Text: "Retry only the transient failures, log each attempt as a log node, and revisit on " + followup + " if it is still flaky."})
@@ -79,7 +82,8 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 }
 
 // askedNode is the turn's subject — the marked asked node (falling back to
-// the most recent user node) — and whether it mentions the agent.
+// the most recent user THREAD node; the Screen section is ambient, never the
+// subject) — and whether it mentions the agent.
 func askedNode(thread []ThreadNode, agent string) (ThreadNode, bool) {
 	var asked ThreadNode
 	for i := len(thread) - 1; i >= 0; i-- {
@@ -87,7 +91,7 @@ func askedNode(thread []ThreadNode, agent string) (ThreadNode, bool) {
 			asked = thread[i]
 			break
 		}
-		if asked.UUID == "" && thread[i].Role == "user" {
+		if asked.UUID == "" && thread[i].Role == "user" && !thread[i].Screen {
 			asked = thread[i]
 		}
 	}

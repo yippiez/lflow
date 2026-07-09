@@ -19,17 +19,19 @@ import (
 	"path/filepath"
 )
 
-// ThreadNode is one node of the thread context sent to the agent: the thread
-// root and its subtree depth-first. The root is the mentioned node's parent,
-// so the agent sees one level above the mention plus everything beneath —
-// nothing further up; the rest of the outline it searches via the lflow CLI.
+// ThreadNode is one node of the context sent to the agent: the thread root
+// (the mention node itself) and its subtree depth-first, then a Screen-marked
+// section of whatever else is visible in the editor window — ambient context.
+// Nothing above the mention is sent; the rest of the outline the agent
+// searches via the lflow CLI.
 type ThreadNode struct {
-	UUID  string `json:"uuid"`
-	Depth int    `json:"depth"` // 0 = thread root
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Role  string `json:"role"`  // "user" | "agent"
-	Asked bool   `json:"asked"` // the node this turn is about — replies target it
+	UUID   string `json:"uuid"`
+	Depth  int    `json:"depth"` // 0 = thread root
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Role   string `json:"role"`   // "user" | "agent"
+	Asked  bool   `json:"asked"`  // the node this turn is about — replies target it
+	Screen bool   `json:"screen"` // ambient "visible on screen" section, not the thread
 }
 
 // Event is one message streamed back from the agent service.

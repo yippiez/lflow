@@ -132,6 +132,9 @@ type Model struct {
 	// the status bar. A theme's page background (bgPage) paints exactly these;
 	// the bar (divider) and the temp panel below it always stay transparent.
 	pageRows int
+	// screenRows lists the items visible in the last rendered window, in
+	// order — the @mention agent's Screen context section (see buildThread).
+	screenRows []screenRow
 
 	mode mode
 
@@ -2951,6 +2954,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 	}
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
+	var flatRow []int // row index behind each flat line; -1 = the root note band
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
 	// as a band at the top of the view — the same band a row would hang below it.
 	rootNote := m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
@@ -2960,6 +2964,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 	}
 	flat = append(flat, rootNote...)
+	for range rootNote {
+		flatRow = append(flatRow, -1)
+	}
 	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)
@@ -2974,6 +2981,9 @@ func (m *Model) viewOutline(maxLine int) []string {
 		}
 		flat = append(flat, groups[i]...)
 		flat = append(flat, bands[i]...)
+		for range len(groups[i]) + len(bands[i]) {
+			flatRow = append(flatRow, i)
+		}
 	}
 	start := 0
 	if m.scrolling {
@@ -3002,6 +3012,17 @@ func (m *Model) viewOutline(maxLine int) []string {
 		end = len(flat)
 	}
 	lines = append(lines, flat[start:end]...)
+
+	// record which items the window actually shows — the @mention agent's
+	// Screen context section reads this (see buildThread)
+	m.screenRows = m.screenRows[:0]
+	seenRow := -1
+	for i := start; i < end; i++ {
+		if ri := flatRow[i]; ri >= 0 && ri != seenRow {
+			seenRow = ri
+			m.screenRows = append(m.screenRows, screenRow{it: rows[ri].it, depth: rows[ri].depth})
+		}
+	}
 
 	// The delete confirm sits above the status line, not below it: the inline
 	// renderer leaves a shrinking frame's old last line in place, so if the

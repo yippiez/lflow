@@ -14,13 +14,16 @@ import (
 
 // The @mention agent surface (see pkg/tui/tag and AGENTS.md).
 //
-// alt+r on a node that mentions a configured agent IS the send — a deliberate
-// gesture, so nothing fires from mere typing or from Enter (which just edits
-// text); alt+r again re-sends the thread. The mentioned node becomes the
-// thread root: its ancestors + subtree are the session's whole visible world,
-// replies land beneath it as agent nodes (red ✦, text + chips only), and the
-// session id persists so a later mention resumes the context. Follow-ups
-// inside a live thread still ship on Enter or on cursor-leave (blurSendCheck).
+// Two trigger rules, nothing else:
+//  1. alt+r on the node that mentions a configured agent is the manual fire —
+//     always; it starts the session or re-sends the thread as it reads now.
+//  2. a committed change to a DESCENDANT of the mention (Enter, or the cursor
+//     leaving the typed node — blurSendCheck) ships automatically.
+// The mention node itself is the thread root: the session binds to it, so
+// siblings and ancestors never trigger a turn or receive replies. Context per
+// turn = the mention + everything beneath it, PLUS whatever is visible on
+// screen (ambient, marked Screen) — nothing else; the agent searches the rest
+// of the outline itself via the lflow CLI.
 
 // agentGlyph is the agent reply marker: a red ✦ — the general AI sparkle mark for the
 // default agent Pi. (When a second agent exists, the author will need to be
@@ -43,14 +46,11 @@ func (m *Model) mentionedAgent(text string) (tag.Agent, bool) {
 	return tag.Agent{}, false
 }
 
-// threadRootFor resolves the conversation a message belongs to. The Slack
-// shape: a NOTE is the channel — its children are the board messages, and a
-// message's children are that message's reply thread. So an existing session
-// on any ancestor wins (follow-ups continue it), and a fresh mention binds
-// the session to the mention's PARENT: the note, covering the whole board.
-// This is what guarantees the agent's context reaches ONE level above the
-// mentioned node as well as its children. The invisible tree root never
-// becomes a thread root — a top-level mention roots its own thread.
+// threadRootFor resolves the conversation a message belongs to: an existing
+// session on the node or any ancestor wins (follow-ups continue it), and a
+// fresh mention roots ITS OWN thread — the session binds to the mention node,
+// so only the mention's descendants are ever in-thread. Siblings and parents
+// stay outside: they neither trigger turns nor receive replies.
 func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 	for p := it; p != nil; p = p.parent {
 		if p.uuid == "" {
@@ -60,17 +60,14 @@ func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 			return p
 		}
 	}
-	if it.parent != nil && it.parent.uuid != "" {
-		return it.parent
-	}
 	return it
 }
 
-// buildThread flattens the thread context: the root and its subtree depth-first.
-// Via threadRootFor the root is the mentioned node's PARENT, so the agent sees
-// one level above the mention plus everything beneath the root — the mention's
-// children included — and nothing further up. Anything else in the outline the
-// agent fetches itself through the lflow CLI (see piSystemPrompt).
+// buildThread flattens the thread context: the root (the mention node) and
+// its subtree depth-first, then a Screen-marked section holding whatever ELSE
+// is visible in the current window — ambient context, "what the user sees
+// right now". Nothing above the mention is sent; anything else in the outline
+// the agent fetches itself through the lflow CLI (see piSystemPrompt).
 // askedUUID marks the node this turn is about, so replies can
 // target it. Mirrors expand at most once via the visited set, so a mirror
 // pointing back at an ancestor can't loop the walk (the same guard the renderer
@@ -78,15 +75,17 @@ func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 	var out []tag.ThreadNode
 
+	roleOf := func(it *item) string {
+		if it.typ == database.TypeAgent {
+			return "agent"
+		}
+		return "user"
+	}
 	var walk func(it *item, depth int, seen map[*item]bool)
 	walk = func(it *item, depth int, seen map[*item]bool) {
-		role := "user"
-		if it.typ == database.TypeAgent {
-			role = "agent"
-		}
 		out = append(out, tag.ThreadNode{
 			UUID: it.uuid, Depth: depth, Name: expandAnchors(m.tree.displayName(it), m.chips),
-			Type: it.typ, Role: role, Asked: it.uuid == askedUUID,
+			Type: it.typ, Role: roleOf(it), Asked: it.uuid == askedUUID,
 		})
 		tgt := m.tree.expandTarget(it)
 		if tgt == nil || seen[tgt] {
@@ -99,7 +98,32 @@ func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 		}
 	}
 	walk(root, 0, map[*item]bool{})
+
+	// the screen section: every item visible in the window the last render drew
+	// (m.screenRows) not already in the thread. Appended AFTER the thread so
+	// consumers reading the thread structurally are undisturbed.
+	sent := map[string]bool{}
+	for _, n := range out {
+		sent[n.UUID] = true
+	}
+	for _, sr := range m.screenRows {
+		if sr.it == nil || sr.it.uuid == "" || sent[sr.it.uuid] {
+			continue
+		}
+		sent[sr.it.uuid] = true
+		out = append(out, tag.ThreadNode{
+			UUID: sr.it.uuid, Depth: sr.depth, Name: expandAnchors(m.tree.displayName(sr.it), m.chips),
+			Type: sr.it.typ, Role: roleOf(sr.it), Screen: true,
+		})
+	}
 	return out
+}
+
+// screenRow is one item visible in the last rendered window, with its outline
+// depth — what buildThread's Screen section is made of.
+type screenRow struct {
+	it    *item
+	depth int
 }
 
 // agentEvMsg carries one streamed event into the update loop.
@@ -201,6 +225,11 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	it.typ = database.TypeAgent
 	it.name = m.chipifyAgentText(text)
 
+	// a reply to the thread root itself always nests — "below" would land it
+	// outside the mention's subtree, beyond the session's reach
+	if asked.uuid == threadUUID {
+		placement = "thread"
+	}
 	if placement == "below" && asked.parent != nil {
 		it.parent = asked.parent
 		idx := indexOf(asked)
