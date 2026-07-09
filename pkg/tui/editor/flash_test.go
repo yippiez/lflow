@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
 // flashLabels must hand out prefix-free labels: no label may be the start of
@@ -86,7 +87,7 @@ func TestFlashJumpFires(t *testing.T) {
 
 // A runnable type offers its run action straight from the registry — no
 // per-type wiring in flash. Query carries run; the legacy bash type is gone
-// (falls back to bullets), so it offers neither run nor expand.
+// (falls back to bullets), so it only offers run when the row has a cmd chip.
 func TestFlashOffersRegistryActions(t *testing.T) {
 	m := newTestModel(80, "note", "grep foo")
 	m.tree.root.children[1].typ = database.TypeQuery
@@ -103,7 +104,7 @@ func TestFlashOffersRegistryActions(t *testing.T) {
 		t.Fatal("a query node must offer the run flash action")
 	}
 
-	// legacy bash-typed rows are plain bullets now: no run, no expand
+	// legacy bash-typed rows are plain bullets now: no type-level run, no expand.
 	m.mode = modeOutline
 	m.tree.root.children[1].typ = database.TypeBash
 	m.refreshRows()
@@ -112,6 +113,32 @@ func TestFlashOffersRegistryActions(t *testing.T) {
 		if tg.row == 1 && (tg.verb == "run" || tg.verb == "expand") {
 			t.Fatalf("legacy bash node must offer no %q action", tg.verb)
 		}
+	}
+}
+
+// Content-sensitive alt+r actions are also surfaced in flash: cmd chips get a
+// runnable "run $" action, and @mention roots get a send action.
+func TestFlashOffersInlineRunActions(t *testing.T) {
+	m := newTestModel(80, "note", "")
+	m.agents = []tag.Agent{{Name: "Pi", Mock: true}}
+	cmdAnchor := m.createChip(chipKindCmd, "echo hi")
+	agentAnchor := m.createChip(chipKindAgent, "Pi")
+	m.tree.root.children[1].name = "ask " + cmdAnchor + " then " + agentAnchor
+	m.refreshRows()
+	m.cursor = 0
+	m.enterFlash()
+
+	verbs := map[string]bool{}
+	for _, tg := range m.flashTargets {
+		if tg.row == 1 {
+			verbs[tg.verb] = true
+		}
+	}
+	if !verbs["run $"] {
+		t.Fatalf("cmd chip should offer a flash run action, got %v", verbs)
+	}
+	if !verbs["send"] {
+		t.Fatalf("@mention should offer a flash send action, got %v", verbs)
 	}
 }
 
