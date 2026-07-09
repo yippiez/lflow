@@ -15,7 +15,8 @@ import (
 type Provider string
 
 const (
-	ProviderPi Provider = "pi"
+	ProviderPi   Provider = "pi"
+	ProviderGrok Provider = "grok"
 )
 
 // EventKind selects which fields of an Event are set. Richer than pir's three

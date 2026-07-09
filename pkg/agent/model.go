@@ -23,24 +23,36 @@ func (m Model) ID() string {
 // Empty reports whether the model is unset.
 func (m Model) Empty() bool { return m.Name == "" }
 
-// FlagValue is the value to pass to pi's --model flag ("upstream/model").
+// FlagValue is the value to pass to the backend's model flag: pi wants
+// "upstream/model", grok a bare model id — both are ID().
 func (m Model) FlagValue() string { return m.ID() }
 
-// String is the canonical "upstream/model" form (pi is the only backend now).
+// String is the canonical stored form: "cli:upstream/model". pi models stay
+// unprefixed ("upstream/model") so existing stored settings keep parsing.
 func (m Model) String() string {
 	if m.Empty() {
 		return ""
 	}
-	return m.ID()
+	if m.CLI == "" || m.CLI == ProviderPi {
+		return m.ID()
+	}
+	return string(m.CLI) + ":" + m.ID()
 }
 
-// ParseModel is the inverse of Model.String. pi is the only backend; a leading
-// "pi:" prefix is tolerated for backward compatibility.
+// ParseModel is the inverse of Model.String: an optional "cli:" prefix names
+// the backend (any registered provider; missing or "pi" means pi), the rest is
+// "upstream/model" (or a bare model id for backends without upstreams).
 func ParseModel(s string) Model {
-	s = strings.TrimPrefix(s, "pi:")
+	cli := ProviderPi
+	if i := strings.IndexByte(s, ':'); i >= 0 {
+		if _, ok := Get(Provider(s[:i])); ok {
+			cli = Provider(s[:i])
+			s = s[i+1:]
+		}
+	}
 	up, name := "", s
 	if i := strings.IndexByte(s, '/'); i >= 0 {
 		up, name = s[:i], s[i+1:]
 	}
-	return Model{CLI: ProviderPi, Upstream: up, Name: name}
+	return Model{CLI: cli, Upstream: up, Name: name}
 }

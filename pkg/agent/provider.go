@@ -16,8 +16,10 @@ type Backend interface {
 	Run(ctx context.Context, task string, opts RunOptions) (Session, error) // start a turn
 }
 
-// backends is the compiled-in registry, in picker order.
-var backends = []Backend{piBackend{}}
+// backends is the compiled-in registry, in picker order: grok first (the
+// first non-pi option), then pi. Adding a provider = one Backend
+// implementation (its own file, see grok.go) + one entry here.
+var backends = []Backend{grokBackend{}, piBackend{}}
 
 // Backends returns the registered backends.
 func Backends() []Backend { return backends }

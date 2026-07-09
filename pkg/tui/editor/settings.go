@@ -55,15 +55,20 @@ var settingDefs = []settingDef{
 		},
 		def: "compact",
 	},
-	// The @Pi agent's model and thinking level, passed on every turn. "default"
-	// leaves both to pi's own config (~/.pi/agent/settings.json). The model
-	// options are filled from `pi --list-models` when /settings opens — see
-	// seedAgentModelOptions; never on the editor start path.
+	// The @Pi agent's model and thinking level, passed on every turn. The model
+	// value selects the CLI backend too ("grok:grok-4.5" runs the grok CLI;
+	// unprefixed values run pi); "default" defers to pi's own config
+	// (~/.pi/agent/settings.json). Options are filled from every available
+	// backend when /settings opens — grok first, then pi's list — see
+	// fetchAgentModelsCmd; never on the editor start path.
 	{
 		key: "agent.model", label: "Agent model",
-		options: []settingOption{{"default", "default · pi config"}},
-		def:     "default",
-		apply:   func(m *Model, v string) { tag.SetModelPref(v) },
+		options: []settingOption{
+			{"default", "default · pi config"},
+			{"opencode-go/deepseek-v4-flash", "opencode-go/deepseek-v4-flash"},
+		},
+		def:   "opencode-go/deepseek-v4-flash",
+		apply: func(m *Model, v string) { tag.SetModelPref(v) },
 	},
 	{
 		key: "agent.thinking", label: "Agent thinking",

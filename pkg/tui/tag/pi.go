@@ -112,7 +112,13 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 	if thinkingPref != "" && thinkingPref != "default" {
 		opts.Thinking = thinkingPref
 	}
-	sess, err := agent.Run(ctx, agent.ProviderPi, renderThread(thread), opts)
+	// the model choice selects the backend too: a "grok:…" pref runs the grok
+	// CLI, anything else runs pi — providers are one registry (pkg/agent).
+	provider := agent.ProviderPi
+	if opts.Model.CLI != "" {
+		provider = opts.Model.CLI
+	}
+	sess, err := agent.Run(ctx, provider, renderThread(thread), opts)
 	if err != nil {
 		return nil, err
 	}
@@ -184,8 +190,13 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-// piAvailable reports whether the local pi CLI can serve a real agent.
+// piAvailable reports whether any local CLI backend can serve a real agent
+// (pi, grok, … — see pkg/agent's registry).
 func piAvailable() bool {
-	b, ok := agent.Get(agent.ProviderPi)
-	return ok && b.Available()
+	for _, b := range agent.Backends() {
+		if b.Available() {
+			return true
+		}
+	}
+	return false
 }
