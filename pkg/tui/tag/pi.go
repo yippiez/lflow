@@ -66,7 +66,9 @@ func (c *PiClient) Send(ctx context.Context, agentName, sessionID string, thread
 					return
 				}
 				if txt := strings.TrimSpace(reply.String()); txt != "" {
-					out <- Event{Op: "message", Placement: "below", Text: txt}
+					// the reply nests UNDER the asked node — the mention owns its
+					// conversation as children, it never spills into the parent level
+					out <- Event{Op: "message", Placement: "thread", Text: txt}
 				}
 				out <- Event{Op: "done"}
 				return
