@@ -3028,7 +3028,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 			val := m.setting(d.key)
 			mark := "  "
 			if i == m.settingsSel {
-				mark = cAccent + "▸ " + cReset
+				mark = cRed + "● " + cReset // the red cursor dot, same language as the outline
 			}
 			value := settingValueColor(val) + settingValueLabel(d, val) + cReset
 			extra := ""
