@@ -119,20 +119,21 @@ func modRowFor(key string) (nodeMod, bool) {
 	return nodeMod{}, false
 }
 
-// items lists the pickable types, then any DISABLED mod nodes as muted rows
-// — /type is also where they are managed (space toggles the .disabled filename
-// suffix, ctrl+d deletes the file).
+// items lists the pickable types. Mod rows LEAD the list — enabled then
+// disabled, each wearing its management hint (space toggles the .disabled
+// filename suffix, ctrl+d deletes the file) — so they and their hints are
+// always inside the picker's scroll window, not buried below the built-ins.
 func (typeSource) items(m *Model, q string) []pickerItem {
-	var out []pickerItem
+	var mods, builtins []pickerItem
 	for _, t := range m.filteredTypes(q) {
 		t := t
 		if _, isGen := modRowFor(t); isGen {
-			out = append(out, pickerItem{value: t, render: func(bool) string {
+			mods = append(mods, pickerItem{value: t, render: func(bool) string {
 				return cFG + fmt.Sprintf("%-14s", typeLabel(t)) + cDim + " mod · space disable · ctrl+d uninstall" + cReset
 			}})
 			continue
 		}
-		out = append(out, pickerItem{label: typeLabel(t), value: t})
+		builtins = append(builtins, pickerItem{label: typeLabel(t), value: t})
 	}
 	lq := strings.ToLower(q)
 	for _, gn := range loadedMods {
@@ -143,11 +144,11 @@ func (typeSource) items(m *Model, q string) []pickerItem {
 		if lq != "" && !fuzzyMatch(strings.ToLower(gn.Label), lq) && !fuzzyMatch(gn.Key, lq) {
 			continue
 		}
-		out = append(out, pickerItem{value: gn.Key, render: func(bool) string {
+		mods = append(mods, pickerItem{value: gn.Key, render: func(bool) string {
 			return cDim + fmt.Sprintf("%-14s", gn.Label) + "mod · disabled · space enable" + cReset
 		}})
 	}
-	return out
+	return append(mods, builtins...)
 }
 
 // onKey claims the management chords on mod rows: space toggles
@@ -184,13 +185,14 @@ func (typeSource) header(m *Model, p *listPicker) string {
 	return " " + cDim + "type: " + cReset + query
 }
 
-func (typeSource) initialSel(m *Model) int {
+func (s typeSource) initialSel(m *Model) int {
 	cur := m.cursorItem()
 	if cur == nil {
 		return 0
 	}
-	for i, t := range m.filteredTypes("") {
-		if t == cur.typ {
+	// index into the DISPLAYED order (mods lead — see items), not filteredTypes
+	for i, it := range s.items(m, "") {
+		if it.value == cur.typ {
 			return i
 		}
 	}
