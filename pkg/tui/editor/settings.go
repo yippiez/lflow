@@ -4,11 +4,7 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/lflow/lflow/pkg/agent"
 	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
 // Global editor preferences, edited via /settings and persisted in the DB
@@ -55,79 +51,9 @@ var settingDefs = []settingDef{
 		},
 		def: "compact",
 	},
-	// The @Pi agent's model and thinking level, passed on every turn. The model
-	// value selects the CLI backend too ("grok:grok-4.5" runs the grok CLI;
-	// unprefixed values run pi); "default" defers to pi's own config
-	// (~/.pi/agent/settings.json). Options are filled from every available
-	// backend when /settings opens — grok first, then pi's list — see
-	// fetchAgentModelsCmd; never on the editor start path.
-	{
-		key: "agent.model", label: "Agent model",
-		options: []settingOption{
-			{"default", "default · pi config"},
-			{"opencode-go/deepseek-v4-flash", "opencode-go/deepseek-v4-flash"},
-		},
-		def:   "opencode-go/deepseek-v4-flash",
-		apply: func(m *Model, v string) { tag.SetModelPref(v) },
-	},
-	{
-		key: "agent.thinking", label: "Agent thinking",
-		options: []settingOption{
-			{"default", "default · pi config"},
-			{"off", "off"}, {"low", "low"}, {"medium", "medium"}, {"high", "high"},
-		},
-		def:   "default",
-		apply: func(m *Model, v string) { tag.SetThinkingPref(v) },
-	},
-}
-
-// agentDefaultModelLabel resolves what "default" actually IS — pi's own
-// configured model — so the row shows the real value, not a pointer to it.
-func agentDefaultModelLabel() string {
-	if mo, _ := agent.DefaultModel(); !mo.Empty() {
-		return "default · " + mo.String()
-	}
-	return "default · pi config"
-}
-
-// agentDefaultThinkingLabel is the same for the thinking level.
-func agentDefaultThinkingLabel() string {
-	if _, th := agent.DefaultModel(); th != "" {
-		return "default · " + th
-	}
-	return "default · pi config"
-}
-
-// refreshAgentDefaultLabels rewrites the two "default" rows with the values
-// pi's config resolves to. Called from loadSettings (one cached file read).
-func refreshAgentDefaultLabels() {
-	for i := range settingDefs {
-		switch settingDefs[i].key {
-		case "agent.model":
-			settingDefs[i].options[0].label = agentDefaultModelLabel()
-		case "agent.thinking":
-			settingDefs[i].options[0].label = agentDefaultThinkingLabel()
-		}
-	}
-}
-
-// The pi model list is fetched in the BACKGROUND when /settings first opens —
-// `pi --list-models` execs a CLI and must never block the UI thread (it froze
-// /settings when it ran synchronously). The row offers "default" until the
-// message lands.
-var agentModelsSeeded bool
-
-// agentModelsMsg delivers the fetched model options into the update loop.
-type agentModelsMsg struct{ options []settingOption }
-
-func fetchAgentModelsCmd() tea.Cmd {
-	return func() tea.Msg {
-		opts := []settingOption{{"default", agentDefaultModelLabel()}}
-		for _, mo := range agent.ListModels() {
-			opts = append(opts, settingOption{mo.String(), mo.String()})
-		}
-		return agentModelsMsg{options: opts}
-	}
+	// The @Pi agent's model and thinking level are NOT settings — each backend
+	// (pi, grok) ships a baked-in default; see agent.ProviderDefault and the
+	// provider pick in tag/pi.go.
 }
 
 // themeOptions derives the theme setting's options from the theme registry so
@@ -197,7 +123,6 @@ func (m *Model) loadSettings() {
 			}
 		}
 	}
-	refreshAgentDefaultLabels() // "default" rows show what pi actually resolves to
 	for _, d := range settingDefs {
 		if d.apply != nil {
 			d.apply(m, m.setting(d.key))

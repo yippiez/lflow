@@ -28,20 +28,6 @@ var skillDir string
 // SetSkillDir records the lflow skill path for pi turns.
 func SetSkillDir(dir string) { skillDir = dir }
 
-// Model and thinking preferences from /settings. "" or "default" leaves the
-// choice to pi's own config (~/.pi settings); anything else is passed through
-// on every turn.
-var (
-	modelPref    string
-	thinkingPref string
-)
-
-// SetModelPref records the /settings agent.model choice ("upstream/model").
-func SetModelPref(v string) { modelPref = v }
-
-// SetThinkingPref records the /settings agent.thinking choice.
-func SetThinkingPref(v string) { thinkingPref = v }
-
 // piSystemPrompt frames pi as the note-app assistant: plain concise replies,
 // how to speak in chips (the inline structured tokens lflow renders), and
 // where the node-type files live so pi can write them itself.
@@ -108,18 +94,14 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 	if skillDir != "" {
 		opts.Skills = []string{skillDir} // the lflow skill: CLI, chips, NodeMods
 	}
-	if modelPref != "" && modelPref != "default" {
-		opts.Model = agent.ParseModel(modelPref)
-	}
-	if thinkingPref != "" && thinkingPref != "default" {
-		opts.Thinking = thinkingPref
-	}
-	// the model choice selects the backend too: a "grok:…" pref runs the grok
-	// CLI, anything else runs pi — providers are one registry (pkg/agent).
+	// No in-app model picker: each provider carries a baked-in default (see
+	// agent.ProviderDefault). Prefer pi; fall back to grok when only grok is
+	// installed. The provider's default model + thinking ride every turn.
 	provider := agent.ProviderPi
-	if opts.Model.CLI != "" {
-		provider = opts.Model.CLI
+	if !agent.Available(agent.ProviderPi) && agent.Available(agent.ProviderGrok) {
+		provider = agent.ProviderGrok
 	}
+	opts.Model, opts.Thinking = agent.ProviderDefault(provider)
 	sess, err := agent.Run(ctx, provider, renderThread(thread), opts)
 	if err != nil {
 		return nil, err

@@ -24,6 +24,12 @@ var backends = []Backend{grokBackend{}, piBackend{}}
 // Backends returns the registered backends.
 func Backends() []Backend { return backends }
 
+// Available reports whether provider p's CLI is installed and runnable.
+func Available(p Provider) bool {
+	b, ok := Get(p)
+	return ok && b.Available()
+}
+
 // Get returns the backend for provider p.
 func Get(p Provider) (Backend, bool) {
 	for _, b := range backends {

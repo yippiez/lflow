@@ -578,14 +578,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashDoneMsg:
 		m.finishRun(msg.uuid) // cache the finished band so it survives a restart
 		return m, nil
-	case agentModelsMsg:
-		// the background pi --list-models fetch landed — fill the /settings row
-		for i := range settingDefs {
-			if settingDefs[i].key == "agent.model" {
-				settingDefs[i].options = msg.options
-			}
-		}
-		return m, nil
 	case agentEvMsg:
 		return m.handleAgentEvent(msg)
 	case agentStreamEndMsg:
@@ -2104,15 +2096,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeTheme
 		m.list.open(m, themeSource{}, false)
 	case "/settings":
-		// open the global-preferences picker; the agent model list execs the
-		// pi CLI, so it fetches in the background on first open — the picker
-		// must never freeze waiting on it
+		// open the global-preferences picker (theme, link color, image preview)
 		m.mode = modeSettings
 		m.settingsSel = 0
-		if !agentModelsSeeded {
-			agentModelsSeeded = true
-			return m, fetchAgentModelsCmd()
-		}
 	case "/lock":
 		// toggle the read-only lock: locked nodes ignore inline text edits (a file
 		// node locks itself on Enter); unlock to edit, Enter re-locks a file node.
