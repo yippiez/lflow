@@ -632,9 +632,6 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	return lines
 }
 
-// agentSpinner is the frame set for the running @mention tool band.
-var agentSpinner = []rune("⣾⣽⣻⢿⡿⣟⣯⣷")
-
 // friendlyTool maps a CLI's raw tool name to a short display verb; anything
 // unmapped is shown with its first letter capitalized.
 var friendlyTool = map[string]string{
@@ -676,22 +673,23 @@ func displayTool(name string) string {
 	return string(r)
 }
 
-// agentBandLines renders the running @mention's last tool call as one muted band
-// beneath the mention node: a spinner, the tool verb in its color, then the file
-// or command in gray. Ephemeral progress — never persisted, never in the outline.
+// agentBandLines renders the running @mention's live progress as one muted band
+// beneath the mention node: while a tool runs, the tool verb in its color then
+// the file/command in gray; otherwise a plain "Thinking…" — so the band never
+// freezes on a stale tool call. Ephemeral: never persisted, never in the outline.
+// The caller only invokes this while the turn is busy.
 func (m *Model) agentBandLines(r row, subtreeBelow bool, maxLine int) []string {
-	tl, ok := m.agentTool[r.it.uuid]
-	if !ok || tl.name == "" {
-		return nil
-	}
 	rail := continuationPrefix(r, subtreeBelow)
-	spin := string(agentSpinner[animFrame%len(agentSpinner)])
-	verb := displayTool(tl.name)
-	line := rail + cReset + "  " + cDim + spin + " " + cReset + toolColor(verb) + verb + cReset
-	if tl.detail != "" {
-		line += " " + cDim + tl.detail + cReset
+	tl := m.agentTool[r.it.uuid]
+	body := cDim + "Thinking…" + cReset
+	if tl.name != "" {
+		verb := displayTool(tl.name)
+		body = toolColor(verb) + verb + cReset
+		if tl.detail != "" {
+			body += " " + cDim + tl.detail + cReset
+		}
 	}
-	return []string{clip(line, maxLine)}
+	return []string{clip(rail+cReset+"  "+body, maxLine)}
 }
 
 // noteBandLines renders a node's note as a muted, background-tinted band that

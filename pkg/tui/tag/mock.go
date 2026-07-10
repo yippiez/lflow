@@ -54,10 +54,11 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 		asked, mentioned := askedNode(thread, agent)
 
 		// stream a little tool activity first, so the running mention shows the
-		// live "what it's doing now" band (Read → Grep …) before any reply lands.
+		// live band (Read → Grep → Thinking…) before any reply lands.
 		for _, tc := range []Event{
 			{Op: "tool", Tool: "read", Text: asked.Name},
 			{Op: "tool", Tool: "grep", Text: "importer retries"},
+			{Op: "thinking"},
 		} {
 			if !emit(tc) {
 				return

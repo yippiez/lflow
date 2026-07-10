@@ -214,9 +214,7 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	// record the LOCAL thread binding (node ↔ agent) — what makes follow-ups
 	// inside this subtree reach the agent, across editor restarts too
 	m.touchThread(root.uuid, ag.Name, "running")
-	// kick the animation tick so the live tool band's spinner spins; it
-	// self-sustains (animActive) until the turn clears agentBusy.
-	return m.startAnim(waitAgentCmd(root.uuid, asked.uuid, ag.Name, ch))
+	return waitAgentCmd(root.uuid, asked.uuid, ag.Name, ch)
 }
 
 // agentToolLine is the last tool call seen this turn — rendered as a muted band
@@ -239,7 +237,12 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 			}
 			m.agentTool[msg.thread] = agentToolLine{name: msg.ev.Tool, detail: msg.ev.Text}
 		}
-		return m, rearm // the tick started at sendThread; it self-sustains while busy
+		return m, rearm
+	case "thinking":
+		// the model moved past its last tool (reasoning / answering) — drop the
+		// tool line so the band falls back to "Thinking…" instead of freezing.
+		delete(m.agentTool, msg.thread)
+		return m, rearm
 	case "message":
 		m.placeAgentNode(msg.thread, msg.asked, msg.ev.Text, msg.ev.Placement)
 	case "artifact":

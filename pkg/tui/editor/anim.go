@@ -78,10 +78,9 @@ func markKeywords(runes []rune, flags []spanFlags, frame int) {
 }
 
 // animActive reports whether anything on screen needs the animation tick — a
-// magic keyword, an in-flight image paste (its spinner), or a running @mention
-// turn (the live tool band's spinner).
+// magic keyword or an in-flight image paste (its spinner).
 func (m *Model) animActive() bool {
-	return m.hasMagicKeyword() || m.anyImagePasting() || len(m.agentBusy) > 0
+	return m.hasMagicKeyword() || m.anyImagePasting()
 }
 
 // hasMagicKeyword reports whether any currently visible row contains an animated

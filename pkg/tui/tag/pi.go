@@ -125,6 +125,9 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 						reply.WriteString("\n")
 					}
 					reply.WriteString(t)
+					// the model is reasoning/answering past its last tool — reset
+					// the live band to "Thinking…" so it doesn't freeze on the tool.
+					out <- Event{Op: "thinking"}
 				}
 			case agent.EventError:
 				out <- Event{Op: "error", Text: ev.Text}

@@ -36,9 +36,8 @@ func newAgentTestModel(t *testing.T) (*Model, *item, *item) {
 
 	m := &Model{
 		db: db, tree: tr, viewStack: []*item{root}, width: 100, height: 30,
-		agents:      []tag.Agent{{Name: "Pi", Mock: true}},
-		tagClients:  map[string]tag.Client{"Pi": &tag.MockClient{Delay: time.Nanosecond}},
-		animTicking: true, // pretend the anim tick is live so sendThread doesn't batch one
+		agents:     []tag.Agent{{Name: "Pi", Mock: true}},
+		tagClients: map[string]tag.Client{"Pi": &tag.MockClient{Delay: time.Nanosecond}},
 	}
 	m.refreshRows()
 	return m, disc, n1
@@ -139,9 +138,9 @@ func TestFlashStopCancelsTurn(t *testing.T) {
 	}
 }
 
-// TestAgentToolBandStreamsThenClears: tool events populate the live band under
-// the running mention, agentBandLines renders the colored verb + gray detail,
-// and the band clears once the turn ends.
+// TestAgentToolBandStreamsThenClears: a tool op shows the colored verb + gray
+// detail (no spinner); a thinking op falls the band back to "Thinking…" rather
+// than freezing on the last tool; and it all clears once the turn ends.
 func TestAgentToolBandStreamsThenClears(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
 	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
@@ -150,7 +149,7 @@ func TestAgentToolBandStreamsThenClears(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("alt+r on a fresh mention must send")
 	}
-	sawTool := false
+	sawTool, sawThinking := false, false
 	msg := cmd()
 	for i := 0; i < 60; i++ {
 		ev, ok := msg.(agentEvMsg)
@@ -158,16 +157,24 @@ func TestAgentToolBandStreamsThenClears(t *testing.T) {
 			break // stream end
 		}
 		_, next := m.handleAgentEvent(ev)
-		if ev.ev.Op == "tool" {
+		band := m.agentBandLines(row{it: n1, depth: 0}, false, 100)
+		switch ev.ev.Op {
+		case "tool":
 			sawTool = true
-			tl, ok := m.agentTool["n1"]
-			if !ok || tl.name == "" {
+			tl := m.agentTool["n1"]
+			if tl.name == "" {
 				t.Fatal("a tool op must populate the live band")
 			}
-			// the band renders the colored verb + gray detail
-			band := m.agentBandLines(row{it: n1, depth: 0}, false, 100)
 			if len(band) != 1 || !strings.Contains(band[0], displayTool(tl.name)) {
 				t.Fatalf("band should show %q, got %v", displayTool(tl.name), band)
+			}
+		case "thinking":
+			sawThinking = true
+			if _, ok := m.agentTool["n1"]; ok {
+				t.Fatal("a thinking op must drop the last tool call")
+			}
+			if len(band) != 1 || !strings.Contains(band[0], "Thinking") {
+				t.Fatalf("band should read Thinking…, got %v", band)
 			}
 		}
 		if next == nil {
@@ -175,8 +182,8 @@ func TestAgentToolBandStreamsThenClears(t *testing.T) {
 		}
 		msg = next()
 	}
-	if !sawTool {
-		t.Fatal("the mock should have streamed a tool event")
+	if !sawTool || !sawThinking {
+		t.Fatalf("mock should stream tool + thinking (tool=%v thinking=%v)", sawTool, sawThinking)
 	}
 	if _, ok := m.agentTool["n1"]; ok {
 		t.Fatal("the tool band must clear once the turn ends")
