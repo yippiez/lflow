@@ -34,6 +34,15 @@ type nodeType struct {
 	// generic "run"/"expand"). See flashActionsFor. jump and fold stay universal.
 	flashActions func(m *Model, it *item) []flashAction
 
+	// bands hangs extra band lines beneath the node in the outline flow (like the
+	// note / run-output bands), e.g. the image thumbnail. Called from both render
+	// paths (viewRenderRows and finalView) so a banded type declares it once here
+	// instead of a type check in each. nil → no extra bands.
+	bands func(m *Model, r row, below bool, maxLine int) []string
+	// continueOnEnter makes Enter from this type open another node of the same type
+	// — the todo-list continuation, where a fresh sibling stays a todo.
+	continueOnEnter bool
+
 	// hooks below exist for the mod bridge (see nodemod.go): granular enough
 	// that an editable type keeps caret editing while a JS program decides its
 	// look (glyph, prefix, muted tail). Built-ins may use them too.
@@ -80,7 +89,7 @@ func nodeViewOf(it *item) nodeView {
 // is free text and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{
 	{key: database.TypeBullets, label: "Bullet", inlineEditable: true},
-	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true},
+	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true, continueOnEnter: true},
 	// a divider has no body text — viewOutline/finalView render it as a full-width
 	// rule (see dividerLine), hiding the glyph. It is otherwise a normal node: it
 	// nests, moves, takes a /note, and is removed with ctrl+d.
@@ -131,6 +140,7 @@ var nodeTypes = []nodeType{
 		run:          runImagePaste,
 		view:         imageView{}, // alt+e: scrollable half-block render
 		flashActions: imageFlashActions,
+		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 	},
 }
 

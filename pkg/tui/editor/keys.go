@@ -173,8 +173,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.err = err
 				return m.quit()
 			}
-			if cur.typ == database.TypeTodo {
-				it.typ = database.TypeTodo // keep the todo list going
+			if cur != nil && typeOf(cur.typ).continueOnEnter {
+				it.typ = cur.typ // keep the todo list going
 			}
 			m.unsaved = true
 			m.refreshRows()
@@ -202,8 +202,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if it != nil {
 			// pressing Enter from a todo continues the todo list — the fresh node
 			// is a todo too (unchecked, since completedAt defaults to 0).
-			if cur != nil && cur.typ == database.TypeTodo {
-				it.typ = database.TypeTodo
+			if cur != nil && typeOf(cur.typ).continueOnEnter {
+				it.typ = cur.typ
 			}
 			// split the node at the caret: text after the caret moves into the new
 			// sibling, the part before — and the node's children — stays. A mirror

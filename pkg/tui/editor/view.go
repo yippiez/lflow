@@ -107,8 +107,8 @@ func (m *Model) finalView(maxLine int) []string {
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r.it)
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
-		if r.it.typ == database.TypeImage {
-			lines = append(lines, m.imageBandLines(r, below, maxLine)...)
+		if b := typeOf(r.it.typ).bands; b != nil {
+			lines = append(lines, b(m, r, below, maxLine)...)
 		}
 	}
 	return lines
@@ -223,8 +223,8 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		focusedView := m.focused && i == m.cursor && m.activeView(it) != nil
 		if !focusedView {
 			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
-			if it.typ == database.TypeImage {
-				bands[i] = append(bands[i], m.imageBandLines(r, below, maxLine)...)
+			if b := typeOf(it.typ).bands; b != nil {
+				bands[i] = append(bands[i], b(m, r, below, maxLine)...)
 			}
 			// a running @mention hangs its live "last tool call" line beneath it
 			if m.agentBusy[it.uuid] {
