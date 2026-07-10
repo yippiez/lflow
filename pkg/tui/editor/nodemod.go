@@ -1,11 +1,9 @@
 package editor
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -77,6 +75,7 @@ var (
 // wholesale; failing that, legacy artifacts-table rows export as files. A fresh
 // install starts empty — every node type is an external mod (lflow node install).
 func initNodeMods(configDir string, db *database.DB) {
+	modDB = db // the view SDK's getData/setData read and write node_mod_data
 	base := filepath.Join(configDir, consts.LflowDirName)
 	modsDir = filepath.Join(base, "mods")
 	tag.SetModsDir(modsDir) // pi's system prompt points at the same dir
@@ -282,20 +281,21 @@ func lflowAPI(vm *goja.Runtime) map[string]interface{} {
 			return t.Format("2006-01-02 15:04")
 		},
 		"exec": func(cmd string) map[string]interface{} {
-			c := exec.Command("bash", "-c", cmd)
-			var out, errb bytes.Buffer
-			c.Stdout, c.Stderr = &out, &errb
-			code := 0
-			if err := c.Run(); err != nil {
-				code = 1
-				if ee, ok := err.(*exec.ExitError); ok {
-					code = ee.ExitCode()
-				}
-			}
+			r := execShell(cmd)
 			return map[string]interface{}{
-				"stdout": out.String(), "stderr": errb.String(), "code": code,
+				"stdout": r.stdout, "stderr": r.stderr, "code": r.code,
 			}
 		},
+		// text is the width-aware layout kit hooks lean on so a mod never has to
+		// guess terminal cell width (wide runes, ANSI). See nodemod_api.go.
+		"text": modTextAPI(),
+		// canvas(w,h) is the graphics escape hatch: paint an absolute cell grid
+		// (truecolor fg/bg) and read it back as band strings — images, charts, games.
+		"canvas": func(w, h int) map[string]interface{} { return modCanvas(w, h) },
+		// getData/setData are the mod's durable per-node store (node_mod_data):
+		// small JSON that survives a restart. Blobs stay out — use exec + a file.
+		"getData": func(uuid string) interface{} { return modDataGet(uuid) },
+		"setData": func(uuid string, val goja.Value) { modDataSet(uuid, val) },
 	}
 }
 
@@ -384,6 +384,13 @@ func registerJSType(vm *goja.Runtime, desc *goja.Object) {
 			return runShell(m, it, cmd)
 		}
 		nt.view = runOutView{} // alt+e: the generic scrollable run-output viewer
+	}
+	// a mod-supplied `view` is the full inline expanded UI (the Elm-loop bridge in
+	// nodemod_view.go). It overrides the run-output viewer above, so a type can be
+	// both runnable (alt+r) and own its alt+e surface.
+	if jv := buildJSView(vm, desc.Get("view")); jv != nil {
+		jv.key = key
+		nt.view = jv
 	}
 
 	modTypes = append(modTypes, nt)

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
@@ -134,6 +136,129 @@ lflow.registerChip({
 	}
 	if !found {
 		t.Fatal("broken type's load error must be recorded")
+	}
+}
+
+// testCounterMod is a full-view fixture: an Elm-loop counter that renders bands,
+// increments on "+", fires an exec effect on "x", folds the result in via
+// update(), and persists to node_mod_data on leave. It exercises every seam of
+// the view bridge (init/render/key/update/leave + effects + getData/setData).
+const testCounterMod = `lflow.registerType({
+    key: "counter", label: "Counter", inlineEditable: false,
+    view: {
+        init: function (node) {
+            var saved = lflow.getData(node.uuid);
+            return { n: (saved && saved.n) || 0, out: "" };
+        },
+        render: function (node, s, ctx) {
+            return [
+                lflow.text.pad("count: " + s.n, ctx.width, "left"),
+                "out: " + (s.out || "-"),
+            ];
+        },
+        key: function (node, s, ctx, k) {
+            if (k === "+") return { state: { n: s.n + 1, out: s.out } };
+            if (k === "x") return { state: s, effect: { kind: "exec", cmd: "echo hi" } };
+            return false;
+        },
+        update: function (node, s, msg) {
+            if (msg.kind === "exec") return { state: { n: s.n, out: msg.stdout.trim() } };
+            return { state: s };
+        },
+        leave: function (node, s) { lflow.setData(node.uuid, { n: s.n }); },
+    },
+});
+`
+
+func TestNodeModView(t *testing.T) {
+	db := database.InitTestMemoryDB(t)
+	setModTestDir(t)
+	modDB = db
+	t.Cleanup(func() { modDB = nil })
+	writeModFile(t, "counter.js", testCounterMod)
+	loadNodeMods()
+
+	nt := typeOf("counter")
+	if nt.view == nil {
+		t.Fatal("counter must register an inline view")
+	}
+
+	root := &item{uuid: "root"}
+	it := &item{uuid: "c1", typ: "counter", parent: root}
+	root.children = []*item{it}
+	tr := &tree{db: db, root: root, byUUID: map[string]*item{"root": root, "c1": it},
+		externalNames: map[string]string{}, snapshots: map[string]snapshot{}}
+	m := &Model{db: db, tree: tr, viewStack: []*item{root}, width: 80, height: 30}
+
+	v := nt.view
+	render := func() string {
+		return strings.Join(v.Bands(m, it, "", 80, 0, 10, true), "\n")
+	}
+
+	if !v.Enter(m, it) {
+		t.Fatal("Enter should focus the view")
+	}
+	if !strings.Contains(render(), "count: 0") {
+		t.Fatalf("initial render = %q", render())
+	}
+
+	// "+" twice increments state through the JS reducer
+	v.Key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("+")})
+	v.Key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("+")})
+	if !strings.Contains(render(), "count: 2") {
+		t.Fatalf("after ++ render = %q", render())
+	}
+
+	// "x" fires an exec effect; running its Cmd yields a modUpdateMsg that
+	// handleModUpdate folds back into the view via update()
+	cmd, handled := v.Key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if !handled || cmd == nil {
+		t.Fatal("x must fire an effect command")
+	}
+	up, ok := cmd().(modUpdateMsg)
+	if !ok {
+		t.Fatalf("effect result = %T, want modUpdateMsg", cmd())
+	}
+	m.handleModUpdate(up.key, up.uuid, up.msg)
+	if !strings.Contains(render(), "out: hi") {
+		t.Fatalf("after exec render = %q", render())
+	}
+
+	// an unhandled key falls through to central handling (esc-to-close still works)
+	if _, handled := v.Key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")}); handled {
+		t.Fatal("an unhandled key must report handled=false")
+	}
+
+	// leave persists via setData → node_mod_data; a fresh read sees it survive
+	v.Leave(m, it)
+	saved, ok := modDataGet("c1").(map[string]interface{})
+	if !ok || saved["n"] == nil {
+		t.Fatalf("leave must persist state, got %v", modDataGet("c1"))
+	}
+}
+
+// TestNodeModCanvasAndText covers the graphics/layout kit a view leans on: the
+// truecolor cell canvas and the width-aware text helpers.
+func TestNodeModCanvasAndText(t *testing.T) {
+	if got := modPad("hi", 5, "right"); got != "   hi" {
+		t.Fatalf("pad right = %q", got)
+	}
+	if got := modPad("hi", 6, "center"); got != "  hi  " {
+		t.Fatalf("pad center = %q", got)
+	}
+	if got := modRepeat("─", 4); visibleWidth(got) != 4 {
+		t.Fatalf("repeat width = %d, want 4", visibleWidth(got))
+	}
+
+	c := modCanvas(3, 2)
+	set := c["set"].(func(int, int, string, string, string))
+	set(0, 0, "▀", "#ff0000", "#0000ff")
+	bands := c["bands"].(func() []string)()
+	if len(bands) != 2 || !strings.Contains(bands[0], "▀") {
+		t.Fatalf("canvas bands = %v", bands)
+	}
+	if !strings.Contains(bands[0], "38;2;255;0;0") || !strings.Contains(bands[0], "48;2;0;0;255") {
+		t.Fatalf("canvas cell must carry truecolor fg+bg: %q", bands[0])
 	}
 }
 

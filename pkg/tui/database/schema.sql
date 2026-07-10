@@ -36,6 +36,10 @@ CREATE TABLE node_output (
 			uuid text PRIMARY KEY,
 			output text NOT NULL DEFAULT ''
 		);
+CREATE TABLE node_mod_data (
+			uuid text PRIMARY KEY,
+			data text NOT NULL DEFAULT ''
+		);
 CREATE TABLE chips (
 			id text PRIMARY KEY,
 			kind text NOT NULL DEFAULT '',

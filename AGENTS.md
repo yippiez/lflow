@@ -57,6 +57,22 @@ auto-run) and their output is ephemeral — never persisted or synced.
   reference: `log.js` (external twin: github.com/yippiez/lflow-log). Legacy
   migrations run once: the old `nodes/` dir renames to `mods/`; before that,
   `artifacts`-table rows export as files.
+- **Mod views = custom UI, not just one-liners** (`pkg/tui/editor/nodemod_view.go`
+  + `nodemod_api.go`): a `registerType({view:{…}})` gives a mod the FULL inline
+  expanded surface (alt+e) — as rich as a built-in like image. The `view` is an
+  Elm loop marshaled across goja: `init` seeds per-node state, `render(node,
+  state, ctx)` returns styled band strings (Go owns rail/indent/clip/window),
+  `key`/`update`/`enter` return `{state?, effect?}`, `leave` persists. `render`
+  is pure (no exec on the frame); side effects are EFFECT descriptors
+  (`{kind:exec|fetch|tick|batch}`) Go runs off the loop and feeds back to
+  `update` via `modUpdateMsg`/`modTickMsg` — ticks only while focused, so a loop
+  can't animate an off-screen node. SDK extras: `lflow.canvas(w,h)` (truecolor
+  cell grid → bands, the graphics escape hatch), `lflow.text.*` (width-aware
+  layout), `lflow.getData/setData` (durable per-node JSON in the local-only,
+  never-synced `node_mod_data` table; blobs stay out — shell to a `<uuid>` file).
+  Ephemeral state lives in `m.nodeStore(uuid)` as Go-native values so it survives
+  the after-agent-turn reload; the jsView is re-looked-up per message so a reload
+  never delivers into a stale runtime. Reference: `examples/barchart.js`.
 - **embedded skill** (`pkg/agent/skills/lflow/` — SKILL.md, cli.md, mods.md,
   examples/, embedded by `pkg/agent/skills.go`) teaching the CLI agent the
   lflow CLI, chips, and NodeMods. It is materialized to

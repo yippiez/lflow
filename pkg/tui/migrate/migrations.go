@@ -1031,3 +1031,21 @@ var lm36 = migration{
 		return nil
 	},
 }
+
+// lm37 adds the node_mod_data table — a NodeMod view's persistent per-node
+// state (lflow.setData/getData). Keyed by node uuid and decoupled from the node
+// row, exactly like node_output: it survives a restart but is local-only and
+// never enters the synced node payload. A mod stores small structured JSON here
+// (a caption, a chart config); large/binary state stays out of it.
+var lm37 = migration{
+	name: "add-node-mod-data-table",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS node_mod_data (
+			uuid text PRIMARY KEY,
+			data text NOT NULL DEFAULT ''
+		);`); err != nil {
+			return errors.Wrap(err, "creating node_mod_data table")
+		}
+		return nil
+	},
+}
