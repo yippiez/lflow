@@ -197,11 +197,19 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 		m.tagClients[ag.Name] = client
 	}
 
-	ch, err := client.Send(context.Background(), ag.Name, m.buildThread(root, asked.uuid))
+	// a cancelable context per turn so flash "stop" (or a re-send) can kill the
+	// in-flight CLI — the process is scoped to this ctx all the way down.
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := client.Send(ctx, ag.Name, m.buildThread(root, asked.uuid))
 	if err != nil {
+		cancel()
 		m.flash = "@" + ag.Name + " · " + err.Error()
 		return nil
 	}
+	if m.agentCancel == nil {
+		m.agentCancel = map[string]func(){}
+	}
+	m.agentCancel[root.uuid] = cancel
 	m.agentBusy[root.uuid] = true
 	// record the LOCAL thread binding (node ↔ agent) — what makes follow-ups
 	// inside this subtree reach the agent, across editor restarts too
@@ -332,7 +340,21 @@ func (m *Model) chipifyAgentText(text string) string {
 func (m *Model) finishThread(threadUUID, agent string) {
 	loadNodeMods()
 	delete(m.agentBusy, threadUUID)
+	if c := m.agentCancel[threadUUID]; c != nil {
+		c() // release the ctx (a no-op if the turn already ended)
+		delete(m.agentCancel, threadUUID)
+	}
 	m.touchThread(threadUUID, agent, "idle")
+}
+
+// stopThread cancels an in-flight turn: killing the CLI closes the stream,
+// which flows back as a "done" event and finishThread cleans up. Safe to call
+// when nothing is running (no cancel recorded → no-op).
+func (m *Model) stopThread(threadUUID, agentName string) {
+	if c := m.agentCancel[threadUUID]; c != nil {
+		c()
+		m.flash = "@" + agentName + " stopped"
+	}
 }
 
 // touchThread upserts the LOCAL thread binding (agent_sessions row, id =

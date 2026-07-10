@@ -89,9 +89,20 @@ func (m *Model) flashInlineRunActions(it *item) []flashAction {
 	}
 	if ag, ok := m.mentionedAgent(expandAnchors(it.name, m.chips)); ok {
 		ag := ag
-		out = append(out, flashAction{verb: "send", color: cRed, do: func(m *Model, it *item) tea.Cmd {
-			return m.sendThread(it, ag)
-		}})
+		// while a turn is running the mention offers "stop" (cancel the CLI)
+		// instead of "send"; both act on the thread root the mention binds to.
+		root := m.threadRootFor(it, ag)
+		if m.agentBusy[root.uuid] {
+			rootUUID, name := root.uuid, ag.Name
+			out = append(out, flashAction{verb: "stop", color: cRed, do: func(m *Model, it *item) tea.Cmd {
+				m.stopThread(rootUUID, name)
+				return nil
+			}})
+		} else {
+			out = append(out, flashAction{verb: "send", color: cRed, do: func(m *Model, it *item) tea.Cmd {
+				return m.sendThread(it, ag)
+			}})
+		}
 	}
 	return out
 }

@@ -60,6 +60,10 @@ func drain(t *testing.T, m *Model, cmd tea.Cmd) {
 			msg = next()
 		case agentStreamEndMsg:
 			delete(m.agentBusy, v.thread)
+			if c := m.agentCancel[v.thread]; c != nil {
+				c()
+				delete(m.agentCancel, v.thread)
+			}
 			return
 		default:
 			t.Fatalf("unexpected msg %T", msg)
@@ -84,6 +88,54 @@ func startThread(t *testing.T, m *Model, it *item) tea.Cmd {
 		t.Fatalf("node %q mentions no configured agent", it.name)
 	}
 	return m.sendThread(it, ag)
+}
+
+// mentionVerb returns the send/stop action flash offers on a mention row.
+func mentionVerb(m *Model, it *item) string {
+	for _, a := range m.flashInlineRunActions(it) {
+		if a.verb == "send" || a.verb == "stop" {
+			return a.verb
+		}
+	}
+	return ""
+}
+
+// TestFlashStopCancelsTurn: while a turn runs the mention offers "stop" (not
+// "send"), and firing it cancels the CLI so the stream ends and the busy/cancel
+// state clears.
+func TestFlashStopCancelsTurn(t *testing.T) {
+	m, _, n1 := newAgentTestModel(t)
+	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
+	// a delay keeps the turn in-flight until we stop it
+	m.tagClients["Pi"] = &tag.MockClient{Delay: 50 * time.Millisecond}
+
+	if v := mentionVerb(m, n1); v != "send" {
+		t.Fatalf("idle mention should offer send, got %q", v)
+	}
+	cmd := startThread(t, m, n1)
+	if cmd == nil {
+		t.Fatal("alt+r on a fresh mention must send")
+	}
+	if !m.agentBusy["n1"] || m.agentCancel["n1"] == nil {
+		t.Fatal("a running turn must record busy + a cancel func")
+	}
+	if v := mentionVerb(m, n1); v != "stop" {
+		t.Fatalf("busy mention should offer stop, got %q", v)
+	}
+
+	m.stopThread("n1", "Pi")
+	if !strings.Contains(m.flash, "stopped") {
+		t.Fatalf("stop should flash a notice, got %q", m.flash)
+	}
+
+	// the canceled stream ends promptly and clears the thread state
+	drain(t, m, cmd)
+	if m.agentBusy["n1"] {
+		t.Fatal("busy flag must clear after stop")
+	}
+	if m.agentCancel["n1"] != nil {
+		t.Fatal("cancel func must clear after stop")
+	}
 }
 
 func TestMentionBindsItselfAndReplyNests(t *testing.T) {

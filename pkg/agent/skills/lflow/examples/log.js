@@ -6,7 +6,7 @@ lflow.registerType({
     key: "log",
     label: "Log",
     inlineEditable: true,
-    glyph: function (node) { return ["→", node.color || "dim"]; },
+    glyph: function (node) { return [ "→", node.color || "dim" ]; },
     baseColor: function (node) { return node.color || "dim"; },
     prefix: function (node) {
         return lflow.style("(" + lflow.time(node.addedOn) + ") ", "dim");

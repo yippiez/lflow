@@ -218,6 +218,7 @@ type Model struct {
 	agents      []tag.Agent
 	tagClients  map[string]tag.Client
 	agentBusy   map[string]bool
+	agentCancel map[string]func() // thread root uuid → cancel the in-flight turn (flash "stop")
 	mentionSent map[string]bool
 	// blur-send state (see blurSendCheck): the item the cursor sat on at the
 	// last key, and the item last typed into — leaving a typed node inside an
@@ -588,6 +589,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleAgentEvent(msg)
 	case agentStreamEndMsg:
 		delete(m.agentBusy, msg.thread)
+		if c := m.agentCancel[msg.thread]; c != nil {
+			c()
+			delete(m.agentCancel, msg.thread)
+		}
 		return m, nil
 	case wfDoneMsg:
 		m.handleWFDone(msg)
