@@ -212,15 +212,15 @@ type Model struct {
 	// so it queues here and the KeyMsg path drains it. See nodemod_view.go.
 	modPending []tea.Cmd
 
-	// @mention agent sessions (see agent.go and pkg/tui/tag): configured
-	// agents, one client per agent, busy flags per thread root, and the nodes
-	// whose mention already sent this session (alt+r starts/re-sends; Enter never starts a session)
-	agents      []tag.Agent
-	tagClients  map[string]tag.Client
-	agentBusy   map[string]bool
-	agentCancel map[string]func()        // thread root uuid → cancel the in-flight turn (flash "stop")
-	agentTool   map[string]agentToolLine // thread root uuid → the last tool call (live band under the running mention)
-	mentionSent map[string]bool
+	// @mention agent sessions (see agent.go and pkg/tui/tag): configured agents
+	// and one client per agent (tagClients is keyed by agent NAME, a different
+	// keyspace). Per-thread turn state (busy flag, cancel, live tool band, and
+	// whether a node's mention already sent this session) lives in ONE
+	// agentThread per uuid so a lifecycle event drops it all at once — see
+	// thread/ensureThread. (alt+r starts/re-sends; Enter never starts a session.)
+	agents     []tag.Agent
+	tagClients map[string]tag.Client
+	threads    map[string]*agentThread
 	// blur-send state (see blurSendCheck): the item the cursor sat on at the
 	// last key, and the item last typed into — leaving a typed node inside an
 	// active thread ships it without waiting for Enter
@@ -599,10 +599,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentEvMsg:
 		return m.handleAgentEvent(msg)
 	case agentStreamEndMsg:
-		delete(m.agentBusy, msg.thread)
-		if c := m.agentCancel[msg.thread]; c != nil {
-			c()
-			delete(m.agentCancel, msg.thread)
+		if t := m.thread(msg.thread); t != nil {
+			t.busy = false
+			if t.cancel != nil {
+				t.cancel()
+				t.cancel = nil
+			}
 		}
 		return m, nil
 	case wfDoneMsg:

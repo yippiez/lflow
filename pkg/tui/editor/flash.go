@@ -92,7 +92,7 @@ func (m *Model) flashInlineRunActions(it *item) []flashAction {
 		// while a turn is running the mention offers "stop" (cancel the CLI)
 		// instead of "send"; both act on the thread root the mention binds to.
 		root := m.threadRootFor(it, ag)
-		if m.agentBusy[root.uuid] {
+		if t := m.thread(root.uuid); t != nil && t.busy {
 			rootUUID, name := root.uuid, ag.Name
 			out = append(out, flashAction{verb: "stop", color: cRed, do: func(m *Model, it *item) tea.Cmd {
 				m.stopThread(rootUUID, name)

@@ -227,7 +227,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				bands[i] = append(bands[i], b(m, r, below, maxLine)...)
 			}
 			// a running @mention hangs its live "last tool call" line beneath it
-			if m.agentBusy[it.uuid] {
+			if t := m.thread(it.uuid); t != nil && t.busy {
 				bands[i] = append(bands[i], m.agentBandLines(r, below, maxLine)...)
 			}
 		}
@@ -599,7 +599,7 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	// the ONE agent signal the bar carries: how many agents are thinking right
 	// now. No install/reply/progress chatter — the outline itself shows results.
-	if n := len(m.agentBusy); n > 0 {
+	if n := m.busyThreadCount(); n > 0 {
 		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
 	}
 	if m.flash != "" {

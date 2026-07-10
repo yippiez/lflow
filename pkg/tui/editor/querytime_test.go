@@ -171,7 +171,6 @@ func TestQueryMatchesTypeFilter(t *testing.T) {
 	}
 }
 
-
 // TestQueryTreeBreadcrumbs drives the :tree: display flag: hits sort by
 // ancestor path, and only the first hit of each group renders the breadcrumb.
 func TestQueryTreeBreadcrumbs(t *testing.T) {

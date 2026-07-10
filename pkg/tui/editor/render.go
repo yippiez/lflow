@@ -263,7 +263,10 @@ func displayTool(name string) string {
 // The caller only invokes this while the turn is busy.
 func (m *Model) agentBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	rail := continuationPrefix(r, subtreeBelow)
-	tl := m.agentTool[r.it.uuid]
+	var tl agentToolLine
+	if t := m.thread(r.it.uuid); t != nil {
+		tl = t.tool
+	}
 	body := cDim + "Thinking…" + cReset
 	if tl.name != "" {
 		verb := displayTool(tl.name)

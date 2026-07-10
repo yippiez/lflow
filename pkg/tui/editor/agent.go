@@ -181,10 +181,7 @@ func waitAgentCmd(thread, asked, agent string, ch <-chan tag.Event) tea.Cmd {
 // mention, or a detected follow-up question).
 func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	root := m.threadRootFor(asked, ag)
-	if m.agentBusy == nil {
-		m.agentBusy = map[string]bool{}
-	}
-	if m.agentBusy[root.uuid] {
+	if t := m.thread(root.uuid); t != nil && t.busy {
 		return nil
 	}
 
@@ -206,11 +203,9 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 		m.flash = "@" + ag.Name + " · " + err.Error()
 		return nil
 	}
-	if m.agentCancel == nil {
-		m.agentCancel = map[string]func(){}
-	}
-	m.agentCancel[root.uuid] = cancel
-	m.agentBusy[root.uuid] = true
+	t := m.ensureThread(root.uuid)
+	t.cancel = cancel
+	t.busy = true
 	// record the LOCAL thread binding (node ↔ agent) — what makes follow-ups
 	// inside this subtree reach the agent, across editor restarts too
 	m.touchThread(root.uuid, ag.Name, "running")
@@ -225,6 +220,49 @@ type agentToolLine struct {
 	detail string
 }
 
+// agentThread is the per-uuid turn state for the @mention agent: all keyed by
+// ONE uuid so a lifecycle event (finish/stop/stream-end) clears it together.
+// busy/cancel/tool key on the thread ROOT uuid; sent keys on the committed
+// node's uuid — they may be different nodes, but each field is independently
+// keyed, so one map still holds both.
+type agentThread struct {
+	busy   bool          // a turn is in flight for this thread root
+	cancel func()        // cancels the in-flight turn (flash "stop"); nil when idle
+	tool   agentToolLine // the last tool call (live band under the running mention)
+	sent   bool          // this node's mention already sent this session
+}
+
+// thread returns the existing thread state for a uuid, or nil — nil-safe for
+// read/comma-ok sites (an absent uuid reads as "not busy, nothing sent").
+func (m *Model) thread(uuid string) *agentThread { return m.threads[uuid] }
+
+// ensureThread returns the thread state for a uuid, lazily creating m.threads
+// and the entry (mirrors nodeStore). Every write site goes through here.
+func (m *Model) ensureThread(uuid string) *agentThread {
+	if m.threads == nil {
+		m.threads = map[string]*agentThread{}
+	}
+	t := m.threads[uuid]
+	if t == nil {
+		t = &agentThread{}
+		m.threads[uuid] = t
+	}
+	return t
+}
+
+// busyThreadCount reports how many threads have a turn in flight. NOT
+// len(m.threads): a thread entry survives idle (it may only hold sent), so the
+// bar must count busy==true.
+func (m *Model) busyThreadCount() int {
+	n := 0
+	for _, t := range m.threads {
+		if t.busy {
+			n++
+		}
+	}
+	return n
+}
+
 // handleAgentEvent lands one event in the outline and re-arms the stream.
 func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 	rearm := waitAgentCmd(msg.thread, msg.asked, msg.agent, msg.ch)
@@ -232,16 +270,15 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 	case "tool":
 		// live progress under the running mention — keep only the latest call.
 		if msg.ev.Tool != "" {
-			if m.agentTool == nil {
-				m.agentTool = map[string]agentToolLine{}
-			}
-			m.agentTool[msg.thread] = agentToolLine{name: msg.ev.Tool, detail: msg.ev.Text}
+			m.ensureThread(msg.thread).tool = agentToolLine{name: msg.ev.Tool, detail: msg.ev.Text}
 		}
 		return m, rearm
 	case "thinking":
 		// the model moved past its last tool (reasoning / answering) — drop the
 		// tool line so the band falls back to "Thinking…" instead of freezing.
-		delete(m.agentTool, msg.thread)
+		if t := m.thread(msg.thread); t != nil {
+			t.tool = agentToolLine{}
+		}
 		return m, rearm
 	case "message":
 		m.placeAgentNode(msg.thread, msg.asked, msg.ev.Text, msg.ev.Placement)
@@ -361,11 +398,13 @@ func (m *Model) chipifyAgentText(text string) string {
 // created or edited mod files during its turn — reload them now.
 func (m *Model) finishThread(threadUUID, agent string) {
 	loadNodeMods()
-	delete(m.agentBusy, threadUUID)
-	delete(m.agentTool, threadUUID) // the live tool band is gone once the turn ends
-	if c := m.agentCancel[threadUUID]; c != nil {
-		c() // release the ctx (a no-op if the turn already ended)
-		delete(m.agentCancel, threadUUID)
+	if t := m.thread(threadUUID); t != nil {
+		t.busy = false
+		t.tool = agentToolLine{} // the live tool band is gone once the turn ends
+		if t.cancel != nil {
+			t.cancel() // release the ctx (a no-op if the turn already ended)
+			t.cancel = nil
+		}
 	}
 	m.touchThread(threadUUID, agent, "idle")
 }
@@ -374,8 +413,8 @@ func (m *Model) finishThread(threadUUID, agent string) {
 // which flows back as a "done" event and finishThread cleans up. Safe to call
 // when nothing is running (no cancel recorded → no-op).
 func (m *Model) stopThread(threadUUID, agentName string) {
-	if c := m.agentCancel[threadUUID]; c != nil {
-		c()
+	if t := m.thread(threadUUID); t != nil && t.cancel != nil {
+		t.cancel()
 		m.flash = "@" + agentName + " stopped"
 	}
 }
@@ -401,10 +440,7 @@ func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
 	if cur == nil || cur.name == "" || cur.typ == database.TypeAgent {
 		return nil, false
 	}
-	if m.mentionSent == nil {
-		m.mentionSent = map[string]bool{}
-	}
-	if m.mentionSent[cur.uuid] {
+	if t := m.thread(cur.uuid); t != nil && t.sent {
 		return nil, false // already sent — alt+r re-sends
 	}
 	if _, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
@@ -414,7 +450,7 @@ func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
 	// no mention: inside an active thread, committing still shows the node to
 	// the session — discretionary, so a plain note stays unanswered
 	if ag, ok := m.activeThreadAgent(cur); ok {
-		m.mentionSent[cur.uuid] = true
+		m.ensureThread(cur.uuid).sent = true
 		return m.sendThread(cur, ag), false
 	}
 	return nil, false
@@ -442,17 +478,14 @@ func (m *Model) blurSendCheck() tea.Cmd {
 	if prev == nil || prev.name == "" || prev.typ == database.TypeAgent {
 		return nil
 	}
-	if m.mentionSent == nil {
-		m.mentionSent = map[string]bool{}
-	}
-	if m.mentionSent[prevUUID] {
+	if t := m.thread(prevUUID); t != nil && t.sent {
 		return nil // Enter (or an earlier blur) already sent it
 	}
 	if _, ok := m.mentionedAgent(expandAnchors(prev.name, m.chips)); ok {
 		return nil // a fresh @mention sends on alt+r only
 	}
 	if ag, ok := m.activeThreadAgent(prev); ok {
-		m.mentionSent[prevUUID] = true
+		m.ensureThread(prevUUID).sent = true
 		return m.sendThread(prev, ag)
 	}
 	return nil

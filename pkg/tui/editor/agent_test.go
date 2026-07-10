@@ -59,10 +59,12 @@ func drain(t *testing.T, m *Model, cmd tea.Cmd) {
 			}
 			msg = next()
 		case agentStreamEndMsg:
-			delete(m.agentBusy, v.thread)
-			if c := m.agentCancel[v.thread]; c != nil {
-				c()
-				delete(m.agentCancel, v.thread)
+			if th := m.thread(v.thread); th != nil {
+				th.busy = false
+				if th.cancel != nil {
+					th.cancel()
+					th.cancel = nil
+				}
 			}
 			return
 		default:
@@ -116,7 +118,7 @@ func TestFlashStopCancelsTurn(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("alt+r on a fresh mention must send")
 	}
-	if !m.agentBusy["n1"] || m.agentCancel["n1"] == nil {
+	if th := m.thread("n1"); th == nil || !th.busy || th.cancel == nil {
 		t.Fatal("a running turn must record busy + a cancel func")
 	}
 	if v := mentionVerb(m, n1); v != "stop" {
@@ -130,10 +132,10 @@ func TestFlashStopCancelsTurn(t *testing.T) {
 
 	// the canceled stream ends promptly and clears the thread state
 	drain(t, m, cmd)
-	if m.agentBusy["n1"] {
+	if th := m.thread("n1"); th != nil && th.busy {
 		t.Fatal("busy flag must clear after stop")
 	}
-	if m.agentCancel["n1"] != nil {
+	if th := m.thread("n1"); th != nil && th.cancel != nil {
 		t.Fatal("cancel func must clear after stop")
 	}
 }
@@ -161,7 +163,7 @@ func TestAgentToolBandStreamsThenClears(t *testing.T) {
 		switch ev.ev.Op {
 		case "tool":
 			sawTool = true
-			tl := m.agentTool["n1"]
+			tl := m.thread("n1").tool
 			if tl.name == "" {
 				t.Fatal("a tool op must populate the live band")
 			}
@@ -170,7 +172,7 @@ func TestAgentToolBandStreamsThenClears(t *testing.T) {
 			}
 		case "thinking":
 			sawThinking = true
-			if _, ok := m.agentTool["n1"]; ok {
+			if th := m.thread("n1"); th != nil && th.tool.name != "" {
 				t.Fatal("a thinking op must drop the last tool call")
 			}
 			if len(band) != 1 || !strings.Contains(band[0], "Thinking") {
@@ -185,7 +187,7 @@ func TestAgentToolBandStreamsThenClears(t *testing.T) {
 	if !sawTool || !sawThinking {
 		t.Fatalf("mock should stream tool + thinking (tool=%v thinking=%v)", sawTool, sawThinking)
 	}
-	if _, ok := m.agentTool["n1"]; ok {
+	if th := m.thread("n1"); th != nil && th.tool.name != "" {
 		t.Fatal("the tool band must clear once the turn ends")
 	}
 }
@@ -203,7 +205,7 @@ func TestMentionBindsItselfAndReplyNests(t *testing.T) {
 		t.Fatal("alt+r on a fresh mention must send")
 	}
 	// the session binds to the MENTION node itself — it is the thread root
-	if !m.agentBusy["n1"] {
+	if th := m.thread("n1"); th == nil || !th.busy {
 		t.Fatal("the mention node must own the busy flag")
 	}
 	drain(t, m, cmd)
@@ -363,7 +365,7 @@ func TestBlurSendsTypedFollowUp(t *testing.T) {
 	if cmd := m.blurSendCheck(); cmd == nil {
 		t.Fatal("leaving a typed follow-up inside a thread must send it")
 	}
-	if !m.mentionSent[f.uuid] {
+	if th := m.thread(f.uuid); th == nil || !th.sent {
 		t.Fatal("blur send must mark the node sent")
 	}
 
