@@ -880,16 +880,23 @@ func (m *Model) maybeLinkToMirror(it *item) {
 // non-mirror original, so a new mirror points at the real node and shows
 // its name. A node that is not a mirror is returned unchanged.
 func (m *Model) resolveSourceNode(n database.Node) database.Node {
-	seen := map[string]bool{}
-	for n.MirrorOf != "" && !seen[n.UUID] {
-		seen[n.UUID] = true
-		orig, err := database.GetNode(m.db, n.MirrorOf)
-		if err != nil {
-			break
+	// last tracks the deepest node we could fetch; on a broken chain (a mirror
+	// pointing at a missing node) it stays on the last good node, matching the
+	// original fall-through. The start node n is already in hand, so the closure
+	// serves it from last rather than re-fetching by uuid.
+	last := n
+	followMirrorChain(n.UUID, func(uuid string) (string, bool) {
+		if uuid == last.UUID {
+			return last.MirrorOf, true
 		}
-		n = orig
-	}
-	return n
+		orig, err := database.GetNode(m.db, uuid)
+		if err != nil {
+			return "", false
+		}
+		last = orig
+		return orig.MirrorOf, true
+	})
+	return last
 }
 
 // deleteNode removes the node and its subtree from the tree.

@@ -177,24 +177,37 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 	return t, nil
 }
 
+// followMirrorChain walks a node's mirror_of chain from startUUID to its
+// terminal identity — the uuid whose node is not a mirror, cannot be looked up,
+// or closes a cycle — and returns that uuid. next(uuid) yields the node's
+// mirror_of and whether it was found; a seen-set guards against mirror cycles.
+// The three mirror resolvers (sourceUUID here, resolveSourceNode over the DB,
+// finderRowName over a callback) all delegate to this one walk.
+func followMirrorChain(startUUID string, next func(uuid string) (mirrorOf string, ok bool)) string {
+	seen := map[string]bool{}
+	cur := startUUID
+	for {
+		mirrorOf, ok := next(cur)
+		if !ok || mirrorOf == "" || seen[cur] {
+			return cur
+		}
+		seen[cur] = true
+		cur = mirrorOf
+	}
+}
+
 // sourceUUID resolves the ultimate non-mirror node a new mirror should
 // point at. Mirroring a mirror must follow the chain to the original so
 // the new mirror's name resolves, rather than landing on an intermediate
 // mirror whose name is empty.
 func (t *tree) sourceUUID(it *item) string {
-	if it.mirrorOf == "" {
-		return it.uuid
-	}
-	seen := map[string]bool{it.uuid: true}
-	cur := it.mirrorOf
-	for {
-		next, ok := t.byUUID[cur]
-		if !ok || next.mirrorOf == "" || seen[cur] {
-			return cur
+	return followMirrorChain(it.uuid, func(uuid string) (string, bool) {
+		n, ok := t.byUUID[uuid]
+		if !ok {
+			return "", false
 		}
-		seen[cur] = true
-		cur = next.mirrorOf
-	}
+		return n.mirrorOf, true
+	})
 }
 
 // displayName resolves the visible name of an item: mirrors show the

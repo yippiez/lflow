@@ -399,19 +399,23 @@ func finderRowName(n database.Node, resolve func(string) (database.Node, bool)) 
 	if n.MirrorOf == "" {
 		return n.Name
 	}
-	seen := map[string]bool{n.UUID: true}
-	cur := n.MirrorOf
-	for {
-		src, ok := resolve(cur)
+	// the start node is in hand, so serve its mirror_of directly rather than
+	// resolve(n.UUID); the walk then follows via the resolve callback.
+	term := followMirrorChain(n.UUID, func(uuid string) (string, bool) {
+		if uuid == n.UUID {
+			return n.MirrorOf, true
+		}
+		src, ok := resolve(uuid)
 		if !ok {
-			return "(missing) - mirror"
+			return "", false
 		}
-		if src.MirrorOf == "" || seen[cur] {
-			return src.Name + " - mirror"
-		}
-		seen[cur] = true
-		cur = src.MirrorOf
+		return src.MirrorOf, true
+	})
+	src, ok := resolve(term)
+	if !ok {
+		return "(missing) - mirror"
 	}
+	return src.Name + " - mirror"
 }
 
 func (m *Model) viewFinder(maxLine int) []string {
