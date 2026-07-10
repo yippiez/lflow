@@ -52,6 +52,18 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 		// code nests on the code node ("thread"), inside a reply thread the
 		// conversation continues "below", and plain notes stay silent.
 		asked, mentioned := askedNode(thread, agent)
+
+		// stream a little tool activity first, so the running mention shows the
+		// live "what it's doing now" band (Read → Grep …) before any reply lands.
+		for _, tc := range []Event{
+			{Op: "tool", Tool: "read", Text: asked.Name},
+			{Op: "tool", Tool: "grep", Text: "importer retries"},
+		} {
+			if !emit(tc) {
+				return
+			}
+		}
+
 		if key, label, source, ok := artifactFor(asked.Name); ok {
 			if !emit(Event{Op: "artifact", Key: key, Source: source}) {
 				return

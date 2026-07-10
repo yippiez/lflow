@@ -214,13 +214,32 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	// record the LOCAL thread binding (node ↔ agent) — what makes follow-ups
 	// inside this subtree reach the agent, across editor restarts too
 	m.touchThread(root.uuid, ag.Name, "running")
-	return waitAgentCmd(root.uuid, asked.uuid, ag.Name, ch)
+	// kick the animation tick so the live tool band's spinner spins; it
+	// self-sustains (animActive) until the turn clears agentBusy.
+	return m.startAnim(waitAgentCmd(root.uuid, asked.uuid, ag.Name, ch))
+}
+
+// agentToolLine is the last tool call seen this turn — rendered as a muted band
+// beneath the running mention (tool name colored, detail gray). Ephemeral: it
+// never enters the outline or the DB, and clears when the turn ends.
+type agentToolLine struct {
+	name   string
+	detail string
 }
 
 // handleAgentEvent lands one event in the outline and re-arms the stream.
 func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 	rearm := waitAgentCmd(msg.thread, msg.asked, msg.agent, msg.ch)
 	switch msg.ev.Op {
+	case "tool":
+		// live progress under the running mention — keep only the latest call.
+		if msg.ev.Tool != "" {
+			if m.agentTool == nil {
+				m.agentTool = map[string]agentToolLine{}
+			}
+			m.agentTool[msg.thread] = agentToolLine{name: msg.ev.Tool, detail: msg.ev.Text}
+		}
+		return m, rearm // the tick started at sendThread; it self-sustains while busy
 	case "message":
 		m.placeAgentNode(msg.thread, msg.asked, msg.ev.Text, msg.ev.Placement)
 	case "artifact":
@@ -340,6 +359,7 @@ func (m *Model) chipifyAgentText(text string) string {
 func (m *Model) finishThread(threadUUID, agent string) {
 	loadNodeMods()
 	delete(m.agentBusy, threadUUID)
+	delete(m.agentTool, threadUUID) // the live tool band is gone once the turn ends
 	if c := m.agentCancel[threadUUID]; c != nil {
 		c() // release the ctx (a no-op if the turn already ended)
 		delete(m.agentCancel, threadUUID)

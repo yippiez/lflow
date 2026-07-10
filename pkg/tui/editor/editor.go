@@ -33,16 +33,16 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm   // inline delete confirmation for nodes with children
-	modeType      // the /type picker: choose one of the node types
-	modeStyle     // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme     // the /theme picker: choose a color palette
-	modeSettings  // the /settings picker: global preferences (theme, image preview, …)
-	modeComplete  // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit  // the alt+e link-chip editor: edit a link's name and target
-	modeFlash      // flash jump/act: every visible row's actions get a typed label (see flash.go)
-	modeTagColor   // the alt+e tag color picker: assign a pill color to a tag
-	modePaint // the painter: a window over the node's text places a /style choice (p inside /style)
+	modeConfirm  // inline delete confirmation for nodes with children
+	modeType     // the /type picker: choose one of the node types
+	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme    // the /theme picker: choose a color palette
+	modeSettings // the /settings picker: global preferences (theme, image preview, …)
+	modeComplete // the inline completer: "#" tags, ":" query commands
+	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
+	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeTagColor // the alt+e tag color picker: assign a pill color to a tag
+	modePaint    // the painter: a window over the node's text places a /style choice (p inside /style)
 )
 
 type finderAction int
@@ -218,7 +218,8 @@ type Model struct {
 	agents      []tag.Agent
 	tagClients  map[string]tag.Client
 	agentBusy   map[string]bool
-	agentCancel map[string]func() // thread root uuid → cancel the in-flight turn (flash "stop")
+	agentCancel map[string]func()        // thread root uuid → cancel the in-flight turn (flash "stop")
+	agentTool   map[string]agentToolLine // thread root uuid → the last tool call (live band under the running mention)
 	mentionSent map[string]bool
 	// blur-send state (see blurSendCheck): the item the cursor sat on at the
 	// last key, and the item last typed into — leaving a typed node inside an
@@ -2871,6 +2872,10 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if it.typ == database.TypeImage {
 				bands[i] = append(bands[i], m.imageBandLines(r, below, maxLine)...)
 			}
+			// a running @mention hangs its live "last tool call" line beneath it
+			if m.agentBusy[it.uuid] {
+				bands[i] = append(bands[i], m.agentBandLines(r, below, maxLine)...)
+			}
 		}
 		// flash grays the note / run-output bands too, so nothing competes with the chips
 		if m.mode == modeFlash {
@@ -3069,7 +3074,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 		lines = append(lines, m.list.render(m, src, maxLine)...)
 	}
 
-
 	// the /settings picker: one row per preference as `label · value` — muted
 	// label, middle dot, value colored by settingValueColor (green affirmative,
 	// red negative). The theme row previews the selected palette as a swatch
@@ -3132,7 +3136,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 		// the divider sits) must be identical across themes; gray paints
 		// exactly the rows the main region already has, edge to edge.
 		body := mainLines
-		m.pageRows = len(body) // page bg stops at the divider; temp stays bare
+		m.pageRows = len(body)      // page bg stops at the divider; temp stays bare
 		body = append(body, bar...) // the status bar is the divider
 		body = append(body, tempLines...)
 		total := rowBudget + len(bar) // main + status + temp, fixed for a stable frame

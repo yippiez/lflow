@@ -133,6 +133,10 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 		var reply strings.Builder
 		for ev := range sess.Events() {
 			switch ev.Kind {
+			case agent.EventToolStart, agent.EventToolUpdate:
+				// live "what it's doing now" — the editor shows the last one as a
+				// muted band under the running mention. Nothing lands in the outline.
+				out <- Event{Op: "tool", Tool: ev.Tool, Text: ev.Detail}
 			case agent.EventAgentText:
 				if t := strings.TrimSpace(ev.Text); t != "" {
 					if reply.Len() > 0 {

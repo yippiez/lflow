@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/mattn/go-runewidth"
@@ -629,6 +630,68 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥x stop"+cReset, maxLine))
 	}
 	return lines
+}
+
+// agentSpinner is the frame set for the running @mention tool band.
+var agentSpinner = []rune("⣾⣽⣻⢿⡿⣟⣯⣷")
+
+// friendlyTool maps a CLI's raw tool name to a short display verb; anything
+// unmapped is shown with its first letter capitalized.
+var friendlyTool = map[string]string{
+	"read": "Read", "cat": "Read", "view": "Read",
+	"write": "Write", "create": "Write", "create_file": "Write",
+	"edit": "Edit", "str_replace": "Edit", "patch": "Edit", "update": "Edit", "apply_patch": "Edit",
+	"bash": "Bash", "exec": "Bash", "shell": "Bash", "run": "Run",
+	"grep": "Grep", "search": "Search", "glob": "Glob", "ls": "List", "list": "List",
+	"fetch": "Fetch", "webfetch": "Fetch",
+}
+
+// toolColor tints a tool verb by what it does: reads cyan, writes green, edits
+// yellow, shell magenta, everything else the accent color.
+func toolColor(verb string) string {
+	switch verb {
+	case "Read", "Grep", "Search", "Glob", "List", "Fetch":
+		return cCyan
+	case "Write":
+		return cGreen
+	case "Edit":
+		return cYellow
+	case "Bash", "Run":
+		return cMagenta
+	default:
+		return cAccent
+	}
+}
+
+// displayTool turns a raw tool name into its display verb.
+func displayTool(name string) string {
+	if v, ok := friendlyTool[strings.ToLower(name)]; ok {
+		return v
+	}
+	r := []rune(name)
+	if len(r) == 0 {
+		return name
+	}
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
+
+// agentBandLines renders the running @mention's last tool call as one muted band
+// beneath the mention node: a spinner, the tool verb in its color, then the file
+// or command in gray. Ephemeral progress — never persisted, never in the outline.
+func (m *Model) agentBandLines(r row, subtreeBelow bool, maxLine int) []string {
+	tl, ok := m.agentTool[r.it.uuid]
+	if !ok || tl.name == "" {
+		return nil
+	}
+	rail := continuationPrefix(r, subtreeBelow)
+	spin := string(agentSpinner[animFrame%len(agentSpinner)])
+	verb := displayTool(tl.name)
+	line := rail + cReset + "  " + cDim + spin + " " + cReset + toolColor(verb) + verb + cReset
+	if tl.detail != "" {
+		line += " " + cDim + tl.detail + cReset
+	}
+	return []string{clip(line, maxLine)}
 }
 
 // noteBandLines renders a node's note as a muted, background-tinted band that

@@ -36,8 +36,9 @@ type ThreadNode struct {
 
 // Event is one message streamed back from the agent service.
 type Event struct {
-	Op   string `json:"op"`   // "message" | "artifact" | "done" | "error"
-	Text string `json:"text"` // op=message/error
+	Op   string `json:"op"`   // "message" | "tool" | "artifact" | "done" | "error"
+	Text string `json:"text"` // op=message/error; op=tool: the muted detail (file/cmd)
+	Tool string `json:"tool"` // op=tool: the tool name (Read / Write / Edit …)
 	// Placement is where a message lands relative to the asked node — the two
 	// Claude-Tag surfaces: "below" posts it like a message-board reply (next
 	// sibling), "thread" nests it as the asked node's child. Default: thread.

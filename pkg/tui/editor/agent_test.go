@@ -36,8 +36,9 @@ func newAgentTestModel(t *testing.T) (*Model, *item, *item) {
 
 	m := &Model{
 		db: db, tree: tr, viewStack: []*item{root}, width: 100, height: 30,
-		agents:     []tag.Agent{{Name: "Pi", Mock: true}},
-		tagClients: map[string]tag.Client{"Pi": &tag.MockClient{Delay: time.Nanosecond}},
+		agents:      []tag.Agent{{Name: "Pi", Mock: true}},
+		tagClients:  map[string]tag.Client{"Pi": &tag.MockClient{Delay: time.Nanosecond}},
+		animTicking: true, // pretend the anim tick is live so sendThread doesn't batch one
 	}
 	m.refreshRows()
 	return m, disc, n1
@@ -135,6 +136,50 @@ func TestFlashStopCancelsTurn(t *testing.T) {
 	}
 	if m.agentCancel["n1"] != nil {
 		t.Fatal("cancel func must clear after stop")
+	}
+}
+
+// TestAgentToolBandStreamsThenClears: tool events populate the live band under
+// the running mention, agentBandLines renders the colored verb + gray detail,
+// and the band clears once the turn ends.
+func TestAgentToolBandStreamsThenClears(t *testing.T) {
+	m, _, n1 := newAgentTestModel(t)
+	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
+
+	cmd := startThread(t, m, n1)
+	if cmd == nil {
+		t.Fatal("alt+r on a fresh mention must send")
+	}
+	sawTool := false
+	msg := cmd()
+	for i := 0; i < 60; i++ {
+		ev, ok := msg.(agentEvMsg)
+		if !ok {
+			break // stream end
+		}
+		_, next := m.handleAgentEvent(ev)
+		if ev.ev.Op == "tool" {
+			sawTool = true
+			tl, ok := m.agentTool["n1"]
+			if !ok || tl.name == "" {
+				t.Fatal("a tool op must populate the live band")
+			}
+			// the band renders the colored verb + gray detail
+			band := m.agentBandLines(row{it: n1, depth: 0}, false, 100)
+			if len(band) != 1 || !strings.Contains(band[0], displayTool(tl.name)) {
+				t.Fatalf("band should show %q, got %v", displayTool(tl.name), band)
+			}
+		}
+		if next == nil {
+			break
+		}
+		msg = next()
+	}
+	if !sawTool {
+		t.Fatal("the mock should have streamed a tool event")
+	}
+	if _, ok := m.agentTool["n1"]; ok {
+		t.Fatal("the tool band must clear once the turn ends")
 	}
 }
 
