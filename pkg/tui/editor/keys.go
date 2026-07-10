@@ -523,13 +523,14 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				id = c.ID
 			}
-			if cancel, running := m.runCancel[id]; running {
-				cancel()
+			r := m.run(id)
+			if r != nil && r.cancel != nil {
+				r.cancel()
 				m.finishRun(id)
-			} else if len(m.runOut[id]) > 0 {
-				m.runOut[id] = nil
-				delete(m.runDropped, id)
-				delete(m.runPWD, id)
+			} else if r != nil && len(r.out) > 0 {
+				r.out = nil
+				r.dropped = 0
+				r.pwd = ""
 				m.persistRunOut(id) // an empty band deletes the row
 				m.setCmdPreview(id)
 			}

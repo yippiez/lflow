@@ -102,7 +102,7 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 	if !ok {
 		t.Fatal("no cmd chip created")
 	}
-	m.runOut = map[string][]outLine{c.ID: {{text: "file-a"}, {text: "file-b"}}}
+	m.ensureRun(c.ID).out = []outLine{{text: "file-a"}, {text: "file-b"}}
 	m.setCmdPreview(c.ID)
 
 	if got := chipDisplay(m.chips[c.ID]); got != "$ ls → file-a" {

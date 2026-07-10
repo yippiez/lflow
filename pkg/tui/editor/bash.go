@@ -36,31 +36,22 @@ type bashDoneMsg struct {
 // — every runnable mod type goes through here (cmd chips mirror it in
 // runCmdChip, keyed by chip id instead of node uuid).
 func runShell(m *Model, it *item, cmd string) tea.Cmd {
-	if m.runCancel == nil {
-		m.runCancel = map[string]func(){}
-		m.runOut = map[string][]outLine{}
-		m.runCh = map[string]chan tea.Msg{}
-	}
-	if cancel, running := m.runCancel[it.uuid]; running {
-		cancel()
+	if r := m.run(it.uuid); r != nil && r.cancel != nil {
+		r.cancel()
 		m.finishRun(it.uuid) // keep whatever was captured before the cancel
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m.runCancel[it.uuid] = cancel
-	if m.runDropped != nil {
-		delete(m.runDropped, it.uuid) // a fresh run starts its drop count over
-	}
+	r := m.ensureRun(it.uuid)
+	r.cancel = cancel
+	r.dropped = 0 // a fresh run starts its drop count over
 	// a fresh run owns the band now: memory is authoritative, so don't reload the
 	// old on-disk output over the incoming stream.
-	if m.runOutLoaded == nil {
-		m.runOutLoaded = map[string]bool{}
-	}
-	m.runOutLoaded[it.uuid] = true
-	m.runOut[it.uuid] = nil
+	r.loaded = true
+	r.out = nil
 	m.captureRunPWD(it.uuid)
 	ch := make(chan tea.Msg, 1024)
-	m.runCh[it.uuid] = ch
+	r.ch = ch
 	go startBash(it.uuid, cmd, ctx, ch)
 	return waitBashCmd(ch)
 }
@@ -78,17 +69,16 @@ func (m *Model) captureRunPWD(id string) {
 	if err != nil || pwd == "" {
 		return
 	}
-	if m.runPWD == nil {
-		m.runPWD = map[string]string{}
-	}
-	m.runPWD[id] = pwd
+	m.ensureRun(id).pwd = pwd
 }
 
 // finishRun closes out a run band — the stream ended (done, canceled, or
 // stopped) — persisting what memory holds and dropping the live bookkeeping.
 func (m *Model) finishRun(uuid string) {
-	delete(m.runCancel, uuid)
-	delete(m.runCh, uuid)
+	if r := m.run(uuid); r != nil {
+		r.cancel = nil // no longer running; the band (out) is kept
+		r.ch = nil
+	}
 	m.persistRunOut(uuid)
 	m.setCmdPreview(uuid)
 }
@@ -216,11 +206,12 @@ func (runOutView) Leave(m *Model, it *item) {}
 // placeholder when empty).
 func (runOutView) Lines(m *Model, it *item, width int) int {
 	m.ensureRunOutLoaded(it.uuid)
-	n := len(m.runOut[it.uuid])
+	r := m.run(it.uuid) // non-nil after ensureRunOutLoaded
+	n := len(r.out)
 	if n == 0 {
 		n = 1 // the "no output" placeholder
 	}
-	if m.runPWD[it.uuid] != "" {
+	if r.pwd != "" {
 		n++
 	}
 	return 1 + n
@@ -259,11 +250,12 @@ func (runOutView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 // Bands renders the header and output lines, self-windowed to [scroll, scroll+winH).
 func (runOutView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	m.ensureRunOutLoaded(it.uuid)
-	out := m.runOut[it.uuid]
-	_, running := m.runCancel[it.uuid]
+	r := m.run(it.uuid) // non-nil after ensureRunOutLoaded
+	out := r.out
+	running := r.cancel != nil
 
 	hdr := fmt.Sprintf("  %s · %d lines", it.typ, len(out))
-	if d := m.runDropped[it.uuid]; d > 0 {
+	if d := r.dropped; d > 0 {
 		hdr += fmt.Sprintf(" · %d dropped", d)
 	}
 	if running {
@@ -273,7 +265,7 @@ func (runOutView) Bands(m *Model, it *item, rail string, width, scroll, winH int
 	}
 	hdr += " · ↑↓ scroll · esc close"
 	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}
-	if pwd := m.runPWD[it.uuid]; pwd != "" {
+	if pwd := r.pwd; pwd != "" {
 		content = append(content, clip(rail+cReset+cDim+"  pwd: "+pwd+cReset, width))
 	}
 

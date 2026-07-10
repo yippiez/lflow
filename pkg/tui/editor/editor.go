@@ -178,13 +178,10 @@ type Model struct {
 
 	// Shared RUN machinery — the generic spawn/stream/cancel infrastructure the
 	// runnable node types use (bash, query, voice). Ephemeral, in-memory only,
-	// keyed by node uuid. Run output is NEVER in the DB or synced.
-	runOut       map[string][]outLine
-	runCancel    map[string]func()       // cancel a running command
-	runCh        map[string]chan tea.Msg // stream channel for a running command
-	runOutLoaded map[string]bool         // uuids whose run band is hydrated (see runout.go)
-	runDropped   map[string]int          // lines dropped off a band's head (see maxRunLines)
-	runPWD       map[string]string       // cwd captured when the band was run
+	// keyed by node uuid (or cmd-chip id — same string keyspace). Run output is
+	// NEVER in the DB or synced. One runState per id so every lifecycle event
+	// (cancel/finish/delete) drops all of it atomically — see run/ensureRun.
+	runs map[string]*runState
 
 	// Temporary Domain — a scratch outline region (a second root, 7-day retention)
 	tempActive bool
@@ -435,11 +432,9 @@ func (m *Model) undo() {
 	for uuid := range m.tree.snapshots {
 		if _, present := m.tree.byUUID[uuid]; !present {
 			m.tree.deleted = append(m.tree.deleted, uuid)
-			if m.runCancel != nil {
-				if cancel, running := m.runCancel[uuid]; running {
-					cancel()
-					delete(m.runCancel, uuid)
-				}
+			if r := m.run(uuid); r != nil && r.cancel != nil {
+				r.cancel()
+				r.cancel = nil
 			}
 		}
 	}
@@ -574,7 +569,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.animTicking = false // nothing animating — stop redrawing
 		return m, nil
 	case bashLinesMsg:
-		if _, running := m.runCancel[msg.uuid]; !running {
+		r := m.run(msg.uuid)
+		if r == nil || r.cancel == nil {
 			return m, nil // canceled — stop streaming
 		}
 		// one bounded batch per ~50ms window (see startBash) — a torrential
@@ -582,7 +578,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, l := range msg.lines {
 			m.appendRunOut(msg.uuid, l)
 		}
-		return m, waitBashCmd(m.runCh[msg.uuid])
+		return m, waitBashCmd(r.ch)
 	case bashDoneMsg:
 		m.finishRun(msg.uuid) // cache the finished band so it survives a restart
 		return m, nil
@@ -919,6 +915,36 @@ func (m *Model) deleteNode(it *item) {
 	m.ensureViewNonEmpty()
 	m.refreshRows()
 	m.caret = 0
+}
+
+// runState is the per-id run band: the captured output plus the live bookkeeping
+// for a running command. All of it is keyed by ONE id (node uuid or cmd-chip id),
+// so dropping a run = delete(m.runs, id) — one atomic delete instead of six.
+type runState struct {
+	out     []outLine    // captured stdout/stderr lines (the band)
+	cancel  func()       // cancels the running command; nil once finished
+	ch      chan tea.Msg // stream channel for a running command
+	loaded  bool         // band hydrated from node_output (see runout.go)
+	dropped int          // lines dropped off the band's head (see maxRunLines)
+	pwd     string       // cwd captured when the band was run
+}
+
+// run returns the existing run state for an id, or nil if none — nil-safe for
+// read/comma-ok sites (an absent id reads as "no output, not running").
+func (m *Model) run(id string) *runState { return m.runs[id] }
+
+// ensureRun returns the run state for an id, lazily creating m.runs and the entry.
+// Every write site goes through here (mirrors nodeStore).
+func (m *Model) ensureRun(id string) *runState {
+	if m.runs == nil {
+		m.runs = map[string]*runState{}
+	}
+	r := m.runs[id]
+	if r == nil {
+		r = &runState{}
+		m.runs[id] = r
+	}
+	return r
 }
 
 // nodeStore returns the ephemeral per-node data bag for a uuid, creating it on
@@ -1358,8 +1384,10 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
 	// stop any live run processes (bash/query/voice) still going
-	for _, cancel := range m.runCancel {
-		cancel()
+	for _, r := range m.runs {
+		if r.cancel != nil {
+			r.cancel()
+		}
 	}
 	if m.tempActive {
 		m.exitTemp() // back to the main tree so save persists it, not the scratch

@@ -94,29 +94,20 @@ func (m *Model) cmdChipAtCaret(cur *item) (database.Chip, bool) {
 // runCmdChip runs (or cancels a running) cmd chip. Output streams into the run
 // band keyed by the chip id, mirroring runBash; a second alt+r cancels.
 func (m *Model) runCmdChip(c database.Chip) tea.Cmd {
-	if m.runCancel == nil {
-		m.runCancel = map[string]func(){}
-		m.runOut = map[string][]outLine{}
-		m.runCh = map[string]chan tea.Msg{}
-	}
-	if cancel, running := m.runCancel[c.ID]; running {
-		cancel()
+	if r := m.run(c.ID); r != nil && r.cancel != nil {
+		r.cancel()
 		m.finishRun(c.ID)
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m.runCancel[c.ID] = cancel
-	if m.runDropped != nil {
-		delete(m.runDropped, c.ID)
-	}
-	if m.runOutLoaded == nil {
-		m.runOutLoaded = map[string]bool{}
-	}
-	m.runOutLoaded[c.ID] = true // a fresh run owns the band; memory is authoritative
-	m.runOut[c.ID] = nil
+	r := m.ensureRun(c.ID)
+	r.cancel = cancel
+	r.dropped = 0
+	r.loaded = true // a fresh run owns the band; memory is authoritative
+	r.out = nil
 	m.captureRunPWD(c.ID)
 	ch := make(chan tea.Msg, 1024)
-	m.runCh[c.ID] = ch
+	r.ch = ch
 	go startBash(c.ID, c.Value, ctx, ch)
 	return waitBashCmd(ch)
 }
@@ -131,7 +122,11 @@ func (m *Model) setCmdPreview(id string) {
 		return
 	}
 	preview := ""
-	for _, l := range m.runOut[id] {
+	var out []outLine
+	if r := m.run(id); r != nil {
+		out = r.out
+	}
+	for _, l := range out {
 		if t := strings.TrimSpace(stripSGR(l.text)); t != "" {
 			preview = t
 			break
@@ -196,11 +191,12 @@ func (cmdChipView) Leave(m *Model, it *item) { m.focusChip = "" }
 // placeholder when empty).
 func (cmdChipView) Lines(m *Model, it *item, width int) int {
 	m.ensureRunOutLoaded(m.focusChip)
-	n := len(m.runOut[m.focusChip])
+	r := m.run(m.focusChip) // non-nil after ensureRunOutLoaded
+	n := len(r.out)
 	if n == 0 {
 		n = 1 // the "no output" placeholder
 	}
-	if m.runPWD[m.focusChip] != "" {
+	if r.pwd != "" {
 		n++
 	}
 	return 1 + n
@@ -244,15 +240,16 @@ func (cmdChipView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 // Bands renders the header and output lines, self-windowed to [scroll, scroll+winH).
 func (cmdChipView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	m.ensureRunOutLoaded(m.focusChip)
-	out := m.runOut[m.focusChip]
-	_, running := m.runCancel[m.focusChip]
+	r := m.run(m.focusChip) // non-nil after ensureRunOutLoaded
+	out := r.out
+	running := r.cancel != nil
 
 	cmd := ""
 	if c, ok := m.chips[m.focusChip]; ok {
 		cmd = c.Value
 	}
 	hdr := fmt.Sprintf("  $ %s · %d lines", cmd, len(out))
-	if d := m.runDropped[m.focusChip]; d > 0 {
+	if d := r.dropped; d > 0 {
 		hdr += fmt.Sprintf(" · %d dropped", d)
 	}
 	if running {
@@ -262,7 +259,7 @@ func (cmdChipView) Bands(m *Model, it *item, rail string, width, scroll, winH in
 	}
 	hdr += " · ↑↓ scroll · esc close"
 	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}
-	if pwd := m.runPWD[m.focusChip]; pwd != "" {
+	if pwd := r.pwd; pwd != "" {
 		content = append(content, clip(rail+cReset+cDim+"  pwd: "+pwd+cReset, width))
 	}
 

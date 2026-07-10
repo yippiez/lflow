@@ -9,7 +9,7 @@ import (
 
 // Guards so a runaway command (a huge rg, a catted binary) cannot balloon
 // memory, the DB, or the render loop: a band keeps only the newest maxRunLines
-// lines — the head is dropped and counted (m.runDropped) — every captured line
+// lines — the head is dropped and counted (runState.dropped) — every captured line
 // is clipped to maxRunLineLen bytes, and the persisted row is byte-budgeted
 // from the tail.
 const (
@@ -28,15 +28,13 @@ func (m *Model) appendRunOut(uuid string, l outLine) {
 		}
 		l.text = l.text[:cut] + "…"
 	}
-	out := append(m.runOut[uuid], l)
+	r := m.ensureRun(uuid)
+	out := append(r.out, l)
 	if over := len(out) - maxRunLines; over > 0 {
 		out = out[over:]
-		if m.runDropped == nil {
-			m.runDropped = map[string]int{}
-		}
-		m.runDropped[uuid] += over
+		r.dropped += over
 	}
-	m.runOut[uuid] = out
+	r.out = out
 }
 
 // A runnable node's captured output (bash/query stdout/stderr) is ephemeral in
@@ -65,13 +63,11 @@ type runOutDisk struct {
 // time it is rendered, so persisted output shows after a restart. A node that is
 // currently running already has its lines in memory and is left untouched.
 func (m *Model) ensureRunOutLoaded(uuid string) {
-	if m.runOutLoaded == nil {
-		m.runOutLoaded = map[string]bool{}
-	}
-	if m.runOutLoaded[uuid] {
+	r := m.ensureRun(uuid)
+	if r.loaded {
 		return
 	}
-	m.runOutLoaded[uuid] = true // mark first: a missing/garbled row is not retried
+	r.loaded = true // mark first: a missing/garbled row is not retried
 	if m.ctx.DB == nil {
 		return
 	}
@@ -88,35 +84,27 @@ func (m *Model) ensureRunOutLoaded(uuid string) {
 		}
 		row.Lines = legacy
 	}
-	if m.runOut == nil {
-		m.runOut = map[string][]outLine{}
-	}
 	if row.PWD != "" {
-		if m.runPWD == nil {
-			m.runPWD = map[string]string{}
-		}
-		m.runPWD[uuid] = row.PWD
+		r.pwd = row.PWD
 	}
 	out := make([]outLine, len(row.Lines))
 	for i, l := range row.Lines {
 		out[i] = outLine{text: l.Text, err: l.Err}
 	}
-	m.runOut[uuid] = out
+	r.out = out
 }
 
 // persistRunOut writes a node's accumulated run band to node_output (overwriting
 // any previous run). An empty band deletes the row, so a re-run that produced
 // nothing clears stale output. Best-effort: a write error never blocks the run.
 func (m *Model) persistRunOut(uuid string) {
-	if m.runOutLoaded == nil {
-		m.runOutLoaded = map[string]bool{}
-	}
-	m.runOutLoaded[uuid] = true // memory is now the source of truth for this uuid
+	r := m.ensureRun(uuid)
+	r.loaded = true // memory is now the source of truth for this uuid
 	if m.ctx.DB == nil {
 		return
 	}
 
-	out := m.runOut[uuid]
+	out := r.out
 	if len(out) == 0 {
 		_ = database.DeleteNodeOutput(m.ctx.DB, uuid)
 		return
@@ -133,7 +121,7 @@ func (m *Model) persistRunOut(uuid string) {
 	for i, l := range out {
 		disk[i] = outLineDisk{Text: l.text, Err: l.err}
 	}
-	data, err := json.Marshal(runOutDisk{PWD: m.runPWD[uuid], Lines: disk})
+	data, err := json.Marshal(runOutDisk{PWD: r.pwd, Lines: disk})
 	if err != nil {
 		return
 	}
@@ -143,10 +131,13 @@ func (m *Model) persistRunOut(uuid string) {
 // deleteRunOut drops a node's persisted run band — called when the node itself
 // is removed so the row does not outlive it.
 func (m *Model) deleteRunOut(uuid string) {
-	delete(m.runOut, uuid)
-	delete(m.runDropped, uuid)
-	delete(m.runPWD, uuid)
-	delete(m.runOutLoaded, uuid)
+	// stop a still-running command before dropping its state — otherwise the
+	// cancel func goes with the delete and the process is orphaned (quit can no
+	// longer reap it, since it ranges m.runs).
+	if r := m.run(uuid); r != nil && r.cancel != nil {
+		r.cancel()
+	}
+	delete(m.runs, uuid) // one delete drops the band, drop count, pwd and loaded flag
 	if m.ctx.DB == nil {
 		return
 	}

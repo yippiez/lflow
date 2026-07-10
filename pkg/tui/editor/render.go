@@ -188,8 +188,9 @@ func styleOutLine(l outLine) string {
 func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	uuid := r.it.uuid
 	m.ensureRunOutLoaded(uuid)
-	out := m.runOut[uuid]
-	_, running := m.runCancel[uuid]
+	rs := m.run(uuid) // non-nil after ensureRunOutLoaded
+	out := rs.out
+	running := rs.cancel != nil
 	if len(out) == 0 && !running {
 		return nil
 	}
@@ -199,7 +200,7 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	const capN = 3
 	if len(shown) > capN {
 		more := fmt.Sprintf("  ⋯ %d more", len(shown)-capN)
-		if d := m.runDropped[uuid]; d > 0 {
+		if d := rs.dropped; d > 0 {
 			more += fmt.Sprintf(" · %d dropped", d)
 		}
 		lines = append(lines, clip(rail+cReset+cDim+more+cReset, maxLine))
