@@ -163,10 +163,6 @@ func (m *Model) saveLinkEdit() {
 // the outline editor: ←/→, ctrl+←/→ word jumps, ctrl+backspace word delete,
 // home/end — text editing is consistent everywhere.
 func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	runes := []rune(m.linkEditActive())
-	if m.linkEditCaret > len(runes) {
-		m.linkEditCaret = len(runes)
-	}
 	switch k.String() {
 	case "esc":
 		m.mode = modeOutline
@@ -180,49 +176,13 @@ func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeOutline
 		m.refreshRows()
 		return m, nil
-	case "backspace":
-		if m.linkEditCaret > 0 {
-			m.setLinkEditActive(string(runes[:m.linkEditCaret-1]) + string(runes[m.linkEditCaret:]))
-			m.linkEditCaret--
-		}
-		return m, nil
-	case "ctrl+backspace", "ctrl+h", "ctrl+w":
-		if m.linkEditCaret > 0 {
-			from := prevWordBoundary(runes, m.linkEditCaret)
-			m.setLinkEditActive(string(runes[:from]) + string(runes[m.linkEditCaret:]))
-			m.linkEditCaret = from
-		}
-		return m, nil
-	case "left":
-		if m.linkEditCaret > 0 {
-			m.linkEditCaret--
-		}
-		return m, nil
-	case "right":
-		if m.linkEditCaret < len(runes) {
-			m.linkEditCaret++
-		}
-		return m, nil
-	case "ctrl+left":
-		m.linkEditCaret = prevWordBoundary(runes, m.linkEditCaret)
-		return m, nil
-	case "ctrl+right":
-		m.linkEditCaret = nextWordBoundary(runes, m.linkEditCaret)
-		return m, nil
-	case "home":
-		m.linkEditCaret = 0
-		return m, nil
-	case "end":
-		m.linkEditCaret = len(runes)
-		return m, nil
 	}
-	if k.Type == tea.KeySpace && !k.Alt {
-		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
-	}
-	if k.Type == tea.KeyRunes && !k.Alt {
-		ins := []rune(string(k.Runes))
-		m.setLinkEditActive(string(runes[:m.linkEditCaret]) + string(ins) + string(runes[m.linkEditCaret:]))
-		m.linkEditCaret += len(ins)
+	// within-a-field editing is the same primitive as the /note editor: wrap
+	// the active field in a textField, apply the shared caret keys, sync back.
+	f := textField{value: m.linkEditActive(), caret: m.linkEditCaret}
+	if f.handleKey(k) {
+		m.setLinkEditActive(f.value)
+		m.linkEditCaret = f.caret
 	}
 	return m, nil
 }

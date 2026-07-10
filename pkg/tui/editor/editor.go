@@ -1345,54 +1345,13 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.unsaved = true
 		m.caret = len([]rune(cur.name))
 		return m, nil
-	case "backspace":
-		runes := []rune(cur.note)
-		if m.caret > 0 && m.caret <= len(runes) {
-			cur.note = string(runes[:m.caret-1]) + string(runes[m.caret:])
-			m.caret--
-		}
-		return m, nil
+	}
 	// text editing is consistent everywhere: the note field honors the same
-	// movement/delete vocabulary as the outline editor
-	case "ctrl+backspace", "ctrl+h", "ctrl+w":
-		runes := []rune(cur.note)
-		if m.caret > 0 && m.caret <= len(runes) {
-			from := prevWordBoundary(runes, m.caret)
-			cur.note = string(runes[:from]) + string(runes[m.caret:])
-			m.caret = from
-		}
-		return m, nil
-	case "left":
-		if m.caret > 0 {
-			m.caret--
-		}
-		return m, nil
-	case "right":
-		if m.caret < len([]rune(cur.note)) {
-			m.caret++
-		}
-		return m, nil
-	case "ctrl+left":
-		m.caret = prevWordBoundary([]rune(cur.note), m.caret)
-		return m, nil
-	case "ctrl+right":
-		m.caret = nextWordBoundary([]rune(cur.note), m.caret)
-		return m, nil
-	case "home":
-		m.caret = 0
-		return m, nil
-	case "end":
-		m.caret = len([]rune(cur.note))
-		return m, nil
-	}
-	if k.Type == tea.KeySpace && !k.Alt {
-		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
-	}
-	if k.Type == tea.KeyRunes && !k.Alt {
-		runes := []rune(cur.note)
-		ins := []rune(sanitizeName(string(k.Runes)))
-		cur.note = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
-		m.caret += len(ins)
+	// caret vocabulary as the link editor, via the shared textField primitive.
+	f := textField{value: cur.note, caret: m.caret}
+	if f.handleKey(k) {
+		cur.note = f.value
+		m.caret = f.caret
 	}
 	return m, nil
 }
