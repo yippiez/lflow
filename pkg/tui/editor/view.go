@@ -115,17 +115,34 @@ func (m *Model) finalView(maxLine int) []string {
 }
 
 func (m *Model) viewOutline(maxLine int) []string {
-	var lines []string
+	groups, bands := m.viewRenderRows(maxLine)
+	bar := m.bottomBar(maxLine)
+	lay := m.viewBudgets(len(bar))
+	m.viewFocusedBand(groups, bands, lay, maxLine)
+	body := m.viewWindow(groups, bands, lay, maxLine)
+	body = append(body, m.viewOverlays(lay, maxLine)...)
+	return m.viewFrame(body, bar, lay, maxLine)
+}
 
+// viewLayout carries the height budgets computed once per frame from stages 2+4
+// (viewBudgets) down into the stages that window and assemble the frame
+// (viewFocusedBand, viewWindow, viewFrame).
+type viewLayout struct {
+	rowBudget     int
+	mainBudget    int
+	tempBudget    int
+	focusedBudget int
+	maxRows       int
+	showTemp      bool
+}
+
+// viewRenderRows renders every row to its wrapped lines up front: the viewport
+// then works in screen lines, so wrapped rows never push the cursor off screen.
+// groups[i]/bands[i] index-align with m.rows[i].
+func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 	rows := m.rows
-	if len(rows) == 0 {
-		lines = append(lines, cDim+" empty - type to add a node"+cReset)
-	}
-
-	// render every row to its wrapped lines first: the viewport then works
-	// in screen lines, so wrapped rows never push the cursor off screen
-	groups := make([][]string, len(rows))
-	bands := make([][]string, len(rows))
+	groups = make([][]string, len(rows))
+	bands = make([][]string, len(rows))
 	for i, r := range rows {
 		it := r.it
 		selected := i == m.cursor
@@ -221,7 +238,13 @@ func (m *Model) viewOutline(maxLine int) []string {
 			}
 		}
 	}
+	return groups, bands
+}
 
+// viewBudgets computes the frame's height budgets (stage 2) and the picker /
+// settings overlay carve-out that shrinks the body window (stage 4). barLines is
+// len(m.bottomBar(...)) — the status bar can wrap to several lines.
+func (m *Model) viewBudgets(barLines int) viewLayout {
 	// The Temporary Domain panel is always visible during normal editing — only
 	// modal overlays (slash menu, pickers, prompts) take the full body. Layout:
 	// main notes on top, the status bar acting as the divider, then the
@@ -231,8 +254,7 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// The status bar wraps instead of truncating (see bottomBar), so its extra
 	// lines come out of the body budget — the frame must never exceed the
 	// terminal height, or the height cap would cut the bar off the bottom.
-	bar := m.bottomBar(maxLine)
-	rowBudget -= len(bar) - 1
+	rowBudget -= barLines - 1
 	if rowBudget < 1 {
 		rowBudget = 1
 	}
@@ -252,29 +274,6 @@ func (m *Model) viewOutline(maxLine int) []string {
 	focusedBudget := mainBudget
 	if showTemp && m.tempActive {
 		focusedBudget = tempBudget
-	}
-
-	// The focused node's inline expanded view renders as a band beneath it,
-	// self-windowed to the focused budget so the node header stays pinned above
-	// while a tall view (e.g. long bash output) scrolls within its window.
-	if m.focused && m.cursor >= 0 && m.cursor < len(rows) {
-		cur := rows[m.cursor].it
-		if v := m.activeView(cur); v != nil {
-			r := rows[m.cursor]
-			below := m.cursor+1 < len(rows) && rows[m.cursor+1].depth > r.depth
-			winH := focusedBudget - len(groups[m.cursor]) - 1
-			if winH < 1 {
-				winH = 1
-			}
-			if total := v.Lines(m, cur, maxLine); m.focusScroll > total-winH {
-				m.focusScroll = total - winH
-			}
-			if m.focusScroll < 0 {
-				m.focusScroll = 0
-			}
-			bands[m.cursor] = append(bands[m.cursor],
-				v.Bands(m, cur, continuationPrefix(r, below), maxLine, m.focusScroll, winH, true)...)
-		}
 	}
 
 	maxRows := focusedBudget
@@ -307,6 +306,54 @@ func (m *Model) viewOutline(maxLine int) []string {
 			maxRows = 1
 		}
 	}
+	return viewLayout{
+		rowBudget:     rowBudget,
+		mainBudget:    mainBudget,
+		tempBudget:    tempBudget,
+		focusedBudget: focusedBudget,
+		maxRows:       maxRows,
+		showTemp:      showTemp,
+	}
+}
+
+// viewFocusedBand appends the focused node's inline expanded view as a band
+// beneath it (stage 3), self-windowed to the focused budget so the node header
+// stays pinned above while a tall view (e.g. long bash output) scrolls within
+// its window. Mutates bands[cursor] and clamps m.focusScroll.
+func (m *Model) viewFocusedBand(groups, bands [][]string, lay viewLayout, maxLine int) {
+	rows := m.rows
+	if m.focused && m.cursor >= 0 && m.cursor < len(rows) {
+		cur := rows[m.cursor].it
+		if v := m.activeView(cur); v != nil {
+			r := rows[m.cursor]
+			below := m.cursor+1 < len(rows) && rows[m.cursor+1].depth > r.depth
+			winH := lay.focusedBudget - len(groups[m.cursor]) - 1
+			if winH < 1 {
+				winH = 1
+			}
+			if total := v.Lines(m, cur, maxLine); m.focusScroll > total-winH {
+				m.focusScroll = total - winH
+			}
+			if m.focusScroll < 0 {
+				m.focusScroll = 0
+			}
+			bands[m.cursor] = append(bands[m.cursor],
+				v.Bands(m, cur, continuationPrefix(r, below), maxLine, m.focusScroll, winH, true)...)
+		}
+	}
+}
+
+// viewWindow flattens the rendered rows to screen lines and slices out the
+// visible window (stage 5): root-note prepend, cursor-follow vs pgup/pgdown
+// scroll, the m.viewTop/m.viewRows/m.scrollTop cache writes, and the
+// m.screenRows capture from the windowed range.
+func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int) []string {
+	var lines []string
+	rows := m.rows
+	if len(rows) == 0 {
+		lines = append(lines, cDim+" empty - type to add a node"+cReset)
+	}
+	maxRows := lay.maxRows
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
 	var flatRow []int // row index behind each flat line; -1 = the root note band
@@ -378,6 +425,14 @@ func (m *Model) viewOutline(maxLine int) []string {
 			m.screenRows = append(m.screenRows, screenRow{it: rows[ri].it, depth: rows[ri].depth})
 		}
 	}
+	return lines
+}
+
+// viewOverlays draws the modal overlays that sit above the status bar (stage
+// 6a): the delete-confirm prompt, the shared listPicker window, and the bespoke
+// /settings rows.
+func (m *Model) viewOverlays(lay viewLayout, maxLine int) []string {
+	var lines []string
 
 	// The delete confirm sits above the status line, not below it: the inline
 	// renderer leaves a shrinking frame's old last line in place, so if the
@@ -411,48 +466,63 @@ func (m *Model) viewOutline(maxLine int) []string {
 		lines = append(lines, m.list.render(m, src, maxLine)...)
 	}
 
-	// the /settings picker: one row per preference as `label · value` — muted
-	// label, middle dot, value colored by settingValueColor (green affirmative,
-	// red negative). The theme row previews the selected palette as a swatch
-	// strip so colors are visible before committing. It keeps its own bespoke
-	// mode (not a listPicker) because left/right cycles a value in place rather
-	// than picking one option and closing.
 	if m.mode == modeSettings {
-		win := pickerMaxRows
-		s2 := scrollStart(m.settingsSel, len(settingDefs), win)
-		e2 := s2 + win
-		if e2 > len(settingDefs) {
-			e2 = len(settingDefs)
-		}
-		for i := s2; i < e2; i++ {
-			d := settingDefs[i]
-			val := m.setting(d.key)
-			mark := "  "
-			if i == m.settingsSel {
-				mark = cAccent + "→ " + cReset // one joined arrow, not "-" + ">"
-			}
-			value := settingValueColor(val) + settingValueLabel(d, val) + cReset
-			extra := ""
-			if d.key == "theme" {
-				if t, ok := themeByName(val); ok {
-					extra = "  " + t.accent + "●" + t.red + "●" + t.yellow + "●" +
-						t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
-				}
-			}
-			line := " " + mark + cDim + fmt.Sprintf("%-14s", d.label) + "· " + cReset + value + extra
-			lines = append(lines, clip(line, maxLine))
-		}
+		lines = append(lines, m.viewSettings(maxLine)...)
 	}
+	return lines
+}
 
+// viewSettings renders the /settings picker: one row per preference as
+// `label · value` — muted label, middle dot, value colored by settingValueColor
+// (green affirmative, red negative). The theme row previews the selected palette
+// as a swatch strip so colors are visible before committing. It keeps its own
+// bespoke mode (not a listPicker) because left/right cycles a value in place
+// rather than picking one option and closing.
+func (m *Model) viewSettings(maxLine int) []string {
+	var lines []string
+	win := pickerMaxRows
+	s2 := scrollStart(m.settingsSel, len(settingDefs), win)
+	e2 := s2 + win
+	if e2 > len(settingDefs) {
+		e2 = len(settingDefs)
+	}
+	for i := s2; i < e2; i++ {
+		d := settingDefs[i]
+		val := m.setting(d.key)
+		mark := "  "
+		if i == m.settingsSel {
+			mark = cAccent + "→ " + cReset // one joined arrow, not "-" + ">"
+		}
+		value := settingValueColor(val) + settingValueLabel(d, val) + cReset
+		extra := ""
+		if d.key == "theme" {
+			if t, ok := themeByName(val); ok {
+				extra = "  " + t.accent + "●" + t.red + "●" + t.yellow + "●" +
+					t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
+			}
+		}
+		line := " " + mark + cDim + fmt.Sprintf("%-14s", d.label) + "· " + cReset + value + extra
+		lines = append(lines, clip(line, maxLine))
+	}
+	return lines
+}
+
+// viewFrame assembles the final frame (stage 6b). In showTemp mode it stacks the
+// three regions — main notes, the status bar acting as the divider, then the
+// Temporary Domain panel — padded to a constant height. Otherwise it pads the
+// focused/plain body and appends the bar as the last line. Both branches write
+// m.pageRows. body is the windowed body (viewWindow + viewOverlays); bar is
+// m.bottomBar(...).
+func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []string {
 	// Assemble the body: main notes, then the status bar (which doubles as the
-	// divider), then the Temporary Domain panel below it. `lines` here is the
+	// divider), then the Temporary Domain panel below it. `body` here is the
 	// focused region's body (no modal menus are open in showTemp modes). The frame
 	// is padded to a constant height so the inline renderer never strands stale
 	// lines despite the status bar sitting mid-frame.
-	if showTemp {
-		focused := lines
-		if len(focused) > focusedBudget {
-			focused = focused[:focusedBudget]
+	if lay.showTemp {
+		focused := body
+		if len(focused) > lay.focusedBudget {
+			focused = focused[:lay.focusedBudget]
 		}
 		var mainLines, tempLines []string
 		if m.tempActive {
@@ -462,28 +532,28 @@ func (m *Model) viewOutline(maxLine int) []string {
 			if n := len(m.mainStash.viewStack); n > 0 {
 				mainRoot = m.mainStash.viewStack[n-1]
 			}
-			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, mainBudget, maxLine, false)
+			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, lay.mainBudget, maxLine, false)
 			tempLines = focused // live, focused temp
 		} else {
 			mainLines = focused // live, focused main
 			// read-only temp panel: the dashed-glyph Temporary Domain look
-			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, tempBudget, maxLine, true)
+			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, lay.tempBudget, maxLine, true)
 		}
 		// NOTE: the page background never adds filler rows — the layout (where
 		// the divider sits) must be identical across themes; gray paints
 		// exactly the rows the main region already has, edge to edge.
-		body := mainLines
-		m.pageRows = len(body)      // page bg stops at the divider; temp stays bare
-		body = append(body, bar...) // the status bar is the divider
-		body = append(body, tempLines...)
-		total := rowBudget + len(bar) // main + status + temp, fixed for a stable frame
-		for len(body) < total {
-			body = append(body, "")
+		out := mainLines
+		m.pageRows = len(out)     // page bg stops at the divider; temp stays bare
+		out = append(out, bar...) // the status bar is the divider
+		out = append(out, tempLines...)
+		total := lay.rowBudget + len(bar) // main + status + temp, fixed for a stable frame
+		for len(out) < total {
+			out = append(out, "")
 		}
-		if len(body) > total {
-			body = body[:total]
+		if len(out) > total {
+			out = out[:total]
 		}
-		return body
+		return out
 	}
 
 	// A focused inline view (alt+e on a bash/json/agent node) replaces the temp
@@ -497,15 +567,15 @@ func (m *Model) viewOutline(maxLine int) []string {
 	// inline renderer can no longer reach up to, stranding a ghost line below and
 	// pushing the outline up one row each toggle (the bleed).
 	if m.focused {
-		for len(lines) < rowBudget {
-			lines = append(lines, "")
+		for len(body) < lay.rowBudget {
+			body = append(body, "")
 		}
 	}
 
-	m.pageRows = len(lines) // page bg covers everything above the status bar
-	lines = append(lines, bar...)
+	m.pageRows = len(body) // page bg covers everything above the status bar
+	body = append(body, bar...)
 
-	return lines
+	return body
 }
 
 // WARNING (invariant): the bottom/status bar is the LAST rendered line of every
