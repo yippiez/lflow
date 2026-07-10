@@ -278,6 +278,48 @@ func FirstRank(db *DB, parentUUID string) (int, error) {
 	return int(minRank.Int64) - 1, nil
 }
 
+// Reparent moves a node under a new parent at the given rank. Like a
+// collapse/star toggle it is a structural change, so it leaves edited_on
+// untouched — the node's content did not change, only its position. Callers
+// that want the move to count as a recent edit use ReparentTouched.
+func Reparent(db *DB, uuid, parentUUID string, rank int) error {
+	if _, err := db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ? WHERE uuid = ?",
+		parentUUID, rank, uuid); err != nil {
+		return errors.Wrapf(err, "reparenting node %s", uuid)
+	}
+	return nil
+}
+
+// ReparentTouched moves a node like Reparent but also stamps edited_on, so the
+// move surfaces the node as recently touched (used by the `lflow mv` CLI).
+func ReparentTouched(db *DB, uuid, parentUUID string, rank int, editedOn int64) error {
+	if _, err := db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ?, edited_on = ? WHERE uuid = ?",
+		parentUUID, rank, editedOn, uuid); err != nil {
+		return errors.Wrapf(err, "reparenting node %s", uuid)
+	}
+	return nil
+}
+
+// ShiftRanksAll adds delta to the rank of every non-deleted child of the parent,
+// opening a gap at the top for an incoming node (or nodes).
+func ShiftRanksAll(db *DB, parentUUID string, delta int) error {
+	if _, err := db.Exec("UPDATE nodes SET rank = rank + ? WHERE parent_uuid = ? AND deleted = 0",
+		delta, parentUUID); err != nil {
+		return errors.Wrapf(err, "shifting ranks under %s", parentUUID)
+	}
+	return nil
+}
+
+// ShiftRanksAfter adds delta to the rank of every non-deleted child of the parent
+// whose rank is strictly greater than afterRank, opening a gap after that sibling.
+func ShiftRanksAfter(db *DB, parentUUID string, afterRank, delta int) error {
+	if _, err := db.Exec("UPDATE nodes SET rank = rank + ? WHERE parent_uuid = ? AND rank > ? AND deleted = 0",
+		delta, parentUUID, afterRank); err != nil {
+		return errors.Wrapf(err, "shifting ranks under %s", parentUUID)
+	}
+	return nil
+}
+
 // MarkSubtreeDeleted tombstones the node and all descendants.
 func MarkSubtreeDeleted(db *DB, rootUUID string) (int, error) {
 	subtree, err := GetSubtree(db, rootUUID)

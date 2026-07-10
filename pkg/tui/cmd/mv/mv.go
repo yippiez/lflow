@@ -96,7 +96,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		switch {
 		case opts.top:
 			rank = 0
-			if _, err := db.Exec("UPDATE nodes SET rank = rank + 1 WHERE parent_uuid = ? AND deleted = 0", parentRes.Node.UUID); err != nil {
+			if err := database.ShiftRanksAll(db, parentRes.Node.UUID, 1); err != nil {
 				return errors.Wrap(err, "shifting sibling ranks")
 			}
 		case opts.after != "":
@@ -108,8 +108,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 				return errors.New("--after node is not a child of the new parent")
 			}
 			rank = sibRes.Node.Rank + 1
-			if _, err := db.Exec("UPDATE nodes SET rank = rank + 1 WHERE parent_uuid = ? AND rank > ? AND deleted = 0",
-				parentRes.Node.UUID, sibRes.Node.Rank); err != nil {
+			if err := database.ShiftRanksAfter(db, parentRes.Node.UUID, sibRes.Node.Rank, 1); err != nil {
 				return errors.Wrap(err, "shifting sibling ranks")
 			}
 		default:
@@ -120,8 +119,7 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 		}
 
 		now := time.Now().UnixNano()
-		if _, err := db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ?, edited_on = ? WHERE uuid = ?",
-			parentRes.Node.UUID, rank, now, nodeRes.Node.UUID); err != nil {
+		if err := database.ReparentTouched(db, nodeRes.Node.UUID, parentRes.Node.UUID, rank, now); err != nil {
 			return errors.Wrap(err, "moving node")
 		}
 

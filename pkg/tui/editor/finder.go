@@ -282,8 +282,7 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 	if err != nil {
 		return err
 	}
-	if _, err := m.db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ? WHERE uuid = ?",
-		target.UUID, rank, cur.uuid); err != nil {
+	if err := database.Reparent(m.db, cur.uuid, target.UUID, rank); err != nil {
 		return errors.Wrap(err, "moving node")
 	}
 
@@ -381,8 +380,7 @@ func (m *Model) bringFromDB(target database.Node, cur *item) error {
 	if err != nil {
 		return err
 	}
-	if _, err := m.db.Exec("UPDATE nodes SET parent_uuid = ?, rank = ? WHERE uuid = ?",
-		parentUUID, rank, target.UUID); err != nil {
+	if err := database.Reparent(m.db, target.UUID, parentUUID, rank); err != nil {
 		return errors.Wrap(err, "bringing node")
 	}
 

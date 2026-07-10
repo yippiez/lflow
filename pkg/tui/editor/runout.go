@@ -3,6 +3,8 @@ package editor
 import (
 	"encoding/json"
 	"unicode/utf8"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // Guards so a runaway command (a huge rg, a catted binary) cannot balloon
@@ -74,12 +76,9 @@ func (m *Model) ensureRunOutLoaded(uuid string) {
 		return
 	}
 
-	var raw string
-	if err := m.ctx.DB.QueryRow("SELECT output FROM node_output WHERE uuid = ?", uuid).Scan(&raw); err != nil {
+	raw, err := database.LoadNodeOutput(m.ctx.DB, uuid)
+	if err != nil || raw == "" {
 		return // never run, or no persisted output
-	}
-	if raw == "" {
-		return
 	}
 	var row runOutDisk
 	if err := json.Unmarshal([]byte(raw), &row); err != nil {
@@ -119,7 +118,7 @@ func (m *Model) persistRunOut(uuid string) {
 
 	out := m.runOut[uuid]
 	if len(out) == 0 {
-		_, _ = m.ctx.DB.Exec("DELETE FROM node_output WHERE uuid = ?", uuid)
+		_ = database.DeleteNodeOutput(m.ctx.DB, uuid)
 		return
 	}
 	// byte-budget the row from the tail — the newest lines are the ones worth
@@ -138,9 +137,7 @@ func (m *Model) persistRunOut(uuid string) {
 	if err != nil {
 		return
 	}
-	_, _ = m.ctx.DB.Exec(
-		"INSERT INTO node_output (uuid, output) VALUES (?, ?) ON CONFLICT(uuid) DO UPDATE SET output = excluded.output",
-		uuid, string(data))
+	_ = database.SaveNodeOutput(m.ctx.DB, uuid, string(data))
 }
 
 // deleteRunOut drops a node's persisted run band — called when the node itself
@@ -153,5 +150,5 @@ func (m *Model) deleteRunOut(uuid string) {
 	if m.ctx.DB == nil {
 		return
 	}
-	_, _ = m.ctx.DB.Exec("DELETE FROM node_output WHERE uuid = ?", uuid)
+	_ = database.DeleteNodeOutput(m.ctx.DB, uuid)
 }

@@ -82,7 +82,7 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, typ, not
 	if top {
 		rank = 0
 		// shift existing children down
-		if _, err := db.Exec("UPDATE nodes SET rank = rank + ? WHERE parent_uuid = ? AND deleted = 0", len(lines), parentUUID); err != nil {
+		if err := database.ShiftRanksAll(db, parentUUID, len(lines)); err != nil {
 			return 0, errors.Wrap(err, "shifting sibling ranks")
 		}
 	} else {
