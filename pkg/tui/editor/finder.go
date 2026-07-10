@@ -300,10 +300,7 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 func (m *Model) placeBrought(it, cur *item) {
 	parent := cur.parent
 	it.parent = parent
-	idx := indexOf(cur)
-	parent.children = append(parent.children, nil)
-	copy(parent.children[idx+2:], parent.children[idx+1:])
-	parent.children[idx+1] = it
+	m.tree.insertChildAt(parent, indexOf(cur)+1, it)
 
 	var reg func(x *item)
 	reg = func(x *item) {
@@ -354,16 +351,9 @@ func (m *Model) bringWithin(it, cur *item) {
 	if idx := indexOf(it); idx >= 0 {
 		it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
 	}
-	parent := cur.parent
-	it.parent = parent
-	idx := indexOf(cur)
-	parent.children = append(parent.children, nil)
-	copy(parent.children[idx+2:], parent.children[idx+1:])
-	parent.children[idx+1] = it
-	m.unsaved = true
-	m.refreshRows()
-	m.cursor = m.rowIndexOf(it)
-	m.flash = "brought here"
+	// placeBrought re-splices after cur and re-registers the subtree in byUUID;
+	// this node is already indexed there, so the re-register is a harmless no-op.
+	m.placeBrought(it, cur)
 }
 
 // bringFromDB moves a node that lives elsewhere in the database under the cursor's

@@ -373,6 +373,15 @@ func (t *tree) newItem() (*item, error) {
 	return it, nil
 }
 
+// insertChildAt splices it into parent.children at position idx (0..len),
+// shifting the existing children from idx onward down one slot. "after cur" is
+// indexOf(cur)+1; "before cur" is indexOf(cur). The caller owns it.parent.
+func (t *tree) insertChildAt(parent *item, idx int, it *item) {
+	parent.children = append(parent.children, nil)
+	copy(parent.children[idx+1:], parent.children[idx:])
+	parent.children[idx] = it
+}
+
 // insertSiblingAfter inserts a new empty node after the given one.
 func (t *tree) insertSiblingAfter(after *item) (*item, error) {
 	it, err := t.newItem()
@@ -381,10 +390,7 @@ func (t *tree) insertSiblingAfter(after *item) (*item, error) {
 	}
 	parent := after.parent
 	it.parent = parent
-	idx := indexOf(after)
-	parent.children = append(parent.children, nil)
-	copy(parent.children[idx+2:], parent.children[idx+1:])
-	parent.children[idx+1] = it
+	t.insertChildAt(parent, indexOf(after)+1, it)
 	return it, nil
 }
 
@@ -397,10 +403,7 @@ func (t *tree) insertSiblingBefore(before *item) (*item, error) {
 	}
 	parent := before.parent
 	it.parent = parent
-	idx := indexOf(before)
-	parent.children = append(parent.children, nil)
-	copy(parent.children[idx+1:], parent.children[idx:])
-	parent.children[idx] = it
+	t.insertChildAt(parent, indexOf(before), it)
 	return it, nil
 }
 
@@ -427,10 +430,7 @@ func (t *tree) duplicate(it *item) (*item, error) {
 		return nil, err
 	}
 	clone.parent = it.parent
-	idx := indexOf(it)
-	it.parent.children = append(it.parent.children, nil)
-	copy(it.parent.children[idx+2:], it.parent.children[idx+1:])
-	it.parent.children[idx+1] = clone
+	t.insertChildAt(it.parent, indexOf(it)+1, clone)
 	return clone, nil
 }
 
@@ -520,11 +520,8 @@ func (t *tree) outdent(it *item, viewRoot *item) bool {
 	idx := indexOf(it)
 	parent.children = append(parent.children[:idx], parent.children[idx+1:]...)
 
-	pIdx := indexOf(parent)
 	it.parent = grandparent
-	grandparent.children = append(grandparent.children, nil)
-	copy(grandparent.children[pIdx+2:], grandparent.children[pIdx+1:])
-	grandparent.children[pIdx+1] = it
+	t.insertChildAt(grandparent, indexOf(parent)+1, it)
 	return true
 }
 
