@@ -20,7 +20,10 @@ import (
 // an anchor is a marker. Every surface that reads a name (render, CLI, export,
 // search, bash run) resolves anchors through the chip store first.
 
-const chipSentinel = '￼' // OBJECT REPLACEMENT CHARACTER — opens and closes an anchor
+// chipSentinel opens and closes an anchor (OBJECT REPLACEMENT CHARACTER). It
+// aliases the database's canonical constant so the two packages can never define
+// a different sentinel.
+const chipSentinel = database.ChipSentinel
 
 // chipAnchor builds the in-text anchor for a chip id.
 func chipAnchor(id string) string {
@@ -34,22 +37,17 @@ type anchorSpan struct {
 	id         string
 }
 
-// anchorSpans returns every well-formed anchor in runes, in order.
+// anchorSpans returns every well-formed anchor in runes, in order. The sentinel
+// scan itself lives once in database.AnchorSpans; this wraps it in the editor's
+// local span type the caret/layout helpers below index into.
 func anchorSpans(runes []rune) []anchorSpan {
-	var spans []anchorSpan
-	for i := 0; i < len(runes); i++ {
-		if runes[i] != chipSentinel {
-			continue
-		}
-		j := i + 1
-		for j < len(runes) && runes[j] != chipSentinel {
-			j++
-		}
-		if j >= len(runes) {
-			break // unterminated anchor: ignore the trailing sentinel
-		}
-		spans = append(spans, anchorSpan{start: i, end: j + 1, id: string(runes[i+1 : j])})
-		i = j
+	dbSpans := database.AnchorSpans(runes)
+	if len(dbSpans) == 0 {
+		return nil
+	}
+	spans := make([]anchorSpan, len(dbSpans))
+	for i, sp := range dbSpans {
+		spans[i] = anchorSpan{start: sp.Start, end: sp.End, id: sp.ID}
 	}
 	return spans
 }

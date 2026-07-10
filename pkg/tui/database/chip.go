@@ -64,6 +64,36 @@ func linkLabel(c Chip) string {
 	return c.Value
 }
 
+// AnchorSpan is one chip anchor's rune range [Start,End) (both sentinels
+// included) and the chip id it carries.
+type AnchorSpan struct {
+	Start, End int
+	ID         string
+}
+
+// AnchorSpans returns every well-formed anchor in runes, in order. This is the
+// one place the "￼<id>￼" sentinel format is parsed — every anchor-aware surface
+// (this file's resolvers and the editor's caret/layout code) walks these spans,
+// so the scan can never drift into two subtly different loops.
+func AnchorSpans(runes []rune) []AnchorSpan {
+	var spans []AnchorSpan
+	for i := 0; i < len(runes); i++ {
+		if runes[i] != ChipSentinel {
+			continue
+		}
+		j := i + 1
+		for j < len(runes) && runes[j] != ChipSentinel {
+			j++
+		}
+		if j >= len(runes) {
+			break // unterminated anchor: ignore the trailing sentinel
+		}
+		spans = append(spans, AnchorSpan{Start: i, End: j + 1, ID: string(runes[i+1 : j])})
+		i = j
+	}
+	return spans
+}
+
 // resolveAnchors rewrites each anchor in name using f(chip). A missing record
 // degrades to "@?" so a raw anchor never leaks to a read surface.
 func resolveAnchors(name string, chips map[string]Chip, f func(Chip) string) string {
@@ -73,26 +103,14 @@ func resolveAnchors(name string, chips map[string]Chip, f func(Chip) string) str
 	runes := []rune(name)
 	var b strings.Builder
 	i := 0
-	for j := 0; j < len(runes); j++ {
-		if runes[j] != ChipSentinel {
-			continue
-		}
-		k := j + 1
-		for k < len(runes) && runes[k] != ChipSentinel {
-			k++
-		}
-		if k >= len(runes) {
-			break
-		}
-		b.WriteString(string(runes[i:j]))
-		id := string(runes[j+1 : k])
-		if c, ok := chips[id]; ok {
+	for _, sp := range AnchorSpans(runes) {
+		b.WriteString(string(runes[i:sp.Start]))
+		if c, ok := chips[sp.ID]; ok {
 			b.WriteString(f(c))
 		} else {
 			b.WriteString("@?")
 		}
-		i = k + 1
-		j = k
+		i = sp.End
 	}
 	b.WriteString(string(runes[i:]))
 	return b.String()
