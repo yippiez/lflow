@@ -221,6 +221,10 @@ type Model struct {
 	agents     []tag.Agent
 	tagClients map[string]tag.Client
 	threads    map[string]*agentThread
+	// agentErr is the last agent failure (backend missing, unknown @name, or a
+	// turn error) — shown in the status bar as "Error: …" like the thinking
+	// indicator, cleared when the next turn is fired. Never lands in the outline.
+	agentErr string
 	// blur-send state (see blurSendCheck): the item the cursor sat on at the
 	// last key, and the item last typed into — leaving a typed node inside an
 	// active thread ships it without waiting for Enter

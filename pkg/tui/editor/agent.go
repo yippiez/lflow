@@ -184,13 +184,19 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	if t := m.thread(root.uuid); t != nil && t.busy {
 		return nil
 	}
+	m.agentErr = "" // a fresh attempt clears the last failure
 
 	if m.tagClients == nil {
 		m.tagClients = map[string]tag.Client{}
 	}
 	client, ok := m.tagClients[ag.Name]
 	if !ok {
-		client = tag.ClientFor(ag)
+		c, err := tag.ClientFor(ag)
+		if err != nil {
+			m.agentErr = err.Error() // no backend for @Name — surfaced in the bar
+			return nil
+		}
+		client = c
 		m.tagClients[ag.Name] = client
 	}
 
@@ -200,7 +206,7 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	ch, err := client.Send(ctx, ag.Name, m.buildThread(root, asked.uuid))
 	if err != nil {
 		cancel()
-		m.flash = "@" + ag.Name + " · " + err.Error()
+		m.agentErr = err.Error()
 		return nil
 	}
 	t := m.ensureThread(root.uuid)
@@ -289,7 +295,9 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 			m.placeAgentNode(msg.thread, msg.asked, "failed to install node type "+msg.ev.Key+": "+err.Error(), "thread")
 		}
 	case "error":
-		m.placeAgentNode(msg.thread, msg.asked, "error: "+msg.ev.Text, "thread")
+		// an agent failure shows in the status bar (like thinking), not the
+		// outline — it is transient state, not a note the user wrote or wants kept
+		m.agentErr = msg.ev.Text
 		m.finishThread(msg.thread, msg.agent)
 		return m, nil
 	case "done":

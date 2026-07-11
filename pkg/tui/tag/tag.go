@@ -15,6 +15,7 @@ package tag
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -89,33 +90,36 @@ func LoadAgents(configDir string) []Agent {
 	return agents
 }
 
-// ClientFor returns the client that serves the agent: the offline mock, the
-// websocket bridge to a configured service, or the agent's own CLI backend.
-// Each built-in agent runs on ITS backend and nothing else — @Grok never falls
-// through to pi. When that backend is not installed the offline mock serves the
-// agent so @mentions still work in tests and offline.
-func ClientFor(a Agent) Client {
+// ClientFor returns the client that serves the agent, or an error when no
+// backend can. Each built-in agent runs on ITS CLI backend and nothing else —
+// @Grok never falls through to pi, and a missing backend is an error, not a
+// silent mock. (The mock only serves a test agent that sets Mock explicitly.)
+func ClientFor(a Agent) (Client, error) {
 	if a.Mock {
-		return &MockClient{}
+		return &MockClient{}, nil
 	}
 	if a.URL != "" {
-		return &WSClient{URL: a.URL}
+		return &WSClient{URL: a.URL}, nil
 	}
-	if prov, ok := providerFor(a.Name); ok && agent.Available(prov) {
-		return &CLIClient{Provider: prov}
+	prov, err := providerFor(a.Name)
+	if err != nil {
+		return nil, err
 	}
-	return &MockClient{}
+	if !agent.Available(prov) {
+		return nil, fmt.Errorf("%s is not installed", a.Name)
+	}
+	return &CLIClient{Provider: prov}, nil
 }
 
 // providerFor maps a built-in agent to its CLI backend. Only the implemented
 // agents are wired — there are no custom/plugin agents — so a new agent is a
-// new case here. An unrecognized name is served by the offline mock.
-func providerFor(name string) (agent.Provider, bool) {
+// new case here. An unrecognized name is an error.
+func providerFor(name string) (agent.Provider, error) {
 	switch name {
 	case "Pi":
-		return agent.ProviderPi, true
+		return agent.ProviderPi, nil
 	case "Grok":
-		return agent.ProviderGrok, true
+		return agent.ProviderGrok, nil
 	}
-	return "", false
+	return "", fmt.Errorf("unknown agent @%s", name)
 }

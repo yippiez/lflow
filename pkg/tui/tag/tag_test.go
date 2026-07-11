@@ -23,23 +23,23 @@ func TestLoadAgentsDefaultsToPiAndGrok(t *testing.T) {
 
 // Each built-in agent is hardcoded to exactly one backend — @Pi → pi, @Grok →
 // grok — and nothing else: @Grok must never resolve to pi. An unrecognized name
-// returns false and is served by the offline mock.
+// is an error (no custom agents, no mock fallback).
 func TestProviderFor(t *testing.T) {
 	cases := []struct {
-		name    string
-		want    agent.Provider
-		matched bool
+		name string
+		want agent.Provider
+		ok   bool
 	}{
 		{"Pi", agent.ProviderPi, true},
 		{"Grok", agent.ProviderGrok, true},
-		{"grok", "", false},    // exact match only — not the generic lookup
+		{"grok", "", false},    // exact match only — not a generic lookup
 		{"Zamboni", "", false}, // no custom agents
 	}
 	for _, c := range cases {
-		got, ok := providerFor(c.name)
-		if ok != c.matched || got != c.want {
-			t.Errorf("providerFor(%q) = (%q, %v), want (%q, %v)",
-				c.name, got, ok, c.want, c.matched)
+		got, err := providerFor(c.name)
+		if (err == nil) != c.ok || got != c.want {
+			t.Errorf("providerFor(%q) = (%q, err=%v), want (%q, ok=%v)",
+				c.name, got, err, c.want, c.ok)
 		}
 	}
 	// the safety net the user asked for: Grok is never pi.
