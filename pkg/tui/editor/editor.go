@@ -201,9 +201,10 @@ type Model struct {
 
 	// Manual viewport scroll (pgup/pgdown): scrolling pins the body window at
 	// scrollTop instead of following the cursor — to read a long note/subtree that
-	// runs past the footer without moving the cursor. Any other key resets it to
-	// cursor-follow. viewTop/viewRows cache the last frame's window so a page step
-	// is relative to what is on screen.
+	// runs past the footer without moving the cursor. Any other key clears the pin;
+	// cursor-follow then keeps viewTop when the cursor is already on screen so a
+	// page does not snap back on the next type or arrow. viewTop/viewRows cache
+	// the last frame's window so a page step is relative to what is on screen.
 	scrolling bool
 	scrollTop int
 	viewTop   int

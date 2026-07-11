@@ -11,8 +11,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
 	m.flash = "" // one-shot: whatever this key does sets the next status
 
-	// page keys scroll the viewport in place; every other key returns the view to
-	// following the cursor.
+	// page keys pin the viewport; every other key leaves pin mode. Cursor-follow
+	// then prefers the last window (see viewWindow) so typing after a page does
+	// not yank the view back.
 	if key != "pgup" && key != "pgdown" {
 		m.scrolling = false
 	}
@@ -115,9 +116,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "pgdown", "pgup":
-		// scroll the body a page at a time without moving the cursor — for reading a
-		// long note/subtree that runs past the footer. A small overlap keeps context.
-		step := m.viewRows - 2
+		// scroll the body half a viewport without moving the cursor — for reading a
+		// long note/subtree that runs past the footer. Half-page keeps enough context
+		// that consecutive pages stay oriented.
+		step := m.viewRows / 2
 		if step < 1 {
 			step = 1
 		}

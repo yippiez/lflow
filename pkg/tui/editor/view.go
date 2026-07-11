@@ -392,8 +392,17 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 		}
 		m.scrollTop = start
 	} else {
-		// follow the cursor: keep its row (and band, while editing) on screen
-		if cursorEnd >= maxRows {
+		// follow the cursor, but keep the previous window when the cursor is already
+		// fully visible in it — otherwise a pgdown that peeks past the cursor is
+		// yanked back the moment the user types or moves within the page.
+		start = m.viewTop
+		if maxStart := len(flat) - maxRows; start > maxStart {
+			start = maxStart
+		}
+		if start < 0 {
+			start = 0
+		}
+		if cursorEnd >= start+maxRows {
 			start = cursorEnd - maxRows + 1
 		}
 		if cursorStart < start {
