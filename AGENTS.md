@@ -19,8 +19,10 @@ per type in `pkg/tui/editor/registry.go`.
 - Test in isolation against a throwaway HOME/XDG + seeded DB — **never** the real
   outline at `~/.local/share/lflow/lflow.db`. SQLite surgery goes through a
   `-tags fts5` Go program (the sqlite3 CLI lacks fts5).
-- Commit each logical change as its own `label: description` commit; push as you go.
-  Branches are named `label/explanation` — see [CONTRIBUTING.md](CONTRIBUTING.md).
+- Development is **trunk-based**: work directly on `main`, no feature branches
+  or PRs. Commit each logical change as its own `label: description` commit
+  (labels: `editor`, `db`, `agent`, `daemon`, `docs`, …) and push to `main` as
+  you go — do not batch work at the end.
 - No emojis — plain Unicode symbols only (○ ◆ ▸ ● $ {} →). CLI output uses `→`/`·`.
 
 ## Daemon + live sync
