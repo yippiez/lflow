@@ -2,6 +2,7 @@ package tag
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	"github.com/lflow/lflow/pkg/agent"
@@ -102,6 +103,11 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 	opts := agent.RunOptions{
 		NoSession:    true, // launch-and-forget: the thread IS the memory
 		SystemPrompt: cliSystemPrompt(agentName),
+	}
+	// pin the agent process to the editor process cwd at send time — same
+	// "pwd where run" rule as $ chips (startBash). Empty → inherit.
+	if pwd, err := os.Getwd(); err == nil && pwd != "" {
+		opts.Cwd = pwd
 	}
 	if skillDir != "" {
 		opts.Skills = []string{skillDir} // the lflow skill: CLI, chips, NodeMods

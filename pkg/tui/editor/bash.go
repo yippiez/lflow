@@ -61,15 +61,26 @@ func waitBashCmd(ch chan tea.Msg) tea.Cmd {
 }
 
 // captureRunPWD remembers the working directory a run was launched from, so the
-// alt+e output menu can say exactly where the command ran. Commands inherit the
-// editor process cwd (startBash leaves Cmd.Dir empty), so os.Getwd is the source
-// of truth at launch time.
+// alt+e output menu can say exactly where the command ran. startBash pins
+// Cmd.Dir to this same Getwd snapshot at launch (empty → inherit for the rare
+// Getwd failure), so os.Getwd is the source of truth for both the band header
+// and the shell process.
 func (m *Model) captureRunPWD(id string) {
 	pwd, err := os.Getwd()
 	if err != nil || pwd == "" {
 		return
 	}
 	m.ensureRun(id).pwd = pwd
+}
+
+// processCWD returns the editor process working directory, or "" when unknown.
+// Used at alt+r to pin $ chip / bash runs and (via tag.CLIClient) @ agent turns.
+func processCWD() string {
+	pwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return pwd
 }
 
 // finishRun closes out a run band — the stream ended (done, canceled, or
@@ -110,6 +121,12 @@ func startBash(uuid, cmd string, ctx context.Context, ch chan tea.Msg) {
 	// msg is ignored by bubbletea
 	defer close(ch)
 	c := exec.CommandContext(ctx, "bash", "-c", cmd)
+	// pin the shell to the process cwd at launch (same snapshot captureRunPWD
+	// stored for the alt+e header). Empty Dir would inherit too; setting it
+	// makes the "pwd where run" contract explicit.
+	if dir := processCWD(); dir != "" {
+		c.Dir = dir
+	}
 	// coax color out of tools that suppress it when stdout isn't a TTY; captured
 	// ANSI is then rendered faithfully (see styleOutLine).
 	c.Env = append(os.Environ(), "FORCE_COLOR=1", "CLICOLOR_FORCE=1", "CLICOLOR=1")

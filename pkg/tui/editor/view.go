@@ -2,6 +2,8 @@ package editor
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -637,6 +639,50 @@ func (m *Model) bottomBar(maxLine int) []string {
 		title = "untitled"
 	}
 	bar := fmt.Sprintf(" %s · %d/%d", title, pos, total)
+	// process cwd, last two path segments — pure os.Getwd, never stored. $ and
+	// @ runs inherit this same directory at alt+r (see startBash / CLIClient).
+	if pwd, err := os.Getwd(); err == nil {
+		if short := cwdShort(pwd); short != "" {
+			bar += " · cwd " + short
+		}
+	}
 	bar += state
 	return wrapSGR(cDim+bar+cReset, maxLine)
+}
+
+// cwdShort renders a working directory for the status bar: the last two path
+// segments, with a leading "…/" when the path is deeper. Short paths (root,
+// one segment, or exactly two) are shown as-is.
+//
+//	/home/eren/work2/lflow → …/work2/lflow
+//	/home/eren            → /home/eren
+//	/tmp                  → /tmp
+func cwdShort(pwd string) string {
+	pwd = filepath.Clean(pwd)
+	if pwd == "" || pwd == "." {
+		return ""
+	}
+	const sep = string(filepath.Separator)
+	parts := strings.Split(pwd, sep)
+	var segs []string
+	for _, p := range parts {
+		if p != "" {
+			segs = append(segs, p)
+		}
+	}
+	if len(segs) == 0 {
+		return sep // filesystem root
+	}
+	abs := strings.HasPrefix(pwd, sep)
+	join := func(ss []string) string {
+		s := strings.Join(ss, sep)
+		if abs {
+			return sep + s
+		}
+		return s
+	}
+	if len(segs) <= 2 {
+		return join(segs)
+	}
+	return "…/" + segs[len(segs)-2] + "/" + segs[len(segs)-1]
 }
