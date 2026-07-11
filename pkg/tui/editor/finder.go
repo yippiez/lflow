@@ -28,7 +28,7 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 	var hits []database.Node
 	var err error
 	if strings.TrimSpace(query) == "" {
-		hits, err = database.RecentNodes(m.db, 100)
+		hits, err = database.RecentNodes(m.db)
 	} else {
 		hits, err = database.SearchNodes(m.db, query, true)
 	}

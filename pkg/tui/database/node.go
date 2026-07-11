@@ -371,10 +371,11 @@ type MatchScore struct {
 	Score float64
 }
 
-// RecentNodes returns non-deleted nodes ordered by recency, excluding the
+// RecentNodes returns every non-deleted node ordered by recency, excluding the
 // fixed root. The editor finder lists it while the query is still empty so
-// the picker starts full instead of blank.
-func RecentNodes(db *DB, limit int) ([]Node, error) {
+// the picker starts full instead of blank; the picker windows the display
+// itself, so no row limit is applied here.
+func RecentNodes(db *DB) ([]Node, error) {
 	rows, err := db.Query(`WITH RECURSIVE tt(uuid) AS (
 		SELECT ?
 		UNION ALL
@@ -382,8 +383,8 @@ func RecentNodes(db *DB, limit int) ([]Node, error) {
 	)
 	SELECT `+nodeColumns+` FROM nodes
 	WHERE deleted = 0 AND uuid != ? AND uuid NOT IN (SELECT uuid FROM tt)
-	ORDER BY edited_on DESC LIMIT ?`,
-		TempUUID, RootUUID, limit)
+	ORDER BY edited_on DESC`,
+		TempUUID, RootUUID)
 	if err != nil {
 		return nil, errors.Wrap(err, "querying recent nodes")
 	}
