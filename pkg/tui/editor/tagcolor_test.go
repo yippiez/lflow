@@ -44,7 +44,7 @@ func TestTagColorAssignAndRender(t *testing.T) {
 		t.Fatal("assigned tag must render a background pill")
 	}
 	// the plain-span render path carries the pill
-	body := renderBody(n, n.name, -1, false, m.chips)
+	body := renderBody(n, n.name, -1, false, m.chips, false)
 	if !strings.Contains(body, "[48;2;244;71;71m") {
 		t.Fatalf("plain tag span must wear the red pill, got %q", body)
 	}
@@ -53,7 +53,7 @@ func TestTagColorAssignAndRender(t *testing.T) {
 	c := database.Chip{ID: "t1", Kind: chipKindTag, Value: "urgent"}
 	m.chips[c.ID] = c
 	n.name = "review " + "￼" + "t1" + "￼" + " now"
-	body = renderBody(n, n.name, -1, false, m.chips)
+	body = renderBody(n, n.name, -1, false, m.chips, false)
 	if !strings.Contains(body, "[48;2;244;71;71m") {
 		t.Fatalf("tag chip must wear the red pill, got %q", body)
 	}

@@ -100,7 +100,7 @@ func (m *Model) finalView(maxLine int) []string {
 			glyph, glyphColor = glyphMirror, cDim
 		}
 		name := m.tree.displayName(r.it)
-		body := renderBody(r.it, name, -1, false, m.chips)
+		body := renderBody(r.it, name, -1, false, m.chips, false)
 		if rm := typeOf(r.it.typ).renderM; rm != nil {
 			body = rm(m, r.it)
 		}
@@ -178,7 +178,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
 			caret = m.caret
 		}
-		body := renderBody(it, name, caret, selected, m.chips)
+		body := renderBody(it, name, caret, selected, m.chips, m.cmdDraftLive(it))
 		if rm := typeOf(it.typ).renderM; rm != nil {
 			body = rm(m, it) // Model-aware override (voice waveform)
 		}

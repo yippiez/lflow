@@ -78,12 +78,44 @@ func TestCmdChipDraftColorsImmediately(t *testing.T) {
 	m.caret = 0
 
 	m.press("$ls")
-	rendered := renderBody(m.tree.byUUID["edit"], m.tree.byUUID["edit"].name, m.caret, true, m.chips)
+	edit := m.tree.byUUID["edit"]
+	if !m.cmdDraftLive(edit) {
+		t.Fatal("typing a standalone $ should leave the cmd draft live")
+	}
+	rendered := renderBody(edit, edit.name, m.caret, true, m.chips, m.cmdDraftLive(edit))
 	if !strings.Contains(rendered, bgCode) || !strings.Contains(rendered, cRed+"$") {
 		t.Fatalf("live cmd draft should have gray bg and red prompt, got %q", rendered)
 	}
 	if _, ok := cmdChipOf(m); ok {
 		t.Fatal("draft must not become a chip until double space")
+	}
+}
+
+// TestCmdDraftEndsOnCaretMove: the draft tint is a typing affordance, not a
+// property of the text — walking the caret into pre-existing "$…" prose (e.g.
+// an agent reply quoting a command) must NOT tint it as a code cell.
+func TestCmdDraftEndsOnCaretMove(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "run $ ls to list files"})
+	cursorOn(m, "edit")
+	m.caret = len([]rune("run $ ls to l")) // caret parked mid-text, no typing
+
+	edit := m.tree.byUUID["edit"]
+	if m.cmdDraftLive(edit) {
+		t.Fatal("a caret move alone must not start a cmd draft")
+	}
+	rendered := renderBody(edit, edit.name, m.caret, true, m.chips, m.cmdDraftLive(edit))
+	if strings.Contains(rendered, bgCode) {
+		t.Fatalf("pre-existing $ text must render plain on a caret walk, got %q", rendered)
+	}
+
+	// typing revives the draft at the caret; moving the caret ends it again
+	m.press("x")
+	if !m.cmdDraftLive(edit) {
+		t.Fatal("typing after a $ token should make the draft live")
+	}
+	m.press("left")
+	if m.cmdDraftLive(edit) {
+		t.Fatal("moving the caret should end the live draft")
 	}
 }
 

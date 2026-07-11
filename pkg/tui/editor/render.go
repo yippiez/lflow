@@ -507,7 +507,7 @@ func activeCmdDraftRange(runes []rune, caret int, spans []anchorSpan) (int, int)
 // A per-type prefix/color/muteFrom comes from the descriptor hooks (built-in or
 // a JS mod via the nodemod bridge), not a switch here.
 
-func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip) string {
+func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip, cmdDraft bool) string {
 	name = stripControlBytes(name)
 	if r := typeOf(it.typ).render; r != nil {
 		return r(it, name) // per-type inline-body override (json preview)
@@ -555,7 +555,12 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	paintLive := paintUUID == it.uuid
 	paintLo, paintHi := paintBounds()
 	chipsp := anchorSpans(runes) // inline chip anchors, drawn collapsed
-	cmdDraftStart, cmdDraftEnd := activeCmdDraftRange(runes, caret, chipsp)
+	// the "$…" draft tint only while the caret sits where typing left it
+	// (cmdDraft, see cmdDraftLive) — never on a mere caret walk through text
+	cmdDraftStart, cmdDraftEnd := -1, -1
+	if cmdDraft {
+		cmdDraftStart, cmdDraftEnd = activeCmdDraftRange(runes, caret, chipsp)
+	}
 	if desc.muteFrom != nil {
 		// a type may mute a tail — the log artifact mutes from the first " · "
 		if d := desc.muteFrom(name); d >= 0 && d < len(runes) {

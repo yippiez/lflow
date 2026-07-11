@@ -158,6 +158,14 @@ type Model struct {
 	// the node — the same surface as a focused bash node — keyed by this chip id.
 	focusChip string
 
+	// live cmd-chip draft gate: where the last text edit left the caret.
+	// activeCmdDraftRange is purely positional, so without this gate merely
+	// walking the caret into pre-existing "$…" prose (e.g. an agent reply
+	// quoting a command) would tint it as a draft; the tint shows only while
+	// the caret still sits where typing left it (see cmdDraftLive).
+	cmdDraftUUID  string
+	cmdDraftCaret int
+
 	// flash mode (modeFlash): each visible row's actions carry a typed label;
 	// typing a label narrows (matched prefix grays, the rest stays lit) until one
 	// completes and fires. flashInput is the prefix typed so far. See flash.go.

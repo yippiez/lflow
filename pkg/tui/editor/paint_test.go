@@ -83,7 +83,7 @@ func TestPainterFlow(t *testing.T) {
 		t.Fatalf("persisted spans = %v (%v)", saved, err)
 	}
 	// renders: the red SGR appears mid-body
-	body := renderBody(n, n.name, -1, false, nil)
+	body := renderBody(n, n.name, -1, false, nil, false)
 	if !strings.Contains(body, "\x1b[38;2;244;71;71m") {
 		t.Fatalf("painted run must render red, got %q", body)
 	}

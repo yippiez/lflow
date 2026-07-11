@@ -73,6 +73,19 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 	return true
 }
 
+// markCmdDraft snapshots the edit site after a text edit; renderBody shows the
+// live cmd-chip draft tint only while the caret still sits there, so any caret
+// move (navigation, node switch) ends the draft display without extra clearing.
+func (m *Model) markCmdDraft(cur *item) {
+	m.cmdDraftUUID, m.cmdDraftCaret = cur.uuid, m.caret
+}
+
+// cmdDraftLive reports whether the caret still sits where the last text edit
+// on this node left it — the gate for painting a "$…" run as a live cmd draft.
+func (m *Model) cmdDraftLive(it *item) bool {
+	return it != nil && m.cmdDraftUUID == it.uuid && m.cmdDraftCaret == m.caret
+}
+
 // cmdChipAtCaret returns the cmd chip the caret sits on (its anchor begins at the
 // caret, or ends exactly at it), or ok=false.
 func (m *Model) cmdChipAtCaret(cur *item) (database.Chip, bool) {

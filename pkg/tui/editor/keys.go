@@ -309,6 +309,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.deleteChipID(sp.id)
 			cur.name = string(runes[:sp.start]) + string(runes[sp.end:])
 			m.caret = sp.start
+			m.markCmdDraft(cur)
 			m.unsaved = true
 			return m, nil
 		}
@@ -325,6 +326,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		shiftSpans(cur.uuid, target, target-m.caret)
 		m.persistSpans(cur.uuid)
 		m.caret = target
+		m.markCmdDraft(cur)
 		m.unsaved = true
 		return m, nil
 	case "ctrl+t":
@@ -686,6 +688,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				shiftSpans(cur.uuid, sp.start, sp.start-sp.end)
 				m.persistSpans(cur.uuid)
 				m.caret = sp.start
+				m.markCmdDraft(cur)
 				m.unsaved = true
 				return m, nil
 			}
@@ -693,6 +696,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			shiftSpans(cur.uuid, m.caret-1, -1)
 			m.persistSpans(cur.uuid)
 			m.caret--
+			m.markCmdDraft(cur)
 			m.unsaved = true
 			return m, nil
 		}
@@ -877,6 +881,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.typedUUID = cur.uuid // blur-send candidate (see blurSendCheck)
 		}
 		m.caret += len(ins)
+		m.markCmdDraft(cur)
 		m.unsaved = true
 		m.maybeLinkToMirror(cur)
 		return m, nil
