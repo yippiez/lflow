@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -94,7 +95,7 @@ type Node struct {
 	Deleted     bool   `json:"deleted"`
 	Collapsed   bool   `json:"collapsed"` // local view-state
 	Readonly    bool   `json:"readonly"`  // node lock; persisted (like style)
-	Starred     bool   `json:"starred"`   // /star: pinned to the top of pickers
+	Starred     bool   `json:"starred"`   // /star: pinned to the top of pickers and search hits
 }
 
 const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, readonly, starred"
@@ -402,6 +403,8 @@ func RecentNodes(db *DB, limit int) ([]Node, error) {
 // SearchNodes returns nodes matching the query, best match first. It combines
 // FTS5 ranking with simple lexical preferences (exact name, prefix, substring)
 // so that the top result is the "most probable" node for best-match commands.
+// Starred nodes float to the top of the hit list; relevance order is preserved
+// inside each half (starred / unstarred).
 func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
@@ -484,6 +487,11 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 		rows.Close()
 	}
 
+	// /star pins: starred hits float above the rest; SliceStable keeps the
+	// exact→prefix→substring→FTS relevance order intact inside each half
+	sort.SliceStable(ret, func(i, j int) bool {
+		return ret[i].Starred && !ret[j].Starred
+	})
 	return ret, nil
 }
 

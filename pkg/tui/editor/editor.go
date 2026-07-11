@@ -74,7 +74,7 @@ var slashCommands = []slashCommand{
 	{"/move:to", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
 	{"/settings", "Editor preferences: theme, image preview"},
-	{"/star", "Star this node — ranks first in pickers"},
+	{"/star", "Star this node — ranks first in pickers and search hits"},
 	{"/style", "Set this node's text style or color"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},

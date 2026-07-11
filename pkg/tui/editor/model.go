@@ -21,7 +21,7 @@ type item struct {
 	parent      *item
 	collapsed   bool
 	readonly    bool  // node lock: inline edits are no-ops (see canEdit)
-	starred     bool  // /star: pinned to the top of the node pickers
+	starred     bool  // /star: pinned to the top of pickers and search hits
 	addedOn     int64 // creation time (UnixNano); shown by the log node's time chip
 	isNew       bool
 }

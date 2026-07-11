@@ -31,6 +31,34 @@ func mirrorSources(q *item) []string {
 	return out
 }
 
+// TestQueryMatchesStarredRanksFirst: /star pins a hit above name-sorted peers.
+func TestQueryMatchesStarredRanksFirst(t *testing.T) {
+	root := &item{uuid: "root"}
+	q := &item{uuid: "q", typ: database.TypeQuery, name: "buy", parent: root}
+	a := &item{uuid: "a", name: "buy apples", parent: root}
+	b := &item{uuid: "b", name: "buy bread", parent: root, starred: true}
+	c := &item{uuid: "c", name: "buy carrots", parent: root}
+	root.children = []*item{q, a, b, c}
+	tr := &tree{
+		root:          root,
+		snapshots:     map[string]snapshot{},
+		externalNames: map[string]string{},
+		byUUID:        map[string]*item{"root": root, "q": q, "a": a, "b": b, "c": c},
+	}
+	m := &Model{tree: tr}
+	got := m.queryMatches(q)
+	if len(got) != 3 {
+		t.Fatalf("want 3 hits, got %d", len(got))
+	}
+	if got[0].UUID != "b" || !got[0].Starred {
+		t.Fatalf("starred hit must rank first, got %s starred=%v", got[0].UUID, got[0].Starred)
+	}
+	// unstarred tail keeps name order: apples, carrots
+	if got[1].UUID != "a" || got[2].UUID != "c" {
+		t.Fatalf("unstarred tail must stay name-ordered: %s, %s", got[1].UUID, got[2].UUID)
+	}
+}
+
 func TestQueryReconcileIdempotentAndStale(t *testing.T) {
 	m, q := newQueryTree()
 	matches := []database.Node{

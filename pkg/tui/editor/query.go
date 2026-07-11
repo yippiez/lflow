@@ -80,7 +80,7 @@ func (m *Model) queryMatches(q *item) []database.Node {
 			continue // skip self, mirror rows, and empty/derived names
 		}
 		if matches(it.name, it.note) && timeOK(it.name, it.addedOn) && tq.matchType(it.typ) {
-			out = append(out, database.Node{UUID: uuid, Name: it.name})
+			out = append(out, database.Node{UUID: uuid, Name: it.name, Starred: it.starred})
 			seen[uuid] = true
 		}
 	}
@@ -116,7 +116,11 @@ func (m *Model) queryMatches(q *item) []database.Node {
 		}
 	}
 
-	sort.Slice(out, func(i, j int) bool {
+	// /star pins first; name order within each half. Stable so ties keep UUID order.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Starred != out[j].Starred {
+			return out[i].Starred
+		}
 		if out[i].Name == out[j].Name {
 			return out[i].UUID < out[j].UUID
 		}

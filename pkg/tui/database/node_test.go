@@ -193,6 +193,32 @@ func TestSearchNodes(t *testing.T) {
 	assert.Equal(t, found, true, "fts should match note content")
 }
 
+// TestSearchNodesStarredRanksFirst: a starred weaker match still floats above
+// unstarred hits; relevance order is preserved among unstarred peers.
+func TestSearchNodesStarredRanksFirst(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	defer db.Close()
+
+	mustInsert(t, db, Node{UUID: "exact", ParentUUID: RootUUID, Name: "star rank probe", Rank: 0, EditedOn: 300})
+	mustInsert(t, db, Node{UUID: "prefix", ParentUUID: RootUUID, Name: "star rank probe extra", Rank: 1, EditedOn: 200})
+	mustInsert(t, db, Node{UUID: "starred", ParentUUID: RootUUID, Name: "other star rank hit", Rank: 2, EditedOn: 100, Starred: true})
+
+	got, err := SearchNodes(db, "star rank", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) < 3 {
+		t.Fatalf("want ≥3 hits, got %d", len(got))
+	}
+	if got[0].UUID != "starred" || !got[0].Starred {
+		t.Fatalf("starred node must rank first, got %s starred=%v", got[0].UUID, got[0].Starred)
+	}
+	// unstarred tail keeps exact → prefix relevance
+	if got[1].UUID != "exact" || got[2].UUID != "prefix" {
+		t.Fatalf("unstarred tail must keep relevance order: %s, %s", got[1].UUID, got[2].UUID)
+	}
+}
+
 func TestNextRank(t *testing.T) {
 	db := InitTestMemoryDB(t)
 	defer db.Close()
