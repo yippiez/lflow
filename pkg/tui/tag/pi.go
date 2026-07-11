@@ -39,11 +39,12 @@ func SetSkillDir(dir string) { skillDir = dir }
 func cliSystemPrompt(name string) string {
 	p := "You are " + name + ", an assistant living inside a terminal outline note-taking " +
 		"app. A user mentioned you with @" + name + " in one of their outline nodes. Each " +
-		"turn hands you a <NodeContext> block: the conversation as a branched tree " +
-		"(│ ├─ ╰─ connectors, the way the outline draws) — the mentioned node and " +
-		"everything beneath it; the line marked [ASKED] is the one to address. The " +
-		"top line marked [PARENT] is the mention's parent node — where the thread " +
-		"sits in the outline, ambient context only, not part of the conversation. " +
+		"turn hands you a <NodeContext> block: the conversation as nested XML " +
+		"mirroring the outline — one element per node, children nested inside " +
+		"their parent. <asked> is the node to address, <answer> is one of your own " +
+		"earlier replies, <node> is any other node, and an outermost <parent> is " +
+		"the mention's parent node — where the thread sits in the outline, ambient " +
+		"context only, not part of the conversation. " +
 		"That is all you are handed — for anything else in the outline, search it " +
 		"yourself with the lflow CLI: `lflow node grep <text>` finds nodes, " +
 		"`lflow node list <node>` reads a subtree (details in the lflow skill).\n" +
@@ -66,9 +67,9 @@ func cliSystemPrompt(name string) string {
 		"  #tags and YYYY-MM-DD dates become chips automatically — write them plainly.\n" +
 		"Never wrap a chip token in quotes or backticks.\n" +
 		"\n" +
-		"Not every turn needs an answer. When the [ASKED] line does not mention " +
+		"Not every turn needs an answer. When the <asked> node does not mention " +
 		"@you, the user may still be mid-thought — writing a multi-part answer to " +
-		"your question, or notes that need no reply. If the line is clearly " +
+		"your question, or notes that need no reply. If the node is clearly " +
 		"addressed to you and complete, answer; otherwise reply with exactly PASS " +
 		"and nothing else, and wait for the next turn."
 	if modsDir != "" {
@@ -110,7 +111,7 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 	// (@Pi → pi, @Grok → grok), set by ClientFor; its default model + thinking
 	// ride every turn.
 	opts.Model, opts.Thinking = agent.ProviderDefault(c.Provider)
-	sess, err := agent.Run(ctx, c.Provider, turnPrompt(agentName, thread), opts)
+	sess, err := agent.Run(ctx, c.Provider, turnPrompt(thread), opts)
 	if err != nil {
 		return nil, err
 	}
@@ -180,73 +181,57 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 // turnPrompt is the message the agent actually receives each turn — full XML:
 // the instruction in its own tag, the rendered thread in <NodeContext>, so the
 // outline never mixes with the framing around it.
-func turnPrompt(name string, thread []ThreadNode) string {
+func turnPrompt(thread []ThreadNode) string {
 	return "<instructions>\n" +
-		"Answer the [ASKED] line in NodeContext, as one short chat message.\n" +
+		"Answer the <asked> node in NodeContext, as one short chat message.\n" +
 		"</instructions>\n" +
 		"\n" +
-		"<NodeContext>\n" + renderThread(name, thread) + "</NodeContext>"
+		"<NodeContext>\n" + renderThread(thread) + "</NodeContext>"
 }
 
-// Branch glyphs for the rendered thread — the connector language the outline
-// itself draws, so the agent sees the thread shaped the way the user does.
-const (
-	treeTee   = "├─ "
-	treeElbow = "╰─ "
-	treeGuide = "│  "
-	treeBlank = "   "
-)
-
-// renderThread draws the context as a branched tree prompt for the agent: the
-// Parent line (when present) as the top, the mention and its subtree hanging
-// beneath it with │ ├─ ╰─ connectors. name labels the agent's own earlier
-// replies so it recognizes its prior turns.
-func renderThread(name string, thread []ThreadNode) string {
-	var b strings.Builder
-	// lastAt[d] — whether the node last emitted at depth d closed its sibling
-	// run; the guide column under a closed run goes blank instead of │
-	var lastAt []bool
-	for i, n := range thread {
-		last := true
-		for j := i + 1; j < len(thread); j++ {
-			if thread[j].Depth < n.Depth {
-				break
-			}
-			if thread[j].Depth == n.Depth {
-				last = false
-				break
-			}
+// renderThread draws the context as nested XML mirroring the outline: one
+// element per node, children nested inside their parent, two-space indent per
+// level. The element name carries the role — <parent> is the mention's parent
+// (ambient), <asked> is the node this turn addresses, <answer> is one of the
+// agent's own earlier replies, <node> is everything else.
+func renderThread(thread []ThreadNode) string {
+	tagFor := func(n ThreadNode) string {
+		switch {
+		case n.Parent:
+			return "parent"
+		case n.Asked:
+			return "asked"
+		case n.Role == "agent":
+			return "answer"
 		}
-		for len(lastAt) <= n.Depth {
-			lastAt = append(lastAt, false)
-		}
-		lastAt[n.Depth] = last
-		for lvl := 1; lvl < n.Depth; lvl++ {
-			if lastAt[lvl] {
-				b.WriteString(treeBlank)
-			} else {
-				b.WriteString(treeGuide)
-			}
-		}
-		if n.Depth > 0 {
-			if last {
-				b.WriteString(treeElbow)
-			} else {
-				b.WriteString(treeTee)
-			}
-		}
-		if n.Parent {
-			b.WriteString("[PARENT] ")
-		}
-		if n.Asked {
-			b.WriteString("[ASKED] ")
-		}
-		if n.Role == "agent" {
-			b.WriteString("(" + name + " earlier) ")
-		}
-		b.WriteString(strings.TrimSpace(n.Name))
-		b.WriteByte('\n')
+		return "node"
 	}
+
+	var b strings.Builder
+	type open struct {
+		tag   string
+		depth int
+	}
+	var stack []open
+	closeTo := func(depth int) {
+		for len(stack) > 0 && stack[len(stack)-1].depth >= depth {
+			top := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			b.WriteString(strings.Repeat("  ", top.depth) + "</" + top.tag + ">\n")
+		}
+	}
+	for i, n := range thread {
+		closeTo(n.Depth)
+		tag := tagFor(n)
+		line := strings.Repeat("  ", n.Depth) + "<" + tag + ">" + strings.TrimSpace(n.Name)
+		if i+1 < len(thread) && thread[i+1].Depth > n.Depth { // has children — stays open
+			b.WriteString(line + "\n")
+			stack = append(stack, open{tag, n.Depth})
+		} else {
+			b.WriteString(line + "</" + tag + ">\n")
+		}
+	}
+	closeTo(0)
 	return b.String()
 }
 

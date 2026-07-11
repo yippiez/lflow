@@ -86,9 +86,9 @@ auto-run) and their output is ephemeral — never persisted or synced.
   DESCENDANT of the mention (Enter, or cursor-leave via blurSendCheck) ships
   automatically. The mention node IS the thread root — the session binds to
   it, so siblings/ancestors never trigger or receive replies. Context per turn
-  = the mention's parent (one Parent-marked ambient line) + the mention +
-  everything beneath it, rendered as a branched tree (│ ├─ ╰─) inside a
-  `<NodeContext>` block under a one-line instruction; every node's
+  = the mention's parent (one ambient `<parent>` element) + the mention +
+  everything beneath it, rendered as nested XML (`<asked>`/`<answer>`/`<node>`)
+  inside a `<NodeContext>` block under an `<instructions>` tag; every node's
   children land at most once, so mirrors can neither loop the walk nor
   duplicate a subtree — nothing else; the rest of the outline the agent
   searches itself via the lflow CLI (`lflow node grep/list`, taught by the

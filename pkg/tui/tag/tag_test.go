@@ -6,9 +6,9 @@ import (
 	"github.com/lflow/lflow/pkg/agent"
 )
 
-// renderThread draws the context as a branched tree — the Parent line on top,
-// │ ├─ ╰─ connectors beneath, [ASKED] and earlier-reply labels inline.
-func TestRenderThreadBranched(t *testing.T) {
+// renderThread draws the context as nested XML — element per node, children
+// nested inside their parent, role in the element name (parent/asked/answer).
+func TestRenderThreadXML(t *testing.T) {
 	thread := []ThreadNode{
 		{UUID: "p", Depth: 0, Name: "importer notes", Role: "user", Parent: true},
 		{UUID: "n1", Depth: 1, Name: "@Pi make retries safe?", Role: "user", Asked: true},
@@ -16,30 +16,33 @@ func TestRenderThreadBranched(t *testing.T) {
 		{UUID: "k1a", Depth: 3, Name: "uses curl", Role: "user"},
 		{UUID: "k2", Depth: 2, Name: "cap the attempts", Role: "agent"},
 	}
-	want := "[PARENT] importer notes\n" +
-		"╰─ [ASKED] @Pi make retries safe?\n" +
-		"   ├─ importer is in packages/importer\n" +
-		"   │  ╰─ uses curl\n" +
-		"   ╰─ (Pi earlier) cap the attempts\n"
-	if got := renderThread("Pi", thread); got != want {
+	want := "<parent>importer notes\n" +
+		"  <asked>@Pi make retries safe?\n" +
+		"    <node>importer is in packages/importer\n" +
+		"      <node>uses curl</node>\n" +
+		"    </node>\n" +
+		"    <answer>cap the attempts</answer>\n" +
+		"  </asked>\n" +
+		"</parent>\n"
+	if got := renderThread(thread); got != want {
 		t.Errorf("renderThread mismatch\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
 
-// The per-turn prompt is full XML — <instructions> then the rendered tree in
+// The per-turn prompt is full XML — <instructions> then the rendered thread in
 // <NodeContext> — so the outline never mixes with the framing.
 func TestTurnPromptWrapsNodeContext(t *testing.T) {
 	thread := []ThreadNode{
 		{UUID: "n1", Depth: 0, Name: "@Pi what is this?", Role: "user", Asked: true},
 	}
 	want := "<instructions>\n" +
-		"Answer the [ASKED] line in NodeContext, as one short chat message.\n" +
+		"Answer the <asked> node in NodeContext, as one short chat message.\n" +
 		"</instructions>\n" +
 		"\n" +
 		"<NodeContext>\n" +
-		"[ASKED] @Pi what is this?\n" +
+		"<asked>@Pi what is this?</asked>\n" +
 		"</NodeContext>"
-	if got := turnPrompt("Pi", thread); got != want {
+	if got := turnPrompt(thread); got != want {
 		t.Errorf("turnPrompt mismatch\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
