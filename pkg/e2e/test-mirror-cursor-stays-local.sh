@@ -46,13 +46,13 @@ assert_contains "╰─ ○ a"
 send C-s
 wait_for "3/3"
 
-# Open the /mirror finder on the empty node (cursor is still there).
-# Typing "/" enters slash-menu mode; "mirror" filters to /mirror.
+# Open the /mirror:to finder on the empty node (cursor is still there).
+# Typing "/" enters slash-menu mode; "mirror:to" filters to /mirror:to.
 type "/"
-wait_for "/mirror"
-type "mirror"
-wait_for "/mirror"
-send Enter         # run /mirror -> opens the node finder
+wait_for "/mirror:to"
+type "mirror:to"
+wait_for "/mirror:to"
+send Enter         # run /mirror:to -> opens the node finder
 
 # Finder opens with empty query showing all saved nodes; src appears first.
 wait_for "src"

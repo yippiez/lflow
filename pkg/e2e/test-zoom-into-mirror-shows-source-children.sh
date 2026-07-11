@@ -11,7 +11,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 # Scenario (mirror is a CHILD of src, sibling of kid):
 #   src
 #   ├─ kid             <- real child of src
-#   ╰─ ◆ src · mirror  <- mirror of src (created via /mirror finder)
+#   ╰─ ◆ src · mirror  <- mirror of src (created via /mirror:to finder)
 #
 # Steps:
 #   1. Build src + kid (kid is indented under src).
@@ -19,7 +19,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   3. Add a blank sibling of kid (still a child of src) and /mirror src into it.
 #   4. With the cursor on the mirror, zoom in with alt+right.
 #   5. Assert the ZOOMED view shows the source's child:
-#        - the breadcrumb becomes "root › src" (we descended into src), AND
+#        - the breadcrumb becomes "Root › src" (we descended into src), AND
 #        - "kid" renders as a top-level row ("○ kid" with no tree prefix),
 #          which is the source's child surfacing through the resolved mirror.
 #      The empty-view regression would still flip the breadcrumb but show NO
@@ -48,10 +48,10 @@ wait_for "2/2" 5
 # we do NOT outdent it, so the mirror lives at src > <mirror>.
 send Enter
 type "/"
-wait_for "/mirror"
-type "mirror"
-wait_for "/mirror"
-send Enter            # run /mirror -> opens the node finder
+wait_for "/mirror:to"
+type "mirror:to"
+wait_for "/mirror:to"
+send Enter            # run /mirror:to -> opens the node finder
 
 # Finder is open. Narrow to src and select it.
 wait_for "src"
@@ -67,17 +67,17 @@ wait_for "◆ src · mirror"
 # two children, so it carries the "├─" prefix).
 assert_contains "○ src"
 assert_contains "├─ ○ kid"
-assert_not_contains "root › "
+assert_not_contains "Root › "
 
 # --- Step 4: zoom into the mirror -----------------------------------------
 # Cursor is on the mirror node (◆ src · mirror). alt+right zooms in.
 send M-Right
 
 # --- Step 5: assert the zoomed view shows the source's child --------------
-# The breadcrumb must show we descended into the source node: "root › src".
+# The breadcrumb must show we descended into the source node: "Root › src".
 # This proves the zoom resolved the mirror to its source (not to the empty
 # mirror reference) and actually changed the view root.
-wait_for "root › src"
+wait_for "Root › src"
 
 # The load-bearing assertion: the source's child "kid" must render in the
 # zoomed pane. Before the fix the pane was EMPTY here. As the new view root's

@@ -14,7 +14,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   1. Type "source" as the first node name.
 #   2. Add a note "init note" to the source via /note, confirm with Enter.
 #   3. Save (C-s) so the finder can locate the node.
-#   4. Open a blank sibling (Enter), then mirror it to "source" via /mirror.
+#   4. Open a blank sibling (Enter), then mirror it to "source" via /mirror:to.
 #   5. Navigate back to source; enter /note mode, append " LIVE", confirm (Enter).
 #      The note is now "init note LIVE" — unsaved — on the source.
 #   6. Navigate to the mirror row.
@@ -46,13 +46,13 @@ send C-s
 # ── step 4: create a blank sibling and mirror it to "source" ────────────────
 # Enter creates a sibling below; the blank node becomes our mirror target
 send Enter
-# blank sibling is now selected; open /mirror via slash menu
+# blank sibling is now selected; open /mirror:to via slash menu
 send "/"
-type "mirror"
-wait_for "/mirror"
+type "mirror:to"
+wait_for "/mirror:to"
 send Enter
-# the fuzzy finder opens in /mirror mode — wait for its label to appear
-wait_for "/mirror" 5
+# the fuzzy finder opens in /mirror:to mode — wait for its label to appear
+wait_for "/mirror:to" 5
 # "source" is the only saved node; select it with Enter
 send Enter
 # wait for the mirror glyph to appear
