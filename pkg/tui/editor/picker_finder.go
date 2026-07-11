@@ -2,8 +2,8 @@ package editor
 
 // GROUP B — the shared full-body searchable finder. Unlike the Group-A list
 // pickers it replaces the whole editor body: a query line at the top, a result
-// list, and a hint/status footer. It backs the node finder today (/mirror,
-// /move, /goto, /bring, "[[" link) via nodeFinderBackend (see editor.go).
+// list, and a hint/status footer. It backs the node finder today (/mirror:to,
+// /move:to, /goto, /move:here, "[[" link) via nodeFinderBackend (see editor.go).
 //
 // bodyFinder owns the query, selection, and result set; the backend owns where
 // results come from, how they are filtered/decorated, and what a pick does.

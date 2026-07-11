@@ -3,9 +3,11 @@ package editor
 import (
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/utils"
 	"github.com/lflow/lflow/pkg/utils/browser"
 	"github.com/pkg/errors"
 )
@@ -16,7 +18,7 @@ func (m *Model) openFinder(act finderAction) {
 }
 
 // nodeFinderBackend is the finderBackend that fronts the outline's nodes: it
-// searches the DB (plus the Agent Domain for /bring), commits a pick via
+// searches the DB (plus the Agent Domain for /move:here), commits a pick via
 // runFinder, and links a URL query straight to a website for "[[".
 type nodeFinderBackend struct{}
 
@@ -40,14 +42,14 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 		if cur != nil && h.UUID == cur.uuid {
 			continue
 		}
-		// /goto and /move are target lists: a node with no name and no mirror is
-		// empty noise, so leave it out
-		if (m.finder.act == actGoto || m.finder.act == actMoveTo) && h.Name == "" && h.MirrorOf == "" {
+		// every picker hides empty nodes (noise) and mirror rows: a pick on a
+		// mirror resolves to its original anyway, so listing both has no value
+		if h.Name == "" || h.MirrorOf != "" {
 			continue
 		}
 		rows = append(rows, m.finderRowFor(h))
 	}
-	// /bring can also pull a node out of the (ephemeral, DB-less) Temporary Domain,
+	// /move:here can also pull a node out of the (ephemeral, DB-less) Temporary Domain,
 	// so surface its nodes alongside the saved nodes — most recent first.
 	if m.finder.act == actBringHere {
 		var temp []finderRow
@@ -88,13 +90,15 @@ func (nodeFinderBackend) queryAffordance(m *Model, query string) string {
 func (nodeFinderBackend) label(m *Model) string {
 	switch m.finder.act {
 	case actMirrorHere:
-		return "/mirror"
+		return "/mirror:to"
+	case actMirrorFrom:
+		return "/mirror:from"
 	case actMoveTo:
-		return "/move"
+		return "/move:to"
 	case actGoto:
 		return "/goto"
 	case actBringHere:
-		return "/bring"
+		return "/move:here"
 	case actLinkInsert:
 		return "[[ link"
 	}
@@ -104,13 +108,15 @@ func (nodeFinderBackend) label(m *Model) string {
 func (nodeFinderBackend) hint(m *Model) string {
 	switch m.finder.act {
 	case actMirrorHere:
-		return "Enter mirror at cursor"
+		return "Enter mirror that node here"
+	case actMirrorFrom:
+		return "Enter mirror this node there"
 	case actMoveTo:
 		return "Enter move this node there"
 	case actGoto:
 		return "Enter open node"
 	case actBringHere:
-		return "Enter bring this node here"
+		return "Enter move that node here"
 	case actLinkInsert:
 		return "Enter link to node, or type a URL"
 	}
@@ -178,6 +184,36 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 			m.tree.externalNames[target.UUID] = target.Name
 		}
 		m.unsaved = true
+	case actMirrorFrom:
+		// the dual of /mirror:to: plant a mirror OF this node at the top of the
+		// picked target's children (matching /move:to), original stays put
+		m.pushUndo("")
+		src := m.tree.resolve(cur)
+		srcUUID := src.uuid
+		if src.mirrorOf != "" {
+			// cur mirrors a node outside the loaded subtree: follow the chain in
+			// the DB so the new mirror points at the real original
+			orig := m.resolveSourceNode(database.Node{UUID: src.uuid, MirrorOf: src.mirrorOf})
+			srcUUID = orig.UUID
+			if _, inTree := m.tree.byUUID[srcUUID]; !inTree {
+				m.tree.externalNames[srcUUID] = orig.Name
+			}
+		}
+		if targetItem, inTree := m.tree.byUUID[target.UUID]; inTree {
+			it, err := m.tree.newItem()
+			if err != nil {
+				m.err = err
+				return m.quit()
+			}
+			it.mirrorOf = srcUUID
+			it.parent = targetItem
+			m.tree.insertChildAt(targetItem, 0, it)
+			m.unsaved = true
+		} else if err := m.mirrorToDB(srcUUID, target); err != nil {
+			m.err = err
+			return m.quit()
+		}
+		m.flash = "mirrored → " + clipStr(target.Name, 24)
 	case actMoveTo:
 		m.pushUndo("")
 		// after a move the cursor stays put visually: it lands on the row that
@@ -271,13 +307,39 @@ func clampRow(i, n int) int {
 	return i
 }
 
+// mirrorToDB plants a mirror of srcUUID at the top of a target that lives
+// outside the open subtree. Everything saves first so the new row lands next
+// to a persisted original.
+func (m *Model) mirrorToDB(srcUUID string, target database.Node) error {
+	if _, err := m.saveAll(); err != nil {
+		return err
+	}
+	m.unsaved = false
+
+	uuid, err := utils.GenerateUUID()
+	if err != nil {
+		return errors.Wrap(err, "generating uuid")
+	}
+	rank, err := database.FirstRank(m.db, target.UUID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UnixNano()
+	n := database.Node{
+		UUID: uuid, ParentUUID: target.UUID, Rank: rank,
+		Type: database.TypeBullets, MirrorOf: srcUUID,
+		AddedOn: now, EditedOn: now,
+	}
+	return errors.Wrap(n.Insert(m.db), "mirroring node")
+}
+
 func (m *Model) moveToDB(cur *item, target database.Node) error {
 	if _, err := m.saveAll(); err != nil {
 		return err
 	}
 	m.unsaved = false
 
-	// /move drops the node at the top of the target's children, not the bottom
+	// /move:to drops the node at the top of the target's children, not the bottom
 	rank, err := database.FirstRank(m.db, target.UUID)
 	if err != nil {
 		return err

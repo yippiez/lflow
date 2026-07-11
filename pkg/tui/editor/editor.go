@@ -3,7 +3,7 @@
 // heading digits, the selected row marked by its glyph turning red, a block
 // cursor that inverts the cell beneath it, a minimal dim bottom bar, a
 // type-to-filter slash menu above the bar, and a full-panel fuzzy finder for
-// /mirror /mirror_to /move_to /goto. It never enters the alternate screen.
+// /mirror:to /mirror:from /move:to /move:here /goto. It never enters the alternate screen.
 package editor
 
 import (
@@ -48,10 +48,11 @@ const (
 type finderAction int
 
 const (
-	actMirrorHere finderAction = iota
-	actMoveTo
+	actMirrorHere finderAction = iota // /mirror:to — a mirror of the picked node lands at the cursor
+	actMirrorFrom                     // /mirror:from — a mirror of the cursor node lands under the picked node
+	actMoveTo                         // /move:to — the cursor node moves under the picked node
 	actGoto
-	actBringHere
+	actBringHere  // /move:here — the picked node moves to the cursor
 	actLinkInsert // [[ — insert an inline link chip at the caret (node or URL)
 )
 
@@ -61,15 +62,16 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/bring", "Bring another node here"},
 	{"/complete", "Toggle done (alt+enter)"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
-	{"/hide", "Hide or show completed nodes"},
 	{"/goto", "Jump the editor to another node"},
+	{"/hide:complete", "Hide or show completed nodes"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
-	{"/mirror", "Mirror a node here via the fuzzy finder"},
-	{"/move", "Move this node under another node"},
+	{"/mirror:from", "Mirror this node under another node"},
+	{"/mirror:to", "Mirror another node here"},
+	{"/move:here", "Move another node here"},
+	{"/move:to", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
 	{"/settings", "Editor preferences: theme, image preview"},
 	{"/star", "Star this node — ranks first in pickers"},
@@ -144,8 +146,9 @@ type Model struct {
 	slashStart  int  // rune index of the "/" that opened the menu
 	slashInline bool // the slash and query are typed into the node text
 
-	// finder is the shared full-body node picker (/mirror, /move, /goto, /bring,
-	// "[[" link); it owns the query, selection, and results (see picker_finder.go).
+	// finder is the shared full-body node picker (/mirror:to, /mirror:from,
+	// /move:to, /move:here, /goto, "[[" link); it owns the query, selection, and
+	// results (see picker_finder.go).
 	finder bodyFinder
 
 	notePrev string // note backup for esc in note mode
@@ -253,7 +256,7 @@ type Model struct {
 
 	tagColorWord string // the tag word the alt+e color picker is assigning
 
-	// hideCompleted is the /hide toggle: when true, completed nodes (and their
+	// hideCompleted is the /hide:complete toggle: when true, completed nodes (and their
 	// subtrees) drop out of the visible outline. Session-only — not persisted.
 	hideCompleted bool
 
@@ -955,7 +958,7 @@ func (m *Model) resolveSourceNode(n database.Node) database.Node {
 }
 
 // toggleComplete flips completed_at on it (same as /complete and alt+enter).
-// Caller owns the undo snapshot. When /hide is hiding completed, the outline
+// Caller owns the undo snapshot. When /hide:complete is hiding completed, the outline
 // refreshes so a just-completed node disappears (or reappears on uncomplete).
 func (m *Model) toggleComplete(it *item) {
 	if it == nil {
@@ -1376,7 +1379,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/complete":
 		m.pushUndo("")
 		m.toggleComplete(cur)
-	case "/hide":
+	case "/hide:complete":
 		// hide or show completed nodes in the outline (session toggle)
 		m.hideCompleted = !m.hideCompleted
 		m.refreshRows()
@@ -1417,15 +1420,17 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeNote
 		m.notePrev = cur.note
 		m.caret = len([]rune(cur.note))
-	case "/bring":
+	case "/move:here":
 		// pick any node (incl. a Temporary Domain node) and move it here
 		m.openFinder(actBringHere)
-	case "/mirror":
+	case "/mirror:to":
 		m.openFinder(actMirrorHere)
+	case "/mirror:from":
+		m.openFinder(actMirrorFrom)
 	case "/link":
 		// splice an inline link chip at the caret (same as the [[ trigger)
 		m.openFinder(actLinkInsert)
-	case "/move":
+	case "/move:to":
 		m.openFinder(actMoveTo)
 	case "/goto":
 		m.openFinder(actGoto)

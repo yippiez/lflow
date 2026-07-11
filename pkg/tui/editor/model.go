@@ -303,7 +303,7 @@ func (t *tree) expandTarget(it *item) *item {
 // visibleRows flattens the tree below viewRoot into displayable rows,
 // honoring collapsed state. The view root itself is not a row. When
 // hideCompleted is set, completed nodes (and their subtrees) are skipped —
-// the /hide toggle.
+// the /hide:complete toggle.
 func (t *tree) visibleRows(viewRoot *item, hideCompleted bool) []row {
 	var rows []row
 	var walk func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool)

@@ -1498,7 +1498,7 @@ func TestAltEnterTogglesComplete(t *testing.T) {
 	}
 }
 
-// TestFilterHidesCompleted: /hide drops completed nodes from the outline.
+// TestFilterHidesCompleted: /hide:complete drops completed nodes from the outline.
 func TestFilterHidesCompleted(t *testing.T) {
 	m := newTestModel(40, "open", "done", "also open")
 	m.tree.root.children[1].completedAt = 1
@@ -1507,10 +1507,10 @@ func TestFilterHidesCompleted(t *testing.T) {
 		t.Fatalf("all three should show before filter, got %d", len(m.rows))
 	}
 
-	mm, _ := m.runSlash("/hide")
+	mm, _ := m.runSlash("/hide:complete")
 	*m = *mm.(*Model)
 	if !m.hideCompleted {
-		t.Fatal("/hide should set hideCompleted")
+		t.Fatal("/hide:complete should set hideCompleted")
 	}
 	if len(m.rows) != 2 {
 		t.Fatalf("filter should hide the completed node, got %d rows", len(m.rows))
@@ -1525,10 +1525,10 @@ func TestFilterHidesCompleted(t *testing.T) {
 	}
 
 	// toggle back
-	mm, _ = m.runSlash("/hide")
+	mm, _ = m.runSlash("/hide:complete")
 	*m = *mm.(*Model)
 	if m.hideCompleted || len(m.rows) != 3 {
-		t.Fatalf("second /hide should restore all rows, hide=%v n=%d", m.hideCompleted, len(m.rows))
+		t.Fatalf("second /hide:complete should restore all rows, hide=%v n=%d", m.hideCompleted, len(m.rows))
 	}
 }
 
