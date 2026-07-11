@@ -26,6 +26,24 @@ func TestRenderThreadBranched(t *testing.T) {
 	}
 }
 
+// The per-turn prompt is full XML — <instructions> then the rendered tree in
+// <NodeContext> — so the outline never mixes with the framing.
+func TestTurnPromptWrapsNodeContext(t *testing.T) {
+	thread := []ThreadNode{
+		{UUID: "n1", Depth: 0, Name: "@Pi what is this?", Role: "user", Asked: true},
+	}
+	want := "<instructions>\n" +
+		"Answer the [ASKED] line in NodeContext, as one short chat message.\n" +
+		"</instructions>\n" +
+		"\n" +
+		"<NodeContext>\n" +
+		"[ASKED] @Pi what is this?\n" +
+		"</NodeContext>"
+	if got := turnPrompt("Pi", thread); got != want {
+		t.Errorf("turnPrompt mismatch\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 // The built-in agents register out of the box with no config file, so @Pi and
 // @Grok both complete and fire without any setup.
 func TestLoadAgentsDefaultsToPiAndGrok(t *testing.T) {

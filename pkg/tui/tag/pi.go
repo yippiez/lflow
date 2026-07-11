@@ -38,17 +38,23 @@ func SetSkillDir(dir string) { skillDir = dir }
 // is the mentioned agent (@Pi, @Grok, …) so the prompt addresses it correctly.
 func cliSystemPrompt(name string) string {
 	p := "You are " + name + ", an assistant living inside a terminal outline note-taking " +
-		"app. A user mentioned you with @" + name + " in one of their outline nodes. You are " +
-		"given the conversation as a branched tree (│ ├─ ╰─ connectors, the way " +
-		"the outline draws): the mentioned node and everything beneath it; the " +
-		"line marked [ASKED] is the one to address. The top line marked [PARENT] " +
-		"is the mention's parent node — where the thread sits in the outline, " +
-		"ambient context only, not part of the conversation. That is all you are " +
-		"handed — for anything else in the outline, search it yourself with the " +
-		"lflow CLI: `lflow node grep <text>` finds nodes, `lflow node list <node>` " +
-		"reads a subtree (details in the lflow skill). Reply with a single, concise " +
-		"answer — plain text, no markdown headings or code fences, at most a few " +
-		"sentences. Do not repeat the question back.\n" +
+		"app. A user mentioned you with @" + name + " in one of their outline nodes. Each " +
+		"turn hands you a <NodeContext> block: the conversation as a branched tree " +
+		"(│ ├─ ╰─ connectors, the way the outline draws) — the mentioned node and " +
+		"everything beneath it; the line marked [ASKED] is the one to address. The " +
+		"top line marked [PARENT] is the mention's parent node — where the thread " +
+		"sits in the outline, ambient context only, not part of the conversation. " +
+		"That is all you are handed — for anything else in the outline, search it " +
+		"yourself with the lflow CLI: `lflow node grep <text>` finds nodes, " +
+		"`lflow node list <node>` reads a subtree (details in the lflow skill).\n" +
+		"\n" +
+		"Your reply lands as one node in the thread, so write it like a chat " +
+		"message: plain text, no markdown headings or code fences, at most a few " +
+		"sentences, the answer only. Never narrate your process — no \"I'll look " +
+		"into...\" openers and no \"Done, I changed X and Y\" reports; when you did " +
+		"work, one line stating the outcome is enough. Text you print before your " +
+		"last tool call is shown transiently while you work and then discarded — " +
+		"put the whole reply after it. Do not repeat the question back.\n" +
 		"\n" +
 		"Chips: you may embed these inline tokens anywhere in your reply; the app " +
 		"renders each as a structured chip.\n" +
@@ -104,7 +110,7 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 	// (@Pi → pi, @Grok → grok), set by ClientFor; its default model + thinking
 	// ride every turn.
 	opts.Model, opts.Thinking = agent.ProviderDefault(c.Provider)
-	sess, err := agent.Run(ctx, c.Provider, renderThread(agentName, thread), opts)
+	sess, err := agent.Run(ctx, c.Provider, turnPrompt(agentName, thread), opts)
 	if err != nil {
 		return nil, err
 	}
@@ -115,9 +121,18 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 		defer sess.Stop() // one turn, one process — nothing to come back to
 
 		var reply strings.Builder
+		var interim string // last narration dropped at a tool start — fallback only
 		for ev := range sess.Events() {
 			switch ev.Kind {
 			case agent.EventToolStart, agent.EventToolUpdate:
+				// text emitted before a tool call is process narration ("I'll look
+				// up..."), not the answer — keep it out of the reply node; only what
+				// follows the LAST tool call lands. The latest cut survives as a
+				// fallback for turns that end without any closing text.
+				if ev.Kind == agent.EventToolStart && reply.Len() > 0 {
+					interim = reply.String()
+					reply.Reset()
+				}
 				// live "what it's doing now" — the editor shows the last one as a
 				// muted band under the running mention. Nothing lands in the outline.
 				out <- Event{Op: "tool", Tool: ev.Tool, Text: ev.Detail}
@@ -141,7 +156,11 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 				}
 				// "PASS" is pi declining a discretionary turn (the user is
 				// mid-thought) — the turn ran, no reply node lands
-				if txt := strings.TrimSpace(reply.String()); txt != "" && txt != "PASS" {
+				txt := strings.TrimSpace(reply.String())
+				if txt == "" {
+					txt = strings.TrimSpace(interim) // tools ran, no closing text — better than silence
+				}
+				if txt != "" && txt != "PASS" {
 					out <- Event{Op: "message", Placement: placement, Text: txt}
 				}
 				out <- Event{Op: "done"}
@@ -156,6 +175,17 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 		out <- Event{Op: "done"}
 	}()
 	return out, nil
+}
+
+// turnPrompt is the message the agent actually receives each turn — full XML:
+// the instruction in its own tag, the rendered thread in <NodeContext>, so the
+// outline never mixes with the framing around it.
+func turnPrompt(name string, thread []ThreadNode) string {
+	return "<instructions>\n" +
+		"Answer the [ASKED] line in NodeContext, as one short chat message.\n" +
+		"</instructions>\n" +
+		"\n" +
+		"<NodeContext>\n" + renderThread(name, thread) + "</NodeContext>"
 }
 
 // Branch glyphs for the rendered thread — the connector language the outline

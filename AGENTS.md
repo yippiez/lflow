@@ -87,12 +87,15 @@ auto-run) and their output is ephemeral — never persisted or synced.
   automatically. The mention node IS the thread root — the session binds to
   it, so siblings/ancestors never trigger or receive replies. Context per turn
   = the mention's parent (one Parent-marked ambient line) + the mention +
-  everything beneath it, rendered as a branched tree (│ ├─ ╰─); every node's
+  everything beneath it, rendered as a branched tree (│ ├─ ╰─) inside a
+  `<NodeContext>` block under a one-line instruction; every node's
   children land at most once, so mirrors can neither loop the walk nor
   duplicate a subtree — nothing else; the rest of the outline the agent
   searches itself via the lflow CLI (`lflow node grep/list`, taught by the
   skill and system prompt). Replies land as red ✦ `agent` nodes — normal, editable nodes; only
-  the glyph marks authorship. Replies may speak chips:
+  the glyph marks authorship. Only text after the turn's LAST tool call
+  lands as the reply — narration between tool calls feeds the live band and
+  is discarded, so replies read like chat messages, not work reports. Replies may speak chips:
   `{{cmd:…}}` / `{{path:…}}` / `{{link:label|url}}` / `{{tag:…}}` / `{{date:…}}`
   tokens land as real chips (`{{cmd:…}}` is the runnable yellow $ chip); plain
   #tags and dates auto-convert. The pi system prompt (`pkg/tui/tag/pi.go`)
