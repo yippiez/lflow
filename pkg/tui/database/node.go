@@ -253,6 +253,26 @@ func GetSubtree(db *DB, rootUUID string) ([]Node, error) {
 	return ret, nil
 }
 
+// GetNodesWhere returns nodes matching an arbitrary WHERE condition — the
+// daemon uses it to fetch fresh rows for the rowids an update hook collected.
+func GetNodesWhere(db *DB, cond string, args ...interface{}) ([]Node, error) {
+	rows, err := db.Query("SELECT "+nodeColumns+" FROM nodes WHERE "+cond, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying nodes")
+	}
+	defer rows.Close()
+
+	var ret []Node
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, errors.Wrap(err, "scanning node")
+		}
+		ret = append(ret, n)
+	}
+	return ret, rows.Err()
+}
+
 // NextRank returns a rank that sorts after all existing children of the parent.
 func NextRank(db *DB, parentUUID string) (int, error) {
 	var maxRank sql.NullInt64

@@ -60,9 +60,7 @@ func (d *DB) Commit() error {
 // Rollback rolls back a transaction
 func (d *DB) Rollback() error {
 	if db, ok := d.Conn.(sqlTx); ok && db != nil {
-		if err := db.Rollback(); err != nil {
-			return err
-		}
+		return db.Rollback()
 	}
 
 	return errors.New("invalid transaction")
