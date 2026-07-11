@@ -47,9 +47,15 @@ type tree struct {
 	root      *item
 	snapshots map[string]snapshot
 	deleted   []string // uuids of pre-existing nodes deleted in this session
-	// resolved names for mirrors whose originals are outside the tree
+	// resolved names for mirrors whose originals could not be grafted —
+	// missing, or overlapping nodes already loaded (see graftExternal)
 	externalNames map[string]string
-	byUUID        map[string]*item
+	// external holds grafted subtree roots: the live sources of mirrors that
+	// point outside the loaded subtree, loaded so those mirrors show through.
+	// They are detached (parent == nil; the DB owns their position) — save,
+	// undo and rebuildByUUID walk them alongside root.
+	external []*item
+	byUUID   map[string]*item
 	// defaultType is the node type new items get (empty = bullets). Currently
 	// nothing sets it — it's a hook for a tree to default new nodes to a type
 	// other than bullets.
@@ -83,8 +89,9 @@ func cloneItem(src, parent *item) *item {
 	return c
 }
 
-// rebuildByUUID re-indexes byUUID from the current item tree, used after an undo
-// swaps in a restored tree. externalNames and snapshots are left untouched.
+// rebuildByUUID re-indexes byUUID from the current item tree — root and the
+// grafted external subtrees — used after an undo swaps in a restored tree.
+// externalNames and snapshots are left untouched.
 func (t *tree) rebuildByUUID() {
 	t.byUUID = map[string]*item{}
 	var walk func(it *item)
@@ -97,6 +104,26 @@ func (t *tree) rebuildByUUID() {
 		}
 	}
 	walk(t.root)
+	for _, ex := range t.external {
+		walk(ex)
+	}
+}
+
+// itemFromNode builds an in-memory item from a DB row; the caller links parent.
+func itemFromNode(n database.Node) *item {
+	return &item{
+		uuid:        n.UUID,
+		name:        n.Name,
+		note:        n.Note,
+		typ:         n.Type,
+		style:       n.Style,
+		mirrorOf:    n.MirrorOf,
+		completedAt: n.CompletedAt,
+		collapsed:   n.Collapsed,
+		readonly:    n.Readonly,
+		starred:     n.Starred,
+		addedOn:     n.AddedOn,
+	}
 }
 
 func loadTree(db *database.DB, rootUUID string) (*tree, error) {
@@ -114,32 +141,8 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 
 	items := map[string]*item{}
 	for _, n := range nodes {
-		items[n.UUID] = &item{
-			uuid:        n.UUID,
-			name:        n.Name,
-			note:        n.Note,
-			typ:         n.Type,
-			style:       n.Style,
-			mirrorOf:    n.MirrorOf,
-			completedAt: n.CompletedAt,
-			collapsed:   n.Collapsed,
-			readonly:    n.Readonly,
-			starred:     n.Starred,
-			addedOn:     n.AddedOn,
-		}
-		t.snapshots[n.UUID] = snapshot{
-			parentUUID:  n.ParentUUID,
-			rank:        n.Rank,
-			name:        n.Name,
-			note:        n.Note,
-			typ:         n.Type,
-			style:       n.Style,
-			mirrorOf:    n.MirrorOf,
-			completedAt: n.CompletedAt,
-			collapsed:   n.Collapsed,
-			readonly:    n.Readonly,
-			starred:     n.Starred,
-		}
+		items[n.UUID] = itemFromNode(n)
+		t.snapshots[n.UUID] = snapFromNode(n)
 	}
 
 	for _, n := range nodes {
@@ -158,23 +161,88 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 
 	t.byUUID = items
 
-	// resolve mirror originals that live outside this subtree
-	for _, it := range items {
-		if it.mirrorOf == "" {
-			continue
+	// mirrors whose originals live outside this subtree: graft each source's
+	// live subtree so the mirror shows through; failures leave a name stub
+	t.graftExternalSources()
+
+	return t, nil
+}
+
+// graftExternalSources grafts the live subtree of every mirror source that is
+// not loaded, repeating until closure since a grafted subtree can itself
+// contain mirrors pointing further outside. Sources that fail to graft are
+// remembered so a broken mirror cannot loop the walk.
+func (t *tree) graftExternalSources() {
+	failed := map[string]bool{}
+	for {
+		var pending []string
+		for _, it := range t.byUUID {
+			if it.mirrorOf == "" || failed[it.mirrorOf] {
+				continue
+			}
+			if _, in := t.byUUID[it.mirrorOf]; !in {
+				pending = append(pending, it.mirrorOf)
+			}
 		}
-		if _, inTree := items[it.mirrorOf]; inTree {
-			continue
+		if len(pending) == 0 {
+			return
 		}
-		orig, err := database.GetNode(db, it.mirrorOf)
-		if err == nil {
-			t.externalNames[it.mirrorOf] = orig.Name
-		} else {
-			t.externalNames[it.mirrorOf] = "(missing)"
+		for _, uuid := range pending {
+			if !t.graftExternal(uuid) {
+				failed[uuid] = true
+			}
+		}
+	}
+}
+
+// graftExternal loads the live subtree of a mirror source that lives outside
+// the loaded tree and grafts it in as a detached external root, so the mirror
+// shows its children through and edits there act on the real nodes. A source
+// that cannot be fetched or is tombstoned leaves a "(missing)" stub; one whose
+// subtree overlaps nodes already loaded (it is an ancestor of the tree, or of
+// an earlier graft) leaves a name stub instead — byUUID must stay one item per
+// uuid. Reports whether the source ended up loaded.
+func (t *tree) graftExternal(srcUUID string) bool {
+	if _, in := t.byUUID[srcUUID]; in {
+		return true
+	}
+	if t.db == nil {
+		return false
+	}
+	nodes, err := database.GetSubtree(t.db, srcUUID)
+	if err != nil || nodes[0].Deleted {
+		t.externalNames[srcUUID] = "(missing)"
+		return false
+	}
+	for _, n := range nodes {
+		if _, in := t.byUUID[n.UUID]; in {
+			t.externalNames[srcUUID] = nodes[0].Name
+			return false
 		}
 	}
 
-	return t, nil
+	items := map[string]*item{}
+	for _, n := range nodes {
+		items[n.UUID] = itemFromNode(n)
+		t.snapshots[n.UUID] = snapFromNode(n)
+	}
+	for _, n := range nodes {
+		if n.UUID == srcUUID {
+			continue
+		}
+		it := items[n.UUID]
+		parent := items[n.ParentUUID]
+		if parent == nil {
+			parent = items[srcUUID]
+		}
+		it.parent = parent
+		parent.children = append(parent.children, it)
+	}
+	for uuid, it := range items {
+		t.byUUID[uuid] = it
+	}
+	t.external = append(t.external, items[srcUUID])
+	return true
 }
 
 // followMirrorChain walks a node's mirror_of chain from startUUID to its
@@ -223,8 +291,9 @@ func (t *tree) displayName(it *item) string {
 }
 
 // resolve returns the live source item a mirror stands for, so content edits
-// act on the one real node — same node everywhere. A non-mirror, or a mirror
-// whose source lives outside the loaded subtree, returns itself.
+// act on the one real node — same node everywhere. Out-of-subtree sources are
+// grafted at load, so byUUID normally hits; a non-mirror, or a mirror whose
+// source failed to graft, returns itself.
 func (t *tree) resolve(it *item) *item {
 	if it == nil || it.mirrorOf == "" {
 		return it
@@ -265,7 +334,7 @@ type row struct {
 // childItems returns the children to display under it. An expanded mirror shows
 // its source's live children so the same node appears everywhere — edits in
 // either spot act on the one real node; a normal node shows its own. A mirror
-// whose source is outside the loaded subtree shows nothing through.
+// whose source could not be grafted (see graftExternal) shows nothing through.
 func (t *tree) childItems(it *item) []*item {
 	if it.mirrorOf == "" {
 		return it.children
@@ -738,6 +807,20 @@ func (t *tree) save() (int, error) {
 		}
 	}
 
+	// grafted external subtrees persist edits made through mirrors; the roots
+	// keep their DB position (snapshot parent/rank), only their content and
+	// subtrees are editable here
+	for _, ex := range t.external {
+		s, ok := t.snapshots[ex.uuid]
+		if !ok {
+			continue
+		}
+		if err := walk(ex, s.parentUUID, s.rank); err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+	}
+
 	for _, uuid := range t.deleted {
 		if _, err := tx.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = ?", uuid); err != nil {
 			tx.Rollback()
@@ -758,6 +841,7 @@ func (t *tree) save() (int, error) {
 }
 
 func (t *tree) refreshSnapshots() {
+	old := t.snapshots
 	t.snapshots = map[string]snapshot{}
 	var walk func(it *item, parentUUID string, rank int)
 	walk = func(it *item, parentUUID string, rank int) {
@@ -779,4 +863,10 @@ func (t *tree) refreshSnapshots() {
 		}
 	}
 	walk(t.root, "", 0)
+	// external roots carry their DB position forward from the previous snapshot
+	for _, ex := range t.external {
+		if s, ok := old[ex.uuid]; ok {
+			walk(ex, s.parentUUID, s.rank)
+		}
+	}
 }

@@ -180,8 +180,8 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(it)
 		}
-		if _, inTree := m.tree.byUUID[target.UUID]; !inTree {
-			m.tree.externalNames[target.UUID] = target.Name
+		if !m.tree.graftExternal(target.UUID) {
+			m.tree.externalNames[target.UUID] = target.Name // ungraftable: name stub
 		}
 		m.unsaved = true
 	case actMirrorFrom:
@@ -191,13 +191,10 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		src := m.tree.resolve(cur)
 		srcUUID := src.uuid
 		if src.mirrorOf != "" {
-			// cur mirrors a node outside the loaded subtree: follow the chain in
-			// the DB so the new mirror points at the real original
+			// cur mirrors an ungrafted node: follow the chain in the DB so the
+			// new mirror points at the real original
 			orig := m.resolveSourceNode(database.Node{UUID: src.uuid, MirrorOf: src.mirrorOf})
 			srcUUID = orig.UUID
-			if _, inTree := m.tree.byUUID[srcUUID]; !inTree {
-				m.tree.externalNames[srcUUID] = orig.Name
-			}
 		}
 		if targetItem, inTree := m.tree.byUUID[target.UUID]; inTree {
 			it, err := m.tree.newItem()
@@ -208,6 +205,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 			it.mirrorOf = srcUUID
 			it.parent = targetItem
 			m.tree.insertChildAt(targetItem, 0, it)
+			m.tree.graftExternal(srcUUID) // no-op when the source is loaded
 			m.unsaved = true
 		} else if err := m.mirrorToDB(srcUUID, target); err != nil {
 			m.err = err

@@ -243,8 +243,8 @@ func (m *Model) reconcileQueryMirrors(q *item, matches []database.Node) {
 	var kids []*item
 	for _, src := range order {
 		mn := want[src]
-		if mn.Name != "" {
-			m.tree.externalNames[src] = mn.Name // so the mirror resolves its name
+		if !m.tree.graftExternal(src) && mn.Name != "" {
+			m.tree.externalNames[src] = mn.Name // ungraftable: at least the name resolves
 		}
 		if c, ok := existing[src]; ok {
 			kids = append(kids, c)

@@ -203,26 +203,39 @@ func (m *Model) liveTrees() []*tree {
 // applyNode routes one external node to the tree that owns (or gains) it.
 // applied=false means "parent not loaded yet, retry this event pass".
 func (m *Model) applyNode(n database.Node) (applied, mutated bool) {
+	// a grafted mirror source can be loaded in more than one tree at once, so
+	// fold the event into every tree that holds the node
 	for _, t := range m.liveTrees() {
-		if it, ok := t.byUUID[n.UUID]; ok {
-			// an external tombstone (CLI remove, another client) must stop any
-			// agent still bound to the disappearing subtree before dropSubtree
-			// forgets the items — same rule as local deleteNode
-			if n.Deleted {
-				m.stopAgentsUnder(it)
-			}
-			return true, t.applyExternal(n)
+		it, ok := t.byUUID[n.UUID]
+		if !ok {
+			continue
 		}
+		// an external tombstone (CLI remove, another client) must stop any
+		// agent still bound to the disappearing subtree before dropSubtree
+		// forgets the items — same rule as local deleteNode
+		if n.Deleted {
+			m.stopAgentsUnder(it)
+		}
+		applied = true
+		if t.applyExternal(n) {
+			mutated = true
+		}
+	}
+	if applied {
+		return true, mutated
 	}
 	if n.Deleted {
 		return true, false // not loaded anywhere: nothing to remove
 	}
 	for _, t := range m.liveTrees() {
 		if _, ok := t.byUUID[n.ParentUUID]; ok {
-			return true, t.applyExternal(n)
+			applied = true
+			if t.applyExternal(n) {
+				mutated = true
+			}
 		}
 	}
-	return false, false
+	return applied, mutated
 }
 
 // snapFromNode records a fresh DB row as a snapshot, so the next save diffs
@@ -328,6 +341,12 @@ func (t *tree) applyExternal(n database.Node) bool {
 // already reflects it.
 func (t *tree) dropSubtree(it *item) {
 	detach(it)
+	for i, ex := range t.external {
+		if ex == it { // a grafted root leaving: forget it, or save would revive it
+			t.external = append(t.external[:i], t.external[i+1:]...)
+			break
+		}
+	}
 	var forget func(x *item)
 	forget = func(x *item) {
 		delete(t.byUUID, x.uuid)

@@ -377,10 +377,11 @@ func (m *Model) reopenAt(rootUUID, focusUUID string) {
 // undoState is a snapshot of the editable tree and cursor taken before an action.
 type undoState struct {
 	root    *item
-	deleted []string
-	view    []string // viewStack uuids
-	cursor  int
-	caret   int
+	deleted  []string
+	external []*item // grafted subtree roots, cloned like root
+	view     []string // viewStack uuids
+	cursor   int
+	caret    int
 }
 
 // pushUndo snapshots the tree before a mutating action. The mark coalesces a run
@@ -392,11 +393,15 @@ func (m *Model) pushUndo(mark string) {
 	}
 	m.undoMark = mark
 	st := undoState{
-		root:    cloneItem(m.tree.root, nil),
-		deleted: append([]string(nil), m.tree.deleted...),
-		view:    make([]string, len(m.viewStack)),
-		cursor:  m.cursor,
-		caret:   m.caret,
+		root:     cloneItem(m.tree.root, nil),
+		deleted:  append([]string(nil), m.tree.deleted...),
+		external: make([]*item, len(m.tree.external)),
+		view:     make([]string, len(m.viewStack)),
+		cursor:   m.cursor,
+		caret:    m.caret,
+	}
+	for i, ex := range m.tree.external {
+		st.external[i] = cloneItem(ex, nil)
 	}
 	for i, v := range m.viewStack {
 		st.view[i] = v.uuid
@@ -447,6 +452,10 @@ func (m *Model) undo() {
 	m.undoMark = "" // the next edit starts a fresh snapshot
 
 	m.tree.root = cloneItem(st.root, nil) // clone so the stacked entry stays pristine
+	m.tree.external = make([]*item, len(st.external))
+	for i, ex := range st.external {
+		m.tree.external[i] = cloneItem(ex, nil)
+	}
 	m.tree.rebuildByUUID()
 
 	// Reconcile the restored tree with what's actually in the DB (the snapshots map)
@@ -928,8 +937,8 @@ func (m *Model) maybeLinkToMirror(it *item) {
 	it.name = ""
 	it.mirrorOf = target.UUID
 	m.caret = 0
-	if _, inTree := m.tree.byUUID[target.UUID]; !inTree {
-		m.tree.externalNames[target.UUID] = target.Name
+	if !m.tree.graftExternal(target.UUID) {
+		m.tree.externalNames[target.UUID] = target.Name // ungraftable: name stub
 	}
 	m.unsaved = true
 	m.flash = fmt.Sprintf("mirrored %q", target.Name)
