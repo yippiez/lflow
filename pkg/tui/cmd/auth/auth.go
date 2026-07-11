@@ -8,13 +8,12 @@ import (
 )
 
 // NewCmd returns the `auth` command with its provider subcommands.
+//
+// The Colab provider (formerly `auth colab`) and its from-scratch runtime were
+// removed; provider auth will be reintroduced via a library.
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "auth",
 		Short: "Authenticate lflow with external providers",
 	}
-
-	cmd.AddCommand(newColabCmd(ctx))
-
-	return cmd
 }
