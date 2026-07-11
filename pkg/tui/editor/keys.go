@@ -209,9 +209,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			// split the node at the caret: text after the caret moves into the new
 			// sibling, the part before — and the node's children — stays. A mirror
-			// reference, or a non-inline-editable type (json), is not split — it just
-			// opens an empty sibling.
-			if cur != nil && mc.editable && typeOf(cur.typ).inlineEditable {
+			// reference, a non-inline-editable type (json), or a locked node is not
+			// split — it just opens an empty sibling (newline without rewriting text).
+			if cur != nil && mc.editable && typeOf(cur.typ).inlineEditable && !cur.readonly {
 				runes := []rune(cur.name)
 				at := m.caret
 				if at < 0 {

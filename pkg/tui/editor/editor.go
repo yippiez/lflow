@@ -725,8 +725,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Per-key behaviour, all expressed through the fields below:
 //
 //	enter      · editable is false on a mirror reference, so Enter does not split
-//	             its text; it opens an empty sibling. Otherwise it splits at the
-//	             caret. The cursor is restored into ctx.
+//	             its text; it opens an empty sibling. Locked nodes (readonly) also
+//	             skip the split — newline only. Otherwise it splits at the caret.
+//	             The cursor is restored into ctx.
 //	tab        · indenting under a mirror attaches the child to the mirror's
 //	             source; indentInto names that mirror so the cursor follows into
 //	             its view instead of snapping back to the original.

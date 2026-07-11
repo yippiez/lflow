@@ -1122,6 +1122,28 @@ func TestEnterAtEndCreatesEmptySibling(t *testing.T) {
 	}
 }
 
+// TestEnterOnLockedNodeDoesNotSplit: /lock freezes the text, so Enter mid-node
+// must open an empty sibling without pulling any of the locked text out.
+func TestEnterOnLockedNodeDoesNotSplit(t *testing.T) {
+	m := newTestModel(80, "asdasd")
+	cur := m.tree.root.children[0]
+	cur.readonly = true
+	m.cursor = 0
+	m.caret = 3 // asd|asd
+
+	m.press("enter")
+
+	if got := siblingNames(m); !reflect.DeepEqual(got, []string{"asdasd", ""}) {
+		t.Fatalf("locked split = %#v, want [asdasd \"\"] (no text move)", got)
+	}
+	if m.tree.root.children[0] != cur || cur.name != "asdasd" || !cur.readonly {
+		t.Fatalf("locked node must stay intact, name=%q readonly=%v", cur.name, cur.readonly)
+	}
+	if m.cursor != 1 || m.cursorItem().name != "" {
+		t.Fatalf("cursor should land on the new empty node, cursor=%d name=%q", m.cursor, m.cursorItem().name)
+	}
+}
+
 // TestSlashBackspaceDismissKeepsStatusBar is the F8 regression: the slash menu
 // lists its commands above the status bar, never below it. The inline renderer
 // skips repainting a last line that is unchanged from the previous frame, so if
