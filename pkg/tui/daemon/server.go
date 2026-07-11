@@ -180,9 +180,16 @@ func (sv *server) session(conn net.Conn) {
 
 		switch req.Op {
 		case wire.OpHello:
-			sess.name, sess.instance = req.Name, req.Instance
+			// a bare re-hello (version read) keeps the original identity
+			if req.Name != "" {
+				sess.name = req.Name
+			}
+			if req.Instance != "" {
+				sess.instance = req.Instance
+			}
 			resp.Version = sv.opts.Version
-			if !greeted {
+			// probes (Ensure's liveness checks) stay out of the log
+			if !greeted && sess.name != "probe" {
 				greeted = true
 				sv.logf("→ connected %q · %s", sess.name, shortID(sess.instance))
 			}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/lflow/lflow/pkg/tui/client"
 	"github.com/lflow/lflow/pkg/tui/config"
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
@@ -52,65 +53,92 @@ func getDBPath(paths context.Paths, customPath string) string {
 	return fmt.Sprintf("%s/%s/%s", paths.Data, consts.LflowDirName, consts.LflowDBFileName)
 }
 
-// newBaseCtx creates a minimal context with paths and database connection.
-// This base context is used for file and database initialization before
-// being enriched with config values by setupCtx.
-func newBaseCtx(versionTag string) (context.DnoteCtx, error) {
-	legacyDnoteDir := getLegacyDnotePath(dirs.Home)
-	paths := context.Paths{
+// ResolvePaths returns the standard lflow directories.
+func ResolvePaths() context.Paths {
+	return context.Paths{
 		Home:        dirs.Home,
 		Config:      dirs.ConfigHome,
 		Data:        dirs.DataHome,
 		Cache:       dirs.CacheHome,
-		LegacyDnote: legacyDnoteDir,
+		LegacyDnote: getLegacyDnotePath(dirs.Home),
 	}
+}
 
+// ResolveDBPath resolves the database location: the config override, the
+// legacy dnote dir, or the standard data dir.
+func ResolveDBPath() (string, error) {
+	paths := ResolvePaths()
 	// the config file is the only way to relocate the database; on a first
 	// run the file does not exist yet and the standard location is used
 	customDBPath := ""
 	if cf, err := config.Read(context.DnoteCtx{Paths: paths}); err == nil {
 		customDBPath = cf.DBPath
 	}
-
-	dbPath := getDBPath(paths, customDBPath)
-
-	db, err := database.Open(dbPath)
-	if err != nil {
-		return context.DnoteCtx{}, errors.Wrap(err, "conntecting to db")
-	}
-
-	ctx := context.DnoteCtx{
-		Paths:   paths,
-		Version: versionTag,
-		DB:      db,
-	}
-
-	return ctx, nil
+	return getDBPath(paths, customDBPath), nil
 }
 
-// Init initializes the Lflow environment and returns a new lflow context.
-func Init(versionTag string) (*context.DnoteCtx, error) {
-	ctx, err := newBaseCtx(versionTag)
-	if err != nil {
-		return nil, errors.Wrap(err, "initializing a context")
+// PrepareDB creates the schema and system rows and runs every migration.
+// The daemon runs it once at startup as the database's single owner; a
+// direct (LFLOW_NO_DAEMON) run does it for itself.
+func PrepareDB(db *database.DB, versionTag string) error {
+	ctx := context.DnoteCtx{Paths: ResolvePaths(), Version: versionTag, DB: db}
+	if err := InitDB(ctx); err != nil {
+		return errors.Wrap(err, "initializing database")
 	}
+	if err := InitSystem(ctx); err != nil {
+		return errors.Wrap(err, "initializing system data")
+	}
+	if err := migrate.Legacy(ctx); err != nil {
+		return errors.Wrap(err, "running legacy migration")
+	}
+	if err := migrate.Run(ctx, migrate.LocalSequence); err != nil {
+		return errors.Wrap(err, "running migration")
+	}
+	return nil
+}
+
+// clientName labels this process in daemon logs and change events.
+func clientName() string {
+	for _, a := range os.Args[1:] {
+		if a == "open" {
+			return "editor"
+		}
+	}
+	return "cli"
+}
+
+// Init initializes the lflow environment and returns a new lflow context.
+// Normal runs connect to the daemon (spawning it when absent) — the daemon
+// is the only process that opens the SQLite file, so every client sees every
+// change live. LFLOW_NO_DAEMON=1 opens the file directly instead.
+func Init(versionTag string) (*context.DnoteCtx, error) {
+	ctx := context.DnoteCtx{Paths: ResolvePaths(), Version: versionTag}
 
 	if err := initFiles(ctx); err != nil {
 		return nil, errors.Wrap(err, "initializing files")
 	}
 
-	if err := InitDB(ctx); err != nil {
-		return nil, errors.Wrap(err, "initializing database")
-	}
-	if err := InitSystem(ctx); err != nil {
-		return nil, errors.Wrap(err, "initializing system data")
+	dbPath, err := ResolveDBPath()
+	if err != nil {
+		return nil, errors.Wrap(err, "resolving db path")
 	}
 
-	if err := migrate.Legacy(ctx); err != nil {
-		return nil, errors.Wrap(err, "running legacy migration")
-	}
-	if err := migrate.Run(ctx, migrate.LocalSequence); err != nil {
-		return nil, errors.Wrap(err, "running migration")
+	if os.Getenv("LFLOW_NO_DAEMON") != "" {
+		db, err := database.Open(dbPath)
+		if err != nil {
+			return nil, errors.Wrap(err, "connecting to db")
+		}
+		ctx.DB = db
+		if err := PrepareDB(db, versionTag); err != nil {
+			return nil, err
+		}
+	} else {
+		cl, err := client.Ensure(dbPath, clientName(), versionTag)
+		if err != nil {
+			return nil, errors.Wrap(err, "connecting to the lflow daemon")
+		}
+		ctx.DB = cl.DB()
+		ctx.Live = cl
 	}
 
 	ctx, err = setupCtx(ctx)
@@ -135,6 +163,7 @@ func setupCtx(ctx context.DnoteCtx) (context.DnoteCtx, error) {
 		Paths:              ctx.Paths,
 		Version:            ctx.Version,
 		DB:                 ctx.DB,
+		Live:               ctx.Live,
 		Editor:             cf.Editor,
 		Clock:              clock.New(),
 		EnableUpgradeCheck: cf.EnableUpgradeCheck,

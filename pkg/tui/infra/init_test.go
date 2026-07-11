@@ -88,6 +88,8 @@ func TestInit_CreatesDefaultConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", fmt.Sprintf("%s/config", tmpDir))
 	t.Setenv("XDG_DATA_HOME", fmt.Sprintf("%s/data", tmpDir))
 	t.Setenv("XDG_CACHE_HOME", fmt.Sprintf("%s/cache", tmpDir))
+	// the test binary has no serve command to spawn — open the file directly
+	t.Setenv("LFLOW_NO_DAEMON", "1")
 
 	// Force dirs package to reload with new environment
 	dirs.Reload()

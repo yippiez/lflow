@@ -137,7 +137,7 @@ func spawn(dbPath, sock string) error {
 }
 
 func pingable(sock string) bool {
-	c, err := dialHello(sock, "ping", "", "")
+	c, err := dialHello(sock, "probe", "", "")
 	if err != nil {
 		return false
 	}

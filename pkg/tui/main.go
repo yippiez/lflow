@@ -13,6 +13,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/cmd/export"
 	"github.com/lflow/lflow/pkg/tui/cmd/node"
 	"github.com/lflow/lflow/pkg/tui/cmd/root"
+	"github.com/lflow/lflow/pkg/tui/cmd/serve"
 	"github.com/lflow/lflow/pkg/tui/cmd/version"
 )
 
@@ -20,6 +21,17 @@ import (
 var versionTag = "master"
 
 func main() {
+	// the daemon itself must never route through a daemon: `lflow serve`
+	// skips client init entirely and owns the database directly
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		root.Register(serve.NewCmd(versionTag))
+		if err := root.Execute(); err != nil {
+			log.Errorf("%s\n", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+
 	// the database location comes from the config file alone; there is no
 	// flag for it
 	ctx, err := infra.Init(versionTag)
@@ -32,6 +44,7 @@ func main() {
 	root.Register(auth.NewCmd(*ctx))
 	root.Register(export.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
+	root.Register(serve.NewCmd(versionTag)) // listed in --help; runs via the early path
 
 	if err := root.Execute(); err != nil {
 		log.Errorf("%s\n", err.Error())
