@@ -40,9 +40,9 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 		if cur != nil && h.UUID == cur.uuid {
 			continue
 		}
-		// /goto is a jump target list: a node with no name and no mirror is empty
-		// noise, so leave it out
-		if m.finder.act == actGoto && h.Name == "" && h.MirrorOf == "" {
+		// /goto and /move are target lists: a node with no name and no mirror is
+		// empty noise, so leave it out
+		if (m.finder.act == actGoto || m.finder.act == actMoveTo) && h.Name == "" && h.MirrorOf == "" {
 			continue
 		}
 		rows = append(rows, m.finderRowFor(h))
