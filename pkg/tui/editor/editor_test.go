@@ -172,8 +172,9 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "alt+enter":
 		return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}
-	case "alt+p":
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p"), Alt: true}
+	case "alt+P", "alt+shift+p":
+		// terminals send alt+shift+p as uppercase P with Alt set
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P"), Alt: true}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "left":
@@ -1500,24 +1501,24 @@ func TestAltEnterTogglesComplete(t *testing.T) {
 	}
 }
 
-// TestAltPOpensSlashMenu: alt+p opens the command palette without typing "/" into the node.
-func TestAltPOpensSlashMenu(t *testing.T) {
+// TestAltShiftPOpensSlashMenu: alt+shift+p opens the command palette without typing "/" into the node.
+func TestAltShiftPOpensSlashMenu(t *testing.T) {
 	m := newTestModel(40, "task")
 	m.cursor = 0
 	before := m.cursorItem().name
 
-	m.press("alt+p")
+	m.press("alt+shift+p")
 	if m.mode != modeSlash {
-		t.Fatalf("alt+p should open the slash menu, mode=%v", m.mode)
+		t.Fatalf("alt+shift+p should open the slash menu, mode=%v", m.mode)
 	}
 	if m.slashInline {
-		t.Fatal("alt+p should open non-inline so nothing is typed into the name")
+		t.Fatal("alt+shift+p should open non-inline so nothing is typed into the name")
 	}
 	if got := m.cursorItem().name; got != before {
-		t.Fatalf("alt+p must not change the node name: before=%q after=%q", before, got)
+		t.Fatalf("alt+shift+p must not change the node name: before=%q after=%q", before, got)
 	}
 	if m.unsaved {
-		t.Fatal("alt+p alone should not mark the outline unsaved")
+		t.Fatal("alt+shift+p alone should not mark the outline unsaved")
 	}
 }
 

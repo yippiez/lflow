@@ -104,7 +104,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "tab", "shift+tab", "ctrl+d", "alt+d", "ctrl+shift+backspace",
 				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
-				"/", "alt+p": // the slash menu may apply /type //style //move to the selection
+				"/", "alt+P": // the slash menu may apply /type //style //move to the selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -525,8 +525,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.toggleComplete(cur)
 		}
 		return m, nil
-	case "alt+p":
+	case "alt+P":
 		// open the command palette without typing "/" into the node text
+		// (alt+shift+p — terminals deliver shift as uppercase P)
 		cur := m.cursorItem()
 		if cur == nil {
 			it, err := m.tree.insertFirstChild(m.viewRoot())
@@ -793,7 +794,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// "/" opens the slash menu anywhere in the row. On editable rows it
 		// is typed into the text and stripped when a command runs or the menu
 		// is cancelled, so esc restores the name to what it was before.
-		// alt+p opens the same menu without inserting "/" (see openSlashMenu).
+		// alt+P (alt+shift+p) opens the same menu without inserting "/" (see openSlashMenu).
 		if string(k.Runes) == "/" && !k.Paste {
 			m.openSlashMenu(cur.mirrorOf == "" && !cur.readonly)
 			return m, nil

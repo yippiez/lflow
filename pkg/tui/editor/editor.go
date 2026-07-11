@@ -1254,7 +1254,7 @@ func (m *Model) filteredSlash(query string) []slashCommand {
 
 // openSlashMenu opens the command palette (modeSlash). When inline is true the
 // "/" trigger is typed into the node name and stripped on run/cancel (the /
-// key path). alt+p opens non-inline so the name is left alone while filtering.
+// key path). alt+P (alt+shift+p) opens non-inline so the name is left alone while filtering.
 func (m *Model) openSlashMenu(inline bool) {
 	m.mode = modeSlash
 	m.list = listPicker{searchable: true}
