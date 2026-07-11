@@ -140,10 +140,10 @@ func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
 		if i == f.sel {
 			mark = cAccent + " → " + cReset
 		}
-		name := displayAnchors(finderRowName(r.node, func(uuid string) (database.Node, bool) {
+		name := oneLine(displayAnchors(finderRowName(r.node, func(uuid string) (database.Node, bool) {
 			n, err := database.GetNode(m.db, uuid)
 			return n, err == nil
-		}), m.chips)
+		}), m.chips))
 		// carry the node's own /color and /bold-/italic-/underline into the picker
 		// so a styled node reads the same here as in the outline
 		base := cFG

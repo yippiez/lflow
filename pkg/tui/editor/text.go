@@ -202,6 +202,16 @@ func elideMiddle(s string, width int) string {
 	return h.String() + marker + string(tr)
 }
 
+// oneLine flattens s to a single line — newline runs (and surrounding
+// whitespace) collapse to one space — so a multi-paragraph node renders as one
+// truncated picker row instead of wrapping the list.
+func oneLine(s string) string {
+	if !strings.ContainsAny(s, "\n\r") {
+		return s
+	}
+	return strings.Join(strings.Fields(s), " ")
+}
+
 // clipStr truncates s to at most n runes, adding an ellipsis when it cuts.
 func clipStr(s string, n int) string {
 	r := []rune(s)

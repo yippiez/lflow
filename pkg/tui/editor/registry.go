@@ -26,6 +26,7 @@ type nodeType struct {
 	inlineEditable bool                               // false → typing/backspace/enter is a no-op
 	tempOnly       bool                               // only offered/allowed in the Temporary Domain
 	internal       bool                               // never offered in /type: only the app creates nodes of this type
+	searchHidden   bool                               // never surfaced by finders (/goto, /mirror, /move, [[) or live queries, unless ":type:" names it explicitly
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
@@ -121,11 +122,13 @@ var nodeTypes = []nodeType{
 	// an agent reply (see agent.go): red ✦, body red, plain text + chips.
 	// Internal — the /type picker never offers it, only the agent creates one —
 	// and born locked so a reply can't change under the thread; /lock unlocks
-	// it for reshaping like any other node.
+	// it for reshaping like any other node. Search-hidden: replies are answers
+	// in a thread, not navigation targets, so no finder or query lists them.
 	{
 		key: database.TypeAgent, label: "Agent", glyph: agentGlyph, inlineEditable: true,
-		internal:  true,
-		baseColor: func(it *item) string { return cRed },
+		internal:     true,
+		searchHidden: true,
+		baseColor:    func(it *item) string { return cRed },
 	},
 	{
 		key: database.TypeVoice, label: "Voice", inlineEditable: false,
@@ -147,13 +150,16 @@ var nodeTypes = []nodeType{
 	},
 }
 
-var byType = func() map[string]nodeType {
-	m := make(map[string]nodeType, len(nodeTypes))
+// byType fills in init() — a var initializer would cycle: nodeTypes references
+// runQuery, which reaches typeOf/byType through the query type filter.
+var byType map[string]nodeType
+
+func init() {
+	byType = make(map[string]nodeType, len(nodeTypes))
 	for _, nt := range nodeTypes {
-		m[nt.key] = nt
+		byType[nt.key] = nt
 	}
-	return m
-}()
+}
 
 // typeOf returns the descriptor for a type key — compiled-in first, then
 // runtime mods; unknown keys fall back to bullets, which is what keeps

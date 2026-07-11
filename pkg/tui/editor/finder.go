@@ -42,9 +42,10 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 		if cur != nil && h.UUID == cur.uuid {
 			continue
 		}
-		// every picker hides empty nodes (noise) and mirror rows: a pick on a
-		// mirror resolves to its original anyway, so listing both has no value
-		if h.Name == "" || h.MirrorOf != "" {
+		// every picker hides empty nodes (noise), mirror rows (a pick on a
+		// mirror resolves to its original anyway, so listing both has no
+		// value), and search-hidden types (agent replies)
+		if h.Name == "" || h.MirrorOf != "" || typeOf(h.Type).searchHidden {
 			continue
 		}
 		rows = append(rows, m.finderRowFor(h))
@@ -145,7 +146,7 @@ func (m *Model) tempFinderHits(cur *item, query string) []database.Node {
 	var hits []database.Node
 	for _, it := range m.tempTree.root.children {
 		name := strings.TrimSpace(it.name)
-		if name == "" || (cur != nil && it.uuid == cur.uuid) {
+		if name == "" || (cur != nil && it.uuid == cur.uuid) || typeOf(it.typ).searchHidden {
 			continue
 		}
 		if q != "" && !strings.Contains(strings.ToLower(name), q) {

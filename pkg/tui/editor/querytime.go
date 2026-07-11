@@ -33,11 +33,13 @@ func (tq timeQuery) hasFilter() bool {
 // from hasFilter, which also counts a ":type:" filter.
 func (tq timeQuery) hasTimeFilter() bool { return tq.after != nil || tq.before != nil }
 
-// matchType reports whether typ is selected: true when no ":type:" filter is set,
-// otherwise typ must equal one of the filter's keys (case-insensitive).
+// matchType reports whether typ is selected: true when no ":type:" filter is set
+// (except search-hidden types like agent replies — naming one via ":type:" is the
+// only way to query it), otherwise typ must equal one of the filter's keys
+// (case-insensitive).
 func (tq timeQuery) matchType(typ string) bool {
 	if len(tq.types) == 0 {
-		return true
+		return !typeOf(typ).searchHidden
 	}
 	typ = strings.ToLower(typ)
 	for _, t := range tq.types {
