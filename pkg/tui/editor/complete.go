@@ -35,13 +35,16 @@ type complItem struct {
 	label, value, desc string
 }
 
-// queryCmdItems is the fixed menu for ":" in a query node — the time filters the
-// query matcher understands (see querytime.go).
+// queryCmdItems is the fixed menu for ":" in a query node — the filters and
+// display flags the query matcher understands (see querytime.go).
 var queryCmdItems = []complItem{
 	{label: ":after:", value: ":after:", desc: "dated/created on or after"},
 	{label: ":before:", value: ":before:", desc: "dated/created on or before"},
 	{label: ":since:", value: ":since:", desc: "alias of :after:"},
 	{label: ":until:", value: ":until:", desc: "alias of :before:"},
+	{label: ":type:", value: ":type:", desc: "node type (todo, log, …)"},
+	{label: ":breadcrumb:", value: ":breadcrumb:", desc: "group hits under path crumbs"},
+	{label: ":list:", value: ":list:", desc: "flat hit list (default)"},
 }
 
 // existingTags is every distinct tag in the outline, sorted. It unions the chip

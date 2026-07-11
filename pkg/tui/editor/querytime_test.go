@@ -209,9 +209,9 @@ func TestQueryHidesAgentRepliesUnlessTyped(t *testing.T) {
 	}
 }
 
-// TestQueryTreeBreadcrumbs drives the :tree: display flag: hits sort by
+// TestQueryBreadcrumbs drives the :breadcrumb: display flag: hits sort by
 // ancestor path, and only the first hit of each group renders the breadcrumb.
-func TestQueryTreeBreadcrumbs(t *testing.T) {
+func TestQueryBreadcrumbs(t *testing.T) {
 	root := &item{uuid: "root"}
 	work := &item{uuid: "work", name: "work", parent: root}
 	home := &item{uuid: "home", name: "home", parent: root}
@@ -220,7 +220,7 @@ func TestQueryTreeBreadcrumbs(t *testing.T) {
 	h1 := &item{uuid: "h1", name: "fix the sink", parent: home}
 	work.children = []*item{w1, w2}
 	home.children = []*item{h1}
-	q := &item{uuid: "q", typ: database.TypeQuery, parent: root, name: "fix :tree:"}
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root, name: "fix :breadcrumb:"}
 	root.children = []*item{work, home, q}
 	tr := &tree{
 		root:          root,
@@ -265,7 +265,7 @@ func TestQueryTreeBreadcrumbs(t *testing.T) {
 		t.Errorf("w2 crumb = %q, want suppressed (same group)", crumbs["w2"])
 	}
 
-	// without :tree: no crumbs render at all
+	// without :breadcrumb: no crumbs render at all
 	q.name = "fix"
 	runQuery(m, q)
 	m.refreshRows()
@@ -273,5 +273,71 @@ func TestQueryTreeBreadcrumbs(t *testing.T) {
 		if r.it.mirrorOf != "" && m.rowCrumb(m.rows, i) != "" {
 			t.Fatal("flat query must not render crumbs")
 		}
+	}
+}
+
+// TestQueryBoolOps covers ||, &&, and the > descendant operator.
+func TestQueryBoolOps(t *testing.T) {
+	root := &item{uuid: "root"}
+	proj := &item{uuid: "proj", name: "project alpha", typ: database.TypeBullets, parent: root}
+	todo1 := &item{uuid: "t1", name: "ship it", typ: database.TypeTodo, parent: proj}
+	todo2 := &item{uuid: "t2", name: "unrelated todo", typ: database.TypeTodo, parent: root}
+	note := &item{uuid: "n1", name: "release notes", typ: database.TypeBullets, parent: root}
+	other := &item{uuid: "o1", name: "deploy scripts", typ: database.TypeBullets, parent: root}
+	proj.children = []*item{todo1}
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root}
+	root.children = []*item{proj, todo2, note, other, q}
+	tr := &tree{
+		root:          root,
+		snapshots:     map[string]snapshot{},
+		externalNames: map[string]string{},
+		byUUID: map[string]*item{
+			"root": root, "proj": proj, "t1": todo1, "t2": todo2,
+			"n1": note, "o1": other, "q": q,
+		},
+	}
+	m := &Model{tree: tr}
+
+	names := func(ns []database.Node) map[string]bool {
+		s := map[string]bool{}
+		for _, n := range ns {
+			s[n.UUID] = true
+		}
+		return s
+	}
+
+	// OR: deploy || release
+	q.name = "deploy || release"
+	got := names(m.queryMatches(q))
+	if !got["o1"] || !got["n1"] || got["t1"] {
+		t.Errorf("OR matched wrong set: %v", got)
+	}
+
+	// AND with type: (deploy || release) && :type:todo — neither is a todo
+	q.name = "(deploy || release) && :type:todo"
+	got = names(m.queryMatches(q))
+	if len(got) != 0 {
+		t.Errorf("AND type should empty, got %v", got)
+	}
+
+	// type OR
+	q.name = ":type:todo || :type:log"
+	got = names(m.queryMatches(q))
+	if !got["t1"] || !got["t2"] || got["n1"] {
+		t.Errorf("type OR matched wrong set: %v", got)
+	}
+
+	// pipe: under project, only todos
+	q.name = "project > :type:todo"
+	got = names(m.queryMatches(q))
+	if !got["t1"] || got["t2"] {
+		t.Errorf("pipe should keep only descendant todo, got %v", got)
+	}
+
+	// pipe with OR left side
+	q.name = "(project || release) > :type:todo"
+	got = names(m.queryMatches(q))
+	if !got["t1"] || got["t2"] {
+		t.Errorf("pipe+OR left: %v", got)
 	}
 }

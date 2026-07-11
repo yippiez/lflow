@@ -11,7 +11,7 @@ import (
 )
 
 // A live-query node: its name is a search; alt+r searches the user's notes —
-// both saved nodes (FTS over the DB) and unsaved ones currently in memory — and
+// both saved nodes (full live set) and unsaved ones currently in memory — and
 // reconciles MIRROR children of the matches (first-order only). The mirrors are
 // REAL persisted nodes, so they survive a relaunch; re-running reconciles them in
 // place (add new matches, drop stale ones) to minimize churn.
@@ -34,10 +34,11 @@ func (m *Model) queryUpdatedAt(uuid string) int64 {
 	return v
 }
 
-// queryMatches finds nodes whose name or note contains the query, merging the
-// in-memory tree (so unsaved nodes are found) with the DB's full-text search (so
-// nodes outside the loaded subtree are found too). In-memory wins on conflict so
-// the freshest name is used. Results are sorted by name for a stable order.
+// queryMatches finds nodes matching the query language in the node's name
+// (see querytime.go): text / #tag / :type: / :after: / :before: combined with
+// && || > and parens. In-memory tree and DB live nodes are merged; in-memory
+// wins on conflict so the freshest name is used. Results are sorted by name
+// (starred first); :breadcrumb: re-sorts by ancestor path.
 func (m *Model) queryMatches(q *item) []database.Node {
 	now := time.Now()
 	// resolve the query node's own chips/dates to plain text before parsing, so a
@@ -46,74 +47,39 @@ func (m *Model) queryMatches(q *item) []database.Node {
 	if raw == "" {
 		return nil
 	}
-	tq := parseTimeQuery(raw, now)
-	query := strings.TrimSpace(tq.text)
-	hasText := query != ""
-	if !hasText && !tq.hasFilter() {
+	pq := parseQuery(raw, now)
+	if pq.empty() {
 		return nil
 	}
-	lc := strings.ToLower(query)
-	// a bare "#tag" query matches the whole tag exactly — FTS strips the '#' and
-	// would otherwise prefix-match "log" into "logic", so we filter strictly.
-	tag, isTag := tagQuery(query)
-	matches := func(name, note string) bool {
-		if !hasText {
-			return true // pure time query: every node is a text match, time filters
-		}
-		if isTag {
-			return nodeHasTag(name, tag) || nodeHasTag(note, tag)
-		}
-		return strings.Contains(strings.ToLower(name), lc) || strings.Contains(strings.ToLower(note), lc)
+
+	ctx := m.buildQueryCtx(q, now)
+	if len(ctx.cands) == 0 {
+		return nil
 	}
-	timeOK := func(name string, addedOn int64) bool {
-		if !tq.hasTimeFilter() {
-			return true
+	hitSet := pq.expr.eval(ctx)
+	// search-hidden types (agent replies) only surface when the expression
+	// names them via :type:
+	for u := range hitSet {
+		c := ctx.byUUID[u]
+		if c == nil {
+			delete(hitSet, u)
+			continue
 		}
-		return tq.matchDates(m.nodeDates(name, addedOn, now))
+		if typeOf(c.typ).searchHidden && !exprNamesType(pq.expr, c.typ) {
+			delete(hitSet, u)
+		}
 	}
-	seen := map[string]bool{}
+
 	var out []database.Node
-
-	// in-memory nodes (covers unsaved edits and brand-new nodes)
-	for uuid, it := range m.tree.byUUID {
-		if it == q || it.mirrorOf != "" || it.name == "" {
-			continue // skip self, mirror rows, and empty/derived names
+	for u := range hitSet {
+		c := ctx.byUUID[u]
+		if c == nil || c.uuid == q.uuid {
+			continue
 		}
-		if matches(it.name, it.note) && timeOK(it.name, it.addedOn) && tq.matchType(it.typ) {
-			out = append(out, database.Node{UUID: uuid, Name: it.name, Starred: it.starred})
-			seen[uuid] = true
-		}
-	}
-
-	// saved nodes from the DB (may live outside the loaded subtree). With text we
-	// search; a pure time query has nothing for FTS, so we scan the live forest.
-	// For a tag query the DB returns a loose superset; nodeHasTag tightens it.
-	var dbm []database.Node
-	var err error
-	switch {
-	case m.db == nil: // a detached/in-memory tree (tests, scratch): no DB reach
-	case hasText:
-		dbm, err = database.SearchNodes(m.db, query, true)
-	default:
-		dbm, err = database.AllLiveNodes(m.db)
-	}
-	if err == nil {
-		for _, mn := range dbm {
-			if seen[mn.UUID] || mn.Deleted || mn.Name == "" || mn.UUID == q.uuid {
-				continue
-			}
-			if isTag && !nodeHasTag(mn.Name, tag) && !nodeHasTag(mn.Note, tag) {
-				continue
-			}
-			if !timeOK(mn.Name, mn.AddedOn) {
-				continue
-			}
-			if !tq.matchType(mn.Type) {
-				continue
-			}
-			out = append(out, mn)
-			seen[mn.UUID] = true
-		}
+		out = append(out, database.Node{
+			UUID: c.uuid, Name: c.name, Note: c.note, Type: c.typ,
+			ParentUUID: c.parent, AddedOn: c.addedOn, Starred: c.starred,
+		})
 	}
 
 	// /star pins first; name order within each half. Stable so ties keep UUID order.
@@ -126,15 +92,103 @@ func (m *Model) queryMatches(q *item) []database.Node {
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
-	// :tree: groups hits by their ancestor path, so same-parent matches sit
-	// together and the render can show one breadcrumb per group
-	if tq.tree {
+	// :breadcrumb: groups hits by their ancestor path, so same-parent matches
+	// sit together and the render can show one breadcrumb per group
+	if pq.breadcrumb {
 		m.qCrumbs = nil
 		sort.SliceStable(out, func(i, j int) bool {
 			return m.crumbOf(out[i].UUID) < m.crumbOf(out[j].UUID)
 		})
 	}
 	return out
+}
+
+// buildQueryCtx gathers every searchable candidate (in-memory + DB) and the
+// parent map used by the `>` operator.
+func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
+	ctx := &qCtx{
+		m:      m,
+		now:    now,
+		parent: map[string]string{},
+		byUUID: map[string]*qCand{},
+	}
+	seen := map[string]bool{}
+
+	add := func(c qCand) {
+		if c.uuid == "" || c.uuid == q.uuid || c.name == "" || seen[c.uuid] {
+			return
+		}
+		seen[c.uuid] = true
+		ctx.cands = append(ctx.cands, c)
+		cp := c
+		ctx.byUUID[c.uuid] = &cp
+		if c.parent != "" {
+			ctx.parent[c.uuid] = c.parent
+		}
+	}
+
+	if m.tree != nil {
+		for uuid, it := range m.tree.byUUID {
+			if it == q || it.mirrorOf != "" {
+				continue
+			}
+			parent := ""
+			if it.parent != nil {
+				parent = it.parent.uuid
+			}
+			add(qCand{
+				uuid: uuid, name: it.name, note: it.note, typ: it.typ,
+				parent: parent, addedOn: it.addedOn, starred: it.starred,
+			})
+		}
+	}
+
+	if m.db != nil {
+		dbm, err := database.AllLiveNodes(m.db)
+		if err == nil {
+			for _, mn := range dbm {
+				if mn.Deleted || seen[mn.UUID] {
+					continue
+				}
+				add(qCand{
+					uuid: mn.UUID, name: mn.Name, note: mn.Note, typ: mn.Type,
+					parent: mn.ParentUUID, addedOn: mn.AddedOn, starred: mn.Starred,
+				})
+			}
+		}
+	}
+	return ctx
+}
+
+// exprNamesType reports whether e mentions :type:<typ> (case-insensitive).
+func exprNamesType(e qExpr, typ string) bool {
+	if e == nil {
+		return false
+	}
+	typ = strings.ToLower(typ)
+	switch v := e.(type) {
+	case *qType:
+		return strings.ToLower(v.key) == typ
+	case *qOr:
+		for _, k := range v.kids {
+			if exprNamesType(k, typ) {
+				return true
+			}
+		}
+	case *qAnd:
+		for _, k := range v.kids {
+			if exprNamesType(k, typ) {
+				return true
+			}
+		}
+	case *qPipe:
+		for _, k := range v.stages {
+			if exprNamesType(k, typ) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // crumbOf is a node's muted ancestor breadcrumb ("inbox › work › "), memoized
@@ -178,16 +232,16 @@ func (m *Model) crumbOf(uuid string) string {
 	return crumb
 }
 
-// rowCrumb is the breadcrumb a row displays: only mirror children of a :tree:
-// query show one, and only the first hit of each same-path group — the crumb
-// is the group header, never repeated per node.
+// rowCrumb is the breadcrumb a row displays: only mirror children of a
+// :breadcrumb: query show one, and only the first hit of each same-path group
+// — the crumb is the group header, never repeated per node.
 func (m *Model) rowCrumb(rows []row, i int) string {
 	it := rows[i].it
 	if it.mirrorOf == "" || it.parent == nil || it.parent.typ != database.TypeQuery {
 		return ""
 	}
 	raw := strings.ToLower(database.ExpandAnchors(it.parent.name, m.chips))
-	if !strings.Contains(raw, ":tree:") && !strings.HasSuffix(raw, ":tree") {
+	if !strings.Contains(raw, ":breadcrumb:") && !strings.HasSuffix(raw, ":breadcrumb") {
 		return ""
 	}
 	crumb := m.crumbOf(m.tree.sourceUUID(it))

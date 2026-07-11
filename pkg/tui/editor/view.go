@@ -178,7 +178,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		if rm := typeOf(it.typ).renderM; rm != nil {
 			body = rm(m, it) // Model-aware override (voice waveform)
 		}
-		// a :tree: query hit leads its group with a muted ancestor breadcrumb
+		// a :breadcrumb: query hit leads its group with a muted ancestor path
 		if crumb := m.rowCrumb(rows, i); crumb != "" {
 			body = cDim + crumb + cReset + body
 		}
