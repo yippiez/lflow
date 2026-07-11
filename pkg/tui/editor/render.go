@@ -68,6 +68,19 @@ const (
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
 )
 
+// underCompleted reports whether it sits under a completed ancestor in the
+// real parent chain. Mirrors are separate rows with their own parent, so a
+// child muted under a completed parent stays normal where it is mirrored
+// elsewhere.
+func underCompleted(it *item) bool {
+	for p := it.parent; p != nil; p = p.parent {
+		if p.completedAt > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // glyphFor returns the bullet glyph and its color for an item. Bullets and
 // todo boxes are muted gray — the selected row turns its glyph red. Glyphs
 // with an identity keep their own color: ◆ mirrors red, heading digits
@@ -545,10 +558,16 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	// /bold, /italic, /underline layer on top of the layout's own attributes
 	attrs += styleAttrs(it.style)
 	// completed nodes are muted gray + struck through, overriding /color so done
-	// work reads as quiet no matter the node's style
+	// work reads as quiet no matter the node's style. Descendants of a completed
+	// ancestor mute the same way (no strike) so a finished parent quiets its
+	// subtree — but only along that parent chain: a mirror of the child sitting
+	// under a different parent keeps normal color (it.parent is the mirror's
+	// own parent, not the completed one).
 	if it.completedAt > 0 {
 		base = cDim
 		attrs += cStrike
+	} else if underCompleted(it) {
+		base = cDim
 	}
 
 	runes := []rune(name)

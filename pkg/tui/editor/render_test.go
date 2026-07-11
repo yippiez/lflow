@@ -586,3 +586,69 @@ func TestRenderBodyCompletedStrikethrough(t *testing.T) {
 		t.Errorf("completed nodes should be muted gray: %q", rendered)
 	}
 }
+
+// TestRenderBodyUnderCompletedMutesChildren: finishing a parent quiets every
+// descendant under it (muted, not struck). A mirror of that child under a
+// different parent keeps normal color — muting follows the display parent chain.
+func TestRenderBodyUnderCompletedMutesChildren(t *testing.T) {
+	parent := &item{uuid: "p", typ: database.TypeBullets, name: "done parent", completedAt: 1}
+	child := &item{uuid: "c", typ: database.TypeBullets, name: "kid", parent: parent}
+	parent.children = []*item{child}
+
+	// under the completed parent: muted gray, not struck through
+	under := renderBody(child, child.name, -1, false, nil, false)
+	if !strings.Contains(under, cDim) {
+		t.Errorf("child under completed parent should be muted: %q", under)
+	}
+	if strings.Contains(under, cStrike) {
+		t.Errorf("child under completed parent must not strike (only the parent does): %q", under)
+	}
+
+	// nested grandchild also mutes
+	grand := &item{uuid: "g", typ: database.TypeBullets, name: "grand", parent: child}
+	child.children = []*item{grand}
+	nested := renderBody(grand, grand.name, -1, false, nil, false)
+	if !strings.Contains(nested, cDim) {
+		t.Errorf("grandchild under completed ancestor should be muted: %q", nested)
+	}
+
+	// a mirror of the child under a different (incomplete) parent stays normal
+	elsewhere := &item{uuid: "e", typ: database.TypeBullets, name: "elsewhere"}
+	mir := &item{uuid: "m", typ: database.TypeBullets, mirrorOf: child.uuid, parent: elsewhere}
+	elsewhere.children = []*item{mir}
+	mirrorBody := renderBody(mir, child.name, -1, false, nil, false)
+	// body starts with normal fg (cFG), not forced to cDim by underCompleted
+	if underCompleted(mir) {
+		t.Error("mirror under incomplete parent must not report underCompleted")
+	}
+	// and must not carry strike either
+	if strings.Contains(mirrorBody, cStrike) {
+		t.Errorf("mirror of incomplete child must not strike: %q", mirrorBody)
+	}
+
+	// incomplete sibling of the completed parent is unaffected
+	root := &item{uuid: "r", typ: database.TypeBullets}
+	sib := &item{uuid: "s", typ: database.TypeBullets, name: "sib", parent: root}
+	if underCompleted(sib) {
+		t.Error("node with no completed ancestor must not mute")
+	}
+}
+
+func TestUnderCompleted(t *testing.T) {
+	done := &item{uuid: "d", completedAt: 1}
+	open := &item{uuid: "o", completedAt: 0}
+	kid := &item{uuid: "k", parent: done}
+	if !underCompleted(kid) {
+		t.Error("direct child of completed parent should be underCompleted")
+	}
+	kid.parent = open
+	if underCompleted(kid) {
+		t.Error("child of incomplete parent should not be underCompleted")
+	}
+	// walk past intermediate open parents to a completed grandparent
+	mid := &item{uuid: "m", parent: done}
+	kid.parent = mid
+	if !underCompleted(kid) {
+		t.Error("descendant of completed ancestor should be underCompleted")
+	}
+}
