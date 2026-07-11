@@ -167,6 +167,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEscape}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "alt+enter":
+		return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "left":
@@ -1422,4 +1424,32 @@ func namesOf(items []*item) []string {
 		out = append(out, it.name)
 	}
 	return out
+}
+
+// TestAltEnterTogglesComplete: alt+enter is the /complete shortcut.
+func TestAltEnterTogglesComplete(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+	if m.cursorItem().completedAt != 0 {
+		t.Fatalf("fresh node should be incomplete, got completedAt=%d", m.cursorItem().completedAt)
+	}
+
+	m.press("alt+enter")
+	if m.cursorItem().completedAt == 0 {
+		t.Fatal("alt+enter should complete the cursor node")
+	}
+	if !m.unsaved {
+		t.Fatal("completing should mark unsaved")
+	}
+
+	m.press("alt+enter")
+	if m.cursorItem().completedAt != 0 {
+		t.Fatalf("second alt+enter should uncomplete, got completedAt=%d", m.cursorItem().completedAt)
+	}
+
+	// one undo rewinds the uncomplete → node is completed again
+	m.undo()
+	if m.cursorItem().completedAt == 0 {
+		t.Fatal("undo after uncomplete should restore completed")
+	}
 }

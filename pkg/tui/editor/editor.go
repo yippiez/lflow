@@ -60,7 +60,7 @@ type slashCommand struct {
 
 var slashCommands = []slashCommand{
 	{"/bring", "Bring another node here"},
-	{"/complete", "Toggle done"},
+	{"/complete", "Toggle done (alt+enter)"},
 	{"/star", "Star this node — ranks first in pickers"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
@@ -901,6 +901,20 @@ func (m *Model) resolveSourceNode(n database.Node) database.Node {
 	return last
 }
 
+// toggleComplete flips completed_at on it (same as /complete and alt+enter).
+// Caller owns the undo snapshot.
+func (m *Model) toggleComplete(it *item) {
+	if it == nil {
+		return
+	}
+	if it.completedAt > 0 {
+		it.completedAt = 0
+	} else {
+		it.completedAt = time.Now().Unix()
+	}
+	m.unsaved = true
+}
+
 // deleteNode removes the node and its subtree from the tree.
 func (m *Model) deleteNode(it *item) {
 	// drop each removed node's persisted run-output cache so it doesn't outlive it
@@ -1303,12 +1317,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		}
 	case "/complete":
 		m.pushUndo("")
-		if cur.completedAt > 0 {
-			cur.completedAt = 0
-		} else {
-			cur.completedAt = time.Now().Unix()
-		}
-		m.unsaved = true
+		m.toggleComplete(cur)
 	case "/star":
 		// toggle the star on the real node (a mirror stars its original): starred
 		// nodes wear a yellow ★ and rank first in the move/goto/mirror pickers

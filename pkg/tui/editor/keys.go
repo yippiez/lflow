@@ -514,6 +514,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "alt+enter":
+		// same as /complete: toggle done on the cursor node
+		if cur := m.cursorItem(); cur != nil {
+			m.pushUndo("")
+			m.toggleComplete(cur)
+		}
+		return m, nil
 	case "alt+x":
 		// stop a running command, keeping what was captured; when nothing is
 		// running, clear the output band. A cmd chip under the caret takes the
