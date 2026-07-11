@@ -109,17 +109,17 @@ func (nodeFinderBackend) label(m *Model) string {
 func (nodeFinderBackend) hint(m *Model) string {
 	switch m.finder.act {
 	case actMirrorHere:
-		return "Enter mirror that node here"
+		return "enter · Mirror that node here"
 	case actMirrorFrom:
-		return "Enter mirror this node there"
+		return "enter · Mirror this node there"
 	case actMoveTo:
-		return "Enter move this node there"
+		return "enter · Move this node there"
 	case actGoto:
-		return "Enter open node"
+		return "enter · Open"
 	case actBringHere:
-		return "Enter move that node here"
+		return "enter · Move that node here"
 	case actLinkInsert:
-		return "Enter link to node, or type a URL"
+		return "enter · Link to node, or type a URL"
 	}
 	return ""
 }

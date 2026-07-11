@@ -645,6 +645,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.ClearScreen
 		}
 		return m, nil
+	case tea.MouseMsg:
+		m.handleMouse(msg)
+		return m, nil
 	case tea.KeyMsg:
 		_, cmd := m.handleKey(msg)
 		// the key may have moved the cursor off a typed follow-up inside an
@@ -1625,7 +1628,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	// WARNING (invariant): inline scrollback only — NEVER pass tea.WithAltScreen.
 	// The alt-screen erases the styled outline on quit and breaks scriptable
 	// scrollback output. Lint-enforced (see rules/).
-	p := tea.NewProgram(m) // inline: no alt screen
+	// mouse capture is for the wheel only (see handleMouse) — it does not
+	// touch the screen, so the inline-scrollback invariant holds.
+	p := tea.NewProgram(m, tea.WithMouseCellMotion()) // inline: no alt screen
 	final, err := p.Run()
 	if err != nil {
 		return errors.Wrap(err, "running editor")

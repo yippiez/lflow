@@ -123,18 +123,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if step < 1 {
 			step = 1
 		}
-		if !m.scrolling {
-			m.scrolling = true
-			m.scrollTop = m.viewTop // start from what is currently on screen
+		if key == "pgup" {
+			step = -step
 		}
-		if key == "pgdown" {
-			m.scrollTop += step
-		} else {
-			m.scrollTop -= step
-			if m.scrollTop < 0 {
-				m.scrollTop = 0
-			}
-		}
+		m.scrollBody(step)
 		return m, nil
 	case "ctrl+q", "ctrl+c":
 		return m.quit()
@@ -887,4 +879,39 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// wheelStep is how many body rows one mouse-wheel notch scrolls — the small
+// sibling of the half-viewport pgup/pgdown step.
+const wheelStep = 3
+
+// scrollBody pins the viewport (entering scroll mode from what is currently on
+// screen) and moves it delta rows — the shared engine behind pgup/pgdown and
+// the mouse wheel. The upper bound is clamped by viewWindow.
+func (m *Model) scrollBody(delta int) {
+	if !m.scrolling {
+		m.scrolling = true
+		m.scrollTop = m.viewTop // start from what is currently on screen
+	}
+	m.scrollTop += delta
+	if m.scrollTop < 0 {
+		m.scrollTop = 0
+	}
+}
+
+// handleMouse: the wheel scrolls the body like pgup/pgdown but in small steps.
+// Everything else (clicks, motion) is ignored — the mouse is captured only so
+// the terminal reports wheel events (hold shift to select text natively).
+// Wheel events bypass handleKey, so they never clear the scroll pin; the next
+// real key does, exactly like after a pgup.
+func (m *Model) handleMouse(msg tea.MouseMsg) {
+	if m.mode != modeOutline || msg.Action != tea.MouseActionPress {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.scrollBody(-wheelStep)
+	case tea.MouseButtonWheelDown:
+		m.scrollBody(wheelStep)
+	}
 }
