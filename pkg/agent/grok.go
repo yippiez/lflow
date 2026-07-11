@@ -133,6 +133,17 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 	}
 
 	var reply strings.Builder
+	// flush emits the text accumulated since the last flush as one event.
+	// Called before each tool call and at turn end, so text interleaves with
+	// tools in stream order rather than arriving as one end-of-turn blob —
+	// the reply extractor in pkg/tui/tag relies on that ordering to drop
+	// pre-tool narration ("I'll look at...") from the reply node.
+	flush := func() {
+		if txt := strings.TrimSpace(reply.String()); txt != "" {
+			s.events <- Event{Kind: EventAgentText, Text: txt}
+		}
+		reply.Reset()
+	}
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
 	for sc.Scan() {
@@ -161,9 +172,7 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 			})
 		case fr.ID != nil && *fr.ID == idPrompt:
 			// the prompt response IS the turn end
-			if txt := strings.TrimSpace(reply.String()); txt != "" {
-				s.events <- Event{Kind: EventAgentText, Text: txt}
-			}
+			flush()
 			s.setState(StateIdle)
 			s.events <- Event{Kind: EventTurnEnd, Status: "idle"}
 			s.finish(nil, StateIdle)
@@ -172,6 +181,7 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 			u := fr.Params.Update
 			switch u.SessionUpdate {
 			case "tool_call":
+				flush() // text so far precedes this tool — emit it in order
 				name := u.Tool
 				if name == "" {
 					name = u.Title
