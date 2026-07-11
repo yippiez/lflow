@@ -26,6 +26,16 @@ func logPrefix(it *item) string {
 	return cDim + "(" + t.Format("2006-01-02 15:04") + ") " + cReset
 }
 
+// logToContext carries the timestamp the prefix draws, so an agent reads the
+// log line with its time instead of a bare bullet.
+func logToContext(it *item) contextXML {
+	x := contextXML{tag: "log"}
+	if it.addedOn > 0 {
+		x.attrs = `time="` + time.Unix(0, it.addedOn).Format("2006-01-02 15:04") + `"`
+	}
+	return x
+}
+
 // logMuteFrom is the rune index the muted tail starts at — the first " · "
 // separator, so trailing metadata reads quiet; -1 mutes nothing.
 func logMuteFrom(name string) int {

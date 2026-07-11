@@ -108,21 +108,30 @@ func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 		}
 		return "user"
 	}
+	// typeXML folds the type's toContext hook (registry) into the wire node,
+	// so a todo carries done="…", a log its time, a json its multi-line body.
+	typeXML := func(tn tag.ThreadNode, it *item) tag.ThreadNode {
+		if tc := typeOf(it.typ).toContext; tc != nil {
+			x := tc(it)
+			tn.XMLTag, tn.XMLAttrs, tn.XMLBody = x.tag, x.attrs, x.body
+		}
+		return tn
+	}
 	rootDepth := 0
 	if p := root.parent; p != nil && p.uuid != "" {
-		out = append(out, tag.ThreadNode{
+		out = append(out, typeXML(tag.ThreadNode{
 			UUID: p.uuid, Depth: 0, Name: expandAnchors(m.tree.displayName(p), m.chips),
 			Type: p.typ, Role: roleOf(p), Parent: true,
-		})
+		}, p))
 		rootDepth = 1
 	}
 	expanded := map[*item]bool{}
 	var walk func(it *item, depth int)
 	walk = func(it *item, depth int) {
-		out = append(out, tag.ThreadNode{
+		out = append(out, typeXML(tag.ThreadNode{
 			UUID: it.uuid, Depth: depth, Name: expandAnchors(m.tree.displayName(it), m.chips),
 			Type: it.typ, Role: roleOf(it), Asked: it.uuid == askedUUID,
-		})
+		}, it))
 		tgt := m.tree.expandTarget(it)
 		if tgt == nil || expanded[tgt] {
 			return

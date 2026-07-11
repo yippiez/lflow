@@ -142,6 +142,13 @@ func (v jsonView) Bands(m *Model, it *item, rail string, width, scroll, winH int
 	return content[scroll:end]
 }
 
+// jsonToContext ships the raw JSON as the element's multi-line body — a json
+// node's name IS its document, and flattening it to one <node> line would
+// mangle the newlines the alt+e editor keeps.
+func jsonToContext(it *item) contextXML {
+	return contextXML{tag: "json", body: strings.TrimSpace(it.name)}
+}
+
 // prettyJSON indents valid JSON with two spaces; invalid input is returned
 // unchanged so it can still be edited.
 func prettyJSON(s string) string {

@@ -63,7 +63,8 @@ per-feature column — and no scattered `switch typ`:
 2. Add one `nodeType` entry to the `nodeTypes` slice in
    `pkg/tui/editor/registry.go` — that slice drives the `/type` picker, and the
    field doc-comments there list every hook (`sign`, `glyph`, `render`,
-   `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e).
+   `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e,
+   `toContext` for the node's XML element in agent context).
 3. Put the behavior in its own `pkg/tui/editor/<type>.go` (see `json.go`,
    `voice.go`, `worker.go`; `bash.go` holds the shared shell-run machinery). A rich alt+e editor implements the
    stateless `nodeView` interface, keeping per-node state in `m.nodeStore(it.uuid)`.
@@ -92,8 +93,11 @@ auto-run) and their output is ephemeral — never persisted or synced.
   automatically. The mention node IS the thread root — the session binds to
   it, so siblings/ancestors never trigger or receive replies. Context per turn
   = the mention's parent (one ambient `<parent>` element) + the mention +
-  everything beneath it, rendered as nested XML (`<asked>`/`<answer>`/`<node>`)
-  inside a `<NodeContext>` block under an `<instructions>` tag; every node's
+  everything beneath it, rendered as nested XML (`<asked>`/`<answer>`/`<node>`;
+  a typed node wears its type's element via the registry's `toContext` hook —
+  `<todo done="true">`, `<log time="…">`, `<json>` with its document as the
+  body — role tags win over type tags) inside a `<NodeContext>` block under an
+  `<instructions>` tag; every node's
   children land at most once, so mirrors can neither loop the walk nor
   duplicate a subtree — nothing else; the rest of the outline the agent
   searches itself via the lflow CLI (`lflow node grep/list`, taught by the

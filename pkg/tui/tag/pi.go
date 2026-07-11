@@ -37,7 +37,10 @@ func cliSystemPrompt(name string) string {
 		"their parent. <asked> is the node to address, <answer> is one of your own " +
 		"earlier replies, <node> is any other node, and an outermost <parent> is " +
 		"the mention's parent node — where the thread sits in the outline, ambient " +
-		"context only, not part of the conversation. " +
+		"context only, not part of the conversation. Typed nodes wear their type " +
+		"as the element instead of <node> — <todo done=\"true\">, <log time=\"…\">, " +
+		"<code>, <json> (its document as the element body), <h1>…<h3>, <quote>, " +
+		"<image> (caption only; pixels never travel) — same nesting rules. " +
 		"That is all you are handed — for anything else in the outline, search it " +
 		"yourself with the lflow CLI: `lflow node grep <text>` finds nodes, " +
 		"`lflow node list <node>` reads a subtree (details in the lflow skill).\n" +
@@ -182,7 +185,11 @@ func turnPrompt(thread []ThreadNode) string {
 // element per node, children nested inside their parent, two-space indent per
 // level. The element name carries the role — <parent> is the mention's parent
 // (ambient), <asked> is the node this turn addresses, <answer> is one of the
-// agent's own earlier replies, <node> is everything else.
+// agent's own earlier replies. Everything else wears its type's element when
+// the type declares one (XMLTag/XMLAttrs/XMLBody, the editor registry's
+// toContext hook — <todo done="true">, <log time="…">, a <json> with its
+// multi-line document as body) and falls back to <node>. Attributes ride
+// whichever element wins, so an asked todo still reads <asked done="false">.
 func renderThread(thread []ThreadNode) string {
 	tagFor := func(n ThreadNode) string {
 		switch {
@@ -192,6 +199,9 @@ func renderThread(thread []ThreadNode) string {
 			return "asked"
 		case n.Role == "agent":
 			return "answer"
+		}
+		if n.XMLTag != "" {
+			return n.XMLTag
 		}
 		return "node"
 	}
@@ -212,8 +222,29 @@ func renderThread(thread []ThreadNode) string {
 	for i, n := range thread {
 		closeTo(n.Depth)
 		tag := tagFor(n)
-		line := strings.Repeat("  ", n.Depth) + "<" + tag + ">" + strings.TrimSpace(n.Name)
-		if i+1 < len(thread) && thread[i+1].Depth > n.Depth { // has children — stays open
+		ind := strings.Repeat("  ", n.Depth)
+		openTag := "<" + tag
+		if n.XMLAttrs != "" {
+			openTag += " " + n.XMLAttrs
+		}
+		openTag += ">"
+		hasKids := i+1 < len(thread) && thread[i+1].Depth > n.Depth
+		if n.XMLBody != "" {
+			// a multi-line body owns the element's content: open tag on its own
+			// line, body indented one level, children (if any) follow inside.
+			b.WriteString(ind + openTag + "\n")
+			for _, bl := range strings.Split(strings.TrimRight(n.XMLBody, "\n"), "\n") {
+				b.WriteString(ind + "  " + bl + "\n")
+			}
+			if hasKids {
+				stack = append(stack, open{tag, n.Depth})
+			} else {
+				b.WriteString(ind + "</" + tag + ">\n")
+			}
+			continue
+		}
+		line := ind + openTag + strings.TrimSpace(n.Name)
+		if hasKids { // has children — stays open
 			b.WriteString(line + "\n")
 			stack = append(stack, open{tag, n.Depth})
 		} else {

@@ -50,6 +50,28 @@ type nodeType struct {
 	prefix    func(it *item) string // styled prefix before the body, e.g. the log time chip
 	baseColor func(it *item) string // body foreground SGR; "" keeps the default
 	muteFrom  func(name string) int // rune index the muted tail starts at; -1 = none
+
+	// toContext gives the type its own XML element in the agent context (see
+	// buildThread → tag.renderThread), so a typed node reads coherently to an
+	// agent instead of flattening to a bare <node> line: the element name, its
+	// attributes, and an optional multi-line body replacing the one-line name.
+	// Children still nest inside the element, and the role tags (asked/answer/
+	// parent) still win the element name so threading survives. nil → <node>.
+	toContext func(it *item) contextXML
+}
+
+// contextXML is what a toContext hook returns — the pieces of the node's XML
+// element in the agent context. Zero values keep the defaults.
+type contextXML struct {
+	tag   string // element name; "" keeps "node"
+	attrs string // inside the opening tag, e.g. `done="true"`
+	body  string // multi-line element content replacing the name line
+}
+
+// xmlTag is the trivial toContext hook — the element name alone carries the
+// type (<code>…</code>, <quote>…</quote>).
+func xmlTag(name string) func(*item) contextXML {
+	return func(*item) contextXML { return contextXML{tag: name} }
 }
 
 // nodeView is a node type's INLINE expanded view: alt+e focuses it, its lines
@@ -90,16 +112,17 @@ func nodeViewOf(it *item) nodeView {
 // is free text and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{
 	{key: database.TypeBullets, label: "Bullet", inlineEditable: true},
-	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true, continueOnEnter: true},
+	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true, continueOnEnter: true,
+		toContext: todoToContext},
 	// a divider has no body text — viewOutline/finalView render it as a full-width
 	// rule (see dividerLine), hiding the glyph. It is otherwise a normal node: it
 	// nests, moves, takes a /note, and is removed with ctrl+d.
-	{key: database.TypeDivider, label: "Divider", inlineEditable: false},
-	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true},
-	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true},
-	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},
-	{key: database.TypeCode, label: "Code", inlineEditable: true},
-	{key: database.TypeQuote, label: "Quote", inlineEditable: true},
+	{key: database.TypeDivider, label: "Divider", inlineEditable: false, toContext: xmlTag("divider")},
+	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true, toContext: xmlTag("h1")},
+	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true, toContext: xmlTag("h2")},
+	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true, toContext: xmlTag("h3")},
+	{key: database.TypeCode, label: "Code", inlineEditable: true, toContext: xmlTag("code")},
+	{key: database.TypeQuote, label: "Quote", inlineEditable: true, toContext: xmlTag("quote")},
 	// a timestamped journal line (see log.go); was the log.js NodeMod before
 	// the extension system was removed — nodes typed under the mod light up
 	// unchanged, the key is the same free string.
@@ -109,24 +132,28 @@ var nodeTypes = []nodeType{
 		prefix:    logPrefix,
 		baseColor: func(it *item) string { return cDim }, // /color overrides (render.go)
 		muteFrom:  logMuteFrom,
+		toContext: logToContext,
 	},
 	{
 		key: database.TypeJSON, label: "JSON", inlineEditable: false,
-		render: func(it *item, name string) string { return renderJSONPreview(name) },
-		view:   jsonView{},
+		render:    func(it *item, name string) string { return renderJSONPreview(name) },
+		view:      jsonView{},
+		toContext: jsonToContext,
 	},
 	// there is deliberately NO bash node type: inline runnable shell is the cmd
 	// chip ("$cmd" + double space, see cmdchip.go) — legacy "bash"-typed nodes
 	// fall back to bullets like any unknown type, text intact.
 	{
 		key: database.TypeQuery, label: "Query", sign: "⌕ ", inlineEditable: true,
-		run: runQuery,
+		run:       runQuery,
+		toContext: xmlTag("query"),
 	},
 	// a Workflowy mirror root (see wf.go): paste a workflowy link, alt+r pulls
 	// the subtree in as readonly children, each one refreshable itself.
 	{
 		key: database.TypeWF, label: "Workflowy", glyph: wfGlyph, inlineEditable: true,
-		run: runWF,
+		run:       runWF,
+		toContext: xmlTag("workflowy"),
 	},
 	// an agent reply (see agent.go): red ✦, body red, plain text + chips.
 	// Internal — the /type picker never offers it, only the agent creates one —
@@ -145,6 +172,7 @@ var nodeTypes = []nodeType{
 		run:          runVoice,
 		expand:       playVoice,
 		flashActions: voiceFlashActions, // name them: "record" (toggle) and "play"
+		toContext:    xmlTag("voice"),
 	},
 	{
 		// an image: alt+r pastes from the host clipboard, alt+e opens the half-block
@@ -156,6 +184,7 @@ var nodeTypes = []nodeType{
 		view:         imageView{}, // alt+e: scrollable half-block render
 		flashActions: imageFlashActions,
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
+		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
 }
 
@@ -199,6 +228,16 @@ func todoGlyph(it *item) (string, string) {
 		return glyphTodoDone, cDim
 	}
 	return glyphTodo, cDim
+}
+
+// todoToContext carries the checkbox state — the one thing a todo's text
+// alone can't tell an agent.
+func todoToContext(it *item) contextXML {
+	done := "false"
+	if it.completedAt > 0 {
+		done = "true"
+	}
+	return contextXML{tag: "todo", attrs: `done="` + done + `"`}
 }
 
 func headingGlyph(digit string) func(it *item) (string, string) {

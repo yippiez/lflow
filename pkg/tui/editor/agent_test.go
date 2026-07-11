@@ -507,6 +507,36 @@ func TestThreadContextParentAndChildren(t *testing.T) {
 // TestBuildThreadNoDuplicateChildren: two mirrors of the same source inside
 // the thread expand its children ONCE — the second mirror lands as a leaf, so
 // the agent never reads the same subtree twice.
+// TestBuildThreadTypedXML: buildThread folds each type's toContext hook into
+// the wire nodes, so a todo carries its checkbox state, a log its timestamp,
+// a json node its multi-line document, and a plain bullet nothing extra.
+func TestBuildThreadTypedXML(t *testing.T) {
+	m, _, n1 := newAgentTestModel(t)
+	todo := addChild(m, n1, "t1", "ship the release", database.TypeTodo)
+	todo.completedAt = 1
+	lg := addChild(m, n1, "l1", "cut at 14:00", database.TypeLog)
+	lg.addedOn = time.Date(2026, 7, 11, 14, 0, 0, 0, time.Local).UnixNano()
+	addChild(m, n1, "j1", "{\n  \"env\": \"prod\"\n}", database.TypeJSON)
+	addChild(m, n1, "b1", "plain bullet", database.TypeBullets)
+
+	got := map[string]tag.ThreadNode{}
+	for _, n := range m.buildThread(n1, n1.uuid) {
+		got[n.UUID] = n
+	}
+	if n := got["t1"]; n.XMLTag != "todo" || n.XMLAttrs != `done="true"` {
+		t.Fatalf("todo xml = %q %q, want todo done=\"true\"", n.XMLTag, n.XMLAttrs)
+	}
+	if n := got["l1"]; n.XMLTag != "log" || n.XMLAttrs != `time="2026-07-11 14:00"` {
+		t.Fatalf("log xml = %q %q", n.XMLTag, n.XMLAttrs)
+	}
+	if n := got["j1"]; n.XMLTag != "json" || n.XMLBody != "{\n  \"env\": \"prod\"\n}" {
+		t.Fatalf("json xml = %q body %q", n.XMLTag, n.XMLBody)
+	}
+	if n := got["b1"]; n.XMLTag != "" || n.XMLAttrs != "" || n.XMLBody != "" {
+		t.Fatalf("a bullet must carry no type xml, got %q %q %q", n.XMLTag, n.XMLAttrs, n.XMLBody)
+	}
+}
+
 func TestBuildThreadNoDuplicateChildren(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
 	src := addChild(m, n1, "src", "shared source", "")

@@ -36,6 +36,11 @@ type ThreadNode struct {
 	Role   string `json:"role"`   // "user" | "agent"
 	Asked  bool   `json:"asked"`  // the node this turn is about — replies target it
 	Parent bool   `json:"parent"` // the mention's parent — ambient context, not the thread
+	// per-type XML serialization, filled from the node type's toContext hook
+	// (editor registry) so a typed node reads coherently in <NodeContext>:
+	XMLTag   string `json:"xmlTag,omitempty"`   // element name; "" → node. Role tags (parent/asked/answer) still win.
+	XMLAttrs string `json:"xmlAttrs,omitempty"` // attributes inside the opening tag, e.g. done="true"
+	XMLBody  string `json:"xmlBody,omitempty"`  // multi-line element content replacing the one-line Name
 }
 
 // Event is one message streamed back from the agent service.

@@ -29,6 +29,37 @@ func TestRenderThreadXML(t *testing.T) {
 	}
 }
 
+// Typed nodes wear their type as the element (XMLTag/XMLAttrs from the
+// registry's toContext hook), a multi-line XMLBody owns the element content
+// with children nesting after it, and the role tags still win the element
+// name — an asked todo reads <asked done="false">, never <todo>.
+func TestRenderThreadTypedElements(t *testing.T) {
+	thread := []ThreadNode{
+		{UUID: "n1", Depth: 0, Name: "@Pi plan the release", Role: "user", Asked: true,
+			XMLTag: "todo", XMLAttrs: `done="false"`},
+		{UUID: "k1", Depth: 1, Name: "ship it", Role: "user",
+			XMLTag: "todo", XMLAttrs: `done="true"`},
+		{UUID: "k2", Depth: 1, Name: "cut at 14:00", Role: "user",
+			XMLTag: "log", XMLAttrs: `time="2026-07-11 14:00"`},
+		{UUID: "k3", Depth: 1, Name: `{"env": "prod"}`, Role: "user",
+			XMLTag: "json", XMLBody: "{\n  \"env\": \"prod\"\n}"},
+		{UUID: "k3a", Depth: 2, Name: "the deploy config", Role: "user"},
+	}
+	want := `<asked done="false">@Pi plan the release` + "\n" +
+		`  <todo done="true">ship it</todo>` + "\n" +
+		`  <log time="2026-07-11 14:00">cut at 14:00</log>` + "\n" +
+		"  <json>\n" +
+		"    {\n" +
+		"      \"env\": \"prod\"\n" +
+		"    }\n" +
+		"    <node>the deploy config</node>\n" +
+		"  </json>\n" +
+		"</asked>\n"
+	if got := renderThread(thread); got != want {
+		t.Errorf("renderThread mismatch\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 // The per-turn prompt is full XML — <instructions> then the rendered thread in
 // <NodeContext> — so the outline never mixes with the framing.
 func TestTurnPromptWrapsNodeContext(t *testing.T) {
