@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // listSource maps the current mode to its pickerSource. Returns nil outside the
@@ -214,7 +216,12 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		if len(targets) > 0 {
 			m.pushUndo("")
 			for _, t := range targets {
-				t.typ = it.value
+				// re-picking Todo on a Todo toggles back to Bullet (the default)
+				if it.value == database.TypeTodo && t.typ == database.TypeTodo {
+					t.typ = database.TypeBullets
+				} else {
+					t.typ = it.value
+				}
 			}
 			m.unsaved = true
 		}

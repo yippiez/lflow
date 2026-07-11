@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // TestPasteLinesNormalizesNewlines guards the paste fan-out against empty ghost
@@ -738,7 +740,7 @@ func mirrorTree() (*tree, *item, *item) {
 // the mirror reference.
 func TestMirrorShowsSourceChildrenThrough(t *testing.T) {
 	tr, _, mir := mirrorTree()
-	rows := tr.visibleRows(tr.root)
+	rows := tr.visibleRows(tr.root, false)
 	mi := -1
 	for i, r := range rows {
 		if r.it == mir {
@@ -765,7 +767,7 @@ func TestMirrorShowsSourceChildrenThrough(t *testing.T) {
 func TestCollapsedMirrorHidesChildren(t *testing.T) {
 	tr, _, mir := mirrorTree()
 	mir.collapsed = true
-	rows := tr.visibleRows(tr.root)
+	rows := tr.visibleRows(tr.root, false)
 	// source, kid one, kid two, mirror — nothing renders through the collapsed mirror
 	if len(rows) != 4 {
 		t.Fatalf("collapsed mirror should hide through-children, got %d rows", len(rows))
@@ -815,7 +817,7 @@ func TestMirrorCycleDoesNotLoop(t *testing.T) {
 		byUUID:        map[string]*item{"a": a, "cyc": cyc},
 		externalNames: map[string]string{},
 	}
-	if rows := tr.visibleRows(root); len(rows) > 8 {
+	if rows := tr.visibleRows(root, false); len(rows) > 8 {
 		t.Fatalf("mirror cycle should terminate, produced %d rows", len(rows))
 	}
 	if rows := tr.allRows(); len(rows) > 8 {
@@ -1451,5 +1453,58 @@ func TestAltEnterTogglesComplete(t *testing.T) {
 	m.undo()
 	if m.cursorItem().completedAt == 0 {
 		t.Fatal("undo after uncomplete should restore completed")
+	}
+}
+
+// TestFilterHidesCompleted: /filter drops completed nodes from the outline.
+func TestFilterHidesCompleted(t *testing.T) {
+	m := newTestModel(40, "open", "done", "also open")
+	m.tree.root.children[1].completedAt = 1
+	m.refreshRows()
+	if len(m.rows) != 3 {
+		t.Fatalf("all three should show before filter, got %d", len(m.rows))
+	}
+
+	mm, _ := m.runSlash("/filter")
+	*m = *mm.(*Model)
+	if !m.hideCompleted {
+		t.Fatal("/filter should set hideCompleted")
+	}
+	if len(m.rows) != 2 {
+		t.Fatalf("filter should hide the completed node, got %d rows", len(m.rows))
+	}
+	for _, r := range m.rows {
+		if r.it.completedAt > 0 {
+			t.Fatalf("completed node still visible: %q", r.it.name)
+		}
+	}
+	if m.flash != "hiding completed" {
+		t.Fatalf("flash = %q", m.flash)
+	}
+
+	// toggle back
+	mm, _ = m.runSlash("/filter")
+	*m = *mm.(*Model)
+	if m.hideCompleted || len(m.rows) != 3 {
+		t.Fatalf("second /filter should restore all rows, hide=%v n=%d", m.hideCompleted, len(m.rows))
+	}
+}
+
+// TestTodoRetypeTogglesToBullet: re-picking Todo on a Todo reverts to Bullet.
+func TestTodoRetypeTogglesToBullet(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+	typeSource{}.onSelect(m, pickerItem{value: database.TypeTodo})
+	if m.cursorItem().typ != database.TypeTodo {
+		t.Fatalf("first pick should set todo, got %q", m.cursorItem().typ)
+	}
+	typeSource{}.onSelect(m, pickerItem{value: database.TypeTodo})
+	if m.cursorItem().typ != database.TypeBullets {
+		t.Fatalf("re-picking todo should toggle to bullets, got %q", m.cursorItem().typ)
+	}
+	// other types still just set
+	typeSource{}.onSelect(m, pickerItem{value: database.TypeQuote})
+	if m.cursorItem().typ != database.TypeQuote {
+		t.Fatalf("quote should stick, got %q", m.cursorItem().typ)
 	}
 }

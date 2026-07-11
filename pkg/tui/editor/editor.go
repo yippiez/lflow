@@ -61,8 +61,8 @@ type slashCommand struct {
 var slashCommands = []slashCommand{
 	{"/bring", "Bring another node here"},
 	{"/complete", "Toggle done (alt+enter)"},
-	{"/star", "Star this node — ranks first in pickers"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
+	{"/filter", "Hide or show completed nodes"},
 	{"/goto", "Jump the editor to another node"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
@@ -70,6 +70,7 @@ var slashCommands = []slashCommand{
 	{"/move", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
 	{"/settings", "Editor preferences: theme, image preview"},
+	{"/star", "Star this node — ranks first in pickers"},
 	{"/style", "Set this node's text style or color"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
@@ -248,6 +249,10 @@ type Model struct {
 	qCrumbs map[string]string
 
 	tagColorWord string // the tag word the alt+e color picker is assigning
+
+	// hideCompleted is the /filter toggle: when true, completed nodes (and their
+	// subtrees) drop out of the visible outline. Session-only — not persisted.
+	hideCompleted bool
 
 	// multi-select (see multisel.go): shift+up/down grows a row range from the
 	// anchor; structural ops act on the selection roots
@@ -468,7 +473,7 @@ func (m *Model) undo() {
 }
 
 func (m *Model) refreshRows() {
-	m.rows = m.tree.visibleRows(m.viewRoot())
+	m.rows = m.tree.visibleRows(m.viewRoot(), m.hideCompleted)
 	m.clampCursor()
 }
 
@@ -907,7 +912,8 @@ func (m *Model) resolveSourceNode(n database.Node) database.Node {
 }
 
 // toggleComplete flips completed_at on it (same as /complete and alt+enter).
-// Caller owns the undo snapshot.
+// Caller owns the undo snapshot. When /filter is hiding completed, the outline
+// refreshes so a just-completed node disappears (or reappears on uncomplete).
 func (m *Model) toggleComplete(it *item) {
 	if it == nil {
 		return
@@ -918,6 +924,9 @@ func (m *Model) toggleComplete(it *item) {
 		it.completedAt = time.Now().Unix()
 	}
 	m.unsaved = true
+	if m.hideCompleted {
+		m.refreshRows()
+	}
 }
 
 // deleteNode removes the node and its subtree from the tree.
@@ -1042,6 +1051,7 @@ func (m *Model) selectedVisualRows() []int {
 	}
 	return visualRows(name, maxLine, firstCol, hang)
 }
+
 
 // caretColumn returns the caret's display column within its visual line: the
 // width of the runes between the line's start offset and the caret.
@@ -1323,6 +1333,15 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/complete":
 		m.pushUndo("")
 		m.toggleComplete(cur)
+	case "/filter":
+		// hide or show completed nodes in the outline (session toggle)
+		m.hideCompleted = !m.hideCompleted
+		m.refreshRows()
+		if m.hideCompleted {
+			m.flash = "hiding completed"
+		} else {
+			m.flash = "showing completed"
+		}
 	case "/star":
 		// toggle the star on the real node (a mirror stars its original): starred
 		// nodes wear a yellow ★ and rank first in the move/goto/mirror pickers

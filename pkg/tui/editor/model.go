@@ -301,12 +301,25 @@ func (t *tree) expandTarget(it *item) *item {
 }
 
 // visibleRows flattens the tree below viewRoot into displayable rows,
-// honoring collapsed state. The view root itself is not a row.
-func (t *tree) visibleRows(viewRoot *item) []row {
+// honoring collapsed state. The view root itself is not a row. When
+// hideCompleted is set, completed nodes (and their subtrees) are skipped —
+// the /filter toggle.
+func (t *tree) visibleRows(viewRoot *item, hideCompleted bool) []row {
 	var rows []row
 	var walk func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool)
 	walk = func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool) {
 		kids := t.childItems(it)
+		// when filtering completed, drop them from the sibling list first so
+		// last/branch connectors join the remaining incomplete siblings cleanly
+		if hideCompleted {
+			filtered := make([]*item, 0, len(kids))
+			for _, c := range kids {
+				if c.completedAt == 0 {
+					filtered = append(filtered, c)
+				}
+			}
+			kids = filtered
+		}
 		for i, c := range kids {
 			last := i == len(kids)-1
 			cm := mirrored || c.mirrorOf != ""

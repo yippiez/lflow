@@ -206,6 +206,7 @@ func TestGlyphForMutedBullets(t *testing.T) {
 	}
 }
 
+
 func TestRenderBodyLoneAsteriskStaysPlain(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
 
@@ -580,5 +581,8 @@ func TestRenderBodyCompletedStrikethrough(t *testing.T) {
 	rendered := renderBody(it, "done thing", -1, false, nil, false)
 	if !strings.Contains(rendered, cStrike) {
 		t.Errorf("completed nodes should strike through: %q", rendered)
+	}
+	if !strings.Contains(rendered, cDim) {
+		t.Errorf("completed nodes should be muted gray: %q", rendered)
 	}
 }

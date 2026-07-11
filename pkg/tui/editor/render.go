@@ -544,7 +544,10 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	}
 	// /bold, /italic, /underline layer on top of the layout's own attributes
 	attrs += styleAttrs(it.style)
+	// completed nodes are muted gray + struck through, overriding /color so done
+	// work reads as quiet no matter the node's style
 	if it.completedAt > 0 {
+		base = cDim
 		attrs += cStrike
 	}
 
