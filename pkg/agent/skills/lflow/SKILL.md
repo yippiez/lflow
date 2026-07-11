@@ -1,6 +1,6 @@
 ---
 name: lflow
-description: Work inside the lflow terminal outline app — query and edit the outline with the lflow CLI, answer with inline chips, and write, install or use NodeMods (custom node types). Use when responding to @mentions inside lflow, or whenever a task involves the user's nodes, mods, or lflow commands.
+description: Work inside the lflow terminal outline app — query and edit the outline with the lflow CLI and answer with inline chips. Use when responding to @mentions inside lflow, or whenever a task involves the user's nodes or lflow commands.
 ---
 
 # lflow
@@ -39,21 +39,3 @@ lflow node edit <id> --name/--type/--state/--note ...
 Node references accept an id, an id prefix, or fuzzy text — grep first when
 unsure, and add `--strict` to see the candidates instead of acting on the
 best match.
-
-## NodeMods — custom node types
-
-A mod is a JS file that registers a node type (glyph, prefix, render, a
-runnable alt+r hook) or a chip kind. They live in `~/.config/lflow/mods`:
-
-- `<key>.js` — a flat mod (yours or the user's); `<key>/` — a git-installed
-  mod with a `mod.json` manifest. A `.disabled` suffix on either = off.
-- List what's installed: `{{cmd:ls ~/.config/lflow/mods}}`. Read a mod's JS
-  before recommending or using its type.
-- To write a new mod: read [mods.md](mods.md) for the API, start from the
-  closest file in [examples/](examples/), write `<key>.js` into the mods dir
-  yourself. The app reloads the directory when your turn ends — no restart.
-- External mods install with `lflow node install <git-url>` (see mods.md for
-  the repo shape).
-
-A node whose mod is removed or disabled stays a normal node and renders as a
-plain bullet — mods are never load-bearing for the user's data.

@@ -1049,3 +1049,20 @@ var lm37 = migration{
 		return nil
 	},
 }
+
+// lm38 retires the NodeMod extension system: the legacy artifacts table (lm30)
+// and the mod view state table (lm37) go. Nodes OF a former mod type are
+// untouched — nodes.type is a free string, and unknown types render as plain
+// bullets; the log type is compiled in now.
+var lm38 = migration{
+	name: "drop-nodemod-tables",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS node_mod_data;`); err != nil {
+			return errors.Wrap(err, "dropping node_mod_data table")
+		}
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS artifacts;`); err != nil {
+			return errors.Wrap(err, "dropping artifacts table")
+		}
+		return nil
+	},
+}

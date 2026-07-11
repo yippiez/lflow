@@ -223,11 +223,6 @@ type Model struct {
 	// growing the Model with one named map per type.
 	nodeData map[string]map[string]any
 
-	// modPending holds tea.Cmds a mod view raised while entering (an Enter that
-	// returns an initial effect) — Enter's nodeView signature can't return a Cmd,
-	// so it queues here and the KeyMsg path drains it. See nodemod_view.go.
-	modPending []tea.Cmd
-
 	// @mention agent sessions (see agent.go and pkg/tui/tag): configured agents
 	// and one client per agent (tagClients is keyed by agent NAME, a different
 	// keyspace). Per-thread turn state (busy flag, cancel, live tool band, and
@@ -658,11 +653,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if bc := m.blurSendCheck(); bc != nil {
 			cmd = tea.Batch(cmd, bc)
 		}
-		// a mod view's Enter (alt+e / flash) can't return a Cmd through the
-		// nodeView interface, so it queued any initial effect — drain it here.
-		if pc := m.drainModPending(); pc != nil {
-			cmd = tea.Batch(cmd, pc)
-		}
 		// live sync: arm the debounced flush for fresh edits, and fold in any
 		// external events that queued while a modal surface was open
 		if sc := m.scheduleSync(); sc != nil {
@@ -707,20 +697,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashDoneMsg:
 		m.finishRun(msg.uuid) // cache the finished band so it survives a restart
 		return m, nil
-	case modUpdateMsg:
-		// an exec/fetch effect finished — feed its result to the mod view. Applied
-		// even if the node is no longer focused (harmless; state just updates).
-		return m, m.handleModUpdate(msg.key, msg.uuid, msg.msg)
-	case modTickMsg:
-		// a mod animation frame — delivered only while its node is the focused
-		// view, so a tick loop can't keep animating a node the user has left.
-		if !m.focused {
-			return m, nil
-		}
-		if cur := m.cursorItem(); cur == nil || cur.uuid != msg.uuid {
-			return m, nil
-		}
-		return m, m.handleModUpdate(msg.key, msg.uuid, map[string]any{"kind": "tick"})
 	case agentEvMsg:
 		return m.handleAgentEvent(msg)
 	case agentStreamEndMsg:
@@ -1441,9 +1417,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 
 	switch name {
 	case "/type":
-		// reload the nodes dir first — the user (or an agent) may have edited
-		// the type files out-of-band since the last load
-		loadNodeMods()
 		// open the picker; pre-select the type already in effect (see typeSource)
 		m.mode = modeType
 		m.list.open(m, typeSource{}, true)
@@ -1587,8 +1560,7 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 			// edits, or nodes tombstoned this session)
 			if m.ctx.DB != nil {
 				_ = database.GCChips(m.ctx.DB)
-				_ = database.GCBlobs(m.ctx.DB)   // drop image blobs whose node is gone
-				_ = database.GCModData(m.ctx.DB) // drop mod state whose node is gone
+				_ = database.GCBlobs(m.ctx.DB) // drop image blobs whose node is gone
 			}
 		}
 	}
@@ -1598,8 +1570,6 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
-	initNodeMods(ctx.Paths.Config, ctx.DB) // runtime node types must exist before the first render
-
 	// materialize the embedded lflow skill (pkg/agent/skills) into the data
 	// dir; every agent turn passes it to the CLI agent (pi --skill)
 	if dir, err := agent.MaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {

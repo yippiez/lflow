@@ -1,8 +1,6 @@
 package editor
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -107,7 +105,6 @@ func mentionVerb(m *Model, it *item) string {
 // state clears.
 func TestFlashStopCancelsTurn(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
-	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 	// a delay keeps the turn in-flight until we stop it
 	m.tagClients["Pi"] = &tag.MockClient{Delay: 50 * time.Millisecond}
 
@@ -145,7 +142,6 @@ func TestFlashStopCancelsTurn(t *testing.T) {
 // deleteRunOut for bash. A sibling delete must not touch the turn.
 func TestDeleteNodeStopsRunningAgent(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
-	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 	m.tagClients["Pi"] = &tag.MockClient{Delay: 50 * time.Millisecond}
 	sib := addChild(m, disc, "sib", "unrelated note", "")
 
@@ -175,7 +171,6 @@ func TestDeleteNodeStopsRunningAgent(t *testing.T) {
 // must stop the agent too (the mention rides out with the subtree).
 func TestDeleteAncestorStopsRunningAgent(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
-	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 	m.tagClients["Pi"] = &tag.MockClient{Delay: 50 * time.Millisecond}
 
 	cmd := startThread(t, m, n1)
@@ -194,7 +189,6 @@ func TestDeleteAncestorStopsRunningAgent(t *testing.T) {
 // than freezing on the last tool; and it all clears once the turn ends.
 func TestAgentToolBandStreamsThenClears(t *testing.T) {
 	m, _, n1 := newAgentTestModel(t)
-	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
 	cmd := startThread(t, m, n1)
 	if cmd == nil {
@@ -243,7 +237,6 @@ func TestAgentToolBandStreamsThenClears(t *testing.T) {
 
 func TestMentionBindsItselfAndReplyNests(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
-	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
 	// Enter on a fresh mention just edits — alt+r is the deliberate send
 	if cmd, consumed := m.mentionSendOnEnter(n1); consumed || cmd != nil {
@@ -284,7 +277,6 @@ func TestMentionBindsItselfAndReplyNests(t *testing.T) {
 
 func TestBoardReviewAndReplyThread(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
-	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
 
 	// establish the session with the mention turn (alt+r) — the mention node
 	// itself is the channel; its children are the board
@@ -337,25 +329,6 @@ func TestBoardReviewAndReplyThread(t *testing.T) {
 	out := addChild(m, m.tree.root, "out1", "is this watched?", database.TypeBullets)
 	if cmd, _ := m.mentionSendOnEnter(out); cmd != nil {
 		t.Fatal("nodes outside the thread must never reach an agent")
-	}
-}
-
-func TestMentionCreatesNodeMod(t *testing.T) {
-	m, _, n1 := newAgentTestModel(t)
-	dir := setModTestDir(t)
-	n1.name = "@Pi create a dice artifact for me"
-
-	drain(t, m, startThread(t, m, n1))
-
-	if _, err := os.Stat(filepath.Join(dir, "dice.js")); err != nil {
-		t.Fatalf("dice.js not written to the nodes dir: %v", err)
-	}
-	if typeOf("dice").label != "Dice" || typeOf("dice").run == nil {
-		t.Fatal("dice type must hot-load into the registry, runnable")
-	}
-	// the install confirmation is a threaded reply on the request message
-	if len(n1.children) != 1 || n1.children[0].typ != database.TypeAgent {
-		t.Fatal("install confirmation must nest under the request message")
 	}
 }
 

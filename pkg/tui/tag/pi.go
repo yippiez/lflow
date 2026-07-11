@@ -18,14 +18,6 @@ type CLIClient struct {
 	Provider agent.Provider
 }
 
-// modsDir is where the NodeMod files live (<config>/lflow/mods) — the editor
-// sets it at start so the system prompt can tell pi to create and edit mods
-// directly.
-var modsDir string
-
-// SetModsDir records the mods directory for the system prompt.
-func SetModsDir(dir string) { modsDir = dir }
-
 // skillDir is the materialized lflow pi skill (see pi-tag at the repo root);
 // the editor sets it at start and every turn passes it via --skill.
 var skillDir string
@@ -34,11 +26,11 @@ var skillDir string
 func SetSkillDir(dir string) { skillDir = dir }
 
 // cliSystemPrompt frames the agent as the note-app assistant: plain concise
-// replies, how to speak in chips (the inline structured tokens lflow renders),
-// and where the node-type files live so the agent can write them itself. name
-// is the mentioned agent (@Pi, @Grok, …) so the prompt addresses it correctly.
+// replies, and how to speak in chips (the inline structured tokens lflow
+// renders). name is the mentioned agent (@Pi, @Grok, …) so the prompt
+// addresses it correctly.
 func cliSystemPrompt(name string) string {
-	p := "You are " + name + ", an assistant living inside a terminal outline note-taking " +
+	return "You are " + name + ", an assistant living inside a terminal outline note-taking " +
 		"app. A user mentioned you with @" + name + " in one of their outline nodes. Each " +
 		"turn hands you a <NodeContext> block: the conversation as nested XML " +
 		"mirroring the outline — one element per node, children nested inside " +
@@ -73,15 +65,6 @@ func cliSystemPrompt(name string) string {
 		"your question, or notes that need no reply. If the node is clearly " +
 		"addressed to you and complete, answer; otherwise reply with exactly PASS " +
 		"and nothing else, and wait for the next turn."
-	if modsDir != "" {
-		p += "\n\nCustom node types (NodeMods) live in " + modsDir + ": <type>.js " +
-			"defines the node type <type>, and a <type>/ directory with a mod.json " +
-			"({name, description, entry}) holds a git-installed mod. A .disabled " +
-			"suffix on either turns it off. When asked for a new node type, write " +
-			"the file yourself, mirroring the lflow.registerType calls in the " +
-			"existing files there — the app reloads the directory when your turn ends."
-	}
-	return p
 }
 
 // Send runs one fresh pi turn over the thread and streams the reply as tag
@@ -110,7 +93,7 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 		opts.Cwd = pwd
 	}
 	if skillDir != "" {
-		opts.Skills = []string{skillDir} // the lflow skill: CLI, chips, NodeMods
+		opts.Skills = []string{skillDir} // the lflow skill: CLI + chips
 	}
 	// No in-app model picker: each provider carries a baked-in default (see
 	// agent.ProviderDefault). c.Provider is the agent's hardcoded backend

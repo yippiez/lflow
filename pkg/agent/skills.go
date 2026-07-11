@@ -1,7 +1,7 @@
 package agent
 
 // The embedded lflow skills teach the @mention agent how to live inside lflow:
-// the CLI, chips, and NodeMods. They are compiled into the binary and
+// the CLI and chips. They are compiled into the binary and
 // materialized to the data dir at editor start, then handed to the CLI agent
 // via its skill mechanism (pi --skill) on every turn — deliberately NOT an
 // agent extension, and additive, so the user's own agent setup is untouched.

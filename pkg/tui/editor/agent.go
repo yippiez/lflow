@@ -271,12 +271,6 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 		return m, rearm
 	case "message":
 		m.placeAgentNode(msg.thread, msg.asked, msg.ev.Text, msg.ev.Placement)
-	case "artifact":
-		// the offline mock's install path — a real agent writes the file into
-		// the nodes dir itself and the after-turn reload picks it up
-		if err := installNodeMod(msg.ev.Key, msg.ev.Source); err != nil {
-			m.placeAgentNode(msg.thread, msg.asked, "failed to install node type "+msg.ev.Key+": "+err.Error(), "thread")
-		}
 	case "error":
 		// an agent failure shows in the status bar (like thinking), not the
 		// outline — it is transient state, not a note the user wrote or wants kept
@@ -388,10 +382,8 @@ func (m *Model) chipifyAgentText(text string) string {
 	})
 }
 
-// finishThread clears the busy flag and parks the thread. The agent may have
-// created or edited mod files during its turn — reload them now.
+// finishThread clears the busy flag and parks the thread.
 func (m *Model) finishThread(threadUUID, agent string) {
-	loadNodeMods()
 	if t := m.thread(threadUUID); t != nil {
 		t.busy = false
 		t.tool = agentToolLine{} // the live tool band is gone once the turn ends

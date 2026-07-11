@@ -110,71 +110,13 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 
 type typeSource struct{}
 
-// modRowFor returns the installed mod-node record behind a type key, so
-// the picker knows which rows take the management chords.
-func modRowFor(key string) (nodeMod, bool) {
-	for _, gn := range loadedMods {
-		if gn.Key == key {
-			return gn, true
-		}
-	}
-	return nodeMod{}, false
-}
-
-// items lists the pickable types. Mod rows LEAD the list — enabled then
-// disabled, each wearing its management hint (space toggles the .disabled
-// filename suffix, ctrl+d deletes the file) — so they and their hints are
-// always inside the picker's scroll window, not buried below the built-ins.
+// items lists the pickable types.
 func (typeSource) items(m *Model, q string) []pickerItem {
-	var mods, builtins []pickerItem
+	var out []pickerItem
 	for _, t := range m.filteredTypes(q) {
-		t := t
-		if _, isGen := modRowFor(t); isGen {
-			mods = append(mods, pickerItem{value: t, render: func(bool) string {
-				return cFG + fmt.Sprintf("%-14s", typeLabel(t)) + cDim + " mod · space disable · ctrl+d uninstall" + cReset
-			}})
-			continue
-		}
-		builtins = append(builtins, pickerItem{label: typeLabel(t), value: t})
+		out = append(out, pickerItem{label: typeLabel(t), value: t})
 	}
-	lq := strings.ToLower(q)
-	for _, gn := range loadedMods {
-		if gn.Enabled {
-			continue
-		}
-		gn := gn
-		if lq != "" && !fuzzyMatch(strings.ToLower(gn.Label), lq) && !fuzzyMatch(gn.Key, lq) {
-			continue
-		}
-		mods = append(mods, pickerItem{value: gn.Key, render: func(bool) string {
-			return cDim + fmt.Sprintf("%-14s", gn.Label) + "mod · disabled · space enable" + cReset
-		}})
-	}
-	return append(mods, builtins...)
-}
-
-// onKey claims the management chords on mod rows: space toggles
-// enabled/disabled in place, ctrl+d uninstalls. Built-in rows ignore both.
-func (typeSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
-	if p.sel < 0 || p.sel >= len(items) {
-		return false
-	}
-	gn, isGen := modRowFor(items[p.sel].value)
-	if !isGen {
-		return false
-	}
-	switch key {
-	case " ":
-		setNodeModEnabled(gn.Key, !gn.Enabled)
-		return true
-	case "ctrl+d":
-		deleteNodeMod(gn.Key)
-		if n := len(typeSource{}.items(m, p.query)); p.sel >= n && p.sel > 0 {
-			p.sel--
-		}
-		return true
-	}
-	return false
+	return out
 }
 
 func (typeSource) header(m *Model, p *listPicker) string {
@@ -192,7 +134,6 @@ func (s typeSource) initialSel(m *Model) int {
 	if cur == nil {
 		return 0
 	}
-	// index into the DISPLAYED order (mods lead — see items), not filteredTypes
 	for i, it := range s.items(m, "") {
 		if it.value == cur.typ {
 			return i
@@ -202,10 +143,6 @@ func (s typeSource) initialSel(m *Model) int {
 }
 
 func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
-	// picking a disabled mod node re-enables it on the way — Enter means "use it"
-	if gn, ok := modRowFor(it.value); ok && !gn.Enabled {
-		setNodeModEnabled(gn.Key, true)
-	}
 	if it.value != "" {
 		targets := m.selectedItems() // multi-select: retype the whole range
 		if len(targets) == 0 {

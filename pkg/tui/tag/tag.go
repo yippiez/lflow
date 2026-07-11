@@ -40,18 +40,13 @@ type ThreadNode struct {
 
 // Event is one message streamed back from the agent service.
 type Event struct {
-	Op   string `json:"op"`   // "message" | "tool" | "artifact" | "done" | "error"
+	Op   string `json:"op"`   // "message" | "tool" | "done" | "error"
 	Text string `json:"text"` // op=message/error; op=tool: the muted detail (file/cmd)
 	Tool string `json:"tool"` // op=tool: the tool name (Read / Write / Edit …)
 	// Placement is where a message lands relative to the asked node — the two
 	// Claude-Tag surfaces: "below" posts it like a message-board reply (next
 	// sibling), "thread" nests it as the asked node's child. Default: thread.
 	Placement string `json:"placement"`
-	// op=artifact installs a NodeMod — kept for the offline mock; a real
-	// agent writes the <key>.js file into the mods dir itself and the editor
-	// reloads the directory when the turn ends.
-	Key    string `json:"key"`    // op=artifact: the node type key
-	Source string `json:"source"` // op=artifact: the JS program to install
 }
 
 // Client runs agent turns, launch-and-forget: every Send is a FRESH agent fed

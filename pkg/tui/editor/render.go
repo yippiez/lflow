@@ -514,8 +514,8 @@ func activeCmdDraftRange(runes []rune, caret int, spans []anchorSpan) (int, int)
 // every row — selection is carried by the red glyph alone. Unselected rows
 // hide the markdown markers; the selected row shows them and the block
 // cursor inverts the cell under the rune at the caret index (-1 for none).
-// A per-type prefix/color/muteFrom comes from the descriptor hooks (built-in or
-// a JS mod via the nodemod bridge), not a switch here.
+// A per-type prefix/color/muteFrom comes from the descriptor hooks, not a
+// switch here.
 
 func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip, cmdDraft bool) string {
 	name = stripControlBytes(name)
@@ -524,7 +524,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	}
 	desc := typeOf(it.typ)
 	base := cFG
-	// a type may set its own body color (e.g. a mod returning dim/its /color)
+	// a type may set its own body color (e.g. log's dim, agent's red)
 	if desc.baseColor != nil {
 		if c := desc.baseColor(it); c != "" {
 			base = c
@@ -547,7 +547,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		attrs += bgCode
 	}
 	if desc.prefix != nil {
-		prefix = desc.prefix(it) // per-type prefix, e.g. a log mod's time chip
+		prefix = desc.prefix(it) // per-type prefix, e.g. the log time chip
 	}
 	if s := desc.sign; s != "" {
 		prefix = cDim + s + cReset // type sign as prefix, e.g. "⌕ " for query
@@ -581,7 +581,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		cmdDraftStart, cmdDraftEnd = activeCmdDraftRange(runes, caret, chipsp)
 	}
 	if desc.muteFrom != nil {
-		// a type may mute a tail — the log artifact mutes from the first " · "
+		// a type may mute a tail — the log type mutes from the first " · "
 		if d := desc.muteFrom(name); d >= 0 && d < len(runes) {
 			for k := d; k < len(runes); k++ {
 				flags[k].mute = true

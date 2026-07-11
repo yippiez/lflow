@@ -91,7 +91,7 @@ func (m *Model) flushSync() tea.Cmd {
 }
 
 // canApplyLive reports whether external events may fold in right now. While
-// a picker, note edit, multi-select, or focused mod view is holding
+// a picker, note edit, multi-select, or focused expanded view is holding
 // positional state, events queue in pendingEvs instead.
 func (m *Model) canApplyLive() bool {
 	return m.mode == modeOutline && !m.focused && !m.selOn

@@ -45,9 +45,8 @@ type nodeType struct {
 	// — the todo-list continuation, where a fresh sibling stays a todo.
 	continueOnEnter bool
 
-	// hooks below exist for the mod bridge (see nodemod.go): granular enough
-	// that an editable type keeps caret editing while a JS program decides its
-	// look (glyph, prefix, muted tail). Built-ins may use them too.
+	// granular look hooks: an editable type keeps caret editing while these
+	// decide its look (glyph, prefix, muted tail) — see the log type.
 	prefix    func(it *item) string // styled prefix before the body, e.g. the log time chip
 	baseColor func(it *item) string // body foreground SGR; "" keeps the default
 	muteFrom  func(name string) int // rune index the muted tail starts at; -1 = none
@@ -161,28 +160,20 @@ func init() {
 	}
 }
 
-// typeOf returns the descriptor for a type key — compiled-in first, then
-// runtime mods; unknown keys fall back to bullets, which is what keeps
-// a node whose mod was disabled or deleted rendering instead of crashing.
+// typeOf returns the descriptor for a type key; unknown keys fall back to
+// bullets, which is what keeps a node of a retired type (e.g. the removed
+// NodeMod system's) rendering instead of crashing.
 func typeOf(key string) nodeType {
 	if nt, ok := byType[key]; ok {
-		return nt
-	}
-	if nt, ok := modByKey[key]; ok {
 		return nt
 	}
 	return byType[database.TypeBullets]
 }
 
-// typeOrder drives the /type picker: built-ins in their fixed order, then
-// installed mods in load order. Recomputed per call because they
-// hot-load at runtime (an agent install shows up immediately).
+// typeOrder drives the /type picker: the registry in its declared order.
 func typeOrder() []string {
-	out := make([]string, 0, len(nodeTypes)+len(modTypes))
+	out := make([]string, 0, len(nodeTypes))
 	for _, nt := range nodeTypes {
-		out = append(out, nt.key)
-	}
-	for _, nt := range modTypes {
 		out = append(out, nt.key)
 	}
 	return out
@@ -192,12 +183,6 @@ func typeOrder() []string {
 func typeLabel(key string) string {
 	return typeOf(key).label
 }
-
-// WARNING (invariant): an artifact type is indistinguishable from a built-in
-// everywhere a type is READ (glyphs, rendering, storage). The /type picker is
-// the one management surface: artifact rows there carry the space/ctrl+d
-// enable/disable/uninstall chords and disabled artifacts list muted — there is
-// no separate /artifacts view or CLI.
 
 func todoGlyph(it *item) (string, string) {
 	if it.completedAt > 0 {
