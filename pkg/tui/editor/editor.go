@@ -64,7 +64,7 @@ var slashCommands = []slashCommand{
 	{"/bring", "Bring another node here"},
 	{"/complete", "Toggle done (alt+enter)"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
-	{"/filter", "Hide or show completed nodes"},
+	{"/hide", "Hide or show completed nodes"},
 	{"/goto", "Jump the editor to another node"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
@@ -253,7 +253,7 @@ type Model struct {
 
 	tagColorWord string // the tag word the alt+e color picker is assigning
 
-	// hideCompleted is the /filter toggle: when true, completed nodes (and their
+	// hideCompleted is the /hide toggle: when true, completed nodes (and their
 	// subtrees) drop out of the visible outline. Session-only — not persisted.
 	hideCompleted bool
 
@@ -955,7 +955,7 @@ func (m *Model) resolveSourceNode(n database.Node) database.Node {
 }
 
 // toggleComplete flips completed_at on it (same as /complete and alt+enter).
-// Caller owns the undo snapshot. When /filter is hiding completed, the outline
+// Caller owns the undo snapshot. When /hide is hiding completed, the outline
 // refreshes so a just-completed node disappears (or reappears on uncomplete).
 func (m *Model) toggleComplete(it *item) {
 	if it == nil {
@@ -1376,7 +1376,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/complete":
 		m.pushUndo("")
 		m.toggleComplete(cur)
-	case "/filter":
+	case "/hide":
 		// hide or show completed nodes in the outline (session toggle)
 		m.hideCompleted = !m.hideCompleted
 		m.refreshRows()
