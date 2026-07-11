@@ -1252,6 +1252,28 @@ func (m *Model) filteredSlash(query string) []slashCommand {
 	return ret
 }
 
+// openSlashMenu opens the command palette (modeSlash). When inline is true the
+// "/" trigger is typed into the node name and stripped on run/cancel (the /
+// key path). alt+p opens non-inline so the name is left alone while filtering.
+func (m *Model) openSlashMenu(inline bool) {
+	m.mode = modeSlash
+	m.list = listPicker{searchable: true}
+	m.slashInline = inline
+	if !inline {
+		return
+	}
+	cur := m.cursorItem()
+	if cur == nil {
+		return
+	}
+	runes := []rune(cur.name)
+	m.boundCaret(len(runes))
+	cur.name = string(runes[:m.caret]) + "/" + string(runes[m.caret:])
+	m.slashStart = m.caret
+	m.caret++
+	m.unsaved = true
+}
+
 // stripSlashText removes the typed "/query" from the node text and parks the
 // caret where the slash was. Called before a slash command runs.
 func (m *Model) stripSlashText() {

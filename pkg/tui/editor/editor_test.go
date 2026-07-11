@@ -172,6 +172,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "alt+enter":
 		return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}
+	case "alt+p":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p"), Alt: true}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "left":
@@ -1495,6 +1497,27 @@ func TestAltEnterTogglesComplete(t *testing.T) {
 	m.undo()
 	if m.cursorItem().completedAt == 0 {
 		t.Fatal("undo after uncomplete should restore completed")
+	}
+}
+
+// TestAltPOpensSlashMenu: alt+p opens the command palette without typing "/" into the node.
+func TestAltPOpensSlashMenu(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+	before := m.cursorItem().name
+
+	m.press("alt+p")
+	if m.mode != modeSlash {
+		t.Fatalf("alt+p should open the slash menu, mode=%v", m.mode)
+	}
+	if m.slashInline {
+		t.Fatal("alt+p should open non-inline so nothing is typed into the name")
+	}
+	if got := m.cursorItem().name; got != before {
+		t.Fatalf("alt+p must not change the node name: before=%q after=%q", before, got)
+	}
+	if m.unsaved {
+		t.Fatal("alt+p alone should not mark the outline unsaved")
 	}
 }
 

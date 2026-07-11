@@ -104,7 +104,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "tab", "shift+tab", "ctrl+d", "alt+d", "ctrl+shift+backspace",
 				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
-				"/": // the slash menu may apply /type //style //move to the selection
+				"/", "alt+p": // the slash menu may apply /type //style //move to the selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -525,6 +525,21 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.toggleComplete(cur)
 		}
 		return m, nil
+	case "alt+p":
+		// open the command palette without typing "/" into the node text
+		cur := m.cursorItem()
+		if cur == nil {
+			it, err := m.tree.insertFirstChild(m.viewRoot())
+			if err != nil {
+				m.err = err
+				return m.quit()
+			}
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(it)
+			m.caret = 0
+		}
+		m.openSlashMenu(false)
+		return m, nil
 	case "alt+x":
 		// stop a running command, keeping what was captured; when nothing is
 		// running, clear the output band. A cmd chip under the caret takes the
@@ -778,18 +793,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// "/" opens the slash menu anywhere in the row. On editable rows it
 		// is typed into the text and stripped when a command runs or the menu
 		// is cancelled, so esc restores the name to what it was before.
+		// alt+p opens the same menu without inserting "/" (see openSlashMenu).
 		if string(k.Runes) == "/" && !k.Paste {
-			m.mode = modeSlash
-			m.list = listPicker{searchable: true}
-			m.slashInline = cur.mirrorOf == "" && !cur.readonly
-			if m.slashInline {
-				runes := []rune(cur.name)
-				m.boundCaret(len(runes))
-				cur.name = string(runes[:m.caret]) + "/" + string(runes[m.caret:])
-				m.slashStart = m.caret
-				m.caret++
-				m.unsaved = true
-			}
+			m.openSlashMenu(cur.mirrorOf == "" && !cur.readonly)
 			return m, nil
 		}
 
