@@ -12,10 +12,11 @@ import (
 // A cmd chip is inline runnable shell: a standalone "$" starts a live gray
 // command draft inside any text node, and a DOUBLE space commits it (single
 // spaces stay part of the command; a bare "$" still chips, empty). The command
-// lives in the chip value (persisted); its run output is ephemeral (node_output,
-// keyed by chip id — local-only, never synced, exactly like a bash node). alt+r
-// runs the chip the caret sits on, and the chip then renders "$ cmd → <first
-// line>"; alt+e expands the full output as an inline band.
+// lives in the chip value (persisted); its run band is local-only in node_output
+// (keyed by chip id — never synced, exactly like a bash node). alt+r runs the
+// chip the caret sits on; the chip then renders "$ cmd → <first line>" from an
+// in-memory label rehydrated on open via hydrateCmdPreviews; alt+e expands the
+// full band.
 
 // bashCmdBeforeCaret converts a "$<command>" token terminated by a double space
 // into a cmd chip. It is called from the space-typed path only when the rune
@@ -127,13 +128,16 @@ func (m *Model) runCmdChip(c database.Chip) tea.Cmd {
 
 // setCmdPreview refreshes a cmd chip's inline preview — its in-memory label — from
 // the first non-blank line of its run output. The label is mutated in m.chips
-// only and never upserted, so the preview is session-local: the command persists,
-// the output does not (WARNING (invariant): run output is never persisted/synced).
+// only and never upserted into the chips table: the command persists, the →
+// chrome does not (WARNING (invariant): run output is never synced). The full
+// band lives in local node_output; ensureRunOutLoaded rehydrates it so a reopen
+// can rebuild this label without re-running.
 func (m *Model) setCmdPreview(id string) {
 	c, ok := m.chips[id]
 	if !ok || c.Kind != chipKindCmd {
 		return
 	}
+	m.ensureRunOutLoaded(id)
 	preview := ""
 	var out []outLine
 	if r := m.run(id); r != nil {
@@ -147,6 +151,19 @@ func (m *Model) setCmdPreview(id string) {
 	}
 	c.Label = clipStr(preview, 32)
 	m.chips[id] = c
+}
+
+// hydrateCmdPreviews rebuilds every cmd chip's in-memory → preview from local
+// node_output (via setCmdPreview). Called after LoadChips — on editor open and
+// after an aux reload that replaces m.chips — so reopening a client restores
+// last-run chrome without re-running and without writing the chip row.
+func (m *Model) hydrateCmdPreviews() {
+	for id, c := range m.chips {
+		if c.Kind != chipKindCmd {
+			continue
+		}
+		m.setCmdPreview(id)
+	}
 }
 
 // stripSGR removes ANSI SGR escapes from s, leaving plain text — used to derive a

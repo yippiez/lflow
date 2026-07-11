@@ -468,8 +468,9 @@ func inlineSpans(runes []rune) []spanFlags {
 }
 
 // renderCmdChip paints a committed cmd chip. The prompt+command sits on a gray
-// code cell; the ephemeral output preview is muted text after the cell, with no
-// background, so "$ ls" reads as the runnable part and "→ result" as output.
+// code cell; the output preview (in-memory label, rehydrated from node_output)
+// is muted text after the cell, with no background, so "$ ls" reads as the
+// runnable part and "→ result" as last-run chrome.
 func renderCmdChip(c database.Chip, caretOn bool) string {
 	var b strings.Builder
 	b.WriteString(cReset)

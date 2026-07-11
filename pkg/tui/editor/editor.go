@@ -1624,6 +1624,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		wfMap:     wfMap,
 		live:      ctx.Live, // daemon connection: live sync (nil in direct runs)
 	}
+	m.hydrateCmdPreviews() // rebuild → chrome from local node_output (chip label is never stored)
 	m.startFeed() // subscribe to external changes; Init retries if it failed
 	m.loadSettings() // apply persisted preferences (theme, …) before the first render
 	m.refreshAncestors()

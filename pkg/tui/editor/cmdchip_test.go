@@ -121,7 +121,8 @@ func TestCmdDraftEndsOnCaretMove(t *testing.T) {
 
 // TestCmdChipPreviewIsEphemeral: a run preview lands in the in-memory chip label
 // (shown as "$cmd → preview") but is never written to the chips table — the
-// command persists, the output does not.
+// command persists; → chrome is rehydrated from local node_output, not stored
+// on the chip row.
 func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 	m, db := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
@@ -145,13 +146,61 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 	if !strings.Contains(rendered, bgCode+cRed+"$ "+cFG+"ls"+cReset+preview) {
 		t.Errorf("preview should be muted after a background reset, got %q", rendered)
 	}
-	// the persisted chip row must keep an empty label (output never persisted)
+	// the persisted chip row must keep an empty label (preview is not chip data)
 	stored, err := database.GetChip(db, c.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stored.Label != "" {
-		t.Errorf("persisted label = %q, want empty (preview must stay ephemeral)", stored.Label)
+		t.Errorf("persisted label = %q, want empty (preview must not write the chip row)", stored.Label)
+	}
+}
+
+// TestCmdChipPreviewRehydratesOnOpen: after a run is persisted to node_output,
+// a fresh Model with only LoadChips + hydrateCmdPreviews rebuilds → chrome
+// without re-running and without writing the chip row.
+func TestCmdChipPreviewRehydratesOnOpen(t *testing.T) {
+	m, db := dbModel(t, database.Node{UUID: "edit", Name: ""})
+	cursorOn(m, "edit")
+	m.caret = 0
+	m.press("$ls")
+	m.press(" ")
+	m.press(" ")
+
+	c, ok := cmdChipOf(m)
+	if !ok {
+		t.Fatal("no cmd chip created")
+	}
+	m.ensureRun(c.ID).out = []outLine{{text: "  "}, {text: "file-a"}, {text: "file-b"}}
+	m.persistRunOut(c.ID)
+	m.setCmdPreview(c.ID)
+	if got := m.chips[c.ID].Label; got != "file-a" {
+		t.Fatalf("seed label = %q, want file-a", got)
+	}
+
+	// simulate a new client: chips from DB (empty labels), no runs map
+	chips, err := database.LoadChips(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chips[c.ID].Label != "" {
+		t.Fatalf("LoadChips label = %q, want empty", chips[c.ID].Label)
+	}
+	reopened := &Model{ctx: m.ctx, chips: chips}
+	reopened.hydrateCmdPreviews()
+
+	if got := reopened.chips[c.ID].Label; got != "file-a" {
+		t.Errorf("rehydrated label = %q, want file-a", got)
+	}
+	if got := chipDisplay(reopened.chips[c.ID]); got != "$ ls → file-a" {
+		t.Errorf("chip display = %q, want %q", got, "$ ls → file-a")
+	}
+	stored, err := database.GetChip(db, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Label != "" {
+		t.Errorf("chip row label = %q after hydrate, want empty", stored.Label)
 	}
 }
 

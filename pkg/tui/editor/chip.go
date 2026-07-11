@@ -195,8 +195,9 @@ func chipDisplay(c database.Chip) string {
 		return "→" + linkChipLabel(c)
 	}
 	if c.Kind == chipKindCmd {
-		// the label holds the session-local run preview (set by setCmdPreview,
-		// never persisted); show "$ cmd → preview" once it has run this session.
+		// the label holds the run preview (set by setCmdPreview / hydrateCmdPreviews;
+		// never written to the chips table). show "$ cmd → preview" when a band
+		// is in memory or was rehydrated from local node_output.
 		// "$ " mirrors the bash node's prompt — renderBody paints it as a code cell.
 		s := "$ " + c.Value
 		if c.Label != "" {

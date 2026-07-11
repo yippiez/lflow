@@ -394,6 +394,7 @@ func (m *Model) reloadAux() {
 	}
 	if chips, err := database.LoadChips(m.db); err == nil {
 		m.chips = chips
+		m.hydrateCmdPreviews() // LoadChips wipes in-memory labels; rebuild → from node_output
 	}
 	if tc, err := database.AllTagColors(m.db); err == nil {
 		tagColors = tc
