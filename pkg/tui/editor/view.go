@@ -570,10 +570,27 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 // wraps instead of truncating, so it may span several lines; callers must budget
 // for len(bottomBar(...)) lines, keeping the wrapped tail the frame's last line.
 func (m *Model) bottomBar(maxLine int) []string {
-	total := len(m.rows)
-	pos := m.cursor + 1
+	// The toolbar always describes the main outline. Entering the Temporary Domain
+	// must not rewrite it to "Temp · 1/1" — the temp panel is a side region, not a
+	// different page, so breadcrumb and cursor position stay on the main stash.
+	pos, total := m.cursor+1, len(m.rows)
 	if len(m.rows) == 0 {
 		pos = 0
+	}
+	viewStack, ancestors := m.viewStack, m.ancestors
+	dispTree := m.tree
+	if m.tempActive && m.mainStash.tree != nil {
+		dispTree = m.mainStash.tree
+		viewStack = m.mainStash.viewStack
+		ancestors = m.mainStash.ancestors
+		pos = m.mainStash.cursor + 1
+		total = 0
+		if n := len(viewStack); n > 0 && viewStack[n-1] != nil {
+			total = len(dispTree.visibleRows(viewStack[n-1], m.hideCompleted, m.unroll))
+		}
+		if total == 0 {
+			pos = 0
+		}
 	}
 	state := ""
 	if m.unsaved {
@@ -611,8 +628,9 @@ func (m *Model) bottomBar(maxLine int) []string {
 		state += " · " + hint + " · esc cancel"
 	}
 	// offer the date conversion while a non-canonical time phrase sits under the
-	// cursor; an already-canonical date needs no conversion and is chipped as-is
-	if m.mode == modeOutline {
+	// cursor; an already-canonical date needs no conversion and is chipped as-is.
+	// while in temp the bar describes the main outline, so skip temp-cursor phrases
+	if m.mode == modeOutline && !m.tempActive {
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
 				// the date picker hint reads white against the dim status bar, then
@@ -621,18 +639,15 @@ func (m *Model) bottomBar(maxLine int) []string {
 			}
 		}
 	}
-	// breadcrumb: the forest path down to the current view root
-	parts := append([]string(nil), m.ancestors...)
-	for _, v := range m.viewStack {
-		name := displayAnchors(m.tree.displayName(v), m.chips) // resolve chip anchors
+	// breadcrumb: the forest path down to the current view root (main outline,
+	// even while the Temporary Domain holds focus)
+	parts := append([]string(nil), ancestors...)
+	for _, v := range viewStack {
+		name := displayAnchors(dispTree.displayName(v), m.chips) // resolve chip anchors
 		if name == "" {
 			name = "untitled"
 		}
 		parts = append(parts, name)
-	}
-	// the bottom space is the Temp region — relabel its root in the breadcrumb
-	if m.tempActive && len(parts) > 0 {
-		parts[0] = "Temp"
 	}
 	title := strings.Join(parts, " › ")
 	if title == "" {

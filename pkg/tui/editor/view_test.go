@@ -50,3 +50,45 @@ func TestBottomBarShowsCwd(t *testing.T) {
 		}
 	}
 }
+
+// TestBottomBarKeepsMainWhenInTemp: entering the Temporary Domain must not
+// rewrite the status bar to "Temp · 1/1" — breadcrumb and cursor stay on the
+// main outline the user left behind.
+func TestBottomBarKeepsMainWhenInTemp(t *testing.T) {
+	m := newTestModel(120, "alpha", "beta", "gamma")
+	m.cursor = 1 // on beta → "2/3"
+	before := stripSGR(strings.Join(m.bottomBar(120), "\n"))
+	if !strings.Contains(before, "2/3") {
+		t.Fatalf("precondition: bar should show 2/3:\n%s", before)
+	}
+	m.enterTemp()
+	after := stripSGR(strings.Join(m.bottomBar(120), "\n"))
+	if strings.Contains(after, "Temp") {
+		t.Fatalf("bar must not say Temp while focused in temp:\n%s", after)
+	}
+	if !strings.Contains(after, "2/3") {
+		t.Fatalf("bar must keep main cursor 2/3 while in temp:\n%s", after)
+	}
+	// still no "1/1" from the temp panel's single empty node
+	if strings.Contains(after, "1/1") {
+		t.Fatalf("bar must not show temp position 1/1:\n%s", after)
+	}
+}
+
+// TestReadonlyRegionShowsAgentToolBand: the unfocused region (main while in
+// temp, or temp while in main) must still hang the live tool-call band under a
+// busy @mention — same as the focused outline path.
+func TestReadonlyRegionShowsAgentToolBand(t *testing.T) {
+	m := newTestModel(80, "alpha")
+	mention := m.tree.root.children[0]
+	mention.uuid = "mention-1"
+	m.tree.byUUID[mention.uuid] = mention
+	m.ensureThread(mention.uuid).busy = true
+	m.ensureThread(mention.uuid).tool = agentToolLine{name: "Bash", detail: "ls"}
+
+	lines := m.readonlyRegionLines(m.tree, m.tree.root, 0, 10, 80, false)
+	joined := stripSGR(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "Bash") || !strings.Contains(joined, "ls") {
+		t.Fatalf("readonly region missing agent tool band:\n%s", joined)
+	}
+}

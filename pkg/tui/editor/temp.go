@@ -179,6 +179,15 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
 			// a bash/query node's run output hangs beneath it in the read-only region too
 			flat = append(flat, m.runBandLines(r, below, maxLine)...)
+			if b := typeOf(it.typ).bands; b != nil {
+				flat = append(flat, b(m, r, below, maxLine)...)
+			}
+			// a running @mention's live tool-call band must show here too — the
+			// unfocused region (main while in temp, or temp while in main) is the
+			// only place the user can still see progress for agents on that side
+			if t := m.thread(it.uuid); t != nil && t.busy {
+				flat = append(flat, m.agentBandLines(r, below, maxLine)...)
+			}
 		}
 	}
 
