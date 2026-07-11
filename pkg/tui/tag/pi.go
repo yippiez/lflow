@@ -176,13 +176,55 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 
 // turnPrompt is the message the agent actually receives each turn — full XML:
 // the instruction in its own tag, the rendered thread in <NodeContext>, so the
-// outline never mixes with the framing around it.
+// outline never mixes with the framing around it. Type-keyed extra lines (see
+// agentTypeInstructions) append inside <instructions> when the @chip's host
+// node is a type that asks for them — e.g. a todo that should be completed.
 func turnPrompt(thread []ThreadNode) string {
+	instr := "Answer the <asked> node in NodeContext, as one short chat message."
+	if extra := agentTypeInstructions(thread); extra != "" {
+		instr += "\n" + extra
+	}
 	return "<instructions>\n" +
-		"Answer the <asked> node in NodeContext, as one short chat message.\n" +
+		instr + "\n" +
 		"</instructions>\n" +
 		"\n" +
 		"<NodeContext>\n" + renderThread(thread) + "</NodeContext>"
+}
+
+// chipHost is the node the @chip sits on — the thread root, first non-Parent
+// line. The ambient <parent> is where the thread sits in the outline, not the
+// chip host; type-based agent rules key off this host only for now.
+func chipHost(thread []ThreadNode) (ThreadNode, bool) {
+	for _, n := range thread {
+		if !n.Parent {
+			return n, true
+		}
+	}
+	return ThreadNode{}, false
+}
+
+// agentTypeInstructions returns extra per-turn instruction text drawn from the
+// @chip host's node type. Ambient parent-type rules are reserved for later;
+// for now only an incomplete todo on the chip host itself contributes: after
+// finishing the work, mark that todo complete via the lflow CLI.
+func agentTypeInstructions(thread []ThreadNode) string {
+	host, ok := chipHost(thread)
+	if !ok {
+		return ""
+	}
+	switch host.Type {
+	case "todo":
+		// already done — nothing to ask for
+		if strings.Contains(host.XMLAttrs, `done="true"`) {
+			return ""
+		}
+		id := host.UUID
+		if id == "" {
+			id = "<todo-id>"
+		}
+		return "The @mention sits on a todo (id " + id + "). After finishing the work it asks for, mark it complete with: lflow node edit " + id + " --state complete — same turn as your final reply."
+	}
+	return ""
 }
 
 // renderThread draws the context as nested XML mirroring the outline: one
