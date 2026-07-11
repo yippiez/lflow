@@ -125,8 +125,9 @@ auto-run) and their output is ephemeral — never persisted or synced.
   children land at most once, so mirrors can neither loop the walk nor
   duplicate a subtree — nothing else; the rest of the outline the agent
   searches itself via the lflow CLI (`lflow node grep/list`, taught by the
-  skill and system prompt). Replies land as red ✦ `agent` nodes — normal, editable nodes; only
-  the glyph marks authorship. Only text after the turn's LAST tool call
+  skill and system prompt). Replies land as red ✦ `agent` nodes — an internal type (never
+  offered in /type, only the agent creates one), born locked; /lock unlocks
+  a reply for reshaping like any other node. Only text after the turn's LAST tool call
   lands as the reply — narration between tool calls feeds the live band and
   is discarded, so replies read like chat messages, not work reports. Replies may speak chips:
   `{{cmd:…}}` / `{{path:…}}` / `{{link:label|url}}` / `{{tag:…}}` / `{{date:…}}`

@@ -1283,6 +1283,9 @@ func (m *Model) filteredTypes(query string) []string {
 	q := strings.ToLower(query)
 	var ret []string
 	for _, t := range typeOrder() {
+		if typeOf(t).internal {
+			continue // internal types (agent replies) are app-created, never user-picked
+		}
 		if typeOf(t).tempOnly && !m.tempActive {
 			continue // temp-only types are not offered outside the Temporary Domain
 		}

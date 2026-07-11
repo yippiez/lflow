@@ -25,6 +25,7 @@ type nodeType struct {
 	renderM        func(m *Model, it *item) string    // Model-aware inline-body override (voice waveform)
 	inlineEditable bool                               // false → typing/backspace/enter is a no-op
 	tempOnly       bool                               // only offered/allowed in the Temporary Domain
+	internal       bool                               // never offered in /type: only the app creates nodes of this type
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
@@ -117,11 +118,13 @@ var nodeTypes = []nodeType{
 		key: database.TypeWF, label: "Workflowy", glyph: wfGlyph, inlineEditable: true,
 		run: runWF,
 	},
-	// an agent reply (see agent.go): red ✦, body red, plain text + chips. A
-	// normal, editable node — only the glyph marks its authorship, so the user
-	// reshapes replies like any other note.
+	// an agent reply (see agent.go): red ✦, body red, plain text + chips.
+	// Internal — the /type picker never offers it, only the agent creates one —
+	// and born locked so a reply can't change under the thread; /lock unlocks
+	// it for reshaping like any other node.
 	{
 		key: database.TypeAgent, label: "Agent", glyph: agentGlyph, inlineEditable: true,
+		internal:  true,
 		baseColor: func(it *item) string { return cRed },
 	},
 	{

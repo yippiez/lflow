@@ -309,6 +309,9 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	}
 	it.typ = database.TypeAgent
 	it.name = m.chipifyAgentText(text)
+	// replies are born locked so they can't drift under the thread — /lock
+	// unlocks one for reshaping like any other node
+	it.readonly = true
 
 	// a reply to the thread root itself always nests — "below" would land it
 	// outside the mention's subtree, beyond the session's reach
