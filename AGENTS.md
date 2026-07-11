@@ -1,11 +1,13 @@
 # AGENTS.md — operating guide for AI agents working in lflow
 
 lflow is a local-first **terminal outline editor** (Go + bubbletea), forked from
-dnote into a keyboard-driven outliner. The whole tree lives in one SQLite file;
-every CLI command is one-shot and pipe-friendly, and `lflow node open` drops into
-an inline editor that draws in the terminal **scrollback**, never the alt-screen.
-Everything is a node with a free-string `type`, and node types are an extensible
-registry — one descriptor per type in `pkg/tui/editor/registry.go`.
+dnote into a keyboard-driven outliner. The whole tree lives in one SQLite file
+owned by a single **daemon** process; every CLI command is a one-shot,
+pipe-friendly client of it, and `lflow node open` drops into an inline editor
+that draws in the terminal **scrollback**, never the alt-screen — and live-updates
+when any other client (CLI, agents) writes. Everything is a node with a
+free-string `type`, and node types are an extensible registry — one descriptor
+per type in `pkg/tui/editor/registry.go`.
 
 ## Build / test / run
 
@@ -20,6 +22,35 @@ registry — one descriptor per type in `pkg/tui/editor/registry.go`.
 - Commit each logical change as its own `label: description` commit; push as you go.
   Branches are named `label/explanation` — see [CONTRIBUTING.md](CONTRIBUTING.md).
 - No emojis — plain Unicode symbols only (○ ◆ ▸ ● $ {} →). CLI output uses `→`/`·`.
+
+## Daemon + live sync
+
+- One daemon per database owns the SQLite file (WAL, one connection,
+  update-hook change events). Everything else is a client: `infra.Init` →
+  `client.Ensure` dials `daemon.sock` next to the DB and auto-spawns
+  `lflow serve --quiet --idle` (10 min idle exit) when absent. A daemon built
+  from a different binary is shut down and respawned on first contact, so dev
+  rebuilds never talk to stale code. `LFLOW_NO_DAEMON=1` opens the file
+  directly — tests and DB surgery use this; `lflow serve` itself never routes
+  through a daemon.
+- Foreground `lflow serve` is the live monitor: one dim `→` line per event
+  (serving/connected/applied/gone), node names in yellow, chip anchors
+  resolved. `--db`/`--sock` point it at another database (isolated testing).
+- Wire protocol (`pkg/tui/wire`): ndjson over the unix socket. SQL is
+  forwarded through a `database/sql` driver (`pkg/tui/client`), so every
+  `database.*` helper works unchanged on a remote handle; values travel as
+  tagged strings ("i:"/"f:"/"s:"/"b:"/"d:") because UnixNano int64s do not
+  survive JSON floats. The daemon (`pkg/tui/daemon`) serializes all writes —
+  a client transaction holds the write lock begin→commit, watchdogged at 30s.
+- Editor live sync (`pkg/tui/editor/livesync.go`): there is no unsaved state
+  anymore — edits auto-flush ~1s after typing pauses (bar shows `syncing`;
+  ctrl+s = flush now). The subscribe feed folds other clients' commits into
+  the in-memory tree in place. Conflicts are errorless last-writer-wins per
+  node, with a dirty shield: a node edited locally since the last flush never
+  adopts a remote version (the flush lands within a second and wins). External
+  changes drop the undo stack; events defer while a picker/note/mod view is
+  open and drain when it closes; a dropped feed reconnects and resyncs
+  wholesale.
 
 ## Adding new nodes
 
