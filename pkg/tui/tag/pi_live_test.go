@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/lflow/lflow/pkg/agent"
 )
 
 // TestPiClientLive drives the @Pi → local pi bridge end-to-end against the real
@@ -16,14 +18,14 @@ func TestPiClientLive(t *testing.T) {
 	if os.Getenv("LFLOW_LIVE") != "1" {
 		t.Skip("set LFLOW_LIVE=1 to run the live pi bridge test")
 	}
-	if !piAvailable() {
+	if !agent.Available(agent.ProviderPi) {
 		t.Skip("pi CLI not on PATH")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	c := &PiClient{}
+	c := &CLIClient{Provider: agent.ProviderPi}
 	thread := []ThreadNode{
 		{UUID: "live-root", Depth: 0, Name: "@Pi reply with exactly the single word: pong", Type: "bullets", Role: "user", Asked: true},
 	}

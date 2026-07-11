@@ -94,7 +94,7 @@ func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 // its subtree depth-first, then a Screen-marked section holding whatever ELSE
 // is visible in the current window — ambient context, "what the user sees
 // right now". Nothing above the mention is sent; anything else in the outline
-// the agent fetches itself through the lflow CLI (see piSystemPrompt).
+// the agent fetches itself through the lflow CLI (see cliSystemPrompt).
 // askedUUID marks the node this turn is about, so replies can
 // target it. Mirrors expand at most once via the visited set, so a mirror
 // pointing back at an ancestor can't loop the walk (the same guard the renderer
@@ -361,7 +361,7 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 }
 
 // agentChipRe matches the {{kind:value}} chip tokens an agent may speak — see
-// piSystemPrompt in pkg/tui/tag. A link value may carry a "label|" prefix.
+// cliSystemPrompt in pkg/tui/tag. A link value may carry a "label|" prefix.
 var agentChipRe = regexp.MustCompile(`\{\{(cmd|path|link|tag|date):([^{}]+)\}\}`)
 
 // chipifyAgentText converts a reply's chip tokens into real chips (anchor in

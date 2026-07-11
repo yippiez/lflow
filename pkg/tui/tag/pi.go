@@ -7,11 +7,15 @@ import (
 	"github.com/lflow/lflow/pkg/agent"
 )
 
-// PiClient bridges @mentions to the local `pi` coding agent (pkg/agent's RPC
-// backend). Launch-and-forget: each Send spawns a FRESH pi turn fed the whole
-// rendered thread and saves nothing — the thread in the outline is the only
-// conversation state, so edits to past nodes are always honored.
-type PiClient struct{}
+// CLIClient bridges @mentions to a local CLI coding agent — pi or grok, via
+// pkg/agent's backend registry. Launch-and-forget: each Send spawns a FRESH
+// turn fed the whole rendered thread and saves nothing — the thread in the
+// outline is the only conversation state, so edits to past nodes are always
+// honored. Provider is the agent's hardcoded backend (pi or grok), set by
+// ClientFor — there is no cross-backend fallback: @Grok runs grok or nothing.
+type CLIClient struct {
+	Provider agent.Provider
+}
 
 // modsDir is where the NodeMod files live (<config>/lflow/mods) — the editor
 // sets it at start so the system prompt can tell pi to create and edit mods
@@ -28,12 +32,13 @@ var skillDir string
 // SetSkillDir records the lflow skill path for pi turns.
 func SetSkillDir(dir string) { skillDir = dir }
 
-// piSystemPrompt frames pi as the note-app assistant: plain concise replies,
-// how to speak in chips (the inline structured tokens lflow renders), and
-// where the node-type files live so pi can write them itself.
-func piSystemPrompt() string {
-	p := "You are Pi, an assistant living inside a terminal outline note-taking " +
-		"app. A user mentioned you with @Pi in one of their outline nodes. You are " +
+// cliSystemPrompt frames the agent as the note-app assistant: plain concise
+// replies, how to speak in chips (the inline structured tokens lflow renders),
+// and where the node-type files live so the agent can write them itself. name
+// is the mentioned agent (@Pi, @Grok, …) so the prompt addresses it correctly.
+func cliSystemPrompt(name string) string {
+	p := "You are " + name + ", an assistant living inside a terminal outline note-taking " +
+		"app. A user mentioned you with @" + name + " in one of their outline nodes. You are " +
 		"given the conversation as an indented outline: the mentioned node and " +
 		"everything beneath it; the line marked [ASKED] is the one to address. " +
 		"Below the thread, a 'visible on screen' section lists what else the user " +
@@ -74,7 +79,7 @@ func piSystemPrompt() string {
 // Send runs one fresh pi turn over the thread and streams the reply as tag
 // events. No session id, --no-session: nothing accumulates in pi's storage,
 // and pi's context every turn is exactly the thread as it reads right now.
-func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNode) (<-chan Event, error) {
+func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadNode) (<-chan Event, error) {
 	// Where the reply lands mirrors the ask: a fresh @mention owns its thread,
 	// so the reply nests under it as a child; an untagged follow-up inside the
 	// thread reads as chat, so the reply posts BELOW it (next sibling) and the
@@ -89,20 +94,17 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 
 	opts := agent.RunOptions{
 		NoSession:    true, // launch-and-forget: the thread IS the memory
-		SystemPrompt: piSystemPrompt(),
+		SystemPrompt: cliSystemPrompt(agentName),
 	}
 	if skillDir != "" {
 		opts.Skills = []string{skillDir} // the lflow skill: CLI, chips, NodeMods
 	}
 	// No in-app model picker: each provider carries a baked-in default (see
-	// agent.ProviderDefault). Prefer pi; fall back to grok when only grok is
-	// installed. The provider's default model + thinking ride every turn.
-	provider := agent.ProviderPi
-	if !agent.Available(agent.ProviderPi) && agent.Available(agent.ProviderGrok) {
-		provider = agent.ProviderGrok
-	}
-	opts.Model, opts.Thinking = agent.ProviderDefault(provider)
-	sess, err := agent.Run(ctx, provider, renderThread(thread), opts)
+	// agent.ProviderDefault). c.Provider is the agent's hardcoded backend
+	// (@Pi → pi, @Grok → grok), set by ClientFor; its default model + thinking
+	// ride every turn.
+	opts.Model, opts.Thinking = agent.ProviderDefault(c.Provider)
+	sess, err := agent.Run(ctx, c.Provider, renderThread(agentName, thread), opts)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +136,7 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 				return
 			case agent.EventTurnEnd:
 				if ev.Status == "error" {
-					out <- Event{Op: "error", Text: firstNonEmpty(strings.TrimSpace(reply.String()), "pi turn failed")}
+					out <- Event{Op: "error", Text: firstNonEmpty(strings.TrimSpace(reply.String()), agentName+" turn failed")}
 					return
 				}
 				// "PASS" is pi declining a discretionary turn (the user is
@@ -156,9 +158,10 @@ func (c *PiClient) Send(ctx context.Context, agentName string, thread []ThreadNo
 	return out, nil
 }
 
-// renderThread flattens the context into an indented outline prompt for pi:
-// the thread first, then the ambient "visible on screen" section.
-func renderThread(thread []ThreadNode) string {
+// renderThread flattens the context into an indented outline prompt for the
+// agent: the thread first, then the ambient "visible on screen" section. name
+// labels the agent's own earlier replies so it recognizes its prior turns.
+func renderThread(name string, thread []ThreadNode) string {
 	var b, scr strings.Builder
 	for _, n := range thread {
 		dst := &b
@@ -171,7 +174,7 @@ func renderThread(thread []ThreadNode) string {
 			dst.WriteString("[ASKED] ")
 		}
 		if n.Role == "agent" {
-			dst.WriteString("(Pi earlier) ")
+			dst.WriteString("(" + name + " earlier) ")
 		}
 		dst.WriteString(strings.TrimSpace(n.Name))
 		dst.WriteByte('\n')
@@ -188,15 +191,4 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// piAvailable reports whether any local CLI backend can serve a real agent
-// (pi, grok, … — see pkg/agent's registry).
-func piAvailable() bool {
-	for _, b := range agent.Backends() {
-		if b.Available() {
-			return true
-		}
-	}
-	return false
 }

@@ -17,6 +17,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/lflow/lflow/pkg/agent"
 )
 
 // ThreadNode is one node of the context sent to the agent: the thread root
@@ -69,11 +71,13 @@ type Agent struct {
 }
 
 // LoadAgents reads <configDir>/lflow/agents.json. With no file (or a broken
-// one) the built-in mock Pi is registered so @mentions work out of the box.
+// one) the built-in Pi and Grok agents are registered so @mentions work out of
+// the box.
 func LoadAgents(configDir string) []Agent {
-	// Pi defaults to a real backend (the local pi CLI); ClientFor falls back to
-	// the mock when pi is not installed, so @mentions still work offline.
-	fallback := []Agent{{Name: "Pi"}}
+	// Pi and Grok each run on their own local CLI (see ClientFor); the offline
+	// mock serves an agent whose backend is not installed, so @mentions still
+	// work with nothing installed.
+	fallback := []Agent{{Name: "Pi"}, {Name: "Grok"}}
 	b, err := os.ReadFile(filepath.Join(configDir, "lflow", "agents.json"))
 	if err != nil {
 		return fallback
@@ -86,9 +90,10 @@ func LoadAgents(configDir string) []Agent {
 }
 
 // ClientFor returns the client that serves the agent: the offline mock, the
-// websocket bridge to a configured service, or the local pi CLI. A non-mock
-// agent with no URL uses pi when it is installed, falling back to the mock so
-// the feature still works with no agent backend at all.
+// websocket bridge to a configured service, or the agent's own CLI backend.
+// Each built-in agent runs on ITS backend and nothing else — @Grok never falls
+// through to pi. When that backend is not installed the offline mock serves the
+// agent so @mentions still work in tests and offline.
 func ClientFor(a Agent) Client {
 	if a.Mock {
 		return &MockClient{}
@@ -96,8 +101,21 @@ func ClientFor(a Agent) Client {
 	if a.URL != "" {
 		return &WSClient{URL: a.URL}
 	}
-	if piAvailable() {
-		return &PiClient{}
+	if prov, ok := providerFor(a.Name); ok && agent.Available(prov) {
+		return &CLIClient{Provider: prov}
 	}
 	return &MockClient{}
+}
+
+// providerFor maps a built-in agent to its CLI backend. Only the implemented
+// agents are wired — there are no custom/plugin agents — so a new agent is a
+// new case here. An unrecognized name is served by the offline mock.
+func providerFor(name string) (agent.Provider, bool) {
+	switch name {
+	case "Pi":
+		return agent.ProviderPi, true
+	case "Grok":
+		return agent.ProviderGrok, true
+	}
+	return "", false
 }
