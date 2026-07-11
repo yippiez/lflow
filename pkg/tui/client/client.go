@@ -19,6 +19,7 @@ import (
 type Client struct {
 	db       *database.DB
 	sock     string
+	dbPath   string // enables respawn when the daemon dies mid-session
 	name     string
 	instance string
 	version  string
@@ -52,7 +53,7 @@ func Ensure(dbPath, name, version string) (*Client, error) {
 		v := c.serverVersion()
 		if v == version {
 			c.Close()
-			return open(sock, name, instance, version), nil
+			return open(sock, dbPath, name, instance, version), nil
 		}
 		// version skew: replace the daemon before anything talks to it
 		_, _ = c.call(wire.Req{Op: wire.OpShutdown})
@@ -63,7 +64,7 @@ func Ensure(dbPath, name, version string) (*Client, error) {
 	if err := spawn(dbPath, sock); err != nil {
 		return nil, err
 	}
-	return open(sock, name, instance, version), nil
+	return open(sock, dbPath, name, instance, version), nil
 }
 
 // serverVersion re-runs hello to read the daemon's version (the first hello
@@ -76,11 +77,12 @@ func (c *conn) serverVersion() string {
 	return resp.Version
 }
 
-func open(sock, name, instance, version string) *Client {
-	db := sql.OpenDB(connector{sock: sock, name: name, instance: instance, version: version})
+func open(sock, dbPath, name, instance, version string) *Client {
+	db := sql.OpenDB(connector{sock: sock, dbPath: dbPath, name: name, instance: instance, version: version})
 	return &Client{
 		db:       &database.DB{Conn: db, Filepath: sock},
 		sock:     sock,
+		dbPath:   dbPath,
 		name:     name,
 		instance: instance,
 		version:  version,
@@ -157,6 +159,22 @@ func waitGone(sock string, max time.Duration) {
 	}
 }
 
+// dialHealing dials the daemon, respawning it first when it has died — a
+// long-running editor outlives an idle-exited or crashed daemon.
+func (c *Client) dialHealing() (*conn, error) {
+	nc, err := dialHello(c.sock, c.name, c.instance, c.version)
+	if err == nil {
+		return nc, nil
+	}
+	if c.dbPath == "" {
+		return nil, err
+	}
+	if serr := spawn(c.dbPath, c.sock); serr != nil {
+		return nil, serr
+	}
+	return dialHello(c.sock, c.name, c.instance, c.version)
+}
+
 // Shutdown asks the daemon to exit — version replacement and tests.
 func (c *Client) Shutdown() {
 	if nc, err := dialHello(c.sock, c.name, c.instance, ""); err == nil {
@@ -169,7 +187,7 @@ func (c *Client) Shutdown() {
 // drops the subscriber (lagging, shutdown) — the caller reconnects and does a
 // full resync. cancel closes the feed.
 func (c *Client) Subscribe() (<-chan wire.Event, func(), error) {
-	nc, err := dialHello(c.sock, c.name, c.instance, c.version)
+	nc, err := c.dialHealing()
 	if err != nil {
 		return nil, nil, err
 	}

@@ -20,6 +20,7 @@ import (
 // one process share the instance id so the editor can drop its own echoes.
 type connector struct {
 	sock     string
+	dbPath   string // set → Connect respawns a dead daemon before giving up
 	name     string
 	instance string
 	version  string
@@ -27,10 +28,18 @@ type connector struct {
 
 func (c connector) Connect(ctx context.Context) (driver.Conn, error) {
 	nc, err := dialHello(c.sock, c.name, c.instance, c.version)
-	if err != nil {
+	if err == nil {
+		return nc, nil
+	}
+	if c.dbPath == "" {
 		return nil, err
 	}
-	return nc, nil
+	// the daemon idle-exited or died under a long-running client: bring it
+	// back and retry once
+	if serr := spawn(c.dbPath, c.sock); serr != nil {
+		return nil, err
+	}
+	return dialHello(c.sock, c.name, c.instance, c.version)
 }
 
 func (c connector) Driver() driver.Driver { return drv{} }

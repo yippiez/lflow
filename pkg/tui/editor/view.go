@@ -581,7 +581,13 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	state := ""
 	if m.unsaved {
-		state = " · unsaved"
+		// with a daemon the edits auto-flush in ~1s: the moment is "syncing",
+		// not a warning about unsaved work
+		if m.live != nil {
+			state = " · syncing"
+		} else {
+			state = " · unsaved"
+		}
 	}
 	if m.selOn {
 		lo, hi := m.selectionBounds()

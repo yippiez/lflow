@@ -15,11 +15,13 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/agent"
+	"github.com/lflow/lflow/pkg/tui/client"
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/tag"
 	"github.com/lflow/lflow/pkg/tui/wf"
+	"github.com/lflow/lflow/pkg/tui/wire"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )
@@ -267,6 +269,17 @@ type Model struct {
 	// breadcrumb names above the loaded root, from the forest root down
 	ancestors []string
 
+	// live sync (see livesync.go): the daemon connection, its subscribe feed,
+	// and the deferred-apply queue for events arriving while a modal surface
+	// holds positional state. unsaved now means "edits not yet flushed" — the
+	// debounced auto-flush ships them ~1s after typing pauses.
+	live        *client.Client
+	liveFeed    <-chan wire.Event
+	feedCancel  func()
+	syncPending bool // a flush tick is scheduled
+	pendingEvs  []wire.Event
+	needResync  bool
+
 	escPending  bool
 	unsaved     bool
 	quitting    bool
@@ -286,7 +299,7 @@ func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
 func (m *Model) refreshAncestors() {
 	m.ancestors = nil
 	base := m.viewStack[0]
-	if base == nil || base.uuid == "" || base.uuid == database.RootUUID {
+	if m.db == nil || base == nil || base.uuid == "" || base.uuid == database.RootUUID {
 		return
 	}
 	puuid := ""
@@ -537,7 +550,16 @@ func (m *Model) persistCollapsed(it *item) {
 }
 
 // Init implements tea.Model.
-func (m *Model) Init() tea.Cmd { return m.startAnim(nil) }
+func (m *Model) Init() tea.Cmd {
+	cmd := m.startAnim(nil)
+	switch {
+	case m.liveFeed != nil:
+		return tea.Batch(cmd, waitDaemonEv(m.liveFeed))
+	case m.live != nil:
+		return tea.Batch(cmd, feedRetryTick()) // no feed yet — keep trying
+	}
+	return cmd
+}
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -573,9 +595,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if pc := m.drainModPending(); pc != nil {
 			cmd = tea.Batch(cmd, pc)
 		}
+		// live sync: arm the debounced flush for fresh edits, and fold in any
+		// external events that queued while a modal surface was open
+		if sc := m.scheduleSync(); sc != nil {
+			cmd = tea.Batch(cmd, sc)
+		}
+		m.drainLive()
 		// a keyword may have just been typed (or scrolled into view) — kick the
 		// animation tick if it isn't already running.
 		return m, m.startAnim(cmd)
+	case daemonEvMsg:
+		m.handleDaemonEv(msg.ev)
+		return m, waitDaemonEv(m.liveFeed)
+	case daemonFeedClosedMsg, feedRetryMsg:
+		// the feed dropped (daemon restart, lagging cut) or never opened:
+		// reconnect and resync what was missed, or retry shortly
+		if m.startFeed() {
+			m.needResync = true
+			m.drainLive()
+			return m, waitDaemonEv(m.liveFeed)
+		}
+		return m, feedRetryTick()
+	case syncFlushMsg:
+		return m, m.flushSync()
 	case animTickMsg:
 		animFrame++
 		if m.animActive() {
@@ -1429,6 +1471,10 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 			r.cancel()
 		}
 	}
+	if m.feedCancel != nil {
+		m.feedCancel()
+		m.feedCancel = nil
+	}
 	if m.tempActive {
 		m.exitTemp() // back to the main tree so save persists it, not the scratch
 	}
@@ -1497,7 +1543,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		viewStack: []*item{t.root},
 		agents:    tag.LoadAgents(ctx.Paths.Config),
 		wfMap:     wfMap,
+		live:      ctx.Live, // daemon connection: live sync (nil in direct runs)
 	}
+	m.startFeed() // subscribe to external changes; Init retries if it failed
 	m.loadSettings() // apply persisted preferences (theme, …) before the first render
 	m.refreshAncestors()
 	m.refreshRows()
