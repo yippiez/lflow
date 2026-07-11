@@ -23,11 +23,28 @@ func (m *Model) openFinder(act finderAction) {
 type nodeFinderBackend struct{}
 
 func (nodeFinderBackend) search(m *Model, query string) []finderRow {
-	// an empty query matches everything, recent first: the picker starts full and
-	// narrows as you type
+	cur := m.cursorItem()
 	var hits []database.Node
 	var err error
-	if strings.TrimSpace(query) == "" {
+
+	if m.finder.act == actBacklinks {
+		// /backlinks lists only nodes that reference the cursor node — mirrors
+		// and [[ link chips — rather than the whole outline. Resolve mirrors so
+		// a backlinks look at a through-row still finds the original's refs.
+		if m.db == nil {
+			return nil
+		}
+		srcUUID := ""
+		if cur != nil {
+			srcUUID = m.tree.sourceUUID(cur)
+		}
+		hits, err = database.BacklinkNodes(m.db, srcUUID)
+		if err != nil {
+			return nil
+		}
+	} else if strings.TrimSpace(query) == "" {
+		// an empty query matches everything, recent first: the picker starts full and
+		// narrows as you type
 		hits, err = database.RecentNodes(m.db)
 	} else {
 		hits, err = database.SearchNodes(m.db, query, true)
@@ -35,18 +52,37 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 	if err != nil {
 		return nil
 	}
-	cur := m.cursorItem()
+
+	q := strings.ToLower(strings.TrimSpace(query))
 	var rows []finderRow
 	for _, h := range hits {
 		// the node being acted on is never a valid target
 		if cur != nil && h.UUID == cur.uuid {
 			continue
 		}
-		// every picker hides empty nodes (noise), mirror rows (a pick on a
-		// mirror resolves to its original anyway, so listing both has no
-		// value), and search-hidden types (agent replies)
-		if h.Name == "" || h.MirrorOf != "" || typeOf(h.Type).searchHidden {
-			continue
+		if m.finder.act == actBacklinks {
+			// backlinks KEEP mirrors (they are the references) and empty-name
+			// mirror rows; only search-hidden types stay out. An optional query
+			// filters by the resolved display name.
+			if typeOf(h.Type).searchHidden {
+				continue
+			}
+			if q != "" {
+				name := finderRowName(h, func(uuid string) (database.Node, bool) {
+					n, e := database.GetNode(m.db, uuid)
+					return n, e == nil
+				})
+				if !strings.Contains(strings.ToLower(name), q) {
+					continue
+				}
+			}
+		} else {
+			// every other picker hides empty nodes (noise), mirror rows (a pick
+			// on a mirror resolves to its original anyway, so listing both has
+			// no value), and search-hidden types (agent replies)
+			if h.Name == "" || h.MirrorOf != "" || typeOf(h.Type).searchHidden {
+				continue
+			}
 		}
 		rows = append(rows, m.finderRowFor(h))
 	}
@@ -59,10 +95,16 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 		}
 		rows = append(temp, rows...)
 	}
-	// /star pins: starred nodes float to the top; the stable sort keeps the
-	// relevance/recency order intact inside each half
+	// picker rank: 1) starred  2) more children (subtree weight)  3) newer
 	sort.SliceStable(rows, func(i, j int) bool {
-		return rows[i].node.Starred && !rows[j].node.Starred
+		a, b := rows[i], rows[j]
+		if a.node.Starred != b.node.Starred {
+			return a.node.Starred
+		}
+		if a.count != b.count {
+			return a.count > b.count
+		}
+		return a.node.EditedOn > b.node.EditedOn
 	})
 	return rows
 }
@@ -102,6 +144,8 @@ func (nodeFinderBackend) label(m *Model) string {
 		return "/move:here"
 	case actLinkInsert:
 		return "[[ link"
+	case actBacklinks:
+		return "/backlinks"
 	}
 	return ""
 }
@@ -120,6 +164,8 @@ func (nodeFinderBackend) hint(m *Model) string {
 		return "enter · Move that node here"
 	case actLinkInsert:
 		return "enter · Link to node, or type a URL"
+	case actBacklinks:
+		return "enter · Open · mirrors and [[ links to this node"
 	}
 	return ""
 }
@@ -249,8 +295,8 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 			}
 			m.cursor = clampRow(oldRow, len(m.rows))
 		}
-	case actGoto:
-		// save, then reopen on the target
+	case actGoto, actBacklinks:
+		// save, then reopen on the target (/backlinks picks jump the same way)
 		if _, err := m.saveAll(); err != nil {
 			m.err = err
 			return m.quit()

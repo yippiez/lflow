@@ -3,7 +3,7 @@
 // heading digits, the selected row marked by its glyph turning red, a block
 // cursor that inverts the cell beneath it, a minimal dim bottom bar, a
 // type-to-filter slash menu above the bar, and a full-panel fuzzy finder for
-// /mirror:to /mirror:from /move:to /move:here /goto. It never enters the alternate screen.
+// /mirror:to /mirror:from /move:to /move:here /goto /backlinks. It never enters the alternate screen.
 package editor
 
 import (
@@ -54,6 +54,7 @@ const (
 	actGoto
 	actBringHere  // /move:here — the picked node moves to the cursor
 	actLinkInsert // [[ — insert an inline link chip at the caret (node or URL)
+	actBacklinks  // /backlinks — nodes that mirror or [[-link to the cursor node
 )
 
 type slashCommand struct {
@@ -62,6 +63,7 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
+	{"/backlinks", "Show nodes that mirror or link to this one"},
 	{"/complete", "Toggle done (alt+enter)"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
@@ -151,8 +153,8 @@ type Model struct {
 	slashInline bool // the slash and query are typed into the node text
 
 	// finder is the shared full-body node picker (/mirror:to, /mirror:from,
-	// /move:to, /move:here, /goto, "[[" link); it owns the query, selection, and
-	// results (see picker_finder.go).
+	// /move:to, /move:here, /goto, /backlinks, "[[" link); it owns the query,
+	// selection, and results (see picker_finder.go).
 	finder bodyFinder
 
 	notePrev string // note backup for esc in note mode
@@ -1504,6 +1506,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.openFinder(actMoveTo)
 	case "/goto":
 		m.openFinder(actGoto)
+	case "/backlinks":
+		// list every node that mirrors or [[-links to this one; pick → jump
+		m.openFinder(actBacklinks)
 	case "/undo":
 		m.undo()
 	}

@@ -211,3 +211,58 @@ func GCChips(db *DB) error {
 	)`)
 	return errors.Wrap(err, "gc chips")
 }
+
+// nodeLinkScheme is the chip value prefix for a link that points at a node
+// (kept in lockstep with the editor's nodeLinkScheme in link.go).
+const nodeLinkScheme = "lflow://node/"
+
+// BacklinkNodes returns every non-deleted node that references targetUUID:
+// mirrors (mirror_of = target) and nodes whose name embeds a link chip whose
+// value is lflow://node/<targetUUID>. Deduped; order is unspecified — the
+// /backlinks finder sorts by star / subtree weight / recency.
+func BacklinkNodes(db *DB, targetUUID string) ([]Node, error) {
+	if targetUUID == "" {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	var ret []Node
+	add := func(n Node) {
+		if seen[n.UUID] || n.UUID == targetUUID {
+			return
+		}
+		seen[n.UUID] = true
+		ret = append(ret, n)
+	}
+
+	// mirrors of the target (empty-name rows are kept — they are the backlinks)
+	mirrors, err := GetNodesWhere(db, "mirror_of = ? AND deleted = 0", targetUUID)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying mirror backlinks")
+	}
+	for _, n := range mirrors {
+		add(n)
+	}
+
+	// nodes that embed a link chip targeting this node
+	rows, err := db.Query(`
+		SELECT DISTINCT `+nodeColumns+`
+		FROM nodes
+		JOIN chips ON chips.kind = 'link' AND chips.value = ? AND instr(nodes.name, chips.id) > 0
+		WHERE nodes.deleted = 0`,
+		nodeLinkScheme+targetUUID)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying link backlinks")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, errors.Wrap(err, "scanning link backlink")
+		}
+		add(n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "iterating link backlinks")
+	}
+	return ret, nil
+}
