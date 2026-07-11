@@ -250,7 +250,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if cur := m.cursorItem(); cur != nil {
 			mc := m.mirrorContext()
-			if m.tree.outdent(cur, mc.localRoot) {
+			// escape=ctx so a through-child can leave the mirrored source and
+			// land after the mirror; after that findRow falls back to the real row
+			if m.tree.outdent(cur, mc.localRoot, mc.ctx) {
 				m.unsaved = true
 				m.refreshRows()
 				m.cursor = m.findRow(cur, mc.ctx)
@@ -717,7 +719,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// the content, so carry its style/type/collapsed across — otherwise
 			// backspacing a red, collapsed node into an empty line above it would
 			// silently drop its colour and re-expand its children.
-			if prev.name == "" && prev.style == "" && len(prev.children) == 0 {
+			// Only when the absorbed node has something to preserve (text or
+			// children). An empty leaf is just deleted — same as alt+d — so a
+			// blank todo above an empty bullet must stay a todo, not flip to ○.
+			if prev.name == "" && prev.style == "" && len(prev.children) == 0 &&
+				(cur.name != "" || len(cur.children) > 0) {
 				prev.style = cur.style
 				prev.typ = cur.typ
 				prev.completedAt = cur.completedAt

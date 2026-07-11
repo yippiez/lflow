@@ -1328,6 +1328,60 @@ func TestBackspaceMergesIntoPrevious(t *testing.T) {
 	}
 }
 
+// TestBackspaceEmptyBelowKeepsPreviousType: backspace on an empty leaf below an
+// empty typed node must only kill the lower one (same as alt+d), not rewrite the
+// survivor's type. Empty todo above empty bullet → single remaining todo, not ○.
+func TestBackspaceEmptyBelowKeepsPreviousType(t *testing.T) {
+	root := &item{}
+	a := &item{uuid: "a", name: "", typ: database.TypeTodo, parent: root}
+	b := &item{uuid: "b", name: "", typ: database.TypeBullets, parent: root}
+	root.children = []*item{a, b}
+	tr := &tree{root: root, byUUID: map[string]*item{"a": a, "b": b}, externalNames: map[string]string{}}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	m.cursor = m.rowIndexOf(b)
+	m.caret = 0
+
+	m.press("backspace")
+
+	if len(m.tree.root.children) != 1 || m.tree.root.children[0] != a {
+		t.Fatalf("expected only the previous node to remain, got %d children", len(m.tree.root.children))
+	}
+	if a.typ != database.TypeTodo {
+		t.Fatalf("empty todo above must stay a todo after deleting empty below, got %q", a.typ)
+	}
+	if _, ok := m.tree.byUUID["b"]; ok {
+		t.Fatalf("the empty below node should be removed")
+	}
+}
+
+// TestBackspaceMergeIntoBlankPreservesContentType: backspacing a non-empty typed
+// node into a blank line above still carries the absorbed node's type (the blank
+// was only a placeholder).
+func TestBackspaceMergeIntoBlankPreservesContentType(t *testing.T) {
+	root := &item{}
+	a := &item{uuid: "a", name: "", typ: database.TypeBullets, parent: root}
+	b := &item{uuid: "b", name: "ship it", typ: database.TypeTodo, parent: root}
+	root.children = []*item{a, b}
+	tr := &tree{root: root, byUUID: map[string]*item{"a": a, "b": b}, externalNames: map[string]string{}}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	m.cursor = m.rowIndexOf(b)
+	m.caret = 0
+
+	m.press("backspace")
+
+	if a.name != "ship it" {
+		t.Fatalf("blank should absorb the text, got %q", a.name)
+	}
+	if a.typ != database.TypeTodo {
+		t.Fatalf("blank should inherit the absorbed todo type, got %q", a.typ)
+	}
+	if _, ok := m.tree.byUUID["b"]; ok {
+		t.Fatalf("the absorbed node should be removed")
+	}
+}
+
 // TestUndoReversesTyping: a run of typed characters is one undo step.
 func TestUndoReversesTyping(t *testing.T) {
 	m, a, _, _ := mergeModel()
