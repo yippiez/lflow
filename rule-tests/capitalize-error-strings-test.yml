@@ -1,0 +1,27 @@
+id: capitalize-error-strings
+valid:
+  - |
+    func f() error {
+      return fmt.Errorf("Grok is not installed")
+    }
+  - |
+    func f() error {
+      return fmt.Errorf("%s is not installed", name)
+    }
+  - |
+    func f() error {
+      return fmt.Errorf("opening database: %w", err)
+    }
+invalid:
+  - |
+    func f() error {
+      return fmt.Errorf("unknown agent @%s", name)
+    }
+  - |
+    func f() error {
+      return fmt.Errorf("mod %s failed: %v", key, err)
+    }
+  - |
+    func f() error {
+      return fmt.Errorf("no key or mods dir")
+    }

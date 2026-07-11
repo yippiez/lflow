@@ -604,7 +604,9 @@ func (m *Model) bottomBar(maxLine int) []string {
 		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
 	}
 	if m.agentErr != "" {
-		state += " · " + cRed + "Error: " + capFirst(m.agentErr) + cDim
+		// lowercase label; the message itself already starts capital (error
+		// strings are capitalized at the source — see rules/capitalize-error-strings)
+		state += " · " + cRed + "error: " + m.agentErr + cDim
 	}
 	if m.flash != "" {
 		state += " · " + m.flash

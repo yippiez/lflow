@@ -121,5 +121,5 @@ func providerFor(name string) (agent.Provider, error) {
 	case "Grok":
 		return agent.ProviderGrok, nil
 	}
-	return "", fmt.Errorf("unknown agent @%s", name)
+	return "", fmt.Errorf("Unknown agent @%s", name)
 }

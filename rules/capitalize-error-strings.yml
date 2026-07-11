@@ -1,0 +1,33 @@
+id: capitalize-error-strings
+language: go
+severity: warning
+message: Error strings should start with a capital letter.
+note: |
+  lflow surfaces standalone errors straight to the user — e.g. the editor's
+  "error: <message>" status line, where the lowercase label is fixed and the
+  message carries the capital. So the first letter is capitalized at the SOURCE
+  (fmt.Errorf("Grok is not installed")), not fixed up at each display site.
+
+  This targets fmt.Errorf messages that begin with a lowercase letter. Two things
+  are already fine and not flagged:
+    - a leading format verb — fmt.Errorf("%s is not installed", name) — the
+      value it expands to carries the capital.
+    - a wrap fragment (the message contains %w) — it is a clause spliced onto
+      its cause and stays lowercase, matching the errors.Wrap convention.
+rule:
+  any:
+    # a statement context so the one-arg call parses as a call_expression and
+    # not a type conversion (the same trick wrap-errors uses); the selector then
+    # picks the call itself.
+    - pattern:
+        context: "err := fmt.Errorf($MSG)"
+        selector: call_expression
+    - pattern:
+        context: "err := fmt.Errorf($MSG, $$$ARGS)"
+        selector: call_expression
+constraints:
+  MSG:
+    all:
+      - regex: '^"[a-z]'
+      - not:
+          regex: '%w'

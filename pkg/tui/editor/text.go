@@ -2,7 +2,6 @@ package editor
 
 import (
 	"strings"
-	"unicode"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
@@ -11,17 +10,6 @@ import (
 // This file holds the generic text/ANSI layout primitives — width, clip, wrap,
 // tab-expansion, cluster and caret helpers. They are node-agnostic; the
 // node-body and band rendering that uses them lives in render.go.
-
-// capFirst upper-cases the first rune of s, leaving the rest untouched — for
-// presenting a lowercase error string as "Error: Grok is not installed".
-func capFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	r[0] = unicode.ToUpper(r[0])
-	return string(r)
-}
 
 // visibleWidth returns the display width of s ignoring SGR sequences. Runs of
 // text between escapes are measured a grapheme cluster at a time so a ZWJ emoji

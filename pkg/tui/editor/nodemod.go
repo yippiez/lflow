@@ -197,7 +197,7 @@ func loadDirMod(base, path string) nodeMod {
 // writes the file itself and the after-turn reload picks it up.
 func installNodeMod(key, source string) error {
 	if key == "" || modsDir == "" {
-		return fmt.Errorf("nodemod: no key or mods dir")
+		return fmt.Errorf("Nodemod: no key or mods dir")
 	}
 	_ = os.Remove(filepath.Join(modsDir, key+".js"+modDisabledExt))
 	if err := os.WriteFile(filepath.Join(modsDir, key+".js"), []byte(source), 0o644); err != nil {
@@ -242,7 +242,7 @@ func deleteNodeMod(key string) {
 func evalNodeMod(key, source string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("mod %s panicked: %v", key, r)
+			err = fmt.Errorf("Mod %s panicked: %v", key, r)
 		}
 	}()
 	vm := goja.New()
@@ -250,7 +250,7 @@ func evalNodeMod(key, source string) (err error) {
 		return err
 	}
 	if _, err := vm.RunScript(key, source); err != nil {
-		return fmt.Errorf("mod %s: %v", key, err)
+		return fmt.Errorf("Mod %s: %v", key, err)
 	}
 	return nil
 }
