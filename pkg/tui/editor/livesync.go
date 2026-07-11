@@ -204,7 +204,13 @@ func (m *Model) liveTrees() []*tree {
 // applied=false means "parent not loaded yet, retry this event pass".
 func (m *Model) applyNode(n database.Node) (applied, mutated bool) {
 	for _, t := range m.liveTrees() {
-		if _, ok := t.byUUID[n.UUID]; ok {
+		if it, ok := t.byUUID[n.UUID]; ok {
+			// an external tombstone (CLI remove, another client) must stop any
+			// agent still bound to the disappearing subtree before dropSubtree
+			// forgets the items — same rule as local deleteNode
+			if n.Deleted {
+				m.stopAgentsUnder(it)
+			}
 			return true, t.applyExternal(n)
 		}
 	}

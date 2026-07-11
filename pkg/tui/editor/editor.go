@@ -977,6 +977,9 @@ func (m *Model) toggleComplete(it *item) {
 
 // deleteNode removes the node and its subtree from the tree.
 func (m *Model) deleteNode(it *item) {
+	// kill any agent still running on a thread root inside this subtree —
+	// otherwise the CLI process outlives the mention that owned it
+	m.stopAgentsUnder(it)
 	// drop each removed node's persisted run-output cache so it doesn't outlive it
 	var dropRunOut func(x *item)
 	dropRunOut = func(x *item) {

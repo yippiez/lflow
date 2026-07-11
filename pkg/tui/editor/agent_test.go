@@ -140,6 +140,55 @@ func TestFlashStopCancelsTurn(t *testing.T) {
 	}
 }
 
+// TestDeleteNodeStopsRunningAgent: destroying a busy @mention (or an ancestor
+// that takes it with it) must cancel the CLI immediately — same orphan rule as
+// deleteRunOut for bash. A sibling delete must not touch the turn.
+func TestDeleteNodeStopsRunningAgent(t *testing.T) {
+	m, disc, n1 := newAgentTestModel(t)
+	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
+	m.tagClients["Pi"] = &tag.MockClient{Delay: 50 * time.Millisecond}
+	sib := addChild(m, disc, "sib", "unrelated note", "")
+
+	cmd := startThread(t, m, n1)
+	if cmd == nil {
+		t.Fatal("alt+r on a fresh mention must send")
+	}
+	if th := m.thread("n1"); th == nil || !th.busy || th.cancel == nil {
+		t.Fatal("a running turn must record busy + a cancel func")
+	}
+
+	// deleting a sibling leaves the agent alone
+	m.deleteNode(sib)
+	if th := m.thread("n1"); th == nil || !th.busy || th.cancel == nil {
+		t.Fatal("deleting a sibling must not stop the agent")
+	}
+
+	// deleting the mention itself kills the turn right away
+	m.deleteNode(n1)
+	if th := m.thread("n1"); th != nil && (th.busy || th.cancel != nil) {
+		t.Fatal("deleting the mention must cancel the in-flight agent")
+	}
+	drain(t, m, cmd) // stream close must not panic on already-cleared state
+}
+
+// TestDeleteAncestorStopsRunningAgent: removing a parent of a busy mention
+// must stop the agent too (the mention rides out with the subtree).
+func TestDeleteAncestorStopsRunningAgent(t *testing.T) {
+	m, disc, n1 := newAgentTestModel(t)
+	defer func() { modTypes, modByKey, loadedMods = nil, map[string]nodeType{}, nil }()
+	m.tagClients["Pi"] = &tag.MockClient{Delay: 50 * time.Millisecond}
+
+	cmd := startThread(t, m, n1)
+	if cmd == nil {
+		t.Fatal("alt+r on a fresh mention must send")
+	}
+	m.deleteNode(disc)
+	if th := m.thread("n1"); th != nil && (th.busy || th.cancel != nil) {
+		t.Fatal("deleting an ancestor of the mention must cancel the agent")
+	}
+	drain(t, m, cmd)
+}
+
 // TestAgentToolBandStreamsThenClears: a tool op shows the colored verb + gray
 // detail (no spinner); a thinking op falls the band back to "Thinking…" rather
 // than freezing on the last tool; and it all clears once the turn ends.

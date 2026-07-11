@@ -753,6 +753,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			prev.children = append(prev.children, cur.children...)
 			cur.children = nil
+			m.stopAgentsUnder(cur) // mention may still have a turn in flight
 			m.tree.remove(cur)
 			m.unsaved = true
 			m.refreshRows()
@@ -763,6 +764,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// the first node and empty: just remove it
 		if cur.name == "" && len(cur.children) == 0 {
+			m.stopAgentsUnder(cur)
 			m.tree.remove(cur)
 			m.unsaved = true
 			m.ensureViewNonEmpty()

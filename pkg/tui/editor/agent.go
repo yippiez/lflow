@@ -413,6 +413,32 @@ func (m *Model) stopThread(threadUUID, agentName string) {
 	}
 }
 
+// stopAgentsUnder cancels every in-flight agent turn whose thread root sits
+// inside it's subtree (including it). Called just before those nodes leave the
+// tree — local delete, empty-node remove, or an external tombstone — so the
+// CLI process is not orphaned the way a deleted bash run would be without
+// deleteRunOut. Silent: no flash (the node is already gone).
+func (m *Model) stopAgentsUnder(it *item) {
+	if it == nil {
+		return
+	}
+	var walk func(x *item)
+	walk = func(x *item) {
+		if t := m.thread(x.uuid); t != nil && t.cancel != nil {
+			t.cancel()
+			// clear immediately so the bar's busy count drops now; stream-end
+			// still arrives and is a no-op on a nil cancel
+			t.cancel = nil
+			t.busy = false
+			t.tool = agentToolLine{}
+		}
+		for _, c := range x.children {
+			walk(c)
+		}
+	}
+	walk(it)
+}
+
 // touchThread upserts the LOCAL thread binding (agent_sessions row, id =
 // thread root uuid). This is editor bookkeeping only — which subtree talks to
 // which agent — never a remote session; the agent itself is launch-and-forget.
