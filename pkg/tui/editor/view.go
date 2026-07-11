@@ -345,8 +345,7 @@ func (m *Model) viewFocusedBand(groups, bands [][]string, lay viewLayout, maxLin
 
 // viewWindow flattens the rendered rows to screen lines and slices out the
 // visible window (stage 5): root-note prepend, cursor-follow vs pgup/pgdown
-// scroll, the m.viewTop/m.viewRows/m.scrollTop cache writes, and the
-// m.screenRows capture from the windowed range.
+// scroll, and the m.viewTop/m.viewRows/m.scrollTop cache writes.
 func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int) []string {
 	var lines []string
 	rows := m.rows
@@ -356,7 +355,6 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 	maxRows := lay.maxRows
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
-	var flatRow []int // row index behind each flat line; -1 = the root note band
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
 	// as a band at the top of the view — the same band a row would hang below it.
 	rootNote := m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
@@ -366,9 +364,6 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 		}
 	}
 	flat = append(flat, rootNote...)
-	for range rootNote {
-		flatRow = append(flatRow, -1)
-	}
 	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)
@@ -383,9 +378,6 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 		}
 		flat = append(flat, groups[i]...)
 		flat = append(flat, bands[i]...)
-		for range len(groups[i]) + len(bands[i]) {
-			flatRow = append(flatRow, i)
-		}
 	}
 	start := 0
 	if m.scrolling {
@@ -414,17 +406,6 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 		end = len(flat)
 	}
 	lines = append(lines, flat[start:end]...)
-
-	// record which items the window actually shows — the @mention agent's
-	// Screen context section reads this (see buildThread)
-	m.screenRows = m.screenRows[:0]
-	seenRow := -1
-	for i := start; i < end; i++ {
-		if ri := flatRow[i]; ri >= 0 && ri != seenRow {
-			seenRow = ri
-			m.screenRows = append(m.screenRows, screenRow{it: rows[ri].it, depth: rows[ri].depth})
-		}
-	}
 	return lines
 }
 

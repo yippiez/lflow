@@ -21,9 +21,9 @@ import (
 //     leaving the typed node — blurSendCheck) ships automatically.
 // The mention node itself is the thread root: the session binds to it, so
 // siblings and ancestors never trigger a turn or receive replies. Context per
-// turn = the mention + everything beneath it, PLUS whatever is visible on
-// screen (ambient, marked Screen) — nothing else; the agent searches the rest
-// of the outline itself via the lflow CLI.
+// turn = the mention's parent (one ambient line, marked Parent) + the mention
+// + everything beneath it — nothing else; the agent searches the rest of the
+// outline itself via the lflow CLI.
 
 // agentGlyph is the agent reply marker: a red ✦ — the general AI sparkle mark for the
 // default agent Pi. (When a second agent exists, the author will need to be
@@ -90,15 +90,15 @@ func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 	return it
 }
 
-// buildThread flattens the thread context: the root (the mention node) and
-// its subtree depth-first, then a Screen-marked section holding whatever ELSE
-// is visible in the current window — ambient context, "what the user sees
-// right now". Nothing above the mention is sent; anything else in the outline
-// the agent fetches itself through the lflow CLI (see cliSystemPrompt).
-// askedUUID marks the node this turn is about, so replies can
-// target it. Mirrors expand at most once via the visited set, so a mirror
-// pointing back at an ancestor can't loop the walk (the same guard the renderer
-// uses).
+// buildThread flattens the thread context: the mention's parent first (one
+// Parent-marked line — where the thread sits in the outline), then the root
+// (the mention node) and its subtree depth-first. Nothing else is sent;
+// anything else in the outline the agent fetches itself through the lflow CLI
+// (see cliSystemPrompt). askedUUID marks the node this turn is about, so
+// replies can target it. Every node's children are emitted at most ONCE —
+// the expanded set is global to the walk, not per-path — so a mirror pointing
+// back at an ancestor can't loop, and two mirrors of the same source can't
+// duplicate its subtree.
 func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 	var out []tag.ThreadNode
 
@@ -108,49 +108,32 @@ func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 		}
 		return "user"
 	}
-	var walk func(it *item, depth int, seen map[*item]bool)
-	walk = func(it *item, depth int, seen map[*item]bool) {
+	rootDepth := 0
+	if p := root.parent; p != nil && p.uuid != "" {
+		out = append(out, tag.ThreadNode{
+			UUID: p.uuid, Depth: 0, Name: expandAnchors(m.tree.displayName(p), m.chips),
+			Type: p.typ, Role: roleOf(p), Parent: true,
+		})
+		rootDepth = 1
+	}
+	expanded := map[*item]bool{}
+	var walk func(it *item, depth int)
+	walk = func(it *item, depth int) {
 		out = append(out, tag.ThreadNode{
 			UUID: it.uuid, Depth: depth, Name: expandAnchors(m.tree.displayName(it), m.chips),
 			Type: it.typ, Role: roleOf(it), Asked: it.uuid == askedUUID,
 		})
 		tgt := m.tree.expandTarget(it)
-		if tgt == nil || seen[tgt] {
+		if tgt == nil || expanded[tgt] {
 			return
 		}
-		next := cloneSeen(seen)
-		next[tgt] = true
+		expanded[tgt] = true
 		for _, c := range m.tree.childItems(it) {
-			walk(c, depth+1, next)
+			walk(c, depth+1)
 		}
 	}
-	walk(root, 0, map[*item]bool{})
-
-	// the screen section: every item visible in the window the last render drew
-	// (m.screenRows) not already in the thread. Appended AFTER the thread so
-	// consumers reading the thread structurally are undisturbed.
-	sent := map[string]bool{}
-	for _, n := range out {
-		sent[n.UUID] = true
-	}
-	for _, sr := range m.screenRows {
-		if sr.it == nil || sr.it.uuid == "" || sent[sr.it.uuid] {
-			continue
-		}
-		sent[sr.it.uuid] = true
-		out = append(out, tag.ThreadNode{
-			UUID: sr.it.uuid, Depth: sr.depth, Name: expandAnchors(m.tree.displayName(sr.it), m.chips),
-			Type: sr.it.typ, Role: roleOf(sr.it), Screen: true,
-		})
-	}
+	walk(root, rootDepth)
 	return out
-}
-
-// screenRow is one item visible in the last rendered window, with its outline
-// depth — what buildThread's Screen section is made of.
-type screenRow struct {
-	it    *item
-	depth int
 }
 
 // agentEvMsg carries one streamed event into the update loop.

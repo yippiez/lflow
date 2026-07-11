@@ -130,9 +130,6 @@ type Model struct {
 	// the status bar. A theme's page background (bgPage) paints exactly these;
 	// the bar (divider) and the temp panel below it always stay transparent.
 	pageRows int
-	// screenRows lists the items visible in the last rendered window, in
-	// order — the @mention agent's Screen context section (see buildThread).
-	screenRows []screenRow
 
 	mode mode
 

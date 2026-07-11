@@ -39,12 +39,12 @@ func SetSkillDir(dir string) { skillDir = dir }
 func cliSystemPrompt(name string) string {
 	p := "You are " + name + ", an assistant living inside a terminal outline note-taking " +
 		"app. A user mentioned you with @" + name + " in one of their outline nodes. You are " +
-		"given the conversation as an indented outline: the mentioned node and " +
-		"everything beneath it; the line marked [ASKED] is the one to address. " +
-		"Below the thread, a 'visible on screen' section lists what else the user " +
-		"is looking at right now — ambient context only, not part of the " +
-		"conversation. That is all you are handed — for anything else in the " +
-		"outline, search it yourself with the " +
+		"given the conversation as a branched tree (│ ├─ ╰─ connectors, the way " +
+		"the outline draws): the mentioned node and everything beneath it; the " +
+		"line marked [ASKED] is the one to address. The top line marked [PARENT] " +
+		"is the mention's parent node — where the thread sits in the outline, " +
+		"ambient context only, not part of the conversation. That is all you are " +
+		"handed — for anything else in the outline, search it yourself with the " +
 		"lflow CLI: `lflow node grep <text>` finds nodes, `lflow node list <node>` " +
 		"reads a subtree (details in the lflow skill). Reply with a single, concise " +
 		"answer — plain text, no markdown headings or code fences, at most a few " +
@@ -158,30 +158,64 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 	return out, nil
 }
 
-// renderThread flattens the context into an indented outline prompt for the
-// agent: the thread first, then the ambient "visible on screen" section. name
-// labels the agent's own earlier replies so it recognizes its prior turns.
+// Branch glyphs for the rendered thread — the connector language the outline
+// itself draws, so the agent sees the thread shaped the way the user does.
+const (
+	treeTee   = "├─ "
+	treeElbow = "╰─ "
+	treeGuide = "│  "
+	treeBlank = "   "
+)
+
+// renderThread draws the context as a branched tree prompt for the agent: the
+// Parent line (when present) as the top, the mention and its subtree hanging
+// beneath it with │ ├─ ╰─ connectors. name labels the agent's own earlier
+// replies so it recognizes its prior turns.
 func renderThread(name string, thread []ThreadNode) string {
-	var b, scr strings.Builder
-	for _, n := range thread {
-		dst := &b
-		if n.Screen {
-			dst = &scr
+	var b strings.Builder
+	// lastAt[d] — whether the node last emitted at depth d closed its sibling
+	// run; the guide column under a closed run goes blank instead of │
+	var lastAt []bool
+	for i, n := range thread {
+		last := true
+		for j := i + 1; j < len(thread); j++ {
+			if thread[j].Depth < n.Depth {
+				break
+			}
+			if thread[j].Depth == n.Depth {
+				last = false
+				break
+			}
 		}
-		dst.WriteString(strings.Repeat("  ", n.Depth))
-		dst.WriteString("- ")
+		for len(lastAt) <= n.Depth {
+			lastAt = append(lastAt, false)
+		}
+		lastAt[n.Depth] = last
+		for lvl := 1; lvl < n.Depth; lvl++ {
+			if lastAt[lvl] {
+				b.WriteString(treeBlank)
+			} else {
+				b.WriteString(treeGuide)
+			}
+		}
+		if n.Depth > 0 {
+			if last {
+				b.WriteString(treeElbow)
+			} else {
+				b.WriteString(treeTee)
+			}
+		}
+		if n.Parent {
+			b.WriteString("[PARENT] ")
+		}
 		if n.Asked {
-			dst.WriteString("[ASKED] ")
+			b.WriteString("[ASKED] ")
 		}
 		if n.Role == "agent" {
-			dst.WriteString("(" + name + " earlier) ")
+			b.WriteString("(" + name + " earlier) ")
 		}
-		dst.WriteString(strings.TrimSpace(n.Name))
-		dst.WriteByte('\n')
-	}
-	if scr.Len() > 0 {
-		b.WriteString("\nAlso visible on the user's screen right now (ambient context, not part of the thread):\n")
-		b.WriteString(scr.String())
+		b.WriteString(strings.TrimSpace(n.Name))
+		b.WriteByte('\n')
 	}
 	return b.String()
 }

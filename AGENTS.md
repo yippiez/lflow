@@ -86,11 +86,12 @@ auto-run) and their output is ephemeral — never persisted or synced.
   DESCENDANT of the mention (Enter, or cursor-leave via blurSendCheck) ships
   automatically. The mention node IS the thread root — the session binds to
   it, so siblings/ancestors never trigger or receive replies. Context per turn
-  = the mention + everything beneath it (mirrors expanded once, cycle-guarded)
-  PLUS a Screen-marked ambient section of whatever is visible in the editor
-  window — nothing else; the rest of the outline the agent searches itself via
-  the lflow CLI (`lflow node grep/list`, taught by the skill and system
-  prompt). Replies land as red ✦ `agent` nodes — normal, editable nodes; only
+  = the mention's parent (one Parent-marked ambient line) + the mention +
+  everything beneath it, rendered as a branched tree (│ ├─ ╰─); every node's
+  children land at most once, so mirrors can neither loop the walk nor
+  duplicate a subtree — nothing else; the rest of the outline the agent
+  searches itself via the lflow CLI (`lflow node grep/list`, taught by the
+  skill and system prompt). Replies land as red ✦ `agent` nodes — normal, editable nodes; only
   the glyph marks authorship. Replies may speak chips:
   `{{cmd:…}}` / `{{path:…}}` / `{{link:label|url}}` / `{{tag:…}}` / `{{date:…}}`
   tokens land as real chips (`{{cmd:…}}` is the runnable yellow $ chip); plain

@@ -6,6 +6,26 @@ import (
 	"github.com/lflow/lflow/pkg/agent"
 )
 
+// renderThread draws the context as a branched tree — the Parent line on top,
+// │ ├─ ╰─ connectors beneath, [ASKED] and earlier-reply labels inline.
+func TestRenderThreadBranched(t *testing.T) {
+	thread := []ThreadNode{
+		{UUID: "p", Depth: 0, Name: "importer notes", Role: "user", Parent: true},
+		{UUID: "n1", Depth: 1, Name: "@Pi make retries safe?", Role: "user", Asked: true},
+		{UUID: "k1", Depth: 2, Name: "importer is in packages/importer", Role: "user"},
+		{UUID: "k1a", Depth: 3, Name: "uses curl", Role: "user"},
+		{UUID: "k2", Depth: 2, Name: "cap the attempts", Role: "agent"},
+	}
+	want := "[PARENT] importer notes\n" +
+		"╰─ [ASKED] @Pi make retries safe?\n" +
+		"   ├─ importer is in packages/importer\n" +
+		"   │  ╰─ uses curl\n" +
+		"   ╰─ (Pi earlier) cap the attempts\n"
+	if got := renderThread("Pi", thread); got != want {
+		t.Errorf("renderThread mismatch\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 // The built-in agents register out of the box with no config file, so @Pi and
 // @Grok both complete and fire without any setup.
 func TestLoadAgentsDefaultsToPiAndGrok(t *testing.T) {

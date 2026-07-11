@@ -22,19 +22,20 @@ import (
 	"github.com/lflow/lflow/pkg/agent"
 )
 
-// ThreadNode is one node of the context sent to the agent: the thread root
-// (the mention node itself) and its subtree depth-first, then a Screen-marked
-// section of whatever else is visible in the editor window — ambient context.
-// Nothing above the mention is sent; the rest of the outline the agent
-// searches via the lflow CLI.
+// ThreadNode is one node of the context sent to the agent: the mention's
+// parent first (one Parent-marked line — where the thread sits), then the
+// thread root (the mention node itself) and its subtree depth-first. Every
+// node's children appear at most once, so mirrors can neither loop the walk
+// nor duplicate a subtree. Nothing else is sent; the rest of the outline the
+// agent searches via the lflow CLI.
 type ThreadNode struct {
 	UUID   string `json:"uuid"`
-	Depth  int    `json:"depth"` // 0 = thread root
+	Depth  int    `json:"depth"` // tree depth; the Parent line, when present, is 0
 	Name   string `json:"name"`
 	Type   string `json:"type"`
 	Role   string `json:"role"`   // "user" | "agent"
 	Asked  bool   `json:"asked"`  // the node this turn is about — replies target it
-	Screen bool   `json:"screen"` // ambient "visible on screen" section, not the thread
+	Parent bool   `json:"parent"` // the mention's parent — ambient context, not the thread
 }
 
 // Event is one message streamed back from the agent service.
@@ -58,8 +59,8 @@ type Event struct {
 // channel. There is deliberately no session to resume — the outline is the
 // user's and changes between turns (nodes edited, moved, deleted), so any
 // remembered context would drift from what the thread actually says now. The
-// thread root's uuid (thread[0].UUID) is the stable conversation identity for
-// anything that needs one.
+// thread root's uuid (the first non-Parent node) is the stable conversation
+// identity for anything that needs one.
 type Client interface {
 	Send(ctx context.Context, agent string, thread []ThreadNode) (<-chan Event, error)
 }

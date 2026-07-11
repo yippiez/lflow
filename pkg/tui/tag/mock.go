@@ -46,7 +46,7 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 		// bar's "N thinking" count is the only progress signal; no narration
 		// nodes ever land in the conversation.
 		//
-		// Placement: the mention node is the channel (thread root, depth 0) —
+		// Placement: the mention node is the channel (the thread root) —
 		// replies to it nest as its children ("thread"). Deeper in, detected
 		// questions get board replies ("below"), a review comment on committed
 		// code nests on the code node ("thread"), inside a reply thread the
@@ -81,7 +81,7 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 		case parentType(thread, asked) == "agent":
 			// continuing a conversation inside a message's reply thread
 			emit(Event{Op: "message", Placement: "below", Text: "Yes — 3 attempts with exponential backoff (2s, 4s, 8s) is plenty; past that it's an outage, not flakiness. Tag it #decided."})
-		case mentioned && asked.Depth == 0:
+		case mentioned && asked.UUID == threadRoot(thread).UUID:
 			// answering the thread root itself: nest under the mention
 			followup := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
 			emit(Event{Op: "message", Placement: "thread", Text: "Retry only the transient failures, log each attempt as a log node, and revisit on " + followup + " if it is still flaky."})
@@ -95,7 +95,7 @@ func (m *MockClient) Send(ctx context.Context, agent string, thread []ThreadNode
 }
 
 // askedNode is the turn's subject — the marked asked node (falling back to
-// the most recent user THREAD node; the Screen section is ambient, never the
+// the most recent user THREAD node; the Parent line is ambient, never the
 // subject) — and whether it mentions the agent.
 func askedNode(thread []ThreadNode, agent string) (ThreadNode, bool) {
 	var asked ThreadNode
@@ -104,11 +104,22 @@ func askedNode(thread []ThreadNode, agent string) (ThreadNode, bool) {
 			asked = thread[i]
 			break
 		}
-		if asked.UUID == "" && thread[i].Role == "user" && !thread[i].Screen {
+		if asked.UUID == "" && thread[i].Role == "user" && !thread[i].Parent {
 			asked = thread[i]
 		}
 	}
 	return asked, strings.Contains(asked.Name, "@"+agent)
+}
+
+// threadRoot is the mention node — the first non-Parent line (the Parent
+// line, when present, sits above the thread as ambient context).
+func threadRoot(thread []ThreadNode) ThreadNode {
+	for _, n := range thread {
+		if !n.Parent {
+			return n
+		}
+	}
+	return ThreadNode{}
 }
 
 // parentType reconstructs the asked node's parent from the depth-first thread

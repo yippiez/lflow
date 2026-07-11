@@ -438,37 +438,39 @@ func TestAgentChipCompletion(t *testing.T) {
 	}
 }
 
-// TestThreadContextChildrenAndScreen pins the context contract: the agent gets
-// the mention node (thread root, depth 0) and its children, and everything
-// else visible on screen arrives ONLY as the Screen-marked ambient section —
-// the parent is never part of the thread.
-func TestThreadContextChildrenAndScreen(t *testing.T) {
+// TestThreadContextParentAndChildren pins the context contract: the agent
+// gets the mention's parent as ONE Parent-marked ambient line at depth 0,
+// then the mention (the thread root) and its children — nothing else, and no
+// node twice. Siblings of the mention never reach the agent.
+func TestThreadContextParentAndChildren(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
 	kid := addChild(m, n1, "k1", "importer is in packages/importer", "")
+	sib := addChild(m, disc, "s1", "a sibling outside the thread", "")
 	m.refreshRows()
-	m.View() // populate screenRows — the Screen section reads the drawn window
 
 	root := m.threadRootFor(n1, tag.Agent{Name: "Pi"})
 	if root != n1 {
 		t.Fatalf("thread root = %q, want the mention itself", root.uuid)
 	}
 	thread := m.buildThread(root, n1.uuid)
+	if len(thread) == 0 || !thread[0].Parent || thread[0].UUID != disc.uuid || thread[0].Depth != 0 {
+		t.Fatalf("the parent must open the context as the Parent line, got %+v", thread[0])
+	}
 	byUUID := map[string]tag.ThreadNode{}
 	for _, n := range thread {
 		byUUID[n.UUID] = n
 	}
-	if n := byUUID["n1"]; !n.Asked || n.Depth != 0 || n.Screen {
-		t.Fatalf("the mention must root the thread at depth 0, asked: %+v", byUUID["n1"])
+	if n := byUUID["n1"]; !n.Asked || n.Depth != 1 || n.Parent {
+		t.Fatalf("the mention must root the thread under the Parent line, got %+v", byUUID["n1"])
 	}
-	if n, ok := byUUID[kid.uuid]; !ok || n.Screen {
-		t.Fatal("the mention's children must be in the thread proper")
+	if n, ok := byUUID[kid.uuid]; !ok || n.Parent || n.Depth != 2 {
+		t.Fatalf("the mention's children must be in the thread proper, got %+v ok=%v", byUUID[kid.uuid], ok)
 	}
-	// the parent is visible on screen, so it arrives — but ONLY as ambient
-	// Screen context, never as a thread node
-	if n, ok := byUUID[disc.uuid]; !ok || !n.Screen {
-		t.Fatalf("the visible parent must be Screen-marked ambient context, got %+v ok=%v", n, ok)
+	// the mention's sibling stays outside — only the one parent line reaches
+	// above the thread
+	if _, ok := byUUID[sib.uuid]; ok {
+		t.Fatal("the mention's sibling must not be in the context")
 	}
-	// screen nodes never duplicate thread nodes
 	count := map[string]int{}
 	for _, n := range thread {
 		count[n.UUID]++
@@ -477,6 +479,31 @@ func TestThreadContextChildrenAndScreen(t *testing.T) {
 		if c > 1 {
 			t.Fatalf("node %s appears %d times in the context", uuid, c)
 		}
+	}
+}
+
+// TestBuildThreadNoDuplicateChildren: two mirrors of the same source inside
+// the thread expand its children ONCE — the second mirror lands as a leaf, so
+// the agent never reads the same subtree twice.
+func TestBuildThreadNoDuplicateChildren(t *testing.T) {
+	m, _, n1 := newAgentTestModel(t)
+	src := addChild(m, n1, "src", "shared source", "")
+	addChild(m, src, "sc", "the shared child", "")
+	for _, uuid := range []string{"mm1", "mm2"} {
+		mir := &item{uuid: uuid, mirrorOf: "src", parent: n1}
+		n1.children = append(n1.children, mir)
+		m.tree.byUUID[uuid] = mir
+	}
+	m.refreshRows()
+
+	count := 0
+	for _, n := range m.buildThread(n1, n1.uuid) {
+		if n.UUID == "sc" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("the mirrored child landed %d times in the context, want once", count)
 	}
 }
 
