@@ -946,9 +946,10 @@ func TestCursorStaysLocalOutdentingInMirror(t *testing.T) {
 	}
 }
 
-// TestOutdentBlockedAtMirrorRoot guards the local boundary: a direct child shown
-// through a mirror cannot outdent past the mirror's source.
-func TestOutdentBlockedAtMirrorRoot(t *testing.T) {
+// TestOutdentEscapesMirrorRoot: shift+tab on a direct child shown through a
+// mirror moves it out of the source and lands it as the next sibling of the
+// mirror. Both the original and the mirror stop showing the child.
+func TestOutdentEscapesMirrorRoot(t *testing.T) {
 	root := &item{}
 	src := &item{uuid: "src", name: "source", parent: root}
 	a := &item{uuid: "a", name: "a", parent: src}
@@ -970,8 +971,49 @@ func TestOutdentBlockedAtMirrorRoot(t *testing.T) {
 
 	m.press("shift+tab")
 
+	if a.parent != root {
+		t.Fatalf("a should escape to the mirror's parent, parent=%#v", a.parent)
+	}
+	if len(src.children) != 0 {
+		t.Fatalf("source should no longer hold a, got %v", src.children)
+	}
+	// order under root: src, mir, a (a lands right after the mirror)
+	if len(root.children) != 3 || root.children[0] != src || root.children[1] != mir || root.children[2] != a {
+		names := make([]string, len(root.children))
+		for i, c := range root.children {
+			names[i] = c.uuid
+		}
+		t.Fatalf("a should land after the mirror, got %v", names)
+	}
+	// cursor follows a to its real (non-through) row
+	r := m.rows[m.cursor]
+	if r.it != a || r.ctx != nil {
+		t.Fatalf("cursor should sit on the escaped real row, it=%q ctx=%v", tr.displayName(r.it), r.ctx)
+	}
+}
+
+// TestOutdentStillBlockedAtZoomRoot: without a mirror escape target, a direct
+// child of the view root still cannot outdent past it (zoomed-in boundary).
+func TestOutdentStillBlockedAtZoomRoot(t *testing.T) {
+	root := &item{}
+	src := &item{uuid: "src", name: "source", parent: root}
+	a := &item{uuid: "a", name: "a", parent: src}
+	src.children = []*item{a}
+	root.children = []*item{src}
+	tr := &tree{
+		root:          root,
+		byUUID:        map[string]*item{"src": src, "a": a},
+		externalNames: map[string]string{},
+	}
+	// zoomed into src: view root is src, no mirror ctx
+	m := &Model{tree: tr, viewStack: []*item{root, src}, width: 80, height: 24}
+	m.refreshRows()
+	m.cursor = m.rowIndexOf(a)
+
+	m.press("shift+tab")
+
 	if a.parent != src {
-		t.Fatalf("outdent past the mirror root must be blocked, a.parent=%#v", a.parent)
+		t.Fatalf("outdent past the zoom root must stay blocked, a.parent=%#v", a.parent)
 	}
 }
 

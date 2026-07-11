@@ -644,18 +644,44 @@ func (t *tree) indent(it *item) bool {
 }
 
 // outdent makes the item the next sibling of its parent.
-func (t *tree) outdent(it *item, viewRoot *item) bool {
+// viewRoot bounds the move so a zoomed view never spills items out of itself.
+// When parent == viewRoot and escape is non-nil (the mirror the cursor is
+// working through), the item leaves the source and lands as the next sibling
+// of escape — so shift+tab on a through-child exits the mirrored subtree, and
+// both the original and every mirror of it stop showing the child.
+func (t *tree) outdent(it *item, viewRoot *item, escape *item) bool {
 	parent := it.parent
-	if parent == nil || parent == viewRoot {
+	if parent == nil {
 		return false
+	}
+	if parent == viewRoot {
+		if escape == nil || escape.parent == nil {
+			return false
+		}
+		// refuse a cycle: escape must not sit inside the node being moved
+		for p := escape; p != nil; p = p.parent {
+			if p == it {
+				return false
+			}
+		}
+		idx := indexOf(it)
+		if idx < 0 {
+			return false
+		}
+		parent.children = append(parent.children[:idx], parent.children[idx+1:]...)
+		it.parent = escape.parent
+		t.insertChildAt(escape.parent, indexOf(escape)+1, it)
+		return true
 	}
 	grandparent := parent.parent
 	if grandparent == nil {
 		return false
 	}
 	idx := indexOf(it)
+	if idx < 0 {
+		return false
+	}
 	parent.children = append(parent.children[:idx], parent.children[idx+1:]...)
-
 	it.parent = grandparent
 	t.insertChildAt(grandparent, indexOf(parent)+1, it)
 	return true

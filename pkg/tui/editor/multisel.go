@@ -124,7 +124,7 @@ func (m *Model) selOutdent() {
 	// outdent places a node right after its old parent: reverse order keeps the
 	// block's own order intact
 	for i := len(roots) - 1; i >= 0; i-- {
-		if m.tree.outdent(roots[i], mc.localRoot) {
+		if m.tree.outdent(roots[i], mc.localRoot, mc.ctx) {
 			moved = true
 		}
 	}

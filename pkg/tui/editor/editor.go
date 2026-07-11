@@ -251,7 +251,7 @@ type Model struct {
 	wfBusy   map[string]bool
 	wfClient *wf.Client
 
-	// :tree: query breadcrumbs, memoized per source uuid (see query.go rowCrumb);
+	// :breadcrumb: query crumbs, memoized per source uuid (see query.go rowCrumb);
 	// cleared whenever a query re-runs
 	qCrumbs map[string]string
 
@@ -777,9 +777,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //	tab        · indenting under a mirror attaches the child to the mirror's
 //	             source; indentInto names that mirror so the cursor follows into
 //	             its view instead of snapping back to the original.
-//	shift+tab  · outdent is bounded by localRoot — the mirror's source when the
-//	             cursor is inside a mirror — so a through-child cannot escape the
-//	             mirror view, and the cursor stays in ctx.
+//	shift+tab  · outdent is bounded by localRoot (the mirror's source when the
+//	             cursor is inside a mirror). A through-child deeper than the
+//	             source outdents within the source and the cursor stays in ctx;
+//	             a direct child of the source escapes — lands as the next sibling
+//	             of the mirror — so both the original and the mirror update.
 //	reorder    · alt+shift+up/down move the real node among its siblings; the
 //	             cursor is restored into ctx.
 //	collapse   · fold/unfold counts the resolved children and restores into ctx.
