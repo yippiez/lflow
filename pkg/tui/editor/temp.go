@@ -163,9 +163,6 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 				continue
 			}
 			glyph, glyphColor := glyphFor(it)
-			if r.mirrored {
-				glyph, glyphColor = glyphMirror, cRed
-			}
 			if dashed && !r.mirrored {
 				glyph = glyphDotted
 			}

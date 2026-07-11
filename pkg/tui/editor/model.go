@@ -258,7 +258,7 @@ type row struct {
 	depth    int
 	last     bool   // last child of its parent (elbow connector)
 	branch   []bool // for each ancestor level: does it have later siblings (draw │)
-	mirrored bool   // shown through a mirror: same node, rendered with the ◆ glyph
+	mirrored bool   // shown through a mirror: same node, rendered read-only
 	ctx      *item  // the mirror this row is shown under, nil at the real location
 }
 

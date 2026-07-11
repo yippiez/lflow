@@ -11,8 +11,8 @@ import (
 // glyph / expand funcs), instead of editing the scattered switches in glyphFor,
 // renderBody, the /type picker, and the inline-edit guards.
 //
-// Cross-cutting concerns stay where they belong: the mirror ◆ glyph and the
-// collapsed ● glyph are handled in glyphFor (they apply to every type); the
+// Cross-cutting concerns stay where they belong: the collapsed ● glyph is
+// handled in glyphFor (it applies to every type); the
 // legacy display attributes (heading bold, quote bar, code background) stay in
 // renderBody. A rich type that wants full control of its inline body sets
 // `render` (like json); a type that is read-only inline sets InlineEditable=false;

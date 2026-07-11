@@ -781,7 +781,7 @@ func mirrorTree() (*tree, *item, *item) {
 }
 
 // TestMirrorShowsSourceChildrenThrough is the round-4 show-through fix: an
-// expanded mirror renders the source's live children as mirrored ◆ rows below
+// expanded mirror renders the source's live children as mirrored rows below
 // the mirror reference.
 func TestMirrorShowsSourceChildrenThrough(t *testing.T) {
 	tr, _, mir := mirrorTree()

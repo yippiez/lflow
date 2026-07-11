@@ -19,8 +19,8 @@ import (
 // any of them refreshes just that branch (the recursive-mirror model). The
 // integration is read-only today; the id map is the two-way hook for later.
 
-// wfGlyph is the mirror mark: ◈ in the accent color, the "live diamond" next to
-// the plain mirror's ◆.
+// wfGlyph is the mirror mark: ◈ in the accent color, the live diamond that
+// marks a Workflowy-backed node.
 func wfGlyph(it *item) (string, string) {
 	return "◈", cAccent
 }

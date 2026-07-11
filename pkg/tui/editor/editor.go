@@ -1,5 +1,5 @@
 // Package editor implements the inline scrollback-mode outline editor:
-// black background, muted gray ○/●/◆/□ glyphs and connectors plus 1/2/3
+// black background, muted gray ○/●/□ glyphs and connectors plus 1/2/3
 // heading digits, the selected row marked by its glyph turning red, a block
 // cursor that inverts the cell beneath it, a minimal dim bottom bar, a
 // type-to-filter slash menu above the bar, and a full-panel fuzzy finder for

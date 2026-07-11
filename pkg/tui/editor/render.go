@@ -61,7 +61,6 @@ const (
 const (
 	glyphOpen      = "○"
 	glyphCollapsed = "●"
-	glyphMirror    = "◆"
 	glyphTodo      = "□"
 	glyphTodoDone  = "■"
 	glyphQuoteBar  = "▎"
@@ -83,13 +82,11 @@ func underCompleted(it *item) bool {
 
 // glyphFor returns the bullet glyph and its color for an item. Bullets and
 // todo boxes are muted gray — the selected row turns its glyph red. Glyphs
-// with an identity keep their own color: ◆ mirrors red, heading digits
-// yellow. Headings show their level digit instead of a circle: that is how
-// h1/h2/h3 stay visible in a single-line wysiwyg row.
+// with an identity keep their own color: heading digits yellow. Headings show
+// their level digit instead of a circle: that is how h1/h2/h3 stay visible in
+// a single-line wysiwyg row. Mirrors keep their per-type glyph — the dim
+// " · mirror" suffix marks them, not the bullet.
 func glyphFor(it *item) (string, string) {
-	if it.mirrorOf != "" {
-		return glyphMirror, cDim // a mirror is the muted ◆ — the diamond marks it, red stays the cursor
-	}
 	if g := typeOf(it.typ).glyph; g != nil {
 		return g(it) // per-type glyph (todo box, heading digit)
 	}

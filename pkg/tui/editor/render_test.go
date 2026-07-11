@@ -200,9 +200,9 @@ func TestGlyphForMutedBullets(t *testing.T) {
 	if color != cDim {
 		t.Errorf("plain bullets should be muted gray, got %q", color)
 	}
-	_, color = glyphFor(&item{mirrorOf: "x"})
-	if color != cDim {
-		t.Errorf("mirrors are the muted ◆ — the diamond marks them, got %q", color)
+	glyph, color := glyphFor(&item{mirrorOf: "x", typ: database.TypeBullets})
+	if glyph != glyphOpen || color != cDim {
+		t.Errorf("mirrors keep the normal per-type glyph — the suffix marks them, got %q %q", glyph, color)
 	}
 }
 
