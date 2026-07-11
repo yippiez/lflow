@@ -100,6 +100,16 @@ var nodeTypes = []nodeType{
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},
 	{key: database.TypeCode, label: "Code", inlineEditable: true},
 	{key: database.TypeQuote, label: "Quote", inlineEditable: true},
+	// a timestamped journal line (see log.go); was the log.js NodeMod before
+	// the extension system was removed — nodes typed under the mod light up
+	// unchanged, the key is the same free string.
+	{
+		key: database.TypeLog, label: "Log", inlineEditable: true,
+		glyph:     logGlyph,
+		prefix:    logPrefix,
+		baseColor: func(it *item) string { return cDim }, // /color overrides (render.go)
+		muteFrom:  logMuteFrom,
+	},
 	{
 		key: database.TypeJSON, label: "JSON", inlineEditable: false,
 		render: func(it *item, name string) string { return renderJSONPreview(name) },

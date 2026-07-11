@@ -17,6 +17,7 @@ const (
 	TypeH3      = "h3"
 	TypeCode    = "code"
 	TypeQuote   = "quote"
+	TypeLog     = "log" // a timestamped journal line: → glyph, dim time chip
 	TypeJSON    = "json"
 	// TypeBash is LEGACY: the bash node type was removed 2026-07-09 in favor of
 	// inline cmd chips ("$cmd" + double space). Old rows keep the value and
@@ -44,6 +45,7 @@ var TypeOrder = []string{
 	TypeH3,
 	TypeCode,
 	TypeQuote,
+	TypeLog,
 	TypeJSON,
 	TypeQuery,
 	TypeVoice,
