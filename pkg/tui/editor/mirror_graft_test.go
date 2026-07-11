@@ -59,7 +59,7 @@ func TestLoadTreeGraftsExternalMirrorSource(t *testing.T) {
 		t.Fatalf("mirror should resolve the grafted source's 2 children, got %d", len(kids))
 	}
 	mir.collapsed = false
-	rows := tr.visibleRows(tr.root, false)
+	rows := tr.visibleRows(tr.root, false, nil)
 	var names []string
 	for _, r := range rows {
 		names = append(names, tr.displayName(r.it))
@@ -156,5 +156,82 @@ func TestGraftSkipsOverlappingSource(t *testing.T) {
 	}
 	if tr.externalNames[database.RootUUID] == "" {
 		t.Fatal("ungraftable source should leave a name stub")
+	}
+}
+
+// cycleModel builds root → project → notes → (mirror of project): the
+// ancestor-mirror cycle, plus a Model wired enough for expand/collapse steps.
+func cycleModel(t *testing.T) (*Model, *item) {
+	t.Helper()
+	root := &item{uuid: "root"}
+	p := &item{uuid: "p", name: "project", parent: root}
+	n := &item{uuid: "n", name: "notes", parent: p}
+	mir := &item{uuid: "mir", mirrorOf: "p", parent: n}
+	root.children = []*item{p}
+	p.children = []*item{n}
+	n.children = []*item{mir}
+	tr := &tree{
+		root:          root,
+		snapshots:     map[string]snapshot{},
+		externalNames: map[string]string{},
+		byUUID:        map[string]*item{"root": root, "p": p, "n": n, "mir": mir},
+	}
+	m := &Model{db: database.InitTestMemoryDB(t), tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	return m, mir
+}
+
+// TestCycleUnrollsOneLevelPerExpand: a mirror of an ancestor starts as a
+// foldable leaf and each expand press on the deepest repetition reveals
+// exactly one more cycle level; collapse folds them back the same way.
+func TestCycleUnrollsOneLevelPerExpand(t *testing.T) {
+	m, mir := cycleModel(t)
+	// budget 0: project, notes, mirror — the mirror is a suppressed repetition
+	if len(m.rows) != 3 {
+		t.Fatalf("want 3 rows before unrolling, got %d", len(m.rows))
+	}
+	last := m.rows[2]
+	if last.it != mir || !last.cycled || last.cycleDepth != 1 {
+		t.Fatalf("mirror row should be cycled at depth 1, got cycled=%v depth=%d", last.cycled, last.cycleDepth)
+	}
+
+	m.cursor = 2
+	m.expandStep() // one level: … mirror → notes' → mirror''
+	if len(m.rows) != 5 {
+		t.Fatalf("want 5 rows after one unroll, got %d", len(m.rows))
+	}
+	if m.rows[2].it != mir || m.rows[2].cycled || m.rows[3].it.uuid != "n" {
+		t.Fatalf("first repetition should now expand through notes")
+	}
+	deepest := m.rows[4]
+	if deepest.it != mir || !deepest.cycled || deepest.cycleDepth != 2 {
+		t.Fatalf("deepest repetition should be cycled at depth 2, got cycled=%v depth=%d", deepest.cycled, deepest.cycleDepth)
+	}
+
+	m.cursor = 4
+	m.expandStep() // second level
+	if len(m.rows) != 7 || m.unroll["mir"] != 2 {
+		t.Fatalf("want 7 rows and budget 2 after two unrolls, got %d rows budget %d", len(m.rows), m.unroll["mir"])
+	}
+
+	m.cursor = 4 // the now-expanded depth-2 repetition
+	m.collapseStep()
+	if len(m.rows) != 5 || m.unroll["mir"] != 1 {
+		t.Fatalf("collapse should fold back to one level, got %d rows budget %d", len(m.rows), m.unroll["mir"])
+	}
+
+	m.cursor = 2 // the first repetition: folding it collapses the flag and rewinds
+	m.collapseStep()
+	if len(m.rows) != 3 || !mir.collapsed {
+		t.Fatalf("collapsing the first level should fold the mirror itself, got %d rows collapsed=%v", len(m.rows), mir.collapsed)
+	}
+	if _, budgeted := m.unroll["mir"]; budgeted {
+		t.Fatal("folding the first level should rewind the unroll budget")
+	}
+
+	m.cursor = 2
+	m.expandStep() // from collapsed: one press back to exactly one level
+	if len(m.rows) != 5 || mir.collapsed || m.unroll["mir"] != 1 {
+		t.Fatalf("expand from collapsed should show one level, got %d rows collapsed=%v budget=%d", len(m.rows), mir.collapsed, m.unroll["mir"])
 	}
 }

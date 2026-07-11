@@ -117,7 +117,7 @@ func (m *Model) tempRowCount() int {
 	if m.tempTree == nil {
 		return 0
 	}
-	return len(m.tempTree.visibleRows(m.tempTree.root, m.hideCompleted))
+	return len(m.tempTree.visibleRows(m.tempTree.root, m.hideCompleted, m.unroll))
 }
 
 // tempPanelBudget is how many screen lines the persistent temp panel may occupy.
@@ -148,7 +148,7 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 	var flat []string
 	cursorAt := 0
 	if tr != nil && viewRoot != nil {
-		rows := tr.visibleRows(viewRoot, m.hideCompleted)
+		rows := tr.visibleRows(viewRoot, m.hideCompleted, m.unroll)
 		for i, r := range rows {
 			it := r.it
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
@@ -171,7 +171,7 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			if rm := typeOf(it.typ).renderM; rm != nil {
 				body = rm(m, it)
 			}
-			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(it)
+			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r)
 			if i == cursor {
 				cursorAt = len(flat)
 			}

@@ -329,6 +329,12 @@ type row struct {
 	branch   []bool // for each ancestor level: does it have later siblings (draw │)
 	mirrored bool   // shown through a mirror: same node, rendered read-only
 	ctx      *item  // the mirror this row is shown under, nil at the real location
+	// cycleDepth > 0: this mirror row re-enters a node already open on the
+	// path — the nth repetition of the same mirror. cycled marks a repetition
+	// held back by the unroll budget: children exist but stay folded until the
+	// next expand press raises the budget (see visibleRows).
+	cycleDepth int
+	cycled     bool
 }
 
 // childItems returns the children to display under it. An expanded mirror shows
@@ -355,10 +361,21 @@ func cloneSeen(m map[*item]bool) map[*item]bool {
 	return n
 }
 
+// cloneSpent copies a path-local unroll-consumption map, like cloneSeen, so
+// sibling branches spend their cycle budgets independently.
+func cloneSpent(m map[string]int) map[string]int {
+	n := make(map[string]int, len(m)+1)
+	for k, v := range m {
+		n[k] = v
+	}
+	return n
+}
+
 // expandTarget is the node whose children a row expands: a mirror expands its
 // source, a normal node expands itself. nil means nothing to expand. The walk
-// stops re-expanding a target already on the path so a mirror pointing at an
-// ancestor renders as a leaf instead of looping forever.
+// re-expands a target already on the path only within the mirror's unroll
+// budget, so a mirror pointing at an ancestor nests one paid level at a time
+// instead of looping forever.
 func (t *tree) expandTarget(it *item) *item {
 	if it.mirrorOf == "" {
 		return it
@@ -373,10 +390,18 @@ func (t *tree) expandTarget(it *item) *item {
 // honoring collapsed state. The view root itself is not a row. When
 // hideCompleted is set, completed nodes (and their subtrees) are skipped —
 // the /hide:complete toggle.
-func (t *tree) visibleRows(viewRoot *item, hideCompleted bool) []row {
+//
+// unroll (uuid → levels) is the per-mirror cycle budget: a mirror whose target
+// is already open on the path may re-enter it that many times, so a mirror of
+// an ancestor nests one level per expand press. Every cycle in the walk passes
+// through such a mirror edge (parent links alone form a forest), so plain
+// nodes repeated inside a paid level recurse freely and the walk still
+// terminates. A repetition past the budget lands as a cycled row — a foldable
+// leaf whose expand press raises the budget.
+func (t *tree) visibleRows(viewRoot *item, hideCompleted bool, unroll map[string]int) []row {
 	var rows []row
-	var walk func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool)
-	walk = func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool) {
+	var walk func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool, spent map[string]int)
+	walk = func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool, spent map[string]int) {
 		kids := t.childItems(it)
 		// when filtering completed, drop them from the sibling list first so
 		// last/branch connectors join the remaining incomplete siblings cleanly
@@ -392,9 +417,22 @@ func (t *tree) visibleRows(viewRoot *item, hideCompleted bool) []row {
 		for i, c := range kids {
 			last := i == len(kids)-1
 			cm := mirrored || c.mirrorOf != ""
-			rows = append(rows, row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...), mirrored: cm, ctx: ctx})
+			r := row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...), mirrored: cm, ctx: ctx}
 			tgt := t.expandTarget(c)
-			if c.collapsed || tgt == nil || seen[tgt] {
+			childSpent := spent
+			if tgt != nil && c.mirrorOf != "" && seen[tgt] {
+				r.cycleDepth = spent[c.uuid] + 1
+				if unroll[c.uuid] >= r.cycleDepth {
+					childSpent = cloneSpent(spent)
+					childSpent[c.uuid] = r.cycleDepth
+				} else {
+					r.cycled = !c.collapsed && len(t.childItems(c)) > 0
+					rows = append(rows, r)
+					continue
+				}
+			}
+			rows = append(rows, r)
+			if c.collapsed || tgt == nil {
 				continue
 			}
 			// crossing into a mirror moves its subtree into that mirror's local
@@ -405,15 +443,17 @@ func (t *tree) visibleRows(viewRoot *item, hideCompleted bool) []row {
 			}
 			next := cloneSeen(seen)
 			next[tgt] = true
-			walk(c, depth+1, append(branch, !last), cm, childCtx, next)
+			walk(c, depth+1, append(branch, !last), cm, childCtx, next, childSpent)
 		}
 	}
-	walk(viewRoot, 0, nil, false, nil, map[*item]bool{viewRoot: true})
+	walk(viewRoot, 0, nil, false, nil, map[*item]bool{viewRoot: true}, map[string]int{})
 	return rows
 }
 
 // allRows flattens the whole loaded tree ignoring collapsed state: the
 // scrollback dump on quit is the complete outline, not the current folding.
+// Cycles dump one level regardless of any interactive unroll — the dump must
+// stay finite.
 func (t *tree) allRows() []row {
 	var rows []row
 	var walk func(it *item, depth int, branch []bool, mirrored bool, ctx *item, seen map[*item]bool)
@@ -422,8 +462,9 @@ func (t *tree) allRows() []row {
 		for i, c := range kids {
 			last := i == len(kids)-1
 			cm := mirrored || c.mirrorOf != ""
-			rows = append(rows, row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...), mirrored: cm, ctx: ctx})
 			tgt := t.expandTarget(c)
+			cycled := tgt != nil && seen[tgt] && len(t.childItems(c)) > 0
+			rows = append(rows, row{it: c, depth: depth, last: last, branch: append([]bool(nil), branch...), mirrored: cm, ctx: ctx, cycled: cycled})
 			if tgt == nil || seen[tgt] {
 				continue
 			}

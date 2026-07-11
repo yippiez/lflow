@@ -128,6 +128,10 @@ type Model struct {
 	cursor    int     // index into visibleRows
 	caret     int     // rune index in the edited field
 	rows      []row   // cached visible rows
+	// unroll is the per-mirror cycle budget (uuid → levels): how many times a
+	// mirror of an ancestor may re-enter its target, one level per expand
+	// press. Ephemeral view state — never persisted or synced.
+	unroll map[string]int
 
 	width  int
 	height int
@@ -499,8 +503,60 @@ func (m *Model) undo() {
 }
 
 func (m *Model) refreshRows() {
-	m.rows = m.tree.visibleRows(m.viewRoot(), m.hideCompleted)
+	m.rows = m.tree.visibleRows(m.viewRoot(), m.hideCompleted, m.unroll)
 	m.clampCursor()
+}
+
+// expandStep opens the cursor node one visible level: uncollapse it, and when
+// the row is a mirror re-entering an ancestor, raise its unroll budget so
+// exactly this level shows — cycles nest one step per press, never forever.
+// The cursor index is kept: new rows appear below it, and findRow cannot tell
+// repeated occurrences of the same mirror apart.
+func (m *Model) expandStep() {
+	cur := m.cursorItem()
+	if cur == nil || len(m.tree.childItems(cur)) == 0 || m.cursor >= len(m.rows) {
+		return
+	}
+	r := m.rows[m.cursor]
+	changed := false
+	if cur.collapsed {
+		cur.collapsed = false
+		m.persistCollapsed(cur)
+		changed = true
+	}
+	if r.cycleDepth > 0 && m.unroll[cur.uuid] < r.cycleDepth {
+		if m.unroll == nil {
+			m.unroll = map[string]int{}
+		}
+		m.unroll[cur.uuid] = r.cycleDepth
+		changed = true
+	}
+	if changed {
+		m.refreshRows()
+	}
+}
+
+// collapseStep folds the cursor node one visible level. On an expanded cycle
+// repetition it lowers the unroll budget back to just above this level; the
+// first level folds the collapsed flag itself and rewinds the whole unroll, so
+// the next expand starts at one level again.
+func (m *Model) collapseStep() {
+	cur := m.cursorItem()
+	if cur == nil || cur.collapsed || len(m.tree.childItems(cur)) == 0 || m.cursor >= len(m.rows) {
+		return
+	}
+	r := m.rows[m.cursor]
+	if r.cycleDepth > 1 && !r.cycled {
+		m.unroll[cur.uuid] = r.cycleDepth - 1
+		m.refreshRows() // rows shrink below the cursor row; its index holds
+		return
+	}
+	delete(m.unroll, cur.uuid)
+	ctx := m.cursorCtx()
+	cur.collapsed = true
+	m.persistCollapsed(cur)
+	m.refreshRows()
+	m.cursor = m.findRow(cur, ctx)
 }
 
 // clampCursor holds the cursor inside the current rows. A single delete can drop

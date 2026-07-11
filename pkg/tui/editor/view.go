@@ -101,7 +101,7 @@ func (m *Model) finalView(maxLine int) []string {
 		if rm := typeOf(r.it.typ).renderM; rm != nil {
 			body = rm(m, r.it)
 		}
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r.it)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r)
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 		if b := typeOf(r.it.typ).bands; b != nil {
@@ -181,7 +181,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			body = cDim + crumb + cReset + body
 		}
 
-		suffix := m.typeSuffix(it)
+		suffix := m.typeSuffix(r)
 		// flash mode grays the whole outline so the colored action chips are the only
 		// highlights: dim the glyph, the body and the type suffix down to plain gray.
 		if m.mode == modeFlash {

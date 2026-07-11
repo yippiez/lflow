@@ -266,10 +266,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+@", "ctrl+space":
-		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 {
-			cur.collapsed = !cur.collapsed
-			m.persistCollapsed(cur)
-			m.refreshRows()
+		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && m.cursor < len(m.rows) {
+			if cur.collapsed || m.rows[m.cursor].cycled {
+				m.expandStep()
+			} else {
+				m.collapseStep()
+			}
 		}
 		return m, nil
 	case "ctrl+d", "alt+d", "ctrl+shift+backspace":
@@ -570,24 +572,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.enterFlash()
 		return m, nil
 	case "alt+up", "ctrl+up":
-		// collapse the cursor node
-		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && !cur.collapsed {
-			ctx := m.mirrorContext().ctx
-			cur.collapsed = true
-			m.persistCollapsed(cur)
-			m.refreshRows()
-			m.cursor = m.findRow(cur, ctx)
-		}
+		m.collapseStep() // fold the cursor node, one cycle level at a time
 		return m, nil
 	case "alt+down", "ctrl+down":
-		// expand the cursor node
-		if cur := m.cursorItem(); cur != nil && len(m.tree.childItems(cur)) > 0 && cur.collapsed {
-			ctx := m.mirrorContext().ctx
-			cur.collapsed = false
-			m.persistCollapsed(cur)
-			m.refreshRows()
-			m.cursor = m.findRow(cur, ctx)
-		}
+		m.expandStep() // open the cursor node, one cycle level at a time
 		return m, nil
 	case "up":
 		starts := m.selectedVisualRows()

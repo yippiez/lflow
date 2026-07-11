@@ -123,17 +123,18 @@ func flashExpandDo(m *Model, it *item) tea.Cmd {
 	return nil
 }
 
-// flashFold toggles a node's collapsed state, keeping the cursor on it (restored
-// through its mirror context). It is the universal fold action's handler.
+// flashFold toggles a node's collapsed state, keeping the cursor on it.
+// fireFlash has already moved the cursor onto the row, so the same one-cycle-
+// level-at-a-time steps as alt+up/down apply. It is the universal fold handler.
 func flashFold(m *Model, it *item) tea.Cmd {
-	if len(m.tree.childItems(it)) == 0 {
+	if len(m.tree.childItems(it)) == 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
-	ctx := m.mirrorContext().ctx
-	it.collapsed = !it.collapsed
-	m.persistCollapsed(it)
-	m.refreshRows()
-	m.cursor = m.findRow(it, ctx)
+	if it.collapsed || m.rows[m.cursor].cycled {
+		m.expandStep()
+	} else {
+		m.collapseStep()
+	}
 	return nil
 }
 
@@ -199,7 +200,7 @@ func (m *Model) enterFlash() {
 		}
 		if len(m.tree.childItems(it)) > 0 {
 			verb := "fold"
-			if it.collapsed {
+			if it.collapsed || r.cycled {
 				verb = "unfold"
 			}
 			ts = append(ts, flashTarget{row: i, verb: verb, color: cMagenta, do: flashFold})

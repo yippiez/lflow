@@ -804,7 +804,8 @@ func relTime(ts int64) string {
 	}
 }
 
-func (m *Model) typeSuffix(it *item) string {
+func (m *Model) typeSuffix(r row) string {
+	it := r.it
 	var parts []string
 	if it.mirrorOf != "" {
 		parts = append(parts, "mirror")
@@ -818,7 +819,8 @@ func (m *Model) typeSuffix(it *item) string {
 			parts = append(parts, "updated "+relTime(ts))
 		}
 	}
-	if kids := m.tree.childItems(it); len(kids) > 0 && it.collapsed {
+	// a cycled row folds its children like a collapsed one — same count hint
+	if kids := m.tree.childItems(it); len(kids) > 0 && (it.collapsed || r.cycled) {
 		noun := "children"
 		if len(kids) == 1 {
 			noun = "child"

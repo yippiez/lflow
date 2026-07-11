@@ -785,7 +785,7 @@ func mirrorTree() (*tree, *item, *item) {
 // the mirror reference.
 func TestMirrorShowsSourceChildrenThrough(t *testing.T) {
 	tr, _, mir := mirrorTree()
-	rows := tr.visibleRows(tr.root, false)
+	rows := tr.visibleRows(tr.root, false, nil)
 	mi := -1
 	for i, r := range rows {
 		if r.it == mir {
@@ -812,7 +812,7 @@ func TestMirrorShowsSourceChildrenThrough(t *testing.T) {
 func TestCollapsedMirrorHidesChildren(t *testing.T) {
 	tr, _, mir := mirrorTree()
 	mir.collapsed = true
-	rows := tr.visibleRows(tr.root, false)
+	rows := tr.visibleRows(tr.root, false, nil)
 	// source, kid one, kid two, mirror — nothing renders through the collapsed mirror
 	if len(rows) != 4 {
 		t.Fatalf("collapsed mirror should hide through-children, got %d rows", len(rows))
@@ -862,7 +862,7 @@ func TestMirrorCycleDoesNotLoop(t *testing.T) {
 		byUUID:        map[string]*item{"a": a, "cyc": cyc},
 		externalNames: map[string]string{},
 	}
-	if rows := tr.visibleRows(root, false); len(rows) > 8 {
+	if rows := tr.visibleRows(root, false, nil); len(rows) > 8 {
 		t.Fatalf("mirror cycle should terminate, produced %d rows", len(rows))
 	}
 	if rows := tr.allRows(); len(rows) > 8 {
