@@ -31,6 +31,15 @@ const (
 	TypeWF      = "wf"    // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
 )
 
+// Priority values for a node: where incoming nodes land among its children.
+// "up" places new/moved-in nodes at the top, "down" at the bottom. Existing
+// rows were backfilled to down (lm39); nodes created since default to up.
+// An empty value (pre-feature rows written by raw INSERTs) reads as down.
+const (
+	PriorityUp   = "up"
+	PriorityDown = "down"
+)
+
 // TypeOrder is the canonical ordering of node types — the single source of
 // truth for the accepted set. ValidTypes and the human-readable list in CLI
 // help/errors derive from it, so a new type added here needs no other edits.
@@ -98,22 +107,23 @@ type Node struct {
 	Collapsed   bool   `json:"collapsed"` // local view-state
 	Readonly    bool   `json:"readonly"`  // node lock; persisted (like style)
 	Starred     bool   `json:"starred"`   // /star: pinned to the top of pickers and search hits
+	Priority    string `json:"priority"`  // /priority: where incoming nodes land — "up" = top, "down"/"" = bottom
 }
 
-const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, readonly, starred"
+const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, readonly, starred, priority"
 
 func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 	var n Node
 	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Type,
-		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.Deleted, &n.Collapsed, &n.Readonly, &n.Starred)
+		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.Deleted, &n.Collapsed, &n.Readonly, &n.Starred, &n.Priority)
 	return n, err
 }
 
 // Insert inserts the node.
 func (n Node) Insert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly, n.Starred)
+		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly, n.Starred, n.Priority)
 	if err != nil {
 		return errors.Wrapf(err, "inserting node %s", n.UUID)
 	}
@@ -127,15 +137,16 @@ func (n Node) Insert(db *DB) error {
 // original added_on is preserved. FTS stays consistent via the AFTER UPDATE
 // trigger (which fires on the conflict branch).
 func (n Node) Upsert(db *DB) error {
-	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
 		`ON CONFLICT(uuid) DO UPDATE SET
 			parent_uuid = excluded.parent_uuid, rank = excluded.rank, name = excluded.name,
 			note = excluded.note, type = excluded.type, style = excluded.style,
 			mirror_of = excluded.mirror_of, completed_at = excluded.completed_at,
 			edited_on = excluded.edited_on, collapsed = excluded.collapsed,
-			readonly = excluded.readonly, starred = excluded.starred, deleted = 0`,
+			readonly = excluded.readonly, starred = excluded.starred,
+			priority = excluded.priority, deleted = 0`,
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly, n.Starred)
+		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly, n.Starred, n.Priority)
 	if err != nil {
 		return errors.Wrapf(err, "upserting node %s", n.UUID)
 	}
@@ -156,6 +167,15 @@ func SetCollapsed(db *DB, uuid string, collapsed bool) error {
 func SetStarred(db *DB, uuid string, starred bool) error {
 	if _, err := db.Exec("UPDATE nodes SET starred = ? WHERE uuid = ?", starred, uuid); err != nil {
 		return errors.Wrapf(err, "setting starred for %s", uuid)
+	}
+	return nil
+}
+
+// SetPriority persists a node's /priority preference. Like collapse and star it
+// is toggled in place, so it writes immediately and leaves edited_on untouched.
+func SetPriority(db *DB, uuid, priority string) error {
+	if _, err := db.Exec("UPDATE nodes SET priority = ? WHERE uuid = ?", priority, uuid); err != nil {
+		return errors.Wrapf(err, "setting priority for %s", uuid)
 	}
 	return nil
 }
@@ -299,6 +319,21 @@ func FirstRank(db *DB, parentUUID string) (int, error) {
 		return 0, nil
 	}
 	return int(minRank.Int64) - 1, nil
+}
+
+// PlaceRank returns the rank for a node entering the parent with no explicit
+// position, honoring the parent's priority: up → above the existing children,
+// down (or unset, or no such parent row) → below them.
+func PlaceRank(db *DB, parentUUID string) (int, error) {
+	var prio string
+	err := db.QueryRow("SELECT priority FROM nodes WHERE uuid = ?", parentUUID).Scan(&prio)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, errors.Wrapf(err, "querying priority of %s", parentUUID)
+	}
+	if prio == PriorityUp {
+		return FirstRank(db, parentUUID)
+	}
+	return NextRank(db, parentUUID)
 }
 
 // Reparent moves a node under a new parent at the given rank. Like a

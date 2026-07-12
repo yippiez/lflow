@@ -25,6 +25,39 @@ func seedTree(t *testing.T, db *DB) {
 	mustInsert(t, db, Node{UUID: "r2", Name: "reading list", Rank: 1})
 }
 
+// TestPlaceRank: a priority-up parent takes incoming nodes above its children,
+// a down (or unset) parent below them.
+func TestPlaceRank(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	defer db.Close()
+
+	mustInsert(t, db, Node{UUID: "up1", Name: "inbox", Rank: 0, Priority: PriorityUp})
+	mustInsert(t, db, Node{UUID: "dn1", Name: "archive", Rank: 1, Priority: PriorityDown})
+	for _, parent := range []string{"up1", "dn1"} {
+		mustInsert(t, db, Node{UUID: parent + "-a", ParentUUID: parent, Rank: 3})
+		mustInsert(t, db, Node{UUID: parent + "-b", ParentUUID: parent, Rank: 4})
+	}
+
+	rank, err := PlaceRank(db, "up1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, rank, 2, "priority up should place above the first child")
+
+	rank, err = PlaceRank(db, "dn1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, rank, 5, "priority down should place below the last child")
+
+	// unset priority (pre-feature rows, forest roots) behaves as down
+	rank, err = PlaceRank(db, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, rank, 2, "no parent row should append after the roots")
+}
+
 func TestNodeCRUD(t *testing.T) {
 	db := InitTestMemoryDB(t)
 	defer db.Close()

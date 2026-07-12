@@ -19,7 +19,7 @@ CREATE TABLE nodes
 				added_on integer NOT NULL DEFAULT 0,
 				edited_on integer NOT NULL DEFAULT 0,
 				deleted bool NOT NULL DEFAULT false,
-				style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false, readonly bool NOT NULL DEFAULT false, starred bool NOT NULL DEFAULT false);
+				style text NOT NULL DEFAULT '', collapsed bool NOT NULL DEFAULT false, readonly bool NOT NULL DEFAULT false, starred bool NOT NULL DEFAULT false, priority text NOT NULL DEFAULT 'down');
 CREATE INDEX idx_nodes_parent ON nodes(parent_uuid, rank);
 CREATE VIRTUAL TABLE node_fts USING fts5(content=nodes, name, note, tokenize="porter unicode61 categories 'L* N* Co Ps Pe'");
 CREATE TRIGGER nodes_after_insert AFTER INSERT ON nodes BEGIN
@@ -36,10 +36,6 @@ CREATE TABLE node_output (
 			uuid text PRIMARY KEY,
 			output text NOT NULL DEFAULT ''
 		);
-CREATE TABLE node_mod_data (
-			uuid text PRIMARY KEY,
-			data text NOT NULL DEFAULT ''
-		);
 CREATE TABLE chips (
 			id text PRIMARY KEY,
 			kind text NOT NULL DEFAULT '',
@@ -55,15 +51,6 @@ CREATE TABLE node_blobs (
 			bytes blob NOT NULL,
 			w integer NOT NULL DEFAULT 0,
 			h integer NOT NULL DEFAULT 0
-		);
-CREATE TABLE artifacts (
-			key text PRIMARY KEY,
-			label text NOT NULL DEFAULT '',
-			version integer NOT NULL DEFAULT 1,
-			source text NOT NULL DEFAULT '',
-			created_by text NOT NULL DEFAULT 'user',
-			created_at integer NOT NULL DEFAULT 0,
-			enabled bool NOT NULL DEFAULT true
 		);
 CREATE TABLE agent_sessions (
 			id text PRIMARY KEY,
@@ -91,4 +78,4 @@ CREATE TABLE node_spans (
 		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 36);
+INSERT INTO system (key, value) VALUES ('schema', 39);

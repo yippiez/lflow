@@ -1066,3 +1066,19 @@ var lm38 = migration{
 		return nil
 	},
 }
+
+// lm39 adds nodes.priority — where incoming nodes land among a node's children:
+// "up" = top, "down" = bottom. Existing rows are backfilled to down (today's
+// append behavior); nodes created from now on default to up in Go code, so the
+// column default matters only for raw INSERTs that skip the priority column.
+// View-preference state like collapsed/starred: toggled in place, no edited_on
+// churn.
+var lm39 = migration{
+	name: "add-node-priority",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec("ALTER TABLE nodes ADD COLUMN priority text NOT NULL DEFAULT 'down'"); err != nil {
+			return errors.Wrap(err, "adding nodes.priority")
+		}
+		return nil
+	},
+}

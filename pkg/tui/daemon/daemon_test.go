@@ -26,7 +26,8 @@ func startDaemon(t *testing.T) (dbPath, sock string) {
 		name text NOT NULL DEFAULT '', note text NOT NULL DEFAULT '', type text NOT NULL DEFAULT 'bullets',
 		style text NOT NULL DEFAULT '', mirror_of text NOT NULL DEFAULT '', completed_at integer NOT NULL DEFAULT 0,
 		added_on integer NOT NULL DEFAULT 0, edited_on integer NOT NULL DEFAULT 0, deleted bool NOT NULL DEFAULT false,
-		collapsed bool NOT NULL DEFAULT false, readonly bool NOT NULL DEFAULT false, starred bool NOT NULL DEFAULT false)`); err != nil {
+		collapsed bool NOT NULL DEFAULT false, readonly bool NOT NULL DEFAULT false, starred bool NOT NULL DEFAULT false,
+		priority text NOT NULL DEFAULT 'down')`); err != nil {
 		t.Fatal(err)
 	}
 
