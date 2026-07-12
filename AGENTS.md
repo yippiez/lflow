@@ -28,7 +28,13 @@ per type in `pkg/tui/editor/registry.go`.
 ## Daemon + live sync
 
 - One daemon per database owns the SQLite file (WAL, one connection,
-  update-hook change events). Everything else is a client: `infra.Init` →
+  update-hook change events) AND runs every agent turn — the client is only a
+  client. `wire.OpAgent` streams one turn per dedicated conn (editor ships the
+  rendered thread + cwd + skill dir; closing the conn cancels the CLI);
+  `wire.OpDeps` answers which CLI binaries the daemon can exec — NodeCLIDeps:
+  node types declare `cliDeps` in the registry, agents map via `tag.DepFor`; a
+  missing dep greys the /type and @mention entries and runs error
+  "Missing dependency: <bin>". Everything else is a client: `infra.Init` →
   `client.Ensure` dials `daemon.sock` next to the DB and auto-spawns
   `lflow serve --quiet --idle` (10 min idle exit) when absent. A daemon built
   from a different binary is shut down and respawned on first contact, so dev
