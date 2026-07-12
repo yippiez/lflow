@@ -544,8 +544,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	case database.TypeQuote:
 		attrs += cItalic
 		prefix = cAccent + glyphQuoteBar + cReset + " "
-	case database.TypeCode:
-		attrs += bgCode
 	}
 	if desc.prefix != nil {
 		prefix = desc.prefix(it) // per-type prefix, e.g. the log time chip
@@ -622,10 +620,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	var b strings.Builder
 	b.WriteString(prefix)
 	cur := ""
-	switch it.typ {
-	case database.TypeCode:
-		b.WriteString(cReset + attrs + " ") // pad the code block
-	}
 	for i := 0; i < len(runes); {
 		// a chip anchor renders collapsed: the chip kind's color + compact display,
 		// atomic. The caret only ever sits at its boundaries (see snapCaret).
@@ -750,9 +744,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		} else {
 			b.WriteString(cReset + cFG + cInvert + " ")
 		}
-	}
-	if it.typ == database.TypeCode {
-		b.WriteString(cReset + attrs + " ")
 	}
 	if it.starred {
 		b.WriteString(cReset + " " + cDim + "★") // /star mark, render-only

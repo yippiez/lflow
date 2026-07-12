@@ -130,7 +130,16 @@ var nodeTypes = []nodeType{
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true, toContext: xmlTag("h1")},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true, toContext: xmlTag("h2")},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true, toContext: xmlTag("h3")},
-	{key: database.TypeCode, label: "Code", inlineEditable: true, toContext: xmlTag("code")},
+	// the Code node is a multi-line block edited only in its focused view (alt+e),
+	// so it is not inlineEditable; the gray block hangs beneath it as an always-on
+	// band, and its multi-line body IS it.name (see code.go).
+	{
+		key: database.TypeCode, label: "Code", inlineEditable: false,
+		render:    codeInlineRender,
+		view:      codeView{},
+		bands:     func(m *Model, r row, below bool, maxLine int) []string { return m.codeBands(r, below, maxLine) },
+		toContext: codeToContext,
+	},
 	{key: database.TypeQuote, label: "Quote", inlineEditable: true, toContext: xmlTag("quote")},
 	// a timestamped journal line (see log.go); was the log.js NodeMod before
 	// the extension system was removed — nodes typed under the mod light up

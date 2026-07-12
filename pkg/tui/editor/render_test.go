@@ -286,15 +286,36 @@ func TestRenderBodyChipsDateWithTime(t *testing.T) {
 	}
 }
 
-func TestRenderBodyCodeBlock(t *testing.T) {
-	it := &item{typ: database.TypeCode}
-
-	rendered := renderBody(it, "rm -rf ./dist", -1, false, nil, false)
-	if !strings.Contains(rendered, bgCode) {
-		t.Errorf("code background missing: %q", rendered)
+// TestRenderBodyCodeRow: the code node's one-line row is now a dim tag (the gray
+// block hangs beneath as a band), not an inline gray-padded edit surface.
+func TestRenderBodyCodeRow(t *testing.T) {
+	it := &item{typ: database.TypeCode, name: "func main() {\n}"}
+	rendered := renderBody(it, it.name, -1, false, nil, false)
+	if got := stripSGR(rendered); got != "code · 2 lines" {
+		t.Errorf("code row = %q, want the dim line-count tag", got)
 	}
-	if got := stripSGR(rendered); got != " rm -rf ./dist " {
-		t.Errorf("code block should be padded: %q", got)
+}
+
+// TestCodeBlockBands: the gray block wears a white left rule, dim line numbers,
+// and a full-width gray background on every band line.
+func TestCodeBlockBands(t *testing.T) {
+	bands := CodeBlockBands("a = 1\nb = 2", "code", -1, -1, false, "", 40, 0, 0)
+	if len(bands) != 4 { // ┌ header, two code lines, └ footer
+		t.Fatalf("bands = %d, want 4", len(bands))
+	}
+	for i, b := range bands {
+		if !strings.Contains(b, bgCode) {
+			t.Errorf("band %d missing gray background: %q", i, b)
+		}
+		if visibleWidth(b) < 39 {
+			t.Errorf("band %d not full width: %d cols", i, visibleWidth(b))
+		}
+	}
+	if !strings.Contains(bands[1], cWhite+"│") {
+		t.Errorf("code line missing white rule: %q", bands[1])
+	}
+	if got := stripSGR(bands[1]); !strings.Contains(got, "1 a = 1") {
+		t.Errorf("first code line missing its number: %q", got)
 	}
 }
 

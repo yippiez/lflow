@@ -15,14 +15,14 @@ import (
 // redirect still works. The link trigger ("[[") stays off in those same types.
 func TestPathChipTriggerEveryInlineType(t *testing.T) {
 	for _, typ := range []string{
-		database.TypeBullets, database.TypeCode,
+		database.TypeBullets,
 		database.TypeQuery, database.TypeQuote,
 	} {
 		if !pathChipTrigger(typ) {
 			t.Errorf("pathChipTrigger(%q) = false, want true", typ)
 		}
 	}
-	for _, typ := range []string{database.TypeCode, database.TypeQuery, database.TypeQuote} {
+	for _, typ := range []string{database.TypeQuery, database.TypeQuote} {
 		if linkChipTrigger(typ) {
 			t.Errorf("linkChipTrigger(%q) = true, want false (\"[\" stays literal)", typ)
 		}
@@ -32,7 +32,7 @@ func TestPathChipTriggerEveryInlineType(t *testing.T) {
 // TestAngleCancelTypesLiteral: dismissing the picker (empty selection) types the
 // literal ">" that opened it, so a bash redirect survives a cancelled pick.
 func TestAngleCancelTypesLiteral(t *testing.T) {
-	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "echo hi ", Type: database.TypeCode})
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "echo hi ", Type: database.TypeQuery})
 	cursorOn(m, "edit")
 	caret := len([]rune("echo hi "))
 	m.caret = caret
@@ -57,7 +57,7 @@ func TestAngleKeyTypesLiteralWithoutFzf(t *testing.T) {
 	if _, err := exec.LookPath("fzf"); err == nil {
 		t.Skip("fzf present: the picker launches instead of typing the literal")
 	}
-	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "echo ", Type: database.TypeCode})
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "echo ", Type: database.TypeQuery})
 	cursorOn(m, "edit")
 	m.caret = len([]rune("echo "))
 	m.press(">")
@@ -72,7 +72,7 @@ func TestAngleKeyTypesLiteralWithoutFzf(t *testing.T) {
 // picker), rendering it compactly while expanding to the full path for the run —
 // so file chips work in bash nodes, not just text nodes.
 func TestPathChipInBashNode(t *testing.T) {
-	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "cat ", Type: database.TypeCode})
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "cat ", Type: database.TypeQuery})
 	cursorOn(m, "edit")
 	m.caret = len([]rune("cat "))
 	// the /file picker resolves its selection through this message.
