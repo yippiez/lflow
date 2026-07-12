@@ -23,8 +23,10 @@ import (
 // Two trigger rules, nothing else:
 //  1. alt+r on the node that mentions a configured agent is the manual fire —
 //     always; it starts the session or re-sends the thread as it reads now.
-//  2. a committed change to a DESCENDANT of the mention (Enter, or the cursor
-//     leaving the typed node — blurSendCheck) ships automatically.
+//  2. any local change to a DESCENDANT of a session-bound mention arms a
+//     debounce (agentThinkEvery); when it settles the agent re-reads the
+//     thread and decides whether to reply (PASS is fine). Cursor-leave and
+//     Enter do not ship on their own.
 // The mention node itself is the thread root: the session binds to it, so
 // siblings and ancestors never trigger a turn or receive replies. Context per
 // turn = the mention's parent (one ambient line, marked Parent) + the mention
@@ -224,16 +226,21 @@ type agentToolLine struct {
 	detail string
 }
 
+// agentThinkEvery is how long after a descendant edit settles before the
+// agent re-reads the thread and decides whether to reply.
+const agentThinkEvery = time.Second
+
+// agentThinkMsg fires when a debounced descendant-change timer settles.
+// gen must match Model.agentThinkGen — a newer edit supersedes older ticks.
+type agentThinkMsg struct{ gen int }
+
 // agentThread is the per-uuid turn state for the @mention agent: all keyed by
 // ONE uuid so a lifecycle event (finish/stop/stream-end) clears it together.
-// busy/cancel/tool key on the thread ROOT uuid; sent keys on the committed
-// node's uuid — they may be different nodes, but each field is independently
-// keyed, so one map still holds both.
+// busy/cancel/tool key on the thread ROOT uuid.
 type agentThread struct {
 	busy   bool          // a turn is in flight for this thread root
 	cancel func()        // cancels the in-flight turn (flash "stop"); nil when idle
 	tool   agentToolLine // the last tool call (live band under the running mention)
-	sent   bool          // this node's mention already sent this session
 }
 
 // thread returns the existing thread state for a uuid, or nil — nil-safe for
@@ -290,11 +297,9 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 		// an agent failure shows in the status bar (like thinking), not the
 		// outline — it is transient state, not a note the user wrote or wants kept
 		m.agentErr = msg.ev.Text
-		m.finishThread(msg.thread, msg.agent)
-		return m, nil
+		return m, m.finishThread(msg.thread, msg.agent)
 	case "done":
-		m.finishThread(msg.thread, msg.agent)
-		return m, nil
+		return m, m.finishThread(msg.thread, msg.agent)
 	}
 	return m, rearm
 }
@@ -612,8 +617,10 @@ func (m *Model) chipifyAgentText(text string) string {
 	})
 }
 
-// finishThread clears the busy flag and parks the thread.
-func (m *Model) finishThread(threadUUID, agent string) {
+// finishThread clears the busy flag and parks the thread. If edits landed
+// under the thread while it was busy, re-arm the debounced think so they are
+// considered once the in-flight turn is done.
+func (m *Model) finishThread(threadUUID, agent string) tea.Cmd {
 	if t := m.thread(threadUUID); t != nil {
 		t.busy = false
 		t.tool = agentToolLine{} // the live tool band is gone once the turn ends
@@ -623,6 +630,12 @@ func (m *Model) finishThread(threadUUID, agent string) {
 		}
 	}
 	m.touchThread(threadUUID, agent, "idle")
+	if m.agentRethinkUUID == "" {
+		return nil
+	}
+	it := m.tree.byUUID[m.agentRethinkUUID]
+	m.agentRethinkUUID = ""
+	return m.noteAgentChange(it)
 }
 
 // stopThread cancels an in-flight turn: killing the CLI closes the stream,
@@ -673,64 +686,68 @@ func (m *Model) touchThread(nodeUUID, agent, state string) {
 	_ = s.Upsert(m.db)
 }
 
-// mentionSendOnEnter ships an untagged node committed inside an active
-// thread for consideration (the agent answers only if it judges the node a
-// question); Enter always continues to behave normally. Starting a session
-// is deliberate: alt+r on the @mention node — Enter near a mention just
-// edits text, wherever the caret sits.
-func (m *Model) mentionSendOnEnter(cur *item) (tea.Cmd, bool) {
-	if cur == nil || cur.name == "" || cur.typ == database.TypeAgent {
-		return nil, false
+// markAgentTouch records that it was locally edited this keystroke. Update
+// drains the uuid into noteAgentChange after handleKey so edit sites only set
+// a field — no tea.Cmd plumbing through every return.
+func (m *Model) markAgentTouch(it *item) {
+	if it != nil && it.uuid != "" {
+		m.agentTouched = it.uuid
 	}
-	if t := m.thread(cur.uuid); t != nil && t.sent {
-		return nil, false // already sent — alt+r re-sends
-	}
-	if _, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
-		return nil, false // a fresh mention starts its session on alt+r only
-	}
-
-	// no mention: inside an active thread, committing still shows the node to
-	// the session — discretionary, so a plain note stays unanswered
-	if ag, ok := m.activeThreadAgent(cur); ok {
-		m.ensureThread(cur.uuid).sent = true
-		return m.sendThread(cur, ag), false
-	}
-	return nil, false
 }
 
-// blurSendCheck ships a typed-into node when the cursor leaves it: inside an
-// active thread, typing a follow-up and moving away is as deliberate as Enter.
-// Fresh @mentions are exempt — starting a conversation stays an explicit alt+r.
-// Enter. Runs after every key (see Update); cheap when the cursor sat still.
-func (m *Model) blurSendCheck() tea.Cmd {
-	uuid := ""
-	if cur := m.cursorItem(); cur != nil {
-		uuid = cur.uuid
-	}
-	if uuid == m.focusUUID {
+// noteAgentChange arms a debounced think for a changed descendant of a
+// session-bound @mention. When the timer settles the agent re-reads the
+// whole thread and decides whether to reply. The mention root itself never
+// auto-starts (alt+r only); empty and agent-typed nodes are skipped.
+//
+// >>> m.noteAgentChange(followUp)  // followUp under a session-bound @Pi
+// ... m.agentChangeUUID = followUp.uuid
+// ... m.agentThinkGen++            // e.g. 3
+// ... → tea.Tick(1s) → agentThinkMsg{gen:3}
+// >>> m.noteAgentChange(followUp)  // another keystroke 200ms later
+// ... m.agentThinkGen++            // 4; prior tick discarded on fire
+// >>> handle(agentThinkMsg{gen:4})
+// ... m.fireAgentThink() → sendThread(followUp, Pi)
+func (m *Model) noteAgentChange(it *item) tea.Cmd {
+	if it == nil || it.name == "" || it.typ == database.TypeAgent {
 		return nil
 	}
-	prevUUID := m.focusUUID
-	m.focusUUID = uuid
-	if prevUUID == "" || prevUUID != m.typedUUID {
+	// only strict descendants of a session-bound mention — never the root
+	ag, root, ok := m.activeThreadAgentAbove(it)
+	if !ok {
 		return nil
 	}
-	m.typedUUID = ""
-	prev := m.tree.byUUID[prevUUID]
-	if prev == nil || prev.name == "" || prev.typ == database.TypeAgent {
+	_ = ag
+	// a turn already in flight: remember the latest edit and re-arm on finish
+	if t := m.thread(root.uuid); t != nil && t.busy {
+		m.agentRethinkUUID = it.uuid
 		return nil
 	}
-	if t := m.thread(prevUUID); t != nil && t.sent {
-		return nil // Enter (or an earlier blur) already sent it
+	m.agentChangeUUID = it.uuid
+	m.agentThinkGen++
+	gen := m.agentThinkGen
+	return tea.Tick(agentThinkEvery, func(time.Time) tea.Msg {
+		return agentThinkMsg{gen: gen}
+	})
+}
+
+// fireAgentThink ships the debounced change if it is still a valid descendant
+// under an active session. Called only when agentThinkMsg.gen is current.
+func (m *Model) fireAgentThink() tea.Cmd {
+	uuid := m.agentChangeUUID
+	m.agentChangeUUID = ""
+	if uuid == "" {
+		return nil
 	}
-	if _, ok := m.mentionedAgent(expandAnchors(prev.name, m.chips)); ok {
-		return nil // a fresh @mention sends on alt+r only
+	it := m.tree.byUUID[uuid]
+	if it == nil || it.name == "" || it.typ == database.TypeAgent {
+		return nil
 	}
-	if ag, ok := m.activeThreadAgent(prev); ok {
-		m.ensureThread(prevUUID).sent = true
-		return m.sendThread(prev, ag)
+	ag, _, ok := m.activeThreadAgentAbove(it)
+	if !ok {
+		return nil
 	}
-	return nil
+	return m.sendThread(it, ag)
 }
 
 // activeThreadAgent finds the agent whose session covers this node — the
@@ -745,4 +762,21 @@ func (m *Model) activeThreadAgent(it *item) (tag.Agent, bool) {
 		}
 	}
 	return tag.Agent{}, false
+}
+
+// activeThreadAgentAbove is activeThreadAgent but only for STRICT descendants:
+// the session must sit on an ancestor, never on it itself. Auto-think is for
+// children of the agent chip, not re-fires of the mention line.
+func (m *Model) activeThreadAgentAbove(it *item) (tag.Agent, *item, bool) {
+	if it == nil {
+		return tag.Agent{}, nil, false
+	}
+	for p := it.parent; p != nil; p = p.parent {
+		for _, a := range m.agents {
+			if m.threadSessionAt(p, a.Name) {
+				return a, p, true
+			}
+		}
+	}
+	return tag.Agent{}, nil, false
 }

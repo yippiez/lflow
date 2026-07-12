@@ -241,9 +241,10 @@ func TestAgentToolBandStreamsThenClears(t *testing.T) {
 func TestMentionBindsItselfAndReplyNests(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
 
-	// Enter on a fresh mention just edits — alt+r is the deliberate send
-	if cmd, consumed := m.mentionSendOnEnter(n1); consumed || cmd != nil {
-		t.Fatal("Enter must not start a session; alt+r does")
+	// an edit on the mention line itself never auto-thinks — alt+r is the
+	// deliberate send (auto-think covers strict descendants only)
+	if cmd := m.noteAgentChange(n1); cmd != nil {
+		t.Fatal("editing the mention must not start a session; alt+r does")
 	}
 	cmd := startThread(t, m, n1)
 	if cmd == nil {
@@ -285,35 +286,36 @@ func TestBoardReviewAndReplyThread(t *testing.T) {
 	// itself is the channel; its children are the board
 	drain(t, m, startThread(t, m, n1))
 
-	// a plain note on the board: seen, no reply
+	// a plain note on the board: the debounced think considers it, no reply
 	note := addChild(m, n1, "note1", "retry only transient curl exits", database.TypeBullets)
-	cmd, consumed := m.mentionSendOnEnter(note)
-	if consumed || cmd == nil {
-		t.Fatal("a note in the channel is considered without consuming Enter")
+	if tick := m.noteAgentChange(note); tick == nil {
+		t.Fatal("a note in the channel must arm the think debounce")
 	}
 	before := len(n1.children)
-	drain(t, m, cmd)
+	drain(t, m, m.fireAgentThink())
 	if len(n1.children) != before || len(note.children) != 0 {
 		t.Fatal("a plain note must not earn a reply")
 	}
 
 	// committed CODE earns an unprompted review comment, nested ON the code
 	sh := addChild(m, n1, "sh1", "./retry.sh upload 3", database.TypeBash)
-	cmd, _ = m.mentionSendOnEnter(sh)
-	drain(t, m, cmd)
+	if tick := m.noteAgentChange(sh); tick == nil {
+		t.Fatal("committed code must arm the think debounce")
+	}
+	drain(t, m, m.fireAgentThink())
 	if len(sh.children) != 1 || sh.children[0].typ != database.TypeAgent {
 		t.Fatalf("want a review comment as the code node's thread, got %+v", sh.children)
 	}
 	review := sh.children[0]
 
 	// continuing the conversation INSIDE the review's thread: my reply gets
-	// the agent's answer below it, still inside the thread
+	// the agent's answer below it, still inside the thread — a reply node is
+	// born priority down, so its sub-thread reads top-down chronological
 	r1 := addChild(m, review, "r1", "good catch - cap it at how many attempts?", database.TypeBullets)
-	cmd, consumed = m.mentionSendOnEnter(r1)
-	if consumed || cmd == nil {
-		t.Fatal("a thread reply is considered without consuming Enter")
+	if tick := m.noteAgentChange(r1); tick == nil {
+		t.Fatal("a thread reply must arm the think debounce")
 	}
-	drain(t, m, cmd)
+	drain(t, m, m.fireAgentThink())
 	if len(review.children) != 2 {
 		t.Fatalf("want [my reply, agent answer] in the thread, got %d", len(review.children))
 	}
@@ -325,12 +327,12 @@ func TestBoardReviewAndReplyThread(t *testing.T) {
 	// a SIBLING of the mention (the old parent-bound scope) reaches no agent —
 	// only the mention's own descendants are in-thread
 	sib := addChild(m, disc, "sib1", "is this watched?", database.TypeBullets)
-	if cmd, _ := m.mentionSendOnEnter(sib); cmd != nil {
+	if cmd := m.noteAgentChange(sib); cmd != nil {
 		t.Fatal("the mention's siblings must never reach an agent")
 	}
 	// and a node in a different tree entirely stays silent too
 	out := addChild(m, m.tree.root, "out1", "is this watched?", database.TypeBullets)
-	if cmd, _ := m.mentionSendOnEnter(out); cmd != nil {
+	if cmd := m.noteAgentChange(out); cmd != nil {
 		t.Fatal("nodes outside the thread must never reach an agent")
 	}
 }
@@ -505,44 +507,45 @@ func TestAgentAttachmentImageFromFile(t *testing.T) {
 	}
 }
 
-// TestBlurSendsTypedFollowUp: typing inside an active thread and moving the
-// cursor away sends the node — alt+r stays required only for fresh @mentions.
-func TestBlurSendsTypedFollowUp(t *testing.T) {
+// TestDebouncedThinkOnFollowUp: typing inside an active thread arms the
+// debounced think; the settled tick sends, a newer edit supersedes an armed
+// one, and nodes outside the thread never arm.
+func TestDebouncedThinkOnFollowUp(t *testing.T) {
 	m, disc, n1 := newAgentTestModel(t)
 	drain(t, m, startThread(t, m, n1)) // bind the session to the mention (alt+r)
 
 	f := addChild(m, n1, "f1", "how many retries then?", database.TypeBullets)
 	m.refreshRows()
-	m.focusUUID, m.typedUUID = f.uuid, f.uuid
-	m.cursor = m.rowIndexOf(n1) // the cursor left the typed follow-up
-	if cmd := m.blurSendCheck(); cmd == nil {
-		t.Fatal("leaving a typed follow-up inside a thread must send it")
+	m.markAgentTouch(f)
+	if m.agentTouched != f.uuid {
+		t.Fatal("an edit must record the touched node for Update to drain")
 	}
-	if th := m.thread(f.uuid); th == nil || !th.sent {
-		t.Fatal("blur send must mark the node sent")
+	m.agentTouched = ""
+	if tick := m.noteAgentChange(f); tick == nil {
+		t.Fatal("a typed follow-up inside a thread must arm the think debounce")
+	}
+	gen := m.agentThinkGen
+
+	// a newer edit supersedes the armed tick — only the latest gen fires
+	if tick := m.noteAgentChange(f); tick == nil || m.agentThinkGen != gen+1 {
+		t.Fatal("a newer edit must re-arm with a fresh generation")
 	}
 
-	// a second blur never resends
-	m.focusUUID, m.typedUUID = f.uuid, f.uuid
-	if cmd := m.blurSendCheck(); cmd != nil {
-		t.Fatal("an already-sent node must not resend on blur")
+	// the settled debounce sends the thread
+	if cmd := m.fireAgentThink(); cmd == nil {
+		t.Fatal("the settled debounce must send the follow-up")
 	}
-
-	// a fresh @mention keeps alt+r as the deliberate send
-	g := addChild(m, n1, "g1", "@Pi a new question", database.TypeBullets)
-	m.refreshRows()
-	m.focusUUID, m.typedUUID = g.uuid, g.uuid
-	if cmd := m.blurSendCheck(); cmd != nil {
-		t.Fatal("a fresh mention must not blur-send")
+	// and the change slot is consumed — a stray fire sends nothing
+	if cmd := m.fireAgentThink(); cmd != nil {
+		t.Fatal("a consumed change must not resend")
 	}
 
 	// a node typed OUTSIDE the mention's subtree stays silent — the mention's
 	// sibling (under the old parent-bound scope) included
 	o := addChild(m, disc, "o1", "plain note", database.TypeBullets)
 	m.refreshRows()
-	m.focusUUID, m.typedUUID = o.uuid, o.uuid
-	if cmd := m.blurSendCheck(); cmd != nil {
-		t.Fatal("nodes outside the mention's subtree must not blur-send")
+	if cmd := m.noteAgentChange(o); cmd != nil {
+		t.Fatal("nodes outside the mention's subtree must not arm the debounce")
 	}
 }
 

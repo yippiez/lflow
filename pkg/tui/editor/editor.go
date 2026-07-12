@@ -227,10 +227,10 @@ type Model struct {
 
 	// @mention agent sessions (see agent.go and pkg/tui/tag): configured agents
 	// and one client per agent (tagClients is keyed by agent NAME, a different
-	// keyspace). Per-thread turn state (busy flag, cancel, live tool band, and
-	// whether a node's mention already sent this session) lives in ONE
-	// agentThread per uuid so a lifecycle event drops it all at once — see
-	// thread/ensureThread. (alt+r starts/re-sends; Enter never starts a session.)
+	// keyspace). Per-thread turn state (busy flag, cancel, live tool band) lives
+	// in ONE agentThread per uuid so a lifecycle event drops it all at once —
+	// see thread/ensureThread. (alt+r starts/re-sends; descendant edits arm a
+	// debounced think — see noteAgentChange.)
 	agents     []tag.Agent
 	tagClients map[string]tag.Client
 	threads    map[string]*agentThread
@@ -238,11 +238,14 @@ type Model struct {
 	// turn error) — shown in the status bar as "Error: …" like the thinking
 	// indicator, cleared when the next turn is fired. Never lands in the outline.
 	agentErr string
-	// blur-send state (see blurSendCheck): the item the cursor sat on at the
-	// last key, and the item last typed into — leaving a typed node inside an
-	// active thread ships it without waiting for Enter
-	focusUUID string
-	typedUUID string
+	// debounced auto-think (see noteAgentChange): agentTouched is set by edit
+	// sites this keystroke and drained in Update; agentChangeUUID is the latest
+	// descendant under a session-bound mention; agentThinkGen discards stale
+	// ticks; agentRethinkUUID holds an edit that landed while a turn was busy.
+	agentTouched     string
+	agentChangeUUID  string
+	agentThinkGen    int
+	agentRethinkUUID string
 
 	// Workflowy mirror (see wf.go and pkg/tui/wf): node uuid → workflowy id for
 	// every pulled node, busy flags per pull root, and the API client (lazy;
@@ -652,11 +655,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		_, cmd := m.handleKey(msg)
-		// the key may have moved the cursor off a typed follow-up inside an
-		// active agent thread — leaving the node sends it (Enter still owns
-		// fresh @mentions)
-		if bc := m.blurSendCheck(); bc != nil {
-			cmd = tea.Batch(cmd, bc)
+		// a local edit may have touched a descendant of a session-bound
+		// @mention — arm the debounced agent think (cursor-leave does not ship)
+		if m.agentTouched != "" {
+			it := m.tree.byUUID[m.agentTouched]
+			m.agentTouched = ""
+			if ac := m.noteAgentChange(it); ac != nil {
+				cmd = tea.Batch(cmd, ac)
+			}
 		}
 		// live sync: arm the debounced flush for fresh edits, and fold in any
 		// external events that queued while a modal surface was open
@@ -667,6 +673,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a keyword may have just been typed (or scrolled into view) — kick the
 		// animation tick if it isn't already running.
 		return m, m.startAnim(cmd)
+	case agentThinkMsg:
+		// a newer edit supersedes older ticks — only the latest gen fires
+		if msg.gen != m.agentThinkGen {
+			return m, nil
+		}
+		return m, m.fireAgentThink()
 	case daemonEvMsg:
 		m.handleDaemonEv(msg.ev)
 		return m, waitDaemonEv(m.liveFeed)

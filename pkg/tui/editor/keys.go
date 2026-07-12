@@ -148,14 +148,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// commit a #tag or date token under the caret into a chip before splitting
 		if cur != nil {
 			m.chipifyBeforeCaret(cur)
-		}
-		// an untagged commit inside an active thread ships for consideration
-		// (agentCmd) while Enter carries on normally. A fresh @mention does
-		// NOT send here — alt+r starts the session deliberately, so Enter at
-		// the end of (or anywhere in) a mention just edits text.
-		agentCmd, consumed := m.mentionSendOnEnter(cur)
-		if consumed {
-			return m, agentCmd
+			// a committed line under a session-bound mention is a child change —
+			// arm the debounced think (Enter itself does not ship)
+			m.markAgentTouch(cur)
 		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
@@ -174,7 +169,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshRows()
 			m.cursor = m.findRow(it, mc.ctx)
 			m.caret = 0
-			return m, agentCmd
+			return m, nil
 		}
 		var it *item
 		var err error
@@ -220,7 +215,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = m.findRow(it, mc.ctx)
 			m.caret = 0
 		}
-		return m, agentCmd
+		return m, nil
 	case "tab":
 		// path chips are inserted via the /file fuzzy picker, and "#" is for tags,
 		// so Tab is free to just indent. The Temporary Domain edits exactly like the
@@ -309,6 +304,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret = sp.start
 			m.markCmdDraft(cur)
 			m.unsaved = true
+			m.markAgentTouch(cur)
 			return m, nil
 		}
 		target := prevWordBoundary(runes, m.caret)
@@ -326,6 +322,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.caret = target
 		m.markCmdDraft(cur)
 		m.unsaved = true
+		m.markAgentTouch(cur)
 		return m, nil
 	case "ctrl+t":
 		// convert a time phrase under the cursor to canonical date text (the renderer
@@ -690,6 +687,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.caret = sp.start
 				m.markCmdDraft(cur)
 				m.unsaved = true
+				m.markAgentTouch(cur)
 				return m, nil
 			}
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
@@ -698,6 +696,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret--
 			m.markCmdDraft(cur)
 			m.unsaved = true
+			m.markAgentTouch(cur)
 			return m, nil
 		}
 		// backspace on an empty non-bullet node demotes its type to a plain bullet
@@ -875,7 +874,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(ins) > 0 {
 			shiftSpans(cur.uuid, m.caret, len(ins)) // painted runs ride along
 			m.persistSpans(cur.uuid)
-			m.typedUUID = cur.uuid // blur-send candidate (see blurSendCheck)
+			m.markAgentTouch(cur) // descendant edit → debounced agent think
 		}
 		m.caret += len(ins)
 		m.markCmdDraft(cur)
