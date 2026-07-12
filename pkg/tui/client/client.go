@@ -1,7 +1,9 @@
 package client
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -181,6 +183,66 @@ func (c *Client) Shutdown() {
 		_, _ = nc.call(wire.Req{Op: wire.OpShutdown})
 		nc.Close()
 	}
+}
+
+// Deps asks the daemon which CLI binaries it can exec. Availability is
+// judged where execution happens — on the daemon — never in the client.
+func (c *Client) Deps(bins []string) (map[string]bool, error) {
+	nc, err := c.dialHealing()
+	if err != nil {
+		return nil, err
+	}
+	defer nc.Close()
+	resp, err := nc.call(wire.Req{Op: wire.OpDeps, Bins: bins})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Bins, nil
+}
+
+// AgentTurn runs one agent turn ON the daemon over a dedicated connection and
+// streams its frames. Cancelling ctx closes the conn, which kills the CLI on
+// the daemon's side; the channel closes after the Done frame (or conn loss).
+// A refused turn (Unknown agent, Missing dependency) errors here, before any
+// streaming starts.
+func (c *Client) AgentTurn(ctx context.Context, agentName string, thread json.RawMessage, cwd, skillDir string) (<-chan wire.AgentEv, error) {
+	nc, err := c.dialHealing()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := nc.call(wire.Req{Op: wire.OpAgent, Agent: agentName, Thread: thread, Cwd: cwd, SkillDir: skillDir}); err != nil {
+		nc.Close()
+		return nil, err
+	}
+
+	ch := make(chan wire.AgentEv, 64)
+	readerDone := make(chan struct{})
+	go func() { // cancel → close the conn → the daemon's read loop cancels the CLI
+		select {
+		case <-ctx.Done():
+			nc.Close()
+		case <-readerDone:
+		}
+	}()
+	go func() {
+		defer close(ch)
+		defer close(readerDone)
+		defer nc.Close()
+		for {
+			var msg wire.Msg
+			if err := nc.dec.Decode(&msg); err != nil {
+				return
+			}
+			if msg.Agent == nil {
+				continue
+			}
+			if msg.Agent.Done {
+				return
+			}
+			ch <- *msg.Agent
+		}
+	}()
+	return ch, nil
 }
 
 // Subscribe opens the live change feed. The channel closes when the daemon

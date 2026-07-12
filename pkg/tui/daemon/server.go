@@ -222,6 +222,23 @@ func (sv *server) session(conn net.Conn) {
 			sv.push(conn, dec, enc)
 			return
 
+		case wire.OpDeps:
+			// dependency truth lives on the daemon: the process that would exec
+			// a CLI is the one that says whether it can
+			resp.Bins = probeBins(req.Bins)
+
+		case wire.OpAgent:
+			cl, thread, err := prepAgent(req)
+			if err != nil {
+				setErr(&resp, err)
+				break // failed turns ack the error; the conn stays a request conn
+			}
+			if err := enc.Encode(wire.Msg{Resp: &resp}); err != nil {
+				return
+			}
+			sv.agentTurn(conn, dec, enc, sess, req, cl, thread)
+			return
+
 		case wire.OpShutdown:
 			_ = enc.Encode(wire.Msg{Resp: &resp})
 			sv.logf("→ shutdown · asked by %q", sess.name)

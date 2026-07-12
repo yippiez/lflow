@@ -241,6 +241,10 @@ type Model struct {
 	agents     []tag.Agent
 	tagClients map[string]tag.Client
 	threads    map[string]*agentThread
+	// deps is the daemon-probed CLI availability map (NodeCLIDeps, see
+	// deps.go): bin → available. nil = never probed → everything counts
+	// available and failures surface at run time.
+	deps map[string]bool
 	// agentErr is the last agent failure (backend missing, unknown @name, or a
 	// turn error) — shown in the status bar as "Error: …" like the thinking
 	// indicator, cleared when the next turn is fired. Never lands in the outline.
@@ -1710,6 +1714,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	m.hydrateCmdPreviews() // rebuild → chrome from local node_output (chip label is never stored)
 	m.startFeed() // subscribe to external changes; Init retries if it failed
 	m.loadSettings() // apply persisted preferences (theme, …) before the first render
+	m.loadDeps()     // NodeCLIDeps: which CLI backends the daemon can exec
 	m.refreshAncestors()
 	m.refreshRows()
 	m.ensureTempTree()    // the panel is always visible, so it must always have >=1 node

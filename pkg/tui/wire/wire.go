@@ -7,6 +7,7 @@ package wire
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -24,6 +25,8 @@ const (
 	OpRollback  = "rollback"  // roll back the open transaction
 	OpSubscribe = "subscribe" // switch this connection to event-push mode
 	OpShutdown  = "shutdown"  // ask the daemon to exit (version respawn)
+	OpDeps      = "deps"      // report which CLI binaries the daemon can exec
+	OpAgent     = "agent"     // run one agent turn; this conn streams AgentEv frames until done
 )
 
 // Req is a client request.
@@ -37,17 +40,40 @@ type Req struct {
 	Name     string `json:"name,omitempty"`     // human label: editor, cli, serve
 	Instance string `json:"instance,omitempty"` // per-process id for echo suppression
 	Version  string `json:"version,omitempty"`
+
+	// deps fields
+	Bins []string `json:"bins,omitempty"` // binaries to probe with LookPath
+
+	// agent fields: the turn runs ON THE DAEMON (the client is only a client).
+	// Thread is the rendered []tag.ThreadNode as raw JSON so wire stays free of
+	// higher-level imports; Cwd/SkillDir carry the client's environment choices.
+	Agent    string          `json:"agent,omitempty"`
+	Thread   json.RawMessage `json:"thread,omitempty"`
+	Cwd      string          `json:"cwd,omitempty"`
+	SkillDir string          `json:"skillDir,omitempty"`
 }
 
 // Resp is the daemon's reply to a Req with the same ID.
 type Resp struct {
-	ID       int64    `json:"id"`
-	Err      string   `json:"err,omitempty"`
-	Cols     []string `json:"cols,omitempty"`
-	Rows     [][]any  `json:"rows,omitempty"` // encoded values
-	Affected int64    `json:"affected,omitempty"`
-	LastID   int64    `json:"lastId,omitempty"`
-	Version  string   `json:"version,omitempty"` // hello reply
+	ID       int64           `json:"id"`
+	Err      string          `json:"err,omitempty"`
+	Cols     []string        `json:"cols,omitempty"`
+	Rows     [][]any         `json:"rows,omitempty"` // encoded values
+	Affected int64           `json:"affected,omitempty"`
+	LastID   int64           `json:"lastId,omitempty"`
+	Version  string          `json:"version,omitempty"` // hello reply
+	Bins     map[string]bool `json:"bins,omitempty"`    // deps reply
+}
+
+// AgentEv is one streamed agent-turn frame (mirrors tag.Event so wire needs
+// no tag import). Done marks the stream's end — the conn goes back to being
+// closable; op done/error frames precede it.
+type AgentEv struct {
+	Op        string `json:"op"`
+	Text      string `json:"text,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+	Placement string `json:"placement,omitempty"`
+	Done      bool   `json:"done,omitempty"`
 }
 
 // Event is one committed change, fanned out to every subscriber. Nodes carry
@@ -64,10 +90,11 @@ type Event struct {
 	Resync   bool            `json:"resync,omitempty"`
 }
 
-// Msg is the top-level frame: exactly one of Resp or Event.
+// Msg is the top-level frame: exactly one of Resp, Event or Agent.
 type Msg struct {
-	Resp  *Resp  `json:"resp,omitempty"`
-	Event *Event `json:"event,omitempty"`
+	Resp  *Resp    `json:"resp,omitempty"`
+	Event *Event   `json:"event,omitempty"`
+	Agent *AgentEv `json:"agent,omitempty"`
 }
 
 // AuxTables are the render-support tables whose changes flag Event.Aux.

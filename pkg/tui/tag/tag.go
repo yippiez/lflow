@@ -107,9 +107,19 @@ func ClientFor(a Agent) (Client, error) {
 		return nil, err
 	}
 	if !agent.Available(prov) {
-		return nil, fmt.Errorf("%s is not installed", a.Name)
+		return nil, fmt.Errorf("Missing dependency: %s", prov)
 	}
 	return &CLIClient{Provider: prov}, nil
+}
+
+// DepFor maps a built-in agent name to the CLI binary it needs — the entry
+// dep-availability checks (daemon deps op, picker greying) key on.
+func DepFor(name string) (string, bool) {
+	prov, err := providerFor(name)
+	if err != nil {
+		return "", false
+	}
+	return string(prov), true
 }
 
 // providerFor maps a built-in agent to its CLI backend. Only the implemented

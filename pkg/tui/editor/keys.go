@@ -502,6 +502,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.sendThread(cur, ag)
 			}
 			if run := typeOf(cur.typ).run; run != nil {
+				if bin, missing := m.typeDepMissing(cur.typ); missing {
+					m.flash = "Missing dependency: " + bin
+					return m, nil
+				}
 				return m, run(m, cur)
 			}
 			// any pulled Workflowy mirror refreshes its own branch — the

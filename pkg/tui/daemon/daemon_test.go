@@ -1,13 +1,17 @@
 package daemon_test
 
 import (
+	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lflow/lflow/pkg/tui/client"
 	"github.com/lflow/lflow/pkg/tui/daemon"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/utils/dirs"
 )
 
 // startDaemon serves a fresh DB in a temp dir and returns its paths.
@@ -215,5 +219,91 @@ func TestConcurrentClients(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("count = %d, want 2", count)
+	}
+}
+
+// TestDepsOp: the daemon reports CLI availability — the execution side is the
+// judge (NodeCLIDeps).
+func TestDepsOp(t *testing.T) {
+	dbPath, _ := startDaemon(t)
+	c, err := client.Ensure(dbPath, "deps", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	bins, err := c.Deps([]string{"sh", "definitely-not-a-real-binary-xyz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bins["sh"] {
+		t.Fatal("sh must be available")
+	}
+	if bins["definitely-not-a-real-binary-xyz"] {
+		t.Fatal("a nonsense binary must be unavailable")
+	}
+}
+
+// TestAgentTurnRefused: an unknown agent (and by the same path a missing
+// backend) errors in the request ack, before any streaming starts.
+func TestAgentTurnRefused(t *testing.T) {
+	dbPath, _ := startDaemon(t)
+	c, err := client.Ensure(dbPath, "agent", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.AgentTurn(context.Background(), "Nobody", []byte(`[]`), "", "")
+	if err == nil || !strings.Contains(err.Error(), "Unknown agent") {
+		t.Fatalf("want Unknown agent error, got %v", err)
+	}
+}
+
+// TestAgentTurnE2E: a full daemon-side turn — the client ships a thread, the
+// daemon runs the (mock) agent and streams the reply frames back.
+func TestAgentTurnE2E(t *testing.T) {
+	cfg := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfg, "lflow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "lflow", "agents.json"),
+		[]byte(`[{"name":"Pi","mock":true}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := dirs.ConfigHome
+	dirs.ConfigHome = cfg
+	t.Cleanup(func() { dirs.ConfigHome = old })
+
+	dbPath, _ := startDaemon(t)
+	c, err := client.Ensure(dbPath, "agent-e2e", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	thread := []byte(`[{"uuid":"n1","depth":0,"name":"@Pi how do i make importer retries safe?","type":"bullets","role":"user","asked":true}]`)
+	ch, err := c.AgentTurn(context.Background(), "Pi", thread, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawMessage, sawDone bool
+	deadline := time.After(5 * time.Second)
+	for !sawDone {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				sawDone = true
+				break
+			}
+			if ev.Op == "message" && ev.Text != "" {
+				sawMessage = true
+			}
+		case <-deadline:
+			t.Fatal("turn did not finish")
+		}
+	}
+	if !sawMessage {
+		t.Fatal("the mock turn must stream a reply message")
 	}
 }

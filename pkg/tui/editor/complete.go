@@ -145,6 +145,13 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) {
 		if chosen.value == "" {
 			return // leave the typed text as-is
 		}
+		// a dep-missing agent refuses the mention with the run-time error
+		if a, ok := m.agentByName(chosen.value); ok {
+			if bin, missing := m.agentDepMissing(a); missing {
+				m.flash = "Missing dependency: " + bin
+				return
+			}
+		}
 		// a mention lands as an agent chip — the structured red @Name token that
 		// binds the node to its agent; alt+r later starts the thread (agent.go)
 		anchor := m.createChip(chipKindAgent, chosen.value)

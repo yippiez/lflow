@@ -222,9 +222,18 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	if m.tagClients == nil {
 		m.tagClients = map[string]tag.Client{}
 	}
+	// NodeCLIDeps gate: a missing backend fails fast with the same error the
+	// daemon would return, before any conn or process is attempted
+	if bin, missing := m.agentDepMissing(ag); missing {
+		m.agentErr = "Missing dependency: " + bin
+		return nil
+	}
 	client, ok := m.tagClients[ag.Name]
 	if !ok {
-		c, err := tag.ClientFor(ag)
+		// the turn runs on the daemon when one is connected — the editor is
+		// only a client; mock/websocket agents and daemon-less runs keep their
+		// own transport (see tagClientFor)
+		c, err := m.tagClientFor(ag)
 		if err != nil {
 			m.agentErr = err.Error() // no backend for @Name — surfaced in the bar
 			return nil

@@ -114,7 +114,16 @@ type typeSource struct{}
 func (typeSource) items(m *Model, q string) []pickerItem {
 	var out []pickerItem
 	for _, t := range m.filteredTypes(q) {
-		out = append(out, pickerItem{label: typeLabel(t), value: t})
+		it := pickerItem{label: typeLabel(t), value: t}
+		// a type whose CLI dependency is missing stays listed but disabled:
+		// greyed out here, refused with "Missing dependency" on select
+		if bin, missing := m.typeDepMissing(t); missing {
+			label := it.label
+			it.render = func(bool) string {
+				return cDim + label + " · missing " + bin + cReset
+			}
+		}
+		out = append(out, it)
 	}
 	return out
 }
@@ -143,6 +152,12 @@ func (s typeSource) initialSel(m *Model) int {
 }
 
 func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
+	// a disabled (dep-missing) type refuses the pick with the run-time error
+	if bin, missing := m.typeDepMissing(it.value); it.value != "" && missing {
+		m.mode = modeOutline
+		m.flash = "Missing dependency: " + bin
+		return m, nil
+	}
 	if it.value != "" {
 		targets := m.selectedItems() // multi-select: retype the whole range
 		if len(targets) == 0 {
@@ -324,7 +339,20 @@ type completerSource struct{}
 func (completerSource) items(m *Model, q string) []pickerItem {
 	var out []pickerItem
 	for _, it := range m.complItems(q) {
-		out = append(out, pickerItem{label: it.label, value: it.value, desc: it.desc})
+		pi := pickerItem{label: it.label, value: it.value, desc: it.desc}
+		// an agent whose CLI backend is missing stays listed but disabled:
+		// greyed here, refused with "Missing dependency" on pick
+		if m.compl.kind == complAgent {
+			if a, ok := m.agentByName(it.value); ok {
+				if bin, missing := m.agentDepMissing(a); missing {
+					label := pi.label
+					pi.render = func(bool) string {
+						return cDim + label + " · missing " + bin + cReset
+					}
+				}
+			}
+		}
+		out = append(out, pi)
 	}
 	return out
 }

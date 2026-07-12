@@ -14,8 +14,12 @@ import (
 // outline is the only conversation state, so edits to past nodes are always
 // honored. Provider is the agent's hardcoded backend (pi or grok), set by
 // ClientFor — there is no cross-backend fallback: @Grok runs grok or nothing.
+// Cwd/SkillDir, when set, override the process globals — the daemon runs
+// turns on a client's behalf and passes the client's environment through.
 type CLIClient struct {
 	Provider agent.Provider
+	Cwd      string
+	SkillDir string
 }
 
 // skillDir is the materialized lflow pi skill (see pi-tag at the repo root);
@@ -24,6 +28,10 @@ var skillDir string
 
 // SetSkillDir records the lflow skill path for pi turns.
 func SetSkillDir(dir string) { skillDir = dir }
+
+// SkillDir returns the recorded lflow skill path — the editor forwards it to
+// the daemon with each turn so a daemon-side run uses the same skill.
+func SkillDir() string { return skillDir }
 
 // cliSystemPrompt frames the agent as the note-app assistant: plain concise
 // replies, and how to speak in chips (the inline structured tokens lflow
@@ -118,13 +126,17 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 		NoSession:    true, // launch-and-forget: the thread IS the memory
 		SystemPrompt: cliSystemPrompt(agentName),
 	}
-	// pin the agent process to the editor process cwd at send time — same
-	// "pwd where run" rule as $ chips (startBash). Empty → inherit.
-	if pwd, err := os.Getwd(); err == nil && pwd != "" {
-		opts.Cwd = pwd
+	// pin the agent process to the caller's cwd at send time — same "pwd where
+	// run" rule as $ chips (startBash). A daemon-side run carries the CLIENT's
+	// cwd in c.Cwd; a local run falls back to this process's. Empty → inherit.
+	opts.Cwd = c.Cwd
+	if opts.Cwd == "" {
+		if pwd, err := os.Getwd(); err == nil {
+			opts.Cwd = pwd
+		}
 	}
-	if skillDir != "" {
-		opts.Skills = []string{skillDir} // the lflow skill: CLI + chips
+	if sd := firstNonEmpty(c.SkillDir, skillDir); sd != "" {
+		opts.Skills = []string{sd} // the lflow skill: CLI + chips
 	}
 	// No in-app model picker: each provider carries a baked-in default (see
 	// agent.ProviderDefault). c.Provider is the agent's hardcoded backend

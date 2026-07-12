@@ -36,6 +36,11 @@ type nodeType struct {
 	// generic "run"/"expand"). See flashActionsFor. jump and fold stay universal.
 	flashActions func(m *Model, it *item) []flashAction
 
+	// cliDeps lists the CLI binaries the type shells out to (NodeCLIDeps).
+	// Availability is judged by the daemon (execution side); a missing dep
+	// greys the type in /type and alt+r errors "Missing dependency: <bin>".
+	cliDeps []string
+
 	// bands hangs extra band lines beneath the node in the outline flow (like the
 	// note / run-output bands), e.g. the image thumbnail. Called from both render
 	// paths (viewRenderRows and finalView) so a banded type declares it once here
@@ -178,6 +183,7 @@ var nodeTypes = []nodeType{
 		run:          runVoice,
 		expand:       playVoice,
 		flashActions: voiceFlashActions, // name them: "record" (toggle) and "play"
+		cliDeps:      []string{"ffmpeg"},
 		toContext:    xmlTag("voice"),
 	},
 	{
