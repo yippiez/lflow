@@ -67,6 +67,25 @@ func cliSystemPrompt(name string) string {
 		"  #tags and YYYY-MM-DD dates become chips automatically — write them plainly.\n" +
 		"Never wrap a chip token in quotes or backticks.\n" +
 		"\n" +
+		"Attachments: special nodes hang as children under your reply comment — " +
+		"not conversation bullets. Use them for code, images, json, quotes, logs, " +
+		"runnable shell, and other typed content. Inline form (body must not " +
+		"contain `}` — use the block form when it does):\n" +
+		"  {{attach:bash|go test ./...}}\n" +
+		"  {{attach:image|caption}} or {{attach:image|/abs/path.png|caption}}\n" +
+		"  {{attach:quote|ship when green}}\n" +
+		"Block form for multi-line or braced bodies:\n" +
+		"  {{attach:code}}\n" +
+		"  package main\n" +
+		"  func main() {}\n" +
+		"  {{/attach}}\n" +
+		"  {{attach:json}}\n" +
+		"  {\"env\": \"prod\"}\n" +
+		"  {{/attach}}\n" +
+		"Types: code, image, bash (lands as a runnable $ chip child), json, quote, " +
+		"log, todo, h1–h3, query, or any other node type key. Keep the comment " +
+		"short; put the payload in attachments.\n" +
+		"\n" +
 		"Not every turn needs an answer. When the <asked> node does not mention " +
 		"@you, the user may still be mid-thought — writing a multi-part answer to " +
 		"your question, or notes that need no reply. If the node is clearly " +

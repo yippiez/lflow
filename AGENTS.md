@@ -108,8 +108,10 @@ auto-run) and their output is ephemeral — never persisted or synced.
   is discarded, so replies read like chat messages, not work reports. Replies may speak chips:
   `{{cmd:…}}` / `{{path:…}}` / `{{link:label|url}}` / `{{tag:…}}` / `{{date:…}}`
   tokens land as real chips (`{{cmd:…}}` is the runnable yellow $ chip); plain
-  #tags and dates auto-convert. The pi system prompt (`pkg/tui/tag/pi.go`)
-  teaches the tokens. Agents are launch-and-forget:
+  #tags and dates auto-convert. Attachments hang as typed children under the
+  reply via `{{attach:type|body}}` or a `{{attach:type}}…{{/attach}}` block
+  (code, image, bash-as-cmd, json, quote, … — not conversation bullets). The
+  pi system prompt (`pkg/tui/tag/pi.go`) teaches the tokens. Agents are launch-and-forget:
   every turn is a fresh CLI run (pi --no-session, or the grok CLI when the
   model pref reads `grok:…`) fed the whole thread as it reads now — no remote
   session to drift from edited nodes. `agent_sessions` holds only the LOCAL

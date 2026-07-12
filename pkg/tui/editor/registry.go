@@ -156,6 +156,8 @@ var nodeTypes = []nodeType{
 		toContext: xmlTag("workflowy"),
 	},
 	// an agent reply (see agent.go): red ✦, body red, plain text + chips.
+	// Typed attachments (code, image, bash-as-cmd, json, …) hang as locked
+	// children — spoken via {{attach:…}} tokens, not conversation bullets.
 	// Internal — the /type picker never offers it, only the agent creates one —
 	// and born locked so a reply can't change under the thread; /lock unlocks
 	// it for reshaping like any other node. Search-hidden: replies are answers

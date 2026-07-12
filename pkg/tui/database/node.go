@@ -27,7 +27,7 @@ const (
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
-	TypeAgent   = "agent" // an agent-authored reply node: red ✦, text + chips only
+	TypeAgent   = "agent" // an agent-authored reply: red ✦, text + chips; typed attachments as children
 	TypeWF      = "wf"    // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
 )
 

@@ -1,6 +1,9 @@
 package editor
 
 import (
+	"image"
+	"image/png"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -371,6 +374,134 @@ func TestAgentReplyChips(t *testing.T) {
 	lit := n1.children[1]
 	if hasAnchor(lit.name) || lit.name != "see {{frob:x}} for details" {
 		t.Fatalf("unknown token must stay literal, got %q", lit.name)
+	}
+}
+
+// TestAgentReplyAttachments peels {{attach:…}} tokens into typed locked
+// children under the agent comment — special nodes, not conversation bullets.
+func TestAgentReplyAttachments(t *testing.T) {
+	m, _, n1 := newAgentTestModel(t)
+	// comment + inline bash + block code + image caption + free-type quote
+	text := "here is the fix\n" +
+		"{{attach:bash|go test ./pkg/tui/editor}}\n" +
+		"{{attach:code}}\n" +
+		"package main\n" +
+		"func main() {}\n" +
+		"{{/attach}}\n" +
+		"{{attach:image|architecture sketch}}\n" +
+		"{{attach:quote|ship when green}}"
+	m.placeAgentNode("disc", "n1", text, "thread")
+
+	if len(n1.children) != 1 {
+		t.Fatalf("want one reply, got %d", len(n1.children))
+	}
+	reply := n1.children[0]
+	if reply.typ != database.TypeAgent || reply.name != "here is the fix" {
+		t.Fatalf("reply comment = type %q name %q", reply.typ, reply.name)
+	}
+	if !reply.readonly {
+		t.Fatal("reply must be locked")
+	}
+	if len(reply.children) != 4 {
+		t.Fatalf("want 4 attachments, got %d", len(reply.children))
+	}
+
+	// bash → bullets + single cmd chip
+	bash := reply.children[0]
+	if bash.typ != database.TypeBullets || !bash.readonly {
+		t.Fatalf("bash attach: type=%q readonly=%v", bash.typ, bash.readonly)
+	}
+	spans := anchorSpans([]rune(bash.name))
+	if len(spans) != 1 {
+		t.Fatalf("bash attach should be one cmd chip, got %d in %q", len(spans), bash.name)
+	}
+	if c := m.chips[spans[0].id]; c.Kind != chipKindCmd || c.Value != "go test ./pkg/tui/editor" {
+		t.Fatalf("bash cmd chip = %+v", c)
+	}
+
+	// code block keeps multi-line body and braces
+	code := reply.children[1]
+	if code.typ != database.TypeCode {
+		t.Fatalf("code type = %q", code.typ)
+	}
+	if code.name != "package main\nfunc main() {}" {
+		t.Fatalf("code body = %q", code.name)
+	}
+
+	// image: caption only
+	img := reply.children[2]
+	if img.typ != database.TypeImage || img.name != "architecture sketch" {
+		t.Fatalf("image attach = type %q name %q", img.typ, img.name)
+	}
+
+	// free-string type (quote)
+	q := reply.children[3]
+	if q.typ != database.TypeQuote || q.name != "ship when green" {
+		t.Fatalf("quote attach = type %q name %q", q.typ, q.name)
+	}
+}
+
+// TestPeelAgentAttachments covers peel order (block before inline), soft \n
+// escapes, and blank-line collapse after tokens are removed.
+func TestPeelAgentAttachments(t *testing.T) {
+	comment, atts := peelAgentAttachments(
+		"intro\n\n{{attach:code}}\nfunc f() {}\n{{/attach}}\n\n" +
+			"mid {{attach:bash|echo hi}} end\n" +
+			"{{attach:quote|line one\\nline two}}",
+	)
+	if comment != "intro\n\nmid  end" {
+		t.Fatalf("comment = %q", comment)
+	}
+	if len(atts) != 3 {
+		t.Fatalf("atts = %+v", atts)
+	}
+	if atts[0].typ != "code" || atts[0].body != "func f() {}" {
+		t.Fatalf("code = %+v", atts[0])
+	}
+	if atts[1].typ != "bash" || atts[1].body != "echo hi" {
+		t.Fatalf("bash = %+v", atts[1])
+	}
+	if atts[2].typ != "quote" || atts[2].body != "line one\nline two" {
+		t.Fatalf("quote = %+v", atts[2])
+	}
+
+	// agent type is refused at place time; peel still surfaces it
+	_, atts = peelAgentAttachments("{{attach:agent|nope}}")
+	if len(atts) != 1 || atts[0].typ != "agent" {
+		t.Fatalf("peel should still surface agent type, got %+v", atts)
+	}
+}
+
+// TestAgentAttachmentImageFromFile loads pixels when the attach body is a path
+// to an existing image (optional |caption).
+func TestAgentAttachmentImageFromFile(t *testing.T) {
+	m, _, n1 := newAgentTestModel(t)
+	dir := t.TempDir()
+	path := dir + "/dot.png"
+	// 1×1 PNG via the same encoder loadImageAttach uses
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img1 := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	if err := png.Encode(f, img1); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	m.placeAgentNode("disc", "n1",
+		"see diagram {{attach:image|"+path+"|dot}}", "thread")
+	reply := n1.children[0]
+	if len(reply.children) != 1 {
+		t.Fatalf("want one image attach, got %d", len(reply.children))
+	}
+	im := reply.children[0]
+	if im.typ != database.TypeImage || im.name != "dot" {
+		t.Fatalf("image = type %q name %q", im.typ, im.name)
+	}
+	blob, ok, err := database.GetBlob(m.db, im.uuid)
+	if err != nil || !ok || len(blob.Bytes) == 0 {
+		t.Fatalf("blob missing: ok=%v err=%v len=%d", ok, err, len(blob.Bytes))
 	}
 }
 

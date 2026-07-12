@@ -1,7 +1,13 @@
 package editor
 
 import (
+	"bytes"
 	"context"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	"image/png"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -297,6 +303,11 @@ func (m *Model) handleAgentEvent(msg agentEvMsg) (tea.Model, tea.Cmd) {
 // Claude-Tag surfaces: "thread" nests it as the asked node's child, "below"
 // posts it message-board style as the next sibling. A missing asked node
 // (e.g. deleted mid-turn) falls back to the thread root's children.
+//
+// The reply text may carry attachment tokens (see peelAgentAttachments): the
+// remaining prose becomes the agent comment, and each attach lands as a typed
+// child under it — special nodes (code, image, bash-as-cmd, json, …), not
+// conversation bullets.
 func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	asked := m.tree.byUUID[askedUUID]
 	if asked == nil {
@@ -306,12 +317,13 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	if asked == nil {
 		return
 	}
+	comment, atts := peelAgentAttachments(text)
 	it, err := m.tree.newItem()
 	if err != nil {
 		return
 	}
 	it.typ = database.TypeAgent
-	it.name = m.chipifyAgentText(text)
+	it.name = m.chipifyAgentText(comment)
 	// replies are born locked so they can't drift under the thread — /lock
 	// unlocks one for reshaping like any other node
 	it.readonly = true
@@ -340,6 +352,13 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	if !hasAnchor(it.name) {
 		m.backfillName(it)
 	}
+	// attachments hang under the reply as typed children (order of appearance)
+	for _, a := range atts {
+		m.addAgentAttachment(it, a.typ, a.body)
+	}
+	if len(atts) > 0 {
+		it.collapsed = false
+	}
 	m.unsaved = true
 
 	// a reply arrives asynchronously: re-anchor the cursor to the ITEM it was
@@ -355,6 +374,208 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 			m.cursor = r
 		}
 	}
+}
+
+// agentAttach is one typed node the agent wants as a child of its reply —
+// special content (image, code, json, …), not a chat turn.
+type agentAttach struct {
+	typ  string
+	body string
+}
+
+// agentAttachBlockRe matches a multi-line attachment fence:
+//
+//	{{attach:code}}
+//	body…
+//	{{/attach}}
+//
+// Body may contain braces and chip tokens; the fence is the only delimiter.
+var agentAttachBlockRe = regexp.MustCompile(`(?s)\{\{attach:([a-zA-Z][a-zA-Z0-9_-]*)\}\}\r?\n?(.*?)\r?\n?\{\{/attach\}\}`)
+
+// agentAttachInlineRe matches a single-line attachment token:
+//
+//	{{attach:type|body}}
+//
+// Body cannot contain `}` (use the block form for multi-line / braced content).
+var agentAttachInlineRe = regexp.MustCompile(`\{\{attach:([a-zA-Z][a-zA-Z0-9_-]*)\|([^{}]*)\}\}`)
+
+// peelAgentAttachments strips attach tokens from a reply, returning the
+// comment prose (chip tokens intact for chipifyAgentText) and the attachments
+// in document order. Scans left-to-right so block fences and inline tokens
+// interleave as written; at each index a block open wins over an inline token.
+func peelAgentAttachments(text string) (string, []agentAttach) {
+	var atts []agentAttach
+	var b strings.Builder
+	for i := 0; i < len(text); {
+		// prefer a block fence at this offset
+		if loc := agentAttachBlockRe.FindStringSubmatchIndex(text[i:]); loc != nil && loc[0] == 0 {
+			typ := strings.ToLower(text[i+loc[2] : i+loc[3]])
+			body := text[i+loc[4] : i+loc[5]]
+			body = strings.TrimRight(body, "\r\n")
+			body = strings.TrimPrefix(body, "\n")
+			atts = append(atts, agentAttach{typ: typ, body: body})
+			i += loc[1]
+			continue
+		}
+		// else an inline token at this offset
+		if loc := agentAttachInlineRe.FindStringSubmatchIndex(text[i:]); loc != nil && loc[0] == 0 {
+			typ := strings.ToLower(text[i+loc[2] : i+loc[3]])
+			body := strings.TrimSpace(text[i+loc[4] : i+loc[5]])
+			body = strings.ReplaceAll(body, `\n`, "\n")
+			atts = append(atts, agentAttach{typ: typ, body: body})
+			i += loc[1]
+			continue
+		}
+		// skip to the next "{{attach:" candidate, copying prose as we go
+		next := strings.Index(text[i:], "{{attach:")
+		if next < 0 {
+			b.WriteString(text[i:])
+			break
+		}
+		if next == 0 {
+			// "{{attach:" that matched neither form — emit the open literally
+			// and advance one byte so we don't loop forever
+			b.WriteByte(text[i])
+			i++
+			continue
+		}
+		b.WriteString(text[i : i+next])
+		i += next
+	}
+	return strings.TrimSpace(collapseBlankLines(b.String())), atts
+}
+
+// collapseBlankLines turns 3+ newlines into a double newline so peeled attach
+// fences don't leave holes in the comment.
+func collapseBlankLines(s string) string {
+	for strings.Contains(s, "\n\n\n") {
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
+	return s
+}
+
+// addAgentAttachment appends one typed, locked child under the agent reply.
+// Free-string types are accepted (registry types and any former-mod key); the
+// agent type itself is refused (no nested agent replies). "bash" maps to a
+// bullet whose name is a single runnable cmd chip — the bash node type was
+// removed in favor of chips. Image bodies are caption, or path, or path|caption
+// when the agent has a local image file to load.
+func (m *Model) addAgentAttachment(parent *item, typ, body string) {
+	if parent == nil {
+		return
+	}
+	typ = strings.ToLower(strings.TrimSpace(typ))
+	if typ == "" || typ == database.TypeAgent {
+		return
+	}
+	child, err := m.tree.newItem()
+	if err != nil {
+		return
+	}
+	child.readonly = true // agent-authored, same lock as the reply comment
+	child.parent = parent
+	parent.children = append(parent.children, child)
+
+	switch typ {
+	case "bash": // legacy bash node type → runnable $ chip (bash type was removed)
+		child.typ = database.TypeBullets
+		if body != "" {
+			child.name = m.createChip(chipKindCmd, body)
+		}
+	case database.TypeImage:
+		child.typ = database.TypeImage
+		path, caption := splitImageAttach(body)
+		child.name = caption
+		if path != "" {
+			m.loadImageAttach(child, path)
+		}
+	default:
+		// free string: code, json, quote, log, todo, query, h1…, or any other key
+		child.typ = typ
+		child.name = m.chipifyAgentText(body)
+		if child.name != "" && !hasAnchor(child.name) {
+			m.backfillName(child)
+		}
+	}
+}
+
+// splitImageAttach parses an image attachment body:
+//
+//	"caption"            → no path, caption
+//	"/path/to.png"       → path (existing image file), empty caption
+//	"/path/to.png|cap"   → path + caption
+//
+// A path is recognized only when the left side (or whole body) is an existing
+// regular file — so a plain caption never gets mistaken for a path.
+func splitImageAttach(body string) (path, caption string) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", ""
+	}
+	left, right, hasBar := strings.Cut(body, "|")
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if hasBar {
+		if fileLooksLikeImage(left) {
+			return left, right
+		}
+		// not a loadable path — treat the whole thing as caption
+		return "", body
+	}
+	if fileLooksLikeImage(left) {
+		return left, ""
+	}
+	return "", body
+}
+
+// fileLooksLikeImage reports whether p is a regular file whose suffix looks
+// like an image the decoder can handle (png/jpg/jpeg/gif/webp).
+func fileLooksLikeImage(p string) bool {
+	if p == "" {
+		return false
+	}
+	low := strings.ToLower(p)
+	ok := false
+	for _, ext := range []string{".png", ".jpg", ".jpeg", ".gif", ".webp"} {
+		if strings.HasSuffix(low, ext) {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// loadImageAttach reads a local image file into the node's blob so the
+// attachment renders with pixels, not just a caption. Failures are silent —
+// the image node still lands (empty + caption); the agent can't fix a missing
+// file mid-place.
+func (m *Model) loadImageAttach(it *item, path string) {
+	if it == nil || path == "" || m.db == nil {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 || len(data) > imageMaxBytes {
+		return
+	}
+	// normalize via decode+encode so the cache and half-block path always see PNG
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return
+	}
+	b := img.Bounds()
+	_ = database.PutBlob(m.db, database.Blob{
+		UUID: it.uuid, Mime: "image/png", Bytes: buf.Bytes(),
+		W: b.Dx(), H: b.Dy(),
+	})
+	m.imageInvalidate(it.uuid)
 }
 
 // agentChipRe matches the {{kind:value}} chip tokens an agent may speak — see

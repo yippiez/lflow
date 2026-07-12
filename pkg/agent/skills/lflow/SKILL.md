@@ -24,6 +24,34 @@ Embed these tokens anywhere in a reply; each renders as a structured chip:
 
 Never wrap a chip token in quotes or backticks.
 
+## Attachments — special nodes under a reply
+
+A reply is one short comment plus optional **attachments**: typed child nodes
+(not conversation bullets) for code, images, json, quotes, logs, runnable
+shell, etc. Prefer an attachment over stuffing a payload into the comment.
+
+Inline (body must not contain `}` — use the block form when it does):
+
+- `{{attach:bash|go test ./...}}` — child with a runnable `$` chip
+- `{{attach:image|caption}}` or `{{attach:image|/abs/path.png|caption}}`
+- `{{attach:quote|ship when green}}`
+
+Block form (multi-line or braced bodies):
+
+```
+{{attach:code}}
+package main
+func main() {}
+{{/attach}}
+
+{{attach:json}}
+{"env": "prod"}
+{{/attach}}
+```
+
+Types: `code`, `image`, `bash`, `json`, `quote`, `log`, `todo`, `h1`–`h3`,
+`query`, or any other node type key.
+
 ## The lflow CLI — how to look around
 
 The outline is queryable from the shell. Read [cli.md](cli.md) before
