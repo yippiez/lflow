@@ -30,6 +30,8 @@ func (m *Model) listSource() pickerSource {
 		return completerSource{}
 	case modeTagColor:
 		return tagColorSource{}
+	case modeInsert:
+		return insertSource{}
 	}
 	return nil
 }
@@ -104,6 +106,46 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 		m.stripSlashText()
 	}
 	return true
+}
+
+// --- /insert ---------------------------------------------------------------
+
+// insertKinds lists the chip kinds the /insert picker offers, each routing back
+// through runSlash with its "/insert:<kind>" value.
+var insertKinds = []struct{ value, label, desc string }{
+	{"/insert:cmd", "cmd", "a runnable $ command chip"},
+	{"/insert:date", "date", "today as a date chip"},
+	{"/insert:link", "link", "a link chip"},
+	{"/insert:path", "path", "a file path chip"},
+	{"/insert:tag", "tag", "a #tag chip"},
+}
+
+type insertSource struct{}
+
+func (insertSource) items(m *Model, q string) []pickerItem {
+	ql := strings.ToLower(q)
+	var out []pickerItem
+	for _, k := range insertKinds {
+		k := k
+		if ql != "" && !fuzzyMatch(k.label, ql) && !fuzzyMatch(strings.ToLower(k.desc), ql) {
+			continue
+		}
+		out = append(out, pickerItem{value: k.value, render: func(bool) string {
+			return cFG + fmt.Sprintf("%-6s", k.label) + cDim + " " + k.desc + cReset
+		}})
+	}
+	return out
+}
+
+func (insertSource) header(*Model, *listPicker) string { return "" }
+func (insertSource) initialSel(*Model) int             { return 0 }
+
+func (insertSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
+	if it.value == "" {
+		m.mode = modeOutline
+		return m, nil
+	}
+	return m.runSlash(it.value)
 }
 
 // --- /type -----------------------------------------------------------------
