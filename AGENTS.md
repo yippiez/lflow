@@ -72,6 +72,20 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
+## Node priority
+
+`nodes.priority` (lm39) says where INCOMING nodes land among a node's children:
+`up` = top, `down` = bottom. New children (CLI `add`), moved-in nodes
+(`/move:to`, `mv`, indent, multi-select, `/mirror:from`) and agent replies all
+route through it (`database.PlaceRank`, `tree.reparent`). New nodes default
+up; everything that existed before lm39 is down. `/priority:up` /
+`/priority:down` set it (immediate write, like /star). Agent-chipped mention
+nodes and ✦ replies are FORCED down — a conversation always reads top-down
+chronological; `/priority:up` refuses a mention, and chip completion / thread
+send convert a pre-set up (`forceThreadPriorityDown`). `buildThread` walks a
+priority-up node's children reversed, so agent context is always oldest-first
+regardless of display order — the pi prompt tells the agent so.
+
 ## The @mention agent
 
 - **No runtime extension system.** NodeMods (runtime JS node types / chip
@@ -88,9 +102,10 @@ auto-run) and their output is ephemeral — never persisted or synced.
   completes configured agents and lands a red **agent chip** (expands to plain
   `@Name`, so every mention detector reads it like typed text). Two trigger
   rules, nothing else: (1) alt+r on the mention node is the manual fire —
-  always (starts the session or re-sends); (2) a committed change to a
-  DESCENDANT of the mention (Enter, or cursor-leave via blurSendCheck) ships
-  automatically. The mention node IS the thread root — the session binds to
+  always (starts the session or re-sends); (2) any local edit to a DESCENDANT
+  of the mention arms a ~1s debounce (markAgentTouch → noteAgentChange); when
+  it settles the agent re-reads the thread and decides whether to reply (PASS
+  is fine) — cursor-leave and Enter do not ship on their own. The mention node IS the thread root — the session binds to
   it, so siblings/ancestors never trigger or receive replies. Context per turn
   = the mention's parent (one ambient `<parent>` element) + the mention +
   everything beneath it, rendered as nested XML (`<asked>`/`<answer>`/`<node>`;
