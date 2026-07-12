@@ -13,17 +13,18 @@ import (
 	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
-// The nlpcompute node: natural language as code — a red → arrow and red text
-// ("Create a NN, train it on these inputs, return its weights and metrics"),
-// an ipynb cell whose source is prose. alt+r launches an agent pinned to the
-// node's CWD (recorded the first time it runs — the cell stays tied to that
-// repo); the agent reads the surrounding lflow nodes and the underlying repo
-// and generates the code snippet implementing the instruction. alt+e TOGGLES the
-// node's face: the NLP prose flips to the code face — the same gray code block
-// the Code node wears (white rule, line numbers, editable) — and alt+e/esc flips
-// back. The natural language lives in the node text; the code face's edits (and
-// the cell data {cwd, code, lang}) live in node_output — local, decoupled from
-// the node row.
+// The nlpcompute node: natural language as code — a fully red → arrow AND red
+// prose ("Create a NN, train it on these inputs, return its weights and
+// metrics"), an ipynb cell whose source is prose. alt+r launches an agent pinned
+// to the node's CWD (recorded the first time it runs — the cell stays tied to
+// that repo); the agent reads the surrounding lflow nodes and the underlying repo
+// and generates the code snippet implementing the instruction. WHILE GENERATING
+// the prose SHINES (the ultraloop red slide, editor.ShineText) with no agent
+// trace. Once a snippet exists the borderless gray code block (the same one the
+// Code node wears — line numbers, white rule, editable) REPLACES the prose row
+// (ncBlockCode); alt+e focuses it to edit the code in place, esc leaves. The
+// natural language lives in the node text; the code and its edits (the cell data
+// {cwd, code, lang}) live in node_output — local, decoupled from the node row.
 
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
@@ -47,7 +48,7 @@ func init() {
 			delete(h.NodeStore(uuid), "animating")
 			if st := ncStateOf(h, uuid); st.cancel != nil {
 				st.cancel()
-				st.cancel, st.busy, st.tool = nil, false, ""
+				st.cancel, st.busy = nil, false
 			}
 		},
 	})
@@ -65,7 +66,6 @@ type ncData struct {
 type ncState struct {
 	busy   bool
 	cancel func()
-	tool   string // last tool line, shown while generating
 	buf    string // code-face edit buffer (seeded on Enter, flushed on Leave)
 	caret  int    // caret index into buf
 }
@@ -159,24 +159,21 @@ func waitNCCmd(uuid string, ch <-chan tag.Event) tea.Cmd {
 func (msg ncEvMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 	st := ncStateOf(h, msg.uuid)
 	switch msg.ev.Op {
-	case "tool":
-		st.tool = msg.ev.Tool
-		return waitNCCmd(msg.uuid, msg.ch)
-	case "thinking":
-		st.tool = ""
+	case "tool", "thinking":
+		// narration between tool calls is discarded — only the shine shows progress
 		return waitNCCmd(msg.uuid, msg.ch)
 	case "message":
 		code, lang := peelCodeFence(msg.ev.Text)
 		data := ncLoad(h, msg.uuid)
 		data.Code, data.Lang = code, lang
 		ncSave(h, msg.uuid, data)
-		h.NodeFlash("code ready · alt+e toggles the code face")
+		h.NodeFlash("code ready · alt+e edits it")
 		return waitNCCmd(msg.uuid, msg.ch)
 	case "error":
 		h.NodeFlash("compute: " + msg.ev.Text)
 	}
 	// done / error: park the cell
-	st.busy, st.tool = false, ""
+	st.busy = false
 	delete(h.NodeStore(msg.uuid), "animating")
 	if st.cancel != nil {
 		st.cancel()
@@ -219,7 +216,7 @@ func runNLPCompute(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 		h.NodeFlash(err.Error())
 		return nil
 	}
-	st.busy, st.cancel, st.tool = true, cancel, ""
+	st.busy, st.cancel = true, cancel
 	h.NodeStore(n.UUID())["animating"] = true // keep the shine tick alive while generating
 	return waitNCCmd(n.UUID(), ch)
 }

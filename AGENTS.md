@@ -79,9 +79,11 @@ per-feature column — and no scattered `switch typ`:
    back through `NodePluginMsg`, `OnRemove` cancels in-flight work. Core woven
    types (bullets…image, `json.go`, `voice.go`; `bash.go` holds the shared
    shell-run machinery, `code.go` the shared multi-line **code block** —
-   `CodeBlockBands`: a fully gray background, a thin white left rule with box
-   corners, and dim line numbers, shared by the Code node and the nlpcompute
-   node's alt+e code face) stay in the editor as `nodeType` entries; a rich
+   `codeBlockLines`: a borderless gray block (no rule box, no header) whose every
+   line is the dim line number, a white vertical rule to its RIGHT, then the
+   highlighted code; the block REPLACES the node's row via the `blockCode` hook
+   (`viewRenderRows` → `blockGroupLines`), shared by the Code node and the
+   nlpcompute node's code face) stay in the editor as `nodeType` entries; a rich
    alt+e editor implements the stateless view interface either way, per-node
    state in the node store. The Code node is edited only in that focused block
    (not inline): its multi-line body IS `it.name`, Enter is a newline inside
