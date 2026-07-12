@@ -38,6 +38,10 @@ $ lflow node add "retry only transient failures" --parent importer
 $ lflow node add "check exit codes" --parent importer --type todo --top
 ```
 
+Placement follows the parent's priority: a priority-up parent takes new nodes
+on TOP (its children read newest-first), a down parent appends at the bottom.
+`lflow mv` follows the same rule when no explicit position is given.
+
 Flags: `--parent <node>` (default root), `--type <t>`, `--top` prepends,
 `--note <text>`, styling (`--bold --italic --underline --strike
 --color red|orange|yellow|green|cyan|blue|purple|gray`, or `--style
