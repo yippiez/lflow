@@ -26,7 +26,6 @@ const (
 	TypeQuery = "query"
 	TypeVoice   = "voice"
 	TypeImage   = "image"
-	TypeCanvas  = "canvas" // a character grid drawing: alt+e opens the crosshair painter
 	TypeDivider = "divider"
 	TypeAgent   = "agent" // an agent-authored reply: red ✦, text + chips; typed attachments as children
 	TypeWF      = "wf"    // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
@@ -69,7 +68,6 @@ var TypeOrder = []string{
 	TypeQuery,
 	TypeVoice,
 	TypeImage,
-	TypeCanvas,
 	TypeCodeReview,
 	TypeCodeSig,
 	TypeNLPCompute,

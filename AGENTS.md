@@ -80,14 +80,9 @@ per-feature column — and no scattered `switch typ`:
    types (bullets…image, `json.go`, `voice.go`; `bash.go` holds the shared
    shell-run machinery) stay in the editor as `nodeType` entries; a rich alt+e
    editor implements the stateless view interface either way, per-node state
-   in the node store. The canvas plugin is the maximal example: a two-plane
-   crosshair painter — PAINTER (green badge) paints freely from the grid
-   palette pinned at the bottom; OBJECT (light purple badge) places items the
-   same way while colored BACKGROUNDS define the objects (one background
-   color = one object, items ride their region), with ONE constraint kind:
-   distance, a white line between two objects labeled as % of canvas width,
-   re-solved when regions move — document as JSON in node_blobs, the rendered
-   grid shipped to agents via its ToContext hook.
+   in the node store. (The canvas plugin — a two-plane crosshair painter —
+   was the maximal example until its removal in 2026-07; old `canvas` rows
+   fall back to bullets like any unknown type.)
 
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.

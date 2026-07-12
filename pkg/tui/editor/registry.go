@@ -64,8 +64,8 @@ type nodeType struct {
 	// parent) still win the element name so threading survives. nil → <node>.
 	toContext func(it *item) contextXML
 	// toContextM is the Model-aware sibling (mirrors render/renderM) for types
-	// whose context body lives outside the item — the canvas grid loads from
-	// its blob. When set it wins over toContext.
+	// whose context body lives outside the item — e.g. a document loaded from
+	// a node blob. When set it wins over toContext.
 	toContextM func(m *Model, it *item) contextXML
 }
 
@@ -198,8 +198,8 @@ var nodeTypes = []nodeType{
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
-	// The pluggable node types — canvas, codereview, codesig, nlpcompute —
-	// live in editor/nodes (one Go file per node) and register themselves via
+	// The pluggable node types — codereview, codesig, nlpcompute — live in
+	// editor/nodes (one Go file per node) and register themselves via
 	// RegisterNodePlugin at init; see nodeplugin.go.
 }
 

@@ -2,11 +2,8 @@ package nodes
 
 import (
 	"context"
-	"math"
 	"strings"
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/editor"
@@ -117,7 +114,7 @@ func TestCRRange(t *testing.T) {
 func TestSigIdent(t *testing.T) {
 	cases := map[string]string{
 		"func EncodeValue(v any) (any, error)":   "EncodeValue",
-		"func (m *Model) canvasRender(it *item)": "canvasRender",
+		"func (m *Model) refreshRows(it *item)":  "refreshRows",
 		"type Req struct":                        "Req",
 		"class Foo(Base):":                       "Foo",
 		"def train(inputs, epochs=10):":          "train",
@@ -185,150 +182,6 @@ func TestNLPComputeFlow(t *testing.T) {
 	}
 	if !(ncView{}).Enter(h, n) {
 		t.Fatal("code version must open")
-	}
-}
-
-// ── canvas ──────────────────────────────────────────────────────────────────
-
-// TestCanvasObjectsAndDistances: colored backgrounds on the object plane are
-// the objects; a distance constraint captures the current center distance as
-// % of the canvas width, and the solver restores it after a disturbance.
-func TestCanvasObjectsAndDistances(t *testing.T) {
-	d := &canvasDoc{W: 100, H: 20}
-	// a 2×2 red region and a 2×2 blue region 20 cells apart
-	for _, x := range []int{2, 3} {
-		for _, y := range []int{2, 3} {
-			setCell(&d.Objects, canvasCell{X: x, Y: y, Ch: " ", Bg: "red"})
-			setCell(&d.Objects, canvasCell{X: x + 20, Y: y, Ch: " ", Bg: "blue"})
-		}
-	}
-	if got := len(d.objects()); got != 2 {
-		t.Fatalf("distinct background colors must be distinct objects, got %d", got)
-	}
-	// an item stamped on red rides red
-	setCell(&d.Objects, canvasCell{X: 2, Y: 2, Ch: "★", Fg: "yellow", Bg: d.objectColorAt(2, 2)})
-
-	dist := canvasDist{A: "red", B: "blue"}
-	cells, pct, ok := d.distance(dist)
-	if !ok || cells != 20 || pct != 20 {
-		t.Fatalf("distance = %v cells %v%% ok=%v, want 20 cells 20%%", cells, pct, ok)
-	}
-	dist.Pct = pct
-	d.Dists = append(d.Dists, dist)
-
-	// disturb blue and re-solve: the declared distance is restored
-	d.translateObject("blue", 10, 0)
-	d.solve()
-	if got, _, _ := d.distance(dist); math.Abs(got-20) > 1 {
-		t.Fatalf("solve must restore the declared distance, got %v", got)
-	}
-	// the star item traveled with red all along
-	if d.objectColorAt(2, 2) != "red" {
-		t.Fatal("items must ride their region")
-	}
-}
-
-// TestCanvasDocRoundTrip: both planes and the constraints persist.
-func TestCanvasDocRoundTrip(t *testing.T) {
-	h := newFakeHost(t)
-	doc := &canvasDoc{W: 30, H: 8,
-		Cells:   []canvasCell{{X: 1, Y: 1, Ch: "★", Fg: "yellow"}},
-		Objects: []canvasCell{{X: 5, Y: 5, Ch: " ", Bg: "green"}},
-		Dists:   []canvasDist{{A: "green", B: "red", Pct: 10}},
-	}
-	canvasSave(h, "cv1", doc)
-	got := canvasLoad(h, "cv1")
-	if len(got.Cells) != 1 || len(got.Objects) != 1 || len(got.Dists) != 1 {
-		t.Fatalf("round trip lost data: %+v", got)
-	}
-}
-
-// TestCanvasPaletteSearch: the user's own examples must hit.
-func TestCanvasPaletteSearch(t *testing.T) {
-	cases := map[string]string{
-		"branch":          "├",
-		"curved":          "╭",
-		"geometry square": "□",
-		"half block":      "▌",
-	}
-	for q, want := range cases {
-		found := false
-		for _, hit := range canvasPaletteSearch(q) {
-			if hit.ch == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("query %q must surface %q", q, want)
-		}
-	}
-	hits := canvasPaletteSearch("background blue")
-	if len(hits) == 0 || hits[0].cat != "background" || hits[0].color != "blue" {
-		t.Fatalf("background blue mismatch: %+v", hits)
-	}
-}
-
-// TestCanvasViewPlanes: tab flips planes, enter paints the right plane, a
-// background brush defines objects, and t+t lands a distance constraint.
-func TestCanvasViewPlanes(t *testing.T) {
-	h := newFakeHost(t)
-	n := &fakeNode{uuid: "cv2", typ: database.TypeCanvas}
-	v := canvasView{}
-	if !v.Enter(h, n) {
-		t.Fatal("Enter must focus")
-	}
-	st := canvasStateOf(h, "cv2")
-
-	key := func(s string) {
-		var k tea.KeyMsg
-		switch s {
-		case "enter":
-			k = tea.KeyMsg{Type: tea.KeyEnter}
-		case "tab":
-			k = tea.KeyMsg{Type: tea.KeyTab}
-		case "right":
-			k = tea.KeyMsg{Type: tea.KeyRight}
-		default:
-			k = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
-		}
-		v.Key(h, n, k)
-	}
-
-	key("enter") // painter stamp
-	if len(st.doc.Cells) != 1 {
-		t.Fatal("the painter plane must stamp a cell")
-	}
-
-	key("tab")
-	if st.plane != "object" {
-		t.Fatal("tab must switch planes")
-	}
-	// paint a red region at (1,0) and a blue region at (4,0)
-	st.brush = canvasBrush{Ch: " ", Bg: "red"}
-	key("right")
-	key("enter")
-	st.brush = canvasBrush{Ch: " ", Bg: "blue"}
-	key("right")
-	key("right")
-	key("right")
-	key("enter")
-	if len(st.doc.objects()) != 2 {
-		t.Fatalf("two background colors must be two objects: %+v", st.doc.Objects)
-	}
-	key("t") // from blue (cursor on it)
-	if st.distFrom != "blue" {
-		t.Fatalf("distance from = %q", st.distFrom)
-	}
-	st.cx = 1 // over red
-	key("t")
-	if len(st.doc.Dists) != 1 {
-		t.Fatalf("distance must land: %+v", st.doc.Dists)
-	}
-
-	v.Leave(h, n)
-	if got := canvasLoad(h, "cv2"); len(got.Dists) != 1 || len(got.objects()) != 2 {
-		t.Fatalf("Leave must persist: %+v", got)
 	}
 }
 
