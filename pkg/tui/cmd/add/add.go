@@ -113,6 +113,7 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, typ, not
 			Note:       note,
 			Type:       typ,
 			Style:      styleStr,
+			Priority:   database.PriorityUp, // new nodes default up
 			AddedOn:    now,
 			EditedOn:   now,
 		}
@@ -170,7 +171,16 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			return err
 		}
 
-		count, err := insertChildren(db, parentUUID, lines, opts.typ, opts.note, styleStr, opts.top, opts.raw)
+		// no explicit --top: a priority-up parent takes incoming nodes on top
+		// anyway (same shift-and-prepend path, line order preserved)
+		top := opts.top
+		if !top {
+			if p, perr := database.GetNode(db, parentUUID); perr == nil && p.Priority == database.PriorityUp {
+				top = true
+			}
+		}
+
+		count, err := insertChildren(db, parentUUID, lines, opts.typ, opts.note, styleStr, top, opts.raw)
 		if err != nil {
 			return errors.Wrap(err, "inserting nodes")
 		}

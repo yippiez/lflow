@@ -98,11 +98,12 @@ func TestAddRootAndChild(t *testing.T) {
 		db.QueryRow("SELECT count(*) FROM nodes WHERE parent_uuid = ?", rootUUID), &childCount)
 	assert.Equal(t, childCount, 2, "child count mismatch")
 
-	// rank ordering
+	// rank ordering: a freshly added parent is priority up, so the newest
+	// child lands on top
 	var firstChild string
 	database.MustScan(t, "getting first child",
 		db.QueryRow("SELECT name FROM nodes WHERE parent_uuid = ? ORDER BY rank LIMIT 1", rootUUID), &firstChild)
-	assert.Equal(t, firstChild, "baseline numbers", "first child mismatch")
+	assert.Equal(t, firstChild, "attempt 2", "first child mismatch")
 
 	// all three nodes were added under root
 	var addedCount int

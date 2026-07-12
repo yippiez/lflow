@@ -94,7 +94,8 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 
 		var rank int
 		switch {
-		case opts.top:
+		// no explicit position: a priority-up parent takes the node on top
+		case opts.top || (opts.after == "" && parentRes.Node.Priority == database.PriorityUp):
 			rank = 0
 			if err := database.ShiftRanksAll(db, parentRes.Node.UUID, 1); err != nil {
 				return errors.Wrap(err, "shifting sibling ranks")
