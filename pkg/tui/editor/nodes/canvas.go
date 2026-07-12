@@ -387,9 +387,9 @@ func canvasRender(h editor.NodeHost, n editor.NodeRef) string {
 	}
 	name := strings.TrimSpace(n.Text())
 	if name != "" {
-		return name + " " + th.Dim + "▦ " + parts + th.Reset
+		return name + " " + th.Dim + parts + th.Reset
 	}
-	return th.Dim + "▦ canvas " + parts + th.Reset
+	return th.Dim + "canvas " + parts + th.Reset
 }
 
 // canvasText renders the document as plain text (draw plane over object
