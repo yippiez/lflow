@@ -149,6 +149,7 @@ func (m *Model) applyEvent(ev wire.Event) {
 	}
 	pending := ev.Nodes
 	changed := false
+	sawMirror := false
 	for pass := 0; pass < 4 && len(pending) > 0; pass++ {
 		var next []database.Node
 		for _, n := range pending {
@@ -158,11 +159,23 @@ func (m *Model) applyEvent(ev wire.Event) {
 				continue
 			}
 			changed = changed || mutated
+			sawMirror = sawMirror || n.MirrorOf != ""
 		}
 		if len(next) == len(pending) {
 			break // no progress: the rest lives outside the loaded trees
 		}
 		pending = next
+	}
+	// a mirror that arrived on the feed (/mirror:to, /mirror:from in another
+	// client) may point at a source outside the loaded trees. loadTree grafts
+	// such sources at open; fold-in must do the same, or the mirror renders as
+	// an empty row with nothing showing through.
+	if sawMirror {
+		for _, t := range m.liveTrees() {
+			if t.db != nil && t.graftExternalSources() {
+				changed = true
+			}
+		}
 	}
 	if !changed {
 		return

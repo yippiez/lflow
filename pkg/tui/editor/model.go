@@ -175,9 +175,11 @@ func loadTree(db *database.DB, rootUUID string) (*tree, error) {
 // graftExternalSources grafts the live subtree of every mirror source that is
 // not loaded, repeating until closure since a grafted subtree can itself
 // contain mirrors pointing further outside. Sources that fail to graft are
-// remembered so a broken mirror cannot loop the walk.
-func (t *tree) graftExternalSources() {
+// remembered so a broken mirror cannot loop the walk. Reports whether any
+// source was grafted — the live-sync fold uses it to refresh the rows.
+func (t *tree) graftExternalSources() bool {
 	failed := map[string]bool{}
+	grafted := false
 	for {
 		var pending []string
 		for _, it := range t.byUUID {
@@ -189,10 +191,12 @@ func (t *tree) graftExternalSources() {
 			}
 		}
 		if len(pending) == 0 {
-			return
+			return grafted
 		}
 		for _, uuid := range pending {
-			if !t.graftExternal(uuid) {
+			if t.graftExternal(uuid) {
+				grafted = true
+			} else {
 				failed[uuid] = true
 			}
 		}
