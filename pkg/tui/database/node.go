@@ -30,7 +30,7 @@ const (
 	TypeDivider = "divider"
 	TypeAgent   = "agent" // an agent-authored reply: red ✦, text + chips; typed attachments as children
 	TypeWF      = "wf"    // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
-	// TypeCodeReview launches the critique diff TUI on a commit range; alt+e
+	// TypeCodeReview launches the review diff TUI on a commit range; alt+e
 	// picks the beginning and end commits (see editor/codereview.go).
 	TypeCodeReview = "codereview"
 	// TypeCodeSig explores a source file's signatures with the signatures /

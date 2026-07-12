@@ -16,17 +16,19 @@ import (
 	"github.com/lflow/lflow/pkg/tui/editor"
 )
 
-// The codereview node: a critique launcher. The node's text holds a commit
-// range ("base..head"); alt+e opens the inline commit picker — `git log` of
-// the editor's cwd, pick the BEGINNING commit then the END commit — and the
-// pick immediately opens the critique TUI on that range. alt+r re-opens
-// critique on the stored range; an empty range reviews the working tree.
+// The codereview node: a `review` launcher (the diff TUI in
+// robmat/packages/review). The node's text holds a commit range
+// ("base..head"); alt+e opens the inline commit picker — `git log` of the
+// editor's cwd, pick the BEGINNING commit then the END commit — and the pick
+// immediately opens the review TUI on that range (review auto-orders the
+// refs oldest-first itself). alt+r re-opens review on the stored range; an
+// empty range reviews the working tree.
 
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
 		Key: database.TypeCodeReview, Label: "Code Review", Sign: "⌁ ",
 		InlineEditable: true,
-		CLIDeps:        []string{"critique", "git"},
+		CLIDeps:        []string{"review", "git"},
 		Run:            runCodeReview,
 		View:           codeReviewView{},
 		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
@@ -59,7 +61,7 @@ func crStateOf(h editor.NodeHost, uuid string) *crState {
 	return st
 }
 
-// crRange parses the node text into critique args: "base..head", "base head"
+// crRange parses the node text into review args: "base..head", "base head"
 // or a single ref; empty text means the working tree.
 func crRange(text string) []string {
 	text = strings.TrimSpace(text)
@@ -84,9 +86,9 @@ func crRange(text string) []string {
 	return f
 }
 
-// runCodeReview opens the critique TUI on the node's range (alt+r).
+// runCodeReview opens the review TUI on the node's range (alt+r).
 func runCodeReview(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
-	c := exec.Command("critique", crRange(n.Text())...)
+	c := exec.Command("review", crRange(n.Text())...)
 	return tea.ExecProcess(c, func(error) tea.Msg { return nil })
 }
 
@@ -150,10 +152,10 @@ func (v codeReviewView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (
 			st.base = sha // the beginning commit; now pick the end
 			return nil, true
 		}
-		// beginning + end picked: store the range and open critique
+		// beginning + end picked: store the range and open review
 		n.SetText(st.base + ".." + sha)
-		if !h.NodeDepOK("critique") {
-			h.NodeFlash("Missing dependency: critique")
+		if !h.NodeDepOK("review") {
+			h.NodeFlash("Missing dependency: review")
 			return nil, true
 		}
 		return runCodeReview(h, n), true
@@ -173,7 +175,7 @@ func (v codeReviewView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, 
 	}
 	head := "  pick the beginning commit · enter"
 	if st.base != "" {
-		head = "  beginning " + st.base + " · pick the end commit · enter opens critique"
+		head = "  beginning " + st.base + " · pick the end commit · enter opens review"
 	}
 	content = append(content, editor.NodeClip(rail+th.Reset+th.Dim+head+th.Reset, width))
 
