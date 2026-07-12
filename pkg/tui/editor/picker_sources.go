@@ -8,6 +8,7 @@ package editor
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -110,14 +111,14 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 
 // --- /insert ---------------------------------------------------------------
 
-// insertKinds lists the chip kinds the /insert picker offers, each routing back
-// through runSlash with its "/insert:<kind>" value.
+// insertKinds lists the chip kinds the /insert picker offers; value is the bare
+// kind handed to insertChip.
 var insertKinds = []struct{ value, label, desc string }{
-	{"/insert:cmd", "bash", "a runnable $ command chip"},
-	{"/insert:date", "date", "today as a date chip"},
-	{"/insert:link", "link", "a link chip"},
-	{"/insert:path", "file", "a file path chip"},
-	{"/insert:tag", "tag", "a #tag chip"},
+	{"cmd", "bash", "a runnable $ command chip"},
+	{"date", "date", "today as a date chip"},
+	{"link", "link", "a link chip"},
+	{"path", "file", "a file path chip"},
+	{"tag", "tag", "a #tag chip"},
 }
 
 type insertSource struct{}
@@ -141,11 +142,47 @@ func (insertSource) header(*Model, *listPicker) string { return "" }
 func (insertSource) initialSel(*Model) int             { return 0 }
 
 func (insertSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
+	m.mode = modeOutline
 	if it.value == "" {
-		m.mode = modeOutline
 		return m, nil
 	}
-	return m.runSlash(it.value)
+	return m.insertChip(it.value)
+}
+
+// insertChip splices a chip of the given kind at the caret, reusing each kind's
+// native flow: the "#" completer, the "[[" finder, the fzf file picker; date
+// lands today directly, cmd opens a "$" draft that the double-space rule turns
+// into the runnable chip.
+func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
+	cur := m.cursorItem()
+	if cur == nil {
+		return m, nil
+	}
+	mc := m.mirrorContext()
+	if !mc.editable || !typeOf(cur.typ).inlineEditable || cur.readonly {
+		m.flash = "node is not editable"
+		return m, nil
+	}
+	switch kind {
+	case "tag":
+		return m.openCompleter(cur, complTag, "#")
+	case "link":
+		m.openFinder(actLinkInsert)
+	case "path":
+		if cmd := m.openFilePicker(cur, ""); cmd != nil {
+			return m, cmd
+		}
+		m.flash = "fzf not installed"
+	case "date":
+		if anchor := m.createChip(chipKindDate, time.Now().Format("2006-01-02")); anchor != "" {
+			m.insertLiteralAt(cur, m.caret, anchor)
+		}
+	case "cmd":
+		m.insertLiteralAt(cur, m.caret, "$")
+		m.markCmdDraft(cur)
+		m.flash = "type the command · double space lands the $ chip"
+	}
+	return m, nil
 }
 
 // --- /type -----------------------------------------------------------------

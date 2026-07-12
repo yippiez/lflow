@@ -1516,35 +1516,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// specific "/insert:<kind>" value (see insertSource)
 		m.mode = modeInsert
 		m.list.open(m, insertSource{}, false)
-	case "/insert:cmd", "/insert:date", "/insert:link", "/insert:path", "/insert:tag":
-		// splice a chip at the caret — one routed entry per chip kind, reusing
-		// each kind's native flow: the "#" completer, the "[[" finder, the fzf
-		// file picker; date lands today directly, cmd opens a "$" draft that
-		// the double-space rule turns into the runnable chip.
-		mc := m.mirrorContext()
-		if !mc.editable || !typeOf(cur.typ).inlineEditable || cur.readonly {
-			m.flash = "node is not editable"
-			return m, nil
-		}
-		switch name {
-		case "/insert:tag":
-			return m.openCompleter(cur, complTag, "#")
-		case "/insert:link":
-			m.openFinder(actLinkInsert)
-		case "/insert:path":
-			if cmd := m.openFilePicker(cur, ""); cmd != nil {
-				return m, cmd
-			}
-			m.flash = "fzf not installed"
-		case "/insert:date":
-			if anchor := m.createChip(chipKindDate, time.Now().Format("2006-01-02")); anchor != "" {
-				m.insertLiteralAt(cur, m.caret, anchor)
-			}
-		case "/insert:cmd":
-			m.insertLiteralAt(cur, m.caret, "$")
-			m.markCmdDraft(cur)
-			m.flash = "type the command · double space lands the $ chip"
-		}
 	case "/priority:up", "/priority:down":
 		// where incoming nodes land among this node's children: new children,
 		// moved-in nodes and agent replies go on top (up) or to the bottom
