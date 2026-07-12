@@ -555,7 +555,7 @@ func (v canvasView) paletteKey(st *canvasState, k tea.KeyMsg) bool {
 	case "esc", "p":
 		st.palFocus = false
 		return true
-	case "enter", " ", "space":
+	case "enter":
 		if st.palSel >= 0 && st.palSel < len(hits) {
 			e := hits[st.palSel]
 			switch e.cat {
@@ -573,7 +573,7 @@ func (v canvasView) paletteKey(st *canvasState, k tea.KeyMsg) bool {
 				st.brush.Bg = "" // a glyph pick paints items, not regions
 			}
 		}
-		st.palFocus = false
+		st.palFocus, st.palQ, st.palSel = false, "", 0
 		return true
 	case "left":
 		if st.palSel > 0 {
@@ -600,6 +600,11 @@ func (v canvasView) paletteKey(st *canvasState, k tea.KeyMsg) bool {
 			st.palQ = string(r[:len(r)-1])
 			st.palSel = 0
 		}
+		return true
+	}
+	if k.Type == tea.KeySpace && !k.Alt {
+		st.palQ += " " // space types into the filter — enter picks
+		st.palSel = 0
 		return true
 	}
 	if k.Type == tea.KeyRunes && !k.Alt {
