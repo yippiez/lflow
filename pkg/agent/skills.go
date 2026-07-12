@@ -16,11 +16,11 @@ import (
 //go:embed skills
 var skillsFS embed.FS
 
-// MaterializeSkills writes the embedded skills under dir (creating it) and
+// AgentMaterializeSkills writes the embedded skills under dir (creating it) and
 // returns the path to pass to the agent's skill flag. Files are rewritten
 // every call — they are small, and this keeps an upgraded binary's skills
 // current.
-func MaterializeSkills(dir string) (string, error) {
+func AgentMaterializeSkills(dir string) (string, error) {
 	err := fs.WalkDir(skillsFS, "skills", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

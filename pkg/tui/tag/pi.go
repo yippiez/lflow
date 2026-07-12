@@ -17,7 +17,7 @@ import (
 // Cwd/SkillDir, when set, override the process globals — the daemon runs
 // turns on a client's behalf and passes the client's environment through.
 type CLIClient struct {
-	Provider agent.Provider
+	Provider agent.AgentProvider
 	Cwd      string
 	SkillDir string
 }
@@ -133,7 +133,7 @@ func (c *CLIClient) SendPrompt(ctx context.Context, agentName, system, prompt st
 
 // run is the shared turn engine: spawn, stream, one pre-work retry.
 func (c *CLIClient) run(ctx context.Context, agentName, system, prompt, placement string) (<-chan Event, error) {
-	opts := agent.RunOptions{
+	opts := agent.AgentRunOptions{
 		NoSession:    true, // launch-and-forget: the thread IS the memory
 		SystemPrompt: system,
 	}
@@ -153,8 +153,8 @@ func (c *CLIClient) run(ctx context.Context, agentName, system, prompt, placemen
 	// agent.ProviderDefault). c.Provider is the agent's hardcoded backend
 	// (@Pi → pi, @Grok → grok), set by ClientFor; its default model + thinking
 	// ride every turn.
-	opts.Model, opts.Thinking = agent.ProviderDefault(c.Provider)
-	sess, err := agent.Run(ctx, c.Provider, prompt, opts)
+	opts.Model, opts.Thinking = agent.AgentProviderDefault(c.Provider)
+	sess, err := agent.AgentRun(ctx, c.Provider, prompt, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func (c *CLIClient) run(ctx context.Context, agentName, system, prompt, placemen
 			}
 			if ctx.Err() == nil && !sawWork && attempt == 0 {
 				out <- Event{Op: "tool", Tool: "retry", Text: firstNonEmpty(errText, "transient agent error")}
-				s2, err := agent.Run(ctx, c.Provider, prompt, opts)
+				s2, err := agent.AgentRun(ctx, c.Provider, prompt, opts)
 				if err == nil {
 					sess = s2
 					continue
@@ -200,25 +200,25 @@ func (c *CLIClient) run(ctx context.Context, agentName, system, prompt, placemen
 // terminal error text ("" on a clean turn) and whether the turn did
 // observable work (a tool ran or reply text streamed) — the retry gate: a
 // worked turn must never re-run.
-func pumpTurn(sess agent.Session, out chan<- Event, placement, agentName string) (errText string, sawWork bool) {
+func pumpTurn(sess agent.AgentSession, out chan<- Event, placement, agentName string) (errText string, sawWork bool) {
 	var reply strings.Builder
 	var interim string // last narration dropped at a tool start — fallback only
 	for ev := range sess.Events() {
 		switch ev.Kind {
-		case agent.EventToolStart, agent.EventToolUpdate:
+		case agent.AgentEventToolStart, agent.AgentEventToolUpdate:
 			sawWork = true
 			// text emitted before a tool call is process narration ("I'll look
 			// up..."), not the answer — keep it out of the reply node; only what
 			// follows the LAST tool call lands. The latest cut survives as a
 			// fallback for turns that end without any closing text.
-			if ev.Kind == agent.EventToolStart && reply.Len() > 0 {
+			if ev.Kind == agent.AgentEventToolStart && reply.Len() > 0 {
 				interim = reply.String()
 				reply.Reset()
 			}
 			// live "what it's doing now" — the editor shows the last one as a
 			// muted band under the running mention. Nothing lands in the outline.
 			out <- Event{Op: "tool", Tool: ev.Tool, Text: ev.Detail}
-		case agent.EventAgentText:
+		case agent.AgentEventText:
 			if t := strings.TrimSpace(ev.Text); t != "" {
 				sawWork = true
 				if reply.Len() > 0 {
@@ -229,9 +229,9 @@ func pumpTurn(sess agent.Session, out chan<- Event, placement, agentName string)
 				// the live band to "Thinking…" so it doesn't freeze on the tool.
 				out <- Event{Op: "thinking"}
 			}
-		case agent.EventError:
+		case agent.AgentEventError:
 			return firstNonEmpty(ev.Text, agentName+" turn failed"), sawWork
-		case agent.EventTurnEnd:
+		case agent.AgentEventTurnEnd:
 			if ev.Status == "error" {
 				return firstNonEmpty(strings.TrimSpace(reply.String()), agentName+" turn failed"), sawWork
 			}

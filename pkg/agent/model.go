@@ -6,7 +6,7 @@ import "strings"
 // {CLI: "pi", Upstream: "anthropic", Name: "claude-opus"}. grok models have no
 // upstream (Upstream == "").
 type Model struct {
-	CLI      Provider // backend that exposes the model
+	CLI      AgentProvider // backend that exposes the model
 	Upstream string   // upstream provider id ("anthropic"), "" for grok
 	Name     string   // model id ("claude-opus")
 }
@@ -33,20 +33,20 @@ func (m Model) String() string {
 	if m.Empty() {
 		return ""
 	}
-	if m.CLI == "" || m.CLI == ProviderPi {
+	if m.CLI == "" || m.CLI == AgentProviderPi {
 		return m.ID()
 	}
 	return string(m.CLI) + ":" + m.ID()
 }
 
-// ParseModel is the inverse of Model.String: an optional "cli:" prefix names
+// AgentModelParse is the inverse of Model.String: an optional "cli:" prefix names
 // the backend (any registered provider; missing or "pi" means pi), the rest is
 // "upstream/model" (or a bare model id for backends without upstreams).
-func ParseModel(s string) Model {
-	cli := ProviderPi
+func AgentModelParse(s string) Model {
+	cli := AgentProviderPi
 	if i := strings.IndexByte(s, ':'); i >= 0 {
-		if _, ok := Get(Provider(s[:i])); ok {
-			cli = Provider(s[:i])
+		if _, ok := AgentBackendFor(AgentProvider(s[:i])); ok {
+			cli = AgentProvider(s[:i])
 			s = s[i+1:]
 		}
 	}

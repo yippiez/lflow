@@ -1672,7 +1672,7 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	// materialize the embedded lflow skill (pkg/agent/skills) into the data
 	// dir; every agent turn passes it to the CLI agent (pi --skill)
-	if dir, err := agent.MaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
+	if dir, err := agent.AgentMaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
 		tag.SetSkillDir(dir)
 	}
 

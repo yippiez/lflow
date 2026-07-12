@@ -11,33 +11,33 @@ import (
 	"sync"
 )
 
-// Provider identifies a CLI coding-agent backend (pir's "opencode" | "pi" | "grok").
-type Provider string
+// AgentProvider identifies a CLI coding-agent backend (pir's "opencode" | "pi" | "grok").
+type AgentProvider string
 
 const (
-	ProviderPi   Provider = "pi"
-	ProviderGrok Provider = "grok"
+	AgentProviderPi   AgentProvider = "pi"
+	AgentProviderGrok AgentProvider = "grok"
 )
 
-// EventKind selects which fields of an Event are set. Richer than pir's three
+// AgentEventKind selects which fields of an Event are set. Richer than pir's three
 // variants because lflow's worker line distinguishes tool starts, live tool
 // output, usage, turn ends and errors.
-type EventKind int
+type AgentEventKind int
 
 const (
-	EventToolStart  EventKind = iota // Tool + Detail + Args: a tool began
-	EventToolUpdate                  // Tool + Detail: live tool output tail
-	EventAgentText                   // Text: streamed assistant/thinking text
-	EventUsage                       // Usage: token/cost delta for a turn
-	EventTurnEnd                     // Status: a turn finished ("idle" | "error")
-	EventError                       // Text: an error surfaced mid-run
-	EventLog                         // Text + IsErr: a raw transcript line (stderr)
+	AgentEventToolStart  AgentEventKind = iota // Tool + Detail + Args: a tool began
+	AgentEventToolUpdate                  // Tool + Detail: live tool output tail
+	AgentEventText                   // Text: streamed assistant/thinking text
+	AgentEventUsage                       // Usage: token/cost delta for a turn
+	AgentEventTurnEnd                     // Status: a turn finished ("idle" | "error")
+	AgentEventError                       // Text: an error surfaced mid-run
+	AgentEventLog                         // Text + IsErr: a raw transcript line (stderr)
 )
 
-// Event is one normalized line from a running turn (pir's AgentEvent, flattened
+// AgentEvent is one normalized line from a running turn (pir's AgentEvent, flattened
 // into a struct to stay close to each CLI's wire decode).
-type Event struct {
-	Kind   EventKind
+type AgentEvent struct {
+	Kind   AgentEventKind
 	Tool   string          // EventToolStart / EventToolUpdate
 	Detail string          // short human detail (file / command / tail)
 	Args   json.RawMessage // raw tool args (EventToolStart) — the editor reads
@@ -45,38 +45,38 @@ type Event struct {
 	Text   string // assistant text / error message / log line
 	Status string // "idle" | "error" for EventTurnEnd
 	IsErr  bool   // EventLog: stderr vs stdout
-	Usage  *Usage // EventUsage
+	AgentUsage  *Usage // EventUsage
 }
 
 // Usage is a running token/cost total for a session.
 type Usage struct {
-	Model   string // "provider/model" reported by the CLI
+	AgentModel   string // "provider/model" reported by the CLI
 	In, Out int
 	Cost    float64
 }
 
-// SessionState is the live lifecycle of a conversation (pir's SessionState).
-type SessionState string
+// AgentSessionState is the live lifecycle of a conversation (pir's AgentSessionState).
+type AgentSessionState string
 
 const (
-	StateWorking SessionState = "working"
-	StateIdle    SessionState = "idle"
-	StateError   SessionState = "error"
-	StateStopped SessionState = "stopped"
+	AgentStateWorking AgentSessionState = "working"
+	AgentStateIdle    AgentSessionState = "idle"
+	AgentStateError   AgentSessionState = "error"
+	AgentStateStopped AgentSessionState = "stopped"
 )
 
-// Session is one live agent run. Events is closed when the process exits,
+// AgentSession is one live agent run. Events is closed when the process exits,
 // after which Err reports the terminal error (nil = clean exit).
-type Session interface {
-	Events() <-chan Event // normalized stream; closed when the process exits
+type AgentSession interface {
+	Events() <-chan AgentEvent // normalized stream; closed when the process exits
 	Stop()                // intentional cancel (not an error)
-	State() SessionState
+	State() AgentSessionState
 	Err() error
 }
 
-// RunOptions configures a fresh turn. Fields a given backend does not support are
+// AgentRunOptions configures a fresh turn. Fields a given backend does not support are
 // ignored (e.g. Extensions is pi-only).
-type RunOptions struct {
+type AgentRunOptions struct {
 	Model        Model    // which CLI + model to run (Model.CLI selects the backend)
 	Thinking     string   // "", "off", "low", "medium", "high"
 	Tools        []string // tool allowlist
@@ -97,10 +97,10 @@ type RunOptions struct {
 	NoSession bool
 }
 
-// Run starts a fresh turn on provider p (pir's run()). The provided context scopes
+// AgentRun starts a fresh turn on provider p (pir's run()). The provided context scopes
 // the process: cancelling it (or Session.Stop) terminates the agent.
-func Run(ctx context.Context, p Provider, task string, opts RunOptions) (Session, error) {
-	b, ok := Get(p)
+func AgentRun(ctx context.Context, p AgentProvider, task string, opts AgentRunOptions) (AgentSession, error) {
+	b, ok := AgentBackendFor(p)
 	if !ok {
 		return nil, &Error{Provider: p, Message: "unknown provider"}
 	}
@@ -112,18 +112,18 @@ var (
 	modelsCached []Model
 )
 
-// ListModels aggregates the selectable models across all available backends,
+// AgentListModels aggregates the selectable models across all available backends,
 // degrading gracefully when a CLI is missing or fails (pir's parallel listModels).
 // The result is cached after the first non-empty fetch so the model picker can
 // filter per-keystroke without re-shelling the CLIs.
-func ListModels() []Model {
+func AgentListModels() []Model {
 	modelsMu.Lock()
 	defer modelsMu.Unlock()
 	if modelsCached != nil {
 		return modelsCached
 	}
 	var out []Model
-	for _, b := range Backends() {
+	for _, b := range AgentBackends() {
 		if !b.Available() {
 			continue
 		}
@@ -142,7 +142,7 @@ func ListModels() []Model {
 
 // Error is a typed provider failure (pir's ProviderError).
 type Error struct {
-	Provider Provider
+	Provider AgentProvider
 	Message  string
 	Cause    error
 }

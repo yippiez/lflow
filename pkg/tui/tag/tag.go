@@ -106,7 +106,7 @@ func ClientFor(a Agent) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !agent.Available(prov) {
+	if !agent.AgentAvailable(prov) {
 		return nil, fmt.Errorf("Missing dependency: %s", prov)
 	}
 	return &CLIClient{Provider: prov}, nil
@@ -125,12 +125,12 @@ func DepFor(name string) (string, bool) {
 // providerFor maps a built-in agent to its CLI backend. Only the implemented
 // agents are wired — there are no custom/plugin agents — so a new agent is a
 // new case here. An unrecognized name is an error.
-func providerFor(name string) (agent.Provider, error) {
+func providerFor(name string) (agent.AgentProvider, error) {
 	switch name {
 	case "Pi":
-		return agent.ProviderPi, nil
+		return agent.AgentProviderPi, nil
 	case "Grok":
-		return agent.ProviderGrok, nil
+		return agent.AgentProviderGrok, nil
 	}
 	return "", fmt.Errorf("Unknown agent @%s", name)
 }

@@ -10,33 +10,33 @@ import (
 // fills in. The producing goroutine sends on events, then calls finish() once to
 // record the terminal error/state and close the channel.
 type session struct {
-	events chan Event
+	events chan AgentEvent
 	stop   func() // cancel the process (idempotent)
 
 	mu    sync.Mutex
-	state SessionState
+	state AgentSessionState
 	err   error
 	done  bool
 }
 
 func newSession(buf int, stop func()) *session {
 	return &session{
-		events: make(chan Event, buf),
+		events: make(chan AgentEvent, buf),
 		stop:   stop,
-		state:  StateWorking,
+		state:  AgentStateWorking,
 	}
 }
 
-func (s *session) Events() <-chan Event { return s.events }
+func (s *session) Events() <-chan AgentEvent { return s.events }
 
 func (s *session) Stop() {
-	s.setState(StateStopped)
+	s.setState(AgentStateStopped)
 	if s.stop != nil {
 		s.stop()
 	}
 }
 
-func (s *session) State() SessionState {
+func (s *session) State() AgentSessionState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.state
@@ -48,16 +48,16 @@ func (s *session) Err() error {
 	return s.err
 }
 
-func (s *session) setState(st SessionState) {
+func (s *session) setState(st AgentSessionState) {
 	s.mu.Lock()
-	if s.state != StateStopped { // a stop is terminal; later events don't unset it
+	if s.state != AgentStateStopped { // a stop is terminal; later events don't unset it
 		s.state = st
 	}
 	s.mu.Unlock()
 }
 
 // finish records the terminal error and closes the event stream exactly once.
-func (s *session) finish(err error, st SessionState) {
+func (s *session) finish(err error, st AgentSessionState) {
 	s.mu.Lock()
 	if s.done {
 		s.mu.Unlock()
@@ -65,7 +65,7 @@ func (s *session) finish(err error, st SessionState) {
 	}
 	s.done = true
 	s.err = err
-	if s.state != StateStopped {
+	if s.state != AgentStateStopped {
 		s.state = st
 	}
 	s.mu.Unlock()

@@ -18,14 +18,14 @@ func TestPiClientLive(t *testing.T) {
 	if os.Getenv("LFLOW_LIVE") != "1" {
 		t.Skip("set LFLOW_LIVE=1 to run the live pi bridge test")
 	}
-	if !agent.Available(agent.ProviderPi) {
+	if !agent.AgentAvailable(agent.AgentProviderPi) {
 		t.Skip("pi CLI not on PATH")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	c := &CLIClient{Provider: agent.ProviderPi}
+	c := &CLIClient{Provider: agent.AgentProviderPi}
 	thread := []ThreadNode{
 		{UUID: "live-root", Depth: 0, Name: "@Pi reply with exactly the single word: pong", Type: "bullets", Role: "user", Asked: true},
 	}

@@ -14,7 +14,7 @@ import (
 // stdin, a JSON event stream back over stdout until the turn ends.
 type piBackend struct{}
 
-func (piBackend) Name() Provider  { return ProviderPi }
+func (piBackend) Name() AgentProvider  { return AgentProviderPi }
 func (piBackend) Available() bool { return onPath("pi") }
 
 // ListModels parses `pi --list-models` ("provider model …" rows, skipping the
@@ -22,7 +22,7 @@ func (piBackend) Available() bool { return onPath("pi") }
 func (piBackend) ListModels() ([]Model, error) {
 	out, err := exec.Command("pi", "--list-models").Output()
 	if err != nil {
-		return nil, &Error{Provider: ProviderPi, Message: "pi --list-models failed", Cause: err}
+		return nil, &Error{Provider: AgentProviderPi, Message: "pi --list-models failed", Cause: err}
 	}
 	var ms []Model
 	for _, line := range strings.Split(string(out), "\n") {
@@ -30,7 +30,7 @@ func (piBackend) ListModels() ([]Model, error) {
 		if len(f) < 2 || f[0] == "provider" {
 			continue
 		}
-		ms = append(ms, Model{CLI: ProviderPi, Upstream: f[0], Name: f[1]})
+		ms = append(ms, Model{CLI: AgentProviderPi, Upstream: f[0], Name: f[1]})
 	}
 	return ms, nil
 }
@@ -42,7 +42,7 @@ type piEvent struct {
 	ToolName      string          `json:"toolName"`
 	Args          json.RawMessage `json:"args"`
 	PartialResult json.RawMessage `json:"partialResult"`
-	Error         string          `json:"error"`
+	AgentProviderError         string          `json:"error"`
 }
 
 type piMessage struct {
@@ -80,7 +80,7 @@ func (msg *piMessage) text() string {
 // Run spawns pi and returns a steerable Session whose Events() carries the
 // normalized stream. The pi process stays alive after a turn ends (agent_end) so
 // Steer can re-prompt the same conversation.
-func (piBackend) Run(ctx context.Context, task string, opts RunOptions) (Session, error) {
+func (piBackend) Run(ctx context.Context, task string, opts AgentRunOptions) (AgentSession, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	// Sessions are the default — --session-id resumes the real on-disk
@@ -132,7 +132,7 @@ func (piBackend) Run(ctx context.Context, task string, opts RunOptions) (Session
 
 	if err := c.Start(); err != nil {
 		cancel()
-		return nil, &Error{Provider: ProviderPi, Message: "starting pi", Cause: err}
+		return nil, &Error{Provider: AgentProviderPi, Message: "starting pi", Cause: err}
 	}
 	piSendPrompt(stdin, task)
 
@@ -153,7 +153,7 @@ func (piBackend) Run(ctx context.Context, task string, opts RunOptions) (Session
 		for sc.Scan() {
 			if line := strings.TrimSpace(sc.Text()); line != "" {
 				b.WriteString(line + "\n")
-				s.events <- Event{Kind: EventLog, Text: "stderr: " + line, IsErr: true}
+				s.events <- AgentEvent{Kind: AgentEventLog, Text: "stderr: " + line, IsErr: true}
 			}
 		}
 		stderrCh <- b.String()
@@ -177,8 +177,8 @@ func piPump(c *exec.Cmd, stdout io.Reader, stderrCh <-chan string, ctx context.C
 		}
 		switch ev.Type {
 		case "tool_execution_start":
-			s.setState(StateWorking)
-			s.events <- Event{Kind: EventToolStart, Tool: ev.ToolName, Detail: toolDetail(ev.Args), Args: ev.Args}
+			s.setState(AgentStateWorking)
+			s.events <- AgentEvent{Kind: AgentEventToolStart, Tool: ev.ToolName, Detail: toolDetail(ev.Args), Args: ev.Args}
 		case "tool_execution_update":
 			detail := toolDetail(ev.Args)
 			if tail := resultTail(ev.PartialResult); tail != "" {
@@ -188,7 +188,7 @@ func piPump(c *exec.Cmd, stdout io.Reader, stderrCh <-chan string, ctx context.C
 					detail = tail
 				}
 			}
-			s.events <- Event{Kind: EventToolUpdate, Tool: ev.ToolName, Detail: detail}
+			s.events <- AgentEvent{Kind: AgentEventToolUpdate, Tool: ev.ToolName, Detail: detail}
 		case "message_end":
 			if ev.Message == nil {
 				break
@@ -198,7 +198,7 @@ func piPump(c *exec.Cmd, stdout io.Reader, stderrCh <-chan string, ctx context.C
 			// Only assistant messages — never echo the user turn back into the stream.
 			if r := ev.Message.Role; r == "" || r == "assistant" {
 				if txt := ev.Message.text(); txt != "" {
-					s.events <- Event{Kind: EventAgentText, Text: txt}
+					s.events <- AgentEvent{Kind: AgentEventText, Text: txt}
 				}
 			}
 			if ev.Message.Usage == nil {
@@ -211,32 +211,32 @@ func piPump(c *exec.Cmd, stdout io.Reader, stderrCh <-chan string, ctx context.C
 				use.Cost += u.Cost.Total
 			}
 			if ev.Message.Model != "" {
-				use.Model = ev.Message.Provider + "/" + ev.Message.Model
+				use.AgentModel = ev.Message.Provider + "/" + ev.Message.Model
 			}
 			snapshot := use
-			s.events <- Event{Kind: EventUsage, Usage: &snapshot}
+			s.events <- AgentEvent{Kind: AgentEventUsage, AgentUsage: &snapshot}
 		case "agent_end":
 			st := "idle"
-			s.setState(StateIdle)
+			s.setState(AgentStateIdle)
 			if sawError {
 				st = "error"
-				s.setState(StateError)
+				s.setState(AgentStateError)
 			}
-			s.events <- Event{Kind: EventTurnEnd, Status: st}
+			s.events <- AgentEvent{Kind: AgentEventTurnEnd, Status: st}
 		default:
 			// any error-shaped event (error / agent_error / model_error …) — surface
 			// it instead of silently leaving the worker idle
 			if strings.Contains(ev.Type, "error") {
 				sawError = true
-				s.setState(StateError)
-				msg := ev.Error
+				s.setState(AgentStateError)
+				msg := ev.AgentProviderError
 				if msg == "" && ev.Message != nil {
 					msg = ev.Message.text()
 				}
 				if msg == "" {
 					msg = ev.Type
 				}
-				s.events <- Event{Kind: EventError, Text: msg}
+				s.events <- AgentEvent{Kind: AgentEventError, Text: msg}
 			}
 		}
 	}
@@ -244,7 +244,7 @@ func piPump(c *exec.Cmd, stdout io.Reader, stderrCh <-chan string, ctx context.C
 	err := c.Wait()
 	stderrText := <-stderrCh
 	if ctx.Err() != nil { // intentional stop (cancel) — not an error
-		s.finish(nil, StateStopped)
+		s.finish(nil, AgentStateStopped)
 		return
 	}
 	if err != nil || sawError {
@@ -252,10 +252,10 @@ func piPump(c *exec.Cmd, stdout io.Reader, stderrCh <-chan string, ctx context.C
 		if last == "" {
 			last = "pi exited unexpectedly"
 		}
-		s.finish(&Error{Provider: ProviderPi, Message: last}, StateError)
+		s.finish(&Error{Provider: AgentProviderPi, Message: last}, AgentStateError)
 		return
 	}
-	s.finish(nil, StateIdle)
+	s.finish(nil, AgentStateIdle)
 }
 
 // piSendPrompt writes one RPC prompt line to pi's stdin.

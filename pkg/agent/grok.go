@@ -19,7 +19,7 @@ import (
 // mints its own session ids, so a stable caller-chosen id cannot name one).
 type grokBackend struct{}
 
-func (grokBackend) Name() Provider  { return ProviderGrok }
+func (grokBackend) Name() AgentProvider  { return AgentProviderGrok }
 func (grokBackend) Available() bool { return onPath("grok") }
 
 // ListModels parses `grok models` ("  * grok-4.5 (default)" / "  - name"
@@ -28,7 +28,7 @@ func (grokBackend) Available() bool { return onPath("grok") }
 func (grokBackend) ListModels() ([]Model, error) {
 	out, err := exec.Command("grok", "models").Output()
 	if err != nil {
-		return nil, &Error{Provider: ProviderGrok, Message: "grok models failed", Cause: err}
+		return nil, &Error{Provider: AgentProviderGrok, Message: "grok models failed", Cause: err}
 	}
 	var ms []Model
 	for _, line := range strings.Split(string(out), "\n") {
@@ -36,7 +36,7 @@ func (grokBackend) ListModels() ([]Model, error) {
 		if len(f) < 2 || (f[0] != "*" && f[0] != "-") {
 			continue
 		}
-		m := Model{CLI: ProviderGrok, Name: f[1]}
+		m := Model{CLI: AgentProviderGrok, Name: f[1]}
 		if f[0] == "*" {
 			ms = append([]Model{m}, ms...) // the default model leads the list
 		} else {
@@ -71,7 +71,7 @@ type acpFrame struct {
 // Run spawns `grok agent stdio` and pumps its ACP stream into a Session.
 // SystemPrompt is folded into the prompt text (the stdio agent takes no
 // system-prompt flag); Skills/Extensions are pi-only and ignored.
-func (grokBackend) Run(ctx context.Context, task string, opts RunOptions) (Session, error) {
+func (grokBackend) Run(ctx context.Context, task string, opts AgentRunOptions) (AgentSession, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	args := []string{"agent", "--always-approve"}
@@ -93,7 +93,7 @@ func (grokBackend) Run(ctx context.Context, task string, opts RunOptions) (Sessi
 	s := newSession(1024, cancel)
 	if err := c.Start(); err != nil {
 		cancel()
-		return nil, &Error{Provider: ProviderGrok, Message: "starting grok", Cause: err}
+		return nil, &Error{Provider: AgentProviderGrok, Message: "starting grok", Cause: err}
 	}
 
 	prompt := task
@@ -127,9 +127,9 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 	})
 
 	fail := func(msg string) {
-		s.events <- Event{Kind: EventError, Text: msg}
-		s.events <- Event{Kind: EventTurnEnd, Status: "error"}
-		s.finish(&Error{Provider: ProviderGrok, Message: msg}, StateError)
+		s.events <- AgentEvent{Kind: AgentEventError, Text: msg}
+		s.events <- AgentEvent{Kind: AgentEventTurnEnd, Status: "error"}
+		s.finish(&Error{Provider: AgentProviderGrok, Message: msg}, AgentStateError)
 	}
 
 	var reply strings.Builder
@@ -140,7 +140,7 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 	// pre-tool narration ("I'll look at...") from the reply node.
 	flush := func() {
 		if txt := strings.TrimSpace(reply.String()); txt != "" {
-			s.events <- Event{Kind: EventAgentText, Text: txt}
+			s.events <- AgentEvent{Kind: AgentEventText, Text: txt}
 		}
 		reply.Reset()
 	}
@@ -165,7 +165,7 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 				fail("grok session/new returned no session id")
 				return
 			}
-			s.setState(StateWorking)
+			s.setState(AgentStateWorking)
 			send(idPrompt, "session/prompt", map[string]any{
 				"sessionId": res.SessionID,
 				"prompt":    []map[string]any{{"type": "text", "text": prompt}},
@@ -173,9 +173,9 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 		case fr.ID != nil && *fr.ID == idPrompt:
 			// the prompt response IS the turn end
 			flush()
-			s.setState(StateIdle)
-			s.events <- Event{Kind: EventTurnEnd, Status: "idle"}
-			s.finish(nil, StateIdle)
+			s.setState(AgentStateIdle)
+			s.events <- AgentEvent{Kind: AgentEventTurnEnd, Status: "idle"}
+			s.finish(nil, AgentStateIdle)
 			return
 		case fr.Method == "session/update":
 			u := fr.Params.Update
@@ -190,9 +190,9 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 				if len(args) == 0 {
 					args = u.RawInput
 				}
-				s.events <- Event{Kind: EventToolStart, Tool: name, Detail: toolDetail(args), Args: args}
+				s.events <- AgentEvent{Kind: AgentEventToolStart, Tool: name, Detail: toolDetail(args), Args: args}
 			case "tool_call_update":
-				s.events <- Event{Kind: EventToolUpdate, Tool: u.Tool, Detail: clip(lastLine(u.Content.Text), 48)}
+				s.events <- AgentEvent{Kind: AgentEventToolUpdate, Tool: u.Tool, Detail: clip(lastLine(u.Content.Text), 48)}
 			case "agent_message_chunk":
 				reply.WriteString(u.Content.Text)
 			}
@@ -200,7 +200,7 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 	}
 
 	if ctx.Err() != nil { // intentional stop — not an error
-		s.finish(nil, StateStopped)
+		s.finish(nil, AgentStateStopped)
 		return
 	}
 	fail("grok exited before the turn ended (is `grok login` done?)")

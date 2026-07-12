@@ -152,11 +152,11 @@ func TestLoadAgentsDefaultsToPiAndGrok(t *testing.T) {
 func TestProviderFor(t *testing.T) {
 	cases := []struct {
 		name string
-		want agent.Provider
+		want agent.AgentProvider
 		ok   bool
 	}{
-		{"Pi", agent.ProviderPi, true},
-		{"Grok", agent.ProviderGrok, true},
+		{"Pi", agent.AgentProviderPi, true},
+		{"Grok", agent.AgentProviderGrok, true},
 		{"grok", "", false},    // exact match only — not a generic lookup
 		{"Zamboni", "", false}, // no custom agents
 	}
@@ -168,7 +168,7 @@ func TestProviderFor(t *testing.T) {
 		}
 	}
 	// the safety net the user asked for: Grok is never pi.
-	if p, _ := providerFor("Grok"); p == agent.ProviderPi {
+	if p, _ := providerFor("Grok"); p == agent.AgentProviderPi {
 		t.Fatal("@Grok resolved to the pi backend")
 	}
 }
