@@ -29,14 +29,8 @@ const (
 	TypeDivider = "divider"
 	TypeAgent   = "agent" // an agent-authored reply: red ✦, text + chips; typed attachments as children
 	TypeWF      = "wf"    // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
-	// TypeCodeReview launches the review diff TUI on a commit range; alt+e
-	// picks the beginning and end commits (see editor/codereview.go).
-	TypeCodeReview = "codereview"
-	// TypeCodeSig explores a source file's signatures with the signatures /
-	// dshell / cstack CLIs (see editor/codesig.go).
-	TypeCodeSig = "codesig"
 	// TypeNLPCompute is natural language as code: a red → instruction whose
-	// alt+r generates the implementing snippet (see editor/nlpcompute.go).
+	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
 )
 
@@ -68,8 +62,6 @@ var TypeOrder = []string{
 	TypeQuery,
 	TypeVoice,
 	TypeImage,
-	TypeCodeReview,
-	TypeCodeSig,
 	TypeNLPCompute,
 	TypeAgent,
 	TypeWF,

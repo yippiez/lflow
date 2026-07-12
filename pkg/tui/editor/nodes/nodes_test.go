@@ -87,46 +87,6 @@ func (n *fakeNode) Is(o editor.NodeRef) bool {
 	return ok && fo == n
 }
 
-// ── codereview ──────────────────────────────────────────────────────────────
-
-func TestCRRange(t *testing.T) {
-	cases := map[string][]string{
-		"":           nil,
-		"a1b2..HEAD": {"a1b2", "HEAD"},
-		"a1b2 c3d4":  {"a1b2", "c3d4"},
-		"main":       {"main"},
-	}
-	for in, want := range cases {
-		got := crRange(in)
-		if len(got) != len(want) {
-			t.Fatalf("crRange(%q) = %v, want %v", in, got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("crRange(%q) = %v, want %v", in, got, want)
-			}
-		}
-	}
-}
-
-// ── codesig ─────────────────────────────────────────────────────────────────
-
-func TestSigIdent(t *testing.T) {
-	cases := map[string]string{
-		"func EncodeValue(v any) (any, error)":   "EncodeValue",
-		"func (m *Model) refreshRows(it *item)":  "refreshRows",
-		"type Req struct":                        "Req",
-		"class Foo(Base):":                       "Foo",
-		"def train(inputs, epochs=10):":          "train",
-		"const OpHello = …":                      "OpHello",
-	}
-	for in, want := range cases {
-		if got := sigIdent(in); got != want {
-			t.Fatalf("sigIdent(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // ── nlpcompute ──────────────────────────────────────────────────────────────
 
 func TestPeelCodeFence(t *testing.T) {
