@@ -135,67 +135,102 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 	if err != nil {
 		return nil, err
 	}
+	// upstream errors often arrive as a bare "Internal error" — prefix the
+	// model so the bar says where it came from
+	model := opts.Model.FlagValue()
 
 	out := make(chan Event, 16)
 	go func() {
 		defer close(out)
-		defer sess.Stop() // one turn, one process — nothing to come back to
 
-		var reply strings.Builder
-		var interim string // last narration dropped at a tool start — fallback only
-		for ev := range sess.Events() {
-			switch ev.Kind {
-			case agent.EventToolStart, agent.EventToolUpdate:
-				// text emitted before a tool call is process narration ("I'll look
-				// up..."), not the answer — keep it out of the reply node; only what
-				// follows the LAST tool call lands. The latest cut survives as a
-				// fallback for turns that end without any closing text.
-				if ev.Kind == agent.EventToolStart && reply.Len() > 0 {
-					interim = reply.String()
-					reply.Reset()
-				}
-				// live "what it's doing now" — the editor shows the last one as a
-				// muted band under the running mention. Nothing lands in the outline.
-				out <- Event{Op: "tool", Tool: ev.Tool, Text: ev.Detail}
-			case agent.EventAgentText:
-				if t := strings.TrimSpace(ev.Text); t != "" {
-					if reply.Len() > 0 {
-						reply.WriteString("\n")
-					}
-					reply.WriteString(t)
-					// the model is reasoning/answering past its last tool — reset
-					// the live band to "Thinking…" so it doesn't freeze on the tool.
-					out <- Event{Op: "thinking"}
-				}
-			case agent.EventError:
-				out <- Event{Op: "error", Text: ev.Text}
-				return
-			case agent.EventTurnEnd:
-				if ev.Status == "error" {
-					out <- Event{Op: "error", Text: firstNonEmpty(strings.TrimSpace(reply.String()), agentName+" turn failed")}
-					return
-				}
-				// "PASS" is pi declining a discretionary turn (the user is
-				// mid-thought) — the turn ran, no reply node lands
-				txt := strings.TrimSpace(reply.String())
-				if txt == "" {
-					txt = strings.TrimSpace(interim) // tools ran, no closing text — better than silence
-				}
-				if txt != "" && txt != "PASS" {
-					out <- Event{Op: "message", Placement: placement, Text: txt}
-				}
-				out <- Event{Op: "done"}
+		// One transparent retry: a provider hiccup (HTTP 500 "Internal error",
+		// rate limit) that kills the turn before ANY work happened — no tool
+		// ran, no reply text — re-runs once instead of surfacing straight away.
+		// A turn that already did work never retries: its tools may have edited
+		// the outline or the filesystem.
+		for attempt := 0; ; attempt++ {
+			errText, sawWork := pumpTurn(sess, out, placement, agentName)
+			sess.Stop() // one turn, one process — nothing to come back to
+			if errText == "" {
 				return
 			}
-		}
-		// stream closed without a turn end — surface pi's terminal error
-		if e := sess.Err(); e != nil {
-			out <- Event{Op: "error", Text: e.Error()}
+			if ctx.Err() == nil && !sawWork && attempt == 0 {
+				out <- Event{Op: "tool", Tool: "retry", Text: firstNonEmpty(errText, "transient agent error")}
+				s2, err := agent.Run(ctx, c.Provider, turnPrompt(thread), opts)
+				if err == nil {
+					sess = s2
+					continue
+				}
+				errText = err.Error()
+			}
+			if model != "" && !strings.Contains(errText, model) {
+				errText = model + ": " + errText
+			}
+			out <- Event{Op: "error", Text: errText}
 			return
 		}
-		out <- Event{Op: "done"}
 	}()
 	return out, nil
+}
+
+// pumpTurn drains one session's events into tag events. It returns the
+// terminal error text ("" on a clean turn) and whether the turn did
+// observable work (a tool ran or reply text streamed) — the retry gate: a
+// worked turn must never re-run.
+func pumpTurn(sess agent.Session, out chan<- Event, placement, agentName string) (errText string, sawWork bool) {
+	var reply strings.Builder
+	var interim string // last narration dropped at a tool start — fallback only
+	for ev := range sess.Events() {
+		switch ev.Kind {
+		case agent.EventToolStart, agent.EventToolUpdate:
+			sawWork = true
+			// text emitted before a tool call is process narration ("I'll look
+			// up..."), not the answer — keep it out of the reply node; only what
+			// follows the LAST tool call lands. The latest cut survives as a
+			// fallback for turns that end without any closing text.
+			if ev.Kind == agent.EventToolStart && reply.Len() > 0 {
+				interim = reply.String()
+				reply.Reset()
+			}
+			// live "what it's doing now" — the editor shows the last one as a
+			// muted band under the running mention. Nothing lands in the outline.
+			out <- Event{Op: "tool", Tool: ev.Tool, Text: ev.Detail}
+		case agent.EventAgentText:
+			if t := strings.TrimSpace(ev.Text); t != "" {
+				sawWork = true
+				if reply.Len() > 0 {
+					reply.WriteString("\n")
+				}
+				reply.WriteString(t)
+				// the model is reasoning/answering past its last tool — reset
+				// the live band to "Thinking…" so it doesn't freeze on the tool.
+				out <- Event{Op: "thinking"}
+			}
+		case agent.EventError:
+			return firstNonEmpty(ev.Text, agentName+" turn failed"), sawWork
+		case agent.EventTurnEnd:
+			if ev.Status == "error" {
+				return firstNonEmpty(strings.TrimSpace(reply.String()), agentName+" turn failed"), sawWork
+			}
+			// "PASS" is pi declining a discretionary turn (the user is
+			// mid-thought) — the turn ran, no reply node lands
+			txt := strings.TrimSpace(reply.String())
+			if txt == "" {
+				txt = strings.TrimSpace(interim) // tools ran, no closing text — better than silence
+			}
+			if txt != "" && txt != "PASS" {
+				out <- Event{Op: "message", Placement: placement, Text: txt}
+			}
+			out <- Event{Op: "done"}
+			return "", sawWork
+		}
+	}
+	// stream closed without a turn end — surface pi's terminal error
+	if e := sess.Err(); e != nil {
+		return e.Error(), sawWork
+	}
+	out <- Event{Op: "done"}
+	return "", sawWork
 }
 
 // turnPrompt is the message the agent actually receives each turn — full XML:
