@@ -106,7 +106,9 @@ func (m *Model) threadRootFor(it *item, ag tag.Agent) *item {
 // replies can target it. Every node's children are emitted at most ONCE —
 // the expanded set is global to the walk, not per-path — so a mirror pointing
 // back at an ancestor can't loop, and two mirrors of the same source can't
-// duplicate its subtree.
+// duplicate its subtree. A priority-up node shows its newest children on TOP,
+// so the walk inverts them: the agent always reads the conversation
+// chronologically, oldest first (see cliSystemPrompt).
 func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 	var out []tag.ThreadNode
 
@@ -145,12 +147,34 @@ func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 			return
 		}
 		expanded[tgt] = true
-		for _, c := range m.tree.childItems(it) {
-			walk(c, depth+1)
+		kids := m.tree.childItems(it)
+		if tgt.priority == database.PriorityUp {
+			// newest-on-top in the outline → oldest-first for the agent
+			for i := len(kids) - 1; i >= 0; i-- {
+				walk(kids[i], depth+1)
+			}
+		} else {
+			for _, c := range kids {
+				walk(c, depth+1)
+			}
 		}
 	}
 	walk(root, rootDepth)
 	return out
+}
+
+// forceThreadPriorityDown pins an agent-chipped node to priority down: an
+// agent conversation always reads top-down chronological, so a mention node
+// never inverts — /priority:up refuses it, and a node that was up before the
+// chip landed converts to down on contact (chip completion, thread send).
+func (m *Model) forceThreadPriorityDown(it *item) {
+	if it == nil || it.priority == database.PriorityDown {
+		return
+	}
+	it.priority = database.PriorityDown
+	if m.db != nil {
+		_ = database.SetPriority(m.db, it.uuid, database.PriorityDown)
+	}
 }
 
 // agentEvMsg carries one streamed event into the update loop.
@@ -184,6 +208,8 @@ func (m *Model) sendThread(asked *item, ag tag.Agent) tea.Cmd {
 	if t := m.thread(root.uuid); t != nil && t.busy {
 		return nil
 	}
+	// the thread root is an agent-chipped node: forced down, always chronological
+	m.forceThreadPriorityDown(root)
 	m.agentErr = "" // a fresh attempt clears the last failure
 
 	if m.tagClients == nil {
@@ -332,6 +358,9 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	// replies are born locked so they can't drift under the thread — /lock
 	// unlocks one for reshaping like any other node
 	it.readonly = true
+	// a reply hosts its own sub-thread: born down so the conversation under it
+	// reads top-down chronological (the new-node up default would invert it)
+	it.priority = database.PriorityDown
 
 	// a reply to the thread root itself always nests — "below" would land it
 	// outside the mention's subtree, beyond the session's reach
@@ -341,13 +370,22 @@ func (m *Model) placeAgentNode(threadUUID, askedUUID, text, placement string) {
 	if placement == "below" && asked.parent != nil {
 		it.parent = asked.parent
 		idx := indexOf(asked)
-		sibs := asked.parent.children
-		asked.parent.children = append(sibs, nil)
-		copy(asked.parent.children[idx+2:], asked.parent.children[idx+1:])
-		asked.parent.children[idx+1] = it
+		// message-board placement follows the surrounding order: under a
+		// priority-up parent the conversation stacks newest first, so the
+		// reply posts ABOVE the asked node instead of after it
+		if asked.parent.priority != database.PriorityUp {
+			idx++
+		}
+		m.tree.insertChildAt(asked.parent, idx, it)
 	} else {
 		it.parent = asked
-		asked.children = append(asked.children, it)
+		// a priority-up node keeps its newest children on top — the reply
+		// lands first; down appends at the bottom as before
+		if asked.priority == database.PriorityUp {
+			asked.children = append([]*item{it}, asked.children...)
+		} else {
+			asked.children = append(asked.children, it)
+		}
 		asked.collapsed = false
 	}
 	// agent replies carry chips like any node: spoken {{…}} tokens converted

@@ -75,6 +75,8 @@ var slashCommands = []slashCommand{
 	{"/move:here", "Move another node here"},
 	{"/move:to", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
+	{"/priority:down", "Incoming nodes land at the bottom"},
+	{"/priority:up", "Incoming nodes land on top"},
 	{"/settings", "Editor preferences: theme, image preview"},
 	{"/star", "Star this node — ranks first in pickers and search hits"},
 	{"/style", "Set this node's text style or color"},
@@ -1486,6 +1488,28 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 			m.flash = "★ starred"
 		} else {
 			m.flash = "unstarred"
+		}
+	case "/priority:up", "/priority:down":
+		// where incoming nodes land among this node's children: new children,
+		// moved-in nodes and agent replies go on top (up) or to the bottom
+		// (down). A mirror sets its original — placement follows the source.
+		// Like /star: toggled in place, immediate write, no edited_on churn.
+		cur = m.tree.resolve(cur)
+		if name == "/priority:up" {
+			// an agent-chipped node is forced down — its conversation always
+			// reads top-down chronological (see forceThreadPriorityDown)
+			if _, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
+				m.flash = "agent thread reads top-down · priority stays down"
+				return m, nil
+			}
+			cur.priority = database.PriorityUp
+			m.flash = "priority up · incoming nodes land on top"
+		} else {
+			cur.priority = database.PriorityDown
+			m.flash = "priority down · incoming nodes land at the bottom"
+		}
+		if m.db != nil {
+			_ = database.SetPriority(m.db, cur.uuid, cur.priority)
 		}
 	case "/duplicate":
 		// deep-copy this node (and its subtree) in as the next sibling, then

@@ -102,10 +102,8 @@ func (m *Model) selIndent() {
 	}
 	dest := first.parent.children[idx-1]
 	m.pushUndo("")
-	// reparent prepends, so walking the roots in reverse preserves their order
-	for i := len(roots) - 1; i >= 0; i-- {
-		m.tree.reparent(roots[i], dest)
-	}
+	// the group lands where dest's priority points, its own order intact
+	m.tree.reparentAll(roots, dest)
 	dest.collapsed = false
 	m.unsaved = true
 	m.refreshRows()

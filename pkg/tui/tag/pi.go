@@ -41,6 +41,11 @@ func cliSystemPrompt(name string) string {
 		"as the element instead of <node> — <todo done=\"true\">, <log time=\"…\">, " +
 		"<code>, <json> (its document as the element body), <h1>…<h3>, <quote>, " +
 		"<image> (caption only; pixels never travel) — same nesting rules. " +
+		"Siblings in <NodeContext> are always chronological — oldest first, the " +
+		"last one is the newest. Note that in the user's outline a conversation " +
+		"may DISPLAY inverted (priority-up nodes stack new messages and your " +
+		"replies on top), so `lflow node list` can show the same children " +
+		"newest-first; trust <NodeContext> for conversation order. " +
 		"That is all you are handed — for anything else in the outline, search it " +
 		"yourself with the lflow CLI: `lflow node grep <text>` finds nodes, " +
 		"`lflow node list <node>` reads a subtree (details in the lflow skill).\n" +

@@ -273,20 +273,22 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 			m.clearSel()
 		}
 		if targetItem, inTree := m.tree.byUUID[target.UUID]; inTree {
-			moved := false
-			// reparent prepends: reverse order preserves the block's own order
-			for i := len(movers) - 1; i >= 0; i-- {
-				if m.tree.reparent(movers[i], targetItem) {
-					moved = true
-				}
-			}
+			// the group lands where the target's priority points, order intact
+			moved := m.tree.reparentAll(movers, targetItem)
 			if moved {
 				m.unsaved = true
 				m.refreshRows()
 				m.cursor = clampRow(oldRow, len(m.rows))
 			}
 		} else {
-			// moving out of the open subtree: persist everything, then move in db
+			// moving out of the open subtree: persist everything, then move in db.
+			// A priority-up target stacks each move on top, so the walk runs
+			// reversed there to keep the block's own order (mirrors reparentAll).
+			if target.Priority == database.PriorityUp {
+				for i, j := 0, len(movers)-1; i < j; i, j = i+1, j-1 {
+					movers[i], movers[j] = movers[j], movers[i]
+				}
+			}
 			for _, mv := range movers {
 				if err := m.moveToDB(mv, target); err != nil {
 					m.err = err
@@ -352,9 +354,9 @@ func clampRow(i, n int) int {
 	return i
 }
 
-// mirrorToDB plants a mirror of srcUUID at the top of a target that lives
-// outside the open subtree. Everything saves first so the new row lands next
-// to a persisted original.
+// mirrorToDB plants a mirror of srcUUID under a target that lives outside the
+// open subtree, where the target's priority points (up = top, down = bottom).
+// Everything saves first so the new row lands next to a persisted original.
 func (m *Model) mirrorToDB(srcUUID string, target database.Node) error {
 	if _, err := m.saveAll(); err != nil {
 		return err
@@ -365,7 +367,7 @@ func (m *Model) mirrorToDB(srcUUID string, target database.Node) error {
 	if err != nil {
 		return errors.Wrap(err, "generating uuid")
 	}
-	rank, err := database.FirstRank(m.db, target.UUID)
+	rank, err := database.PlaceRank(m.db, target.UUID)
 	if err != nil {
 		return err
 	}
@@ -373,7 +375,8 @@ func (m *Model) mirrorToDB(srcUUID string, target database.Node) error {
 	n := database.Node{
 		UUID: uuid, ParentUUID: target.UUID, Rank: rank,
 		Type: database.TypeBullets, MirrorOf: srcUUID,
-		AddedOn: now, EditedOn: now,
+		Priority: database.PriorityUp, // new nodes default up
+		AddedOn:  now, EditedOn: now,
 	}
 	return errors.Wrap(n.Insert(m.db), "mirroring node")
 }
@@ -384,8 +387,9 @@ func (m *Model) moveToDB(cur *item, target database.Node) error {
 	}
 	m.unsaved = false
 
-	// /move:to drops the node at the top of the target's children, not the bottom
-	rank, err := database.FirstRank(m.db, target.UUID)
+	// /move:to drops the node where the target's priority points: up = top,
+	// down = bottom of its children
+	rank, err := database.PlaceRank(m.db, target.UUID)
 	if err != nil {
 		return err
 	}

@@ -20,9 +20,10 @@ type item struct {
 	children    []*item
 	parent      *item
 	collapsed   bool
-	readonly    bool  // node lock: inline edits are no-ops (see canEdit)
-	starred     bool  // /star: pinned to the top of pickers and search hits
-	addedOn     int64 // creation time (UnixNano); shown by the log node's time chip
+	readonly    bool   // node lock: inline edits are no-ops (see canEdit)
+	starred     bool   // /star: pinned to the top of pickers and search hits
+	priority    string // /priority: incoming nodes land on top ("up") or at the bottom ("down"/"")
+	addedOn     int64  // creation time (UnixNano); shown by the log node's time chip
 	isNew       bool
 }
 
@@ -39,6 +40,7 @@ type snapshot struct {
 	collapsed   bool
 	readonly    bool
 	starred     bool
+	priority    string
 }
 
 // tree is the in-memory model of the subtree being edited.
@@ -79,6 +81,7 @@ func cloneItem(src, parent *item) *item {
 		collapsed:   src.collapsed,
 		readonly:    src.readonly,
 		starred:     src.starred,
+		priority:    src.priority,
 		addedOn:     src.addedOn,
 		isNew:       src.isNew,
 		parent:      parent,
@@ -122,6 +125,7 @@ func itemFromNode(n database.Node) *item {
 		collapsed:   n.Collapsed,
 		readonly:    n.Readonly,
 		starred:     n.Starred,
+		priority:    n.Priority,
 		addedOn:     n.AddedOn,
 	}
 }
@@ -504,7 +508,9 @@ func (t *tree) newItem() (*item, error) {
 	if t.defaultType != "" {
 		typ = t.defaultType // a tree may default new nodes to a non-bullets type
 	}
-	it := &item{uuid: uuid, typ: typ, addedOn: time.Now().UnixNano(), isNew: true}
+	// new nodes default to priority up (incoming children land on top); nodes
+	// that predate the priority column were backfilled to down (lm39)
+	it := &item{uuid: uuid, typ: typ, priority: database.PriorityUp, addedOn: time.Now().UnixNano(), isNew: true}
 	t.byUUID[uuid] = it
 	return it, nil
 }
@@ -587,6 +593,7 @@ func (t *tree) cloneSubtree(src *item) (*item, error) {
 		mirrorOf:    src.mirrorOf,
 		completedAt: src.completedAt,
 		collapsed:   src.collapsed,
+		priority:    src.priority,
 		isNew:       true,
 	}
 	t.byUUID[uuid] = c
@@ -635,7 +642,13 @@ func (t *tree) indent(it *item) bool {
 	prev := t.resolve(it.parent.children[idx-1])
 	it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
 	it.parent = prev
-	prev.children = append(prev.children, it)
+	// the landing slot honors the target's priority: up keeps the node adjacent
+	// to the new parent line, down appends below its existing children
+	if prev.priority == database.PriorityUp {
+		prev.children = append([]*item{it}, prev.children...)
+	} else {
+		prev.children = append(prev.children, it)
+	}
 	prev.collapsed = false
 	if t.db != nil {
 		_ = database.SetCollapsed(t.db, prev.uuid, false) // persist the auto-expand
@@ -728,8 +741,8 @@ func (t *tree) move(it *item, delta int, viewRoot *item) bool {
 	return true
 }
 
-// reparent moves the item under a new parent, placed first so it lands at the
-// top of the target's children rather than the bottom.
+// reparent moves the item under a new parent, landing where the target's
+// priority points: up → top of its children, down → bottom.
 func (t *tree) reparent(it *item, newParent *item) bool {
 	// cycle check: newParent must not be inside it's subtree
 	for p := newParent; p != nil; p = p.parent {
@@ -743,8 +756,33 @@ func (t *tree) reparent(it *item, newParent *item) bool {
 	}
 	it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
 	it.parent = newParent
-	newParent.children = append([]*item{it}, newParent.children...)
+	if newParent.priority == database.PriorityUp {
+		newParent.children = append([]*item{it}, newParent.children...)
+	} else {
+		newParent.children = append(newParent.children, it)
+	}
 	return true
+}
+
+// reparentAll moves the items under dest preserving the block's own order:
+// dest's priority lands each node on top (up) or at the bottom (down), so the
+// walk runs reversed under an up target and forward under a down one.
+func (t *tree) reparentAll(items []*item, dest *item) bool {
+	moved := false
+	if dest.priority == database.PriorityUp {
+		for i := len(items) - 1; i >= 0; i-- {
+			if t.reparent(items[i], dest) {
+				moved = true
+			}
+		}
+		return moved
+	}
+	for _, it := range items {
+		if t.reparent(it, dest) {
+			moved = true
+		}
+	}
+	return moved
 }
 
 // stats returns total node count below the view root and the edited count.
@@ -822,6 +860,7 @@ func (t *tree) save() (int, error) {
 				Collapsed:   it.collapsed,
 				Readonly:    it.readonly,
 				Starred:     it.starred,
+				Priority:    it.priority,
 			}
 			if err := n.Upsert(tx); err != nil {
 				return err
@@ -847,6 +886,11 @@ func (t *tree) save() (int, error) {
 		if existed && s.starred != it.starred {
 			if _, err := tx.Exec("UPDATE nodes SET starred = ? WHERE uuid = ?", it.starred, it.uuid); err != nil {
 				return errors.Wrapf(err, "persisting starred for %s", it.uuid)
+			}
+		}
+		if existed && s.priority != it.priority {
+			if _, err := tx.Exec("UPDATE nodes SET priority = ? WHERE uuid = ?", it.priority, it.uuid); err != nil {
+				return errors.Wrapf(err, "persisting priority for %s", it.uuid)
 			}
 		}
 
@@ -924,6 +968,8 @@ func (t *tree) refreshSnapshots() {
 			completedAt: it.completedAt,
 			collapsed:   it.collapsed,
 			readonly:    it.readonly,
+			starred:     it.starred,
+			priority:    it.priority,
 		}
 		for i, c := range it.children {
 			walk(c, it.uuid, i)

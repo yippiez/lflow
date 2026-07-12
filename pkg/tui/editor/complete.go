@@ -153,6 +153,8 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) {
 		}
 		cur.name = string(runes[:m.compl.start]) + anchor + " " + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(anchor)) + 1
+		// an agent-chipped node reads top-down chronological — forced down
+		m.forceThreadPriorityDown(cur)
 		m.unsaved = true
 		return
 	}

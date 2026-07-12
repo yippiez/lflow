@@ -253,6 +253,7 @@ func snapFromNode(n database.Node) snapshot {
 		collapsed:   n.Collapsed,
 		readonly:    n.Readonly,
 		starred:     n.Starred,
+		priority:    n.Priority,
 	}
 }
 
@@ -286,6 +287,7 @@ func (t *tree) applyExternal(n database.Node) bool {
 			collapsed:   n.Collapsed,
 			readonly:    n.Readonly,
 			starred:     n.Starred,
+			priority:    n.Priority,
 			addedOn:     n.AddedOn,
 			parent:      parent,
 		}
@@ -310,6 +312,7 @@ func (t *tree) applyExternal(n database.Node) bool {
 		it.name, it.note, it.typ = n.Name, n.Note, n.Type
 		it.style, it.mirrorOf = n.Style, n.MirrorOf
 		it.completedAt, it.readonly, it.starred = n.CompletedAt, n.Readonly, n.Starred
+		it.priority = n.Priority // placement preference only — never visible, so not a mutation
 	}
 
 	// structure: adopt an external move only when the node has not moved
