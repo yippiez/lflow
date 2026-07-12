@@ -51,6 +51,18 @@ var settingDefs = []settingDef{
 		},
 		def: "compact",
 	},
+	{
+		// select: the terminal owns the mouse — native drag-select works (and
+		// copy-on-select where the terminal offers it); the wheel scrolls the
+		// terminal, pgup/pgdn scroll the outline. wheel: lflow captures the
+		// mouse so the wheel scrolls the outline; hold shift to select text.
+		key: "mouse", label: "Mouse",
+		options: []settingOption{
+			{"select", "select · native text selection"},
+			{"wheel", "wheel · scrolls the outline, shift to select"},
+		},
+		def: "select",
+	},
 	// The @Pi agent's model and thinking level are NOT settings — each backend
 	// (pi, grok) ships a baked-in default; see agent.ProviderDefault and the
 	// provider pick in tag/pi.go.

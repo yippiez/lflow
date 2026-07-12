@@ -622,6 +622,12 @@ func (m *Model) persistCollapsed(it *item) {
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
 	cmd := m.startAnim(nil)
+	// mouse capture follows the preference: only the wheel mode grabs the
+	// mouse (native selection then needs shift); select mode leaves the mouse
+	// to the terminal so drag-select and copy-on-select just work.
+	if m.setting("mouse") == "wheel" {
+		cmd = tea.Batch(cmd, tea.EnableMouseCellMotion)
+	}
 	switch {
 	case m.liveFeed != nil:
 		return tea.Batch(cmd, waitDaemonEv(m.liveFeed))
@@ -1424,6 +1430,13 @@ func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				dir = -1
 			}
 			m.setSetting(d.key, cycleSetting(d, m.setting(d.key), dir))
+			// mouse capture toggles live with the preference
+			if d.key == "mouse" {
+				if m.setting("mouse") == "wheel" {
+					return m, tea.EnableMouseCellMotion
+				}
+				return m, tea.DisableMouse
+			}
 		}
 	}
 	return m, nil
@@ -1672,9 +1685,10 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	// WARNING (invariant): inline scrollback only — NEVER pass tea.WithAltScreen.
 	// The alt-screen erases the styled outline on quit and breaks scriptable
 	// scrollback output. Lint-enforced (see rules/).
-	// mouse capture is for the wheel only (see handleMouse) — it does not
-	// touch the screen, so the inline-scrollback invariant holds.
-	p := tea.NewProgram(m, tea.WithMouseCellMotion()) // inline: no alt screen
+	// The mouse is NOT captured by default — the terminal owns drag-select and
+	// copy-on-select. The "mouse: wheel" setting turns capture on (Init /
+	// handleSettingsKey) so the wheel scrolls the outline instead.
+	p := tea.NewProgram(m) // inline: no alt screen
 	final, err := p.Run()
 	if err != nil {
 		return errors.Wrap(err, "running editor")
