@@ -224,8 +224,9 @@ func chipHost(thread []ThreadNode) (ThreadNode, bool) {
 
 // agentTypeInstructions returns extra per-turn instruction text drawn from the
 // @chip host's node type. Ambient parent-type rules are reserved for later;
-// for now only an incomplete todo on the chip host itself contributes: after
-// finishing the work, mark that todo complete via the lflow CLI.
+// for now only an incomplete todo on the chip host itself contributes: the
+// agent must shell-run `lflow node edit <id> --state complete` after the work
+// succeeds (not on PASS), as a tool call before final reply text.
 func agentTypeInstructions(thread []ThreadNode) string {
 	host, ok := chipHost(thread)
 	if !ok {
@@ -241,7 +242,15 @@ func agentTypeInstructions(thread []ThreadNode) string {
 		if id == "" {
 			id = "<todo-id>"
 		}
-		return "The @mention sits on a todo (id " + id + "). After finishing the work it asks for, mark it complete with: lflow node edit " + id + " --state complete — same turn as your final reply."
+		// Hard, scannable rule: agents were missing the soft one-liner (forgot
+		// after long work, put the command in the reply as a chip, completed on
+		// PASS, or printed the reply before the edit so it got discarded).
+		return "Host todo incomplete (id " + id + "). " +
+			"If you answer this turn (not PASS): after the work succeeds, shell-run exactly " +
+			"`lflow node edit " + id + " --state complete` as a tool call — same turn, " +
+			"before your final reply text. " +
+			"Skip only on PASS. Do not complete early, leave it for a later turn, " +
+			"write the command into the reply, or narrate the completion."
 	}
 	return ""
 }

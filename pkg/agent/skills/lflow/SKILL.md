@@ -67,3 +67,11 @@ lflow node edit <id> --name/--type/--state/--note ...
 Node references accept an id, an id prefix, or fuzzy text — grep first when
 unsure, and add `--strict` to see the candidates instead of acting on the
 best match.
+
+## @mention on a todo
+
+When the turn's `<instructions>` name a host todo id, that @chip sits on an
+incomplete todo. After the work succeeds this turn, shell-run the given
+`lflow node edit <id> --state complete` yourself (tool call, before final
+reply text). Skip only on PASS. Do not complete early, leave it for later,
+paste the command into the reply, or narrate the completion.

@@ -83,18 +83,23 @@ func TestTurnPromptWrapsNodeContext(t *testing.T) {
 // when-done line inside <instructions>. Ambient parent type never contributes
 // (yet), a non-todo host adds nothing, and a done todo is silent.
 func TestTurnPromptTodoHostAddsCompleteInstr(t *testing.T) {
-	// chip host is todo — extra line names the id and the edit command
+	// chip host is todo — extra line names the id, the edit command, and the
+	// hard constraints (shell tool call, before final reply, skip on PASS)
 	todoThread := []ThreadNode{
 		{UUID: "proj", Depth: 0, Name: "ship list", Role: "user", Parent: true, Type: "bullets"},
 		{UUID: "t1", Depth: 1, Name: "@Pi fix the flaky test", Role: "user", Asked: true,
 			Type: "todo", XMLTag: "todo", XMLAttrs: `done="false"`},
 	}
 	got := turnPrompt(todoThread)
-	if !strings.Contains(got, "lflow node edit t1 --state complete") {
-		t.Errorf("todo host should inject complete instr, got:\n%s", got)
-	}
-	if !strings.Contains(got, "The @mention sits on a todo (id t1)") {
-		t.Errorf("todo host instr should name the todo id, got:\n%s", got)
+	for _, want := range []string{
+		"Host todo incomplete (id t1)",
+		"lflow node edit t1 --state complete",
+		"before your final reply text",
+		"Skip only on PASS",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("todo host instr missing %q, got:\n%s", want, got)
+		}
 	}
 
 	// already complete — no extra instr
