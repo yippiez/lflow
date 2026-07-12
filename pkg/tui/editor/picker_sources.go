@@ -113,10 +113,10 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // insertKinds lists the chip kinds the /insert picker offers, each routing back
 // through runSlash with its "/insert:<kind>" value.
 var insertKinds = []struct{ value, label, desc string }{
-	{"/insert:cmd", "cmd", "a runnable $ command chip"},
+	{"/insert:cmd", "bash", "a runnable $ command chip"},
 	{"/insert:date", "date", "today as a date chip"},
 	{"/insert:link", "link", "a link chip"},
-	{"/insert:path", "path", "a file path chip"},
+	{"/insert:path", "file", "a file path chip"},
 	{"/insert:tag", "tag", "a #tag chip"},
 }
 
