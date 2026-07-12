@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
@@ -189,66 +190,55 @@ func TestNLPComputeFlow(t *testing.T) {
 
 // ── canvas ──────────────────────────────────────────────────────────────────
 
-// TestCanvasObjectsAndTies: distinct colors are distinct objects; a tie holds
-// the gap between edges and the solver translates the From object.
-func TestCanvasObjectsAndTies(t *testing.T) {
-	d := &canvasDoc{W: 40, H: 12}
-	// a 2×2 red shape at (2,2) and a 1×2 blue shape at (10,3)
-	for _, c := range []canvasCell{{X: 2, Y: 2, Fg: "red"}, {X: 3, Y: 2, Fg: "red"}, {X: 2, Y: 3, Fg: "red"}, {X: 3, Y: 3, Fg: "red"},
-		{X: 10, Y: 3, Fg: "blue"}, {X: 10, Y: 4, Fg: "blue"}} {
-		c.Ch = "█"
-		setCell(&d.Objects, c)
+// TestCanvasObjectsAndDistances: colored backgrounds on the object plane are
+// the objects; a distance constraint captures the current center distance as
+// % of the canvas width, and the solver restores it after a disturbance.
+func TestCanvasObjectsAndDistances(t *testing.T) {
+	d := &canvasDoc{W: 100, H: 20}
+	// a 2×2 red region and a 2×2 blue region 20 cells apart
+	for _, x := range []int{2, 3} {
+		for _, y := range []int{2, 3} {
+			setCell(&d.Objects, canvasCell{X: x, Y: y, Ch: " ", Bg: "red"})
+			setCell(&d.Objects, canvasCell{X: x + 20, Y: y, Ch: " ", Bg: "blue"})
+		}
 	}
-	objs := d.objects()
-	if len(objs) != 2 {
-		t.Fatalf("distinct colors must be distinct objects, got %d", len(objs))
+	if got := len(d.objects()); got != 2 {
+		t.Fatalf("distinct background colors must be distinct objects, got %d", got)
 	}
+	// an item stamped on red rides red
+	setCell(&d.Objects, canvasCell{X: 2, Y: 2, Ch: "★", Fg: "yellow", Bg: d.objectColorAt(2, 2)})
 
-	// tie: blue.left sits 3 right of red.right
-	d.Ties = append(d.Ties, canvasTie{
-		From: canvasEnd{Obj: "blue", Edge: "left"},
-		To:   canvasEnd{Obj: "red", Edge: "right"},
-		Gap:  3,
-	})
-	d.solve()
-	bl, _ := d.edgeCoord(canvasEnd{Obj: "blue", Edge: "left"})
-	rr, _ := d.edgeCoord(canvasEnd{Obj: "red", Edge: "right"})
-	if bl-rr != 3 {
-		t.Fatalf("tie unsatisfied: blue.left=%d red.right=%d", bl, rr)
+	dist := canvasDist{A: "red", B: "blue"}
+	cells, pct, ok := d.distance(dist)
+	if !ok || cells != 20 || pct != 20 {
+		t.Fatalf("distance = %v cells %v%% ok=%v, want 20 cells 20%%", cells, pct, ok)
 	}
+	dist.Pct = pct
+	d.Dists = append(d.Dists, dist)
 
-	// widen the gap: blue translates further right
-	d.Ties[0].Gap = 6
+	// disturb blue and re-solve: the declared distance is restored
+	d.translateObject("blue", 10, 0)
 	d.solve()
-	bl, _ = d.edgeCoord(canvasEnd{Obj: "blue", Edge: "left"})
-	if bl-rr != 6 {
-		t.Fatalf("gap change must re-solve: blue.left=%d", bl)
+	if got, _, _ := d.distance(dist); math.Abs(got-20) > 1 {
+		t.Fatalf("solve must restore the declared distance, got %v", got)
 	}
-
-	// border tie: red.left pinned 1 from the canvas left edge
-	d.Ties = append(d.Ties, canvasTie{
-		From: canvasEnd{Obj: "red", Edge: "left"},
-		To:   canvasEnd{Obj: "border", Edge: "left"},
-		Gap:  1,
-	})
-	d.solve()
-	rl, _ := d.edgeCoord(canvasEnd{Obj: "red", Edge: "left"})
-	if rl != 1 {
-		t.Fatalf("border tie unsatisfied: red.left=%d", rl)
+	// the star item traveled with red all along
+	if d.objectColorAt(2, 2) != "red" {
+		t.Fatal("items must ride their region")
 	}
 }
 
-// TestCanvasDocRoundTrip: both planes and the ties persist through the blob.
+// TestCanvasDocRoundTrip: both planes and the constraints persist.
 func TestCanvasDocRoundTrip(t *testing.T) {
 	h := newFakeHost(t)
 	doc := &canvasDoc{W: 30, H: 8,
 		Cells:   []canvasCell{{X: 1, Y: 1, Ch: "★", Fg: "yellow"}},
-		Objects: []canvasCell{{X: 5, Y: 5, Ch: "█", Fg: "green"}},
-		Ties:    []canvasTie{{From: canvasEnd{Obj: "green", Edge: "top"}, To: canvasEnd{Obj: "border", Edge: "top"}, Gap: 5}},
+		Objects: []canvasCell{{X: 5, Y: 5, Ch: " ", Bg: "green"}},
+		Dists:   []canvasDist{{A: "green", B: "red", Pct: 10}},
 	}
 	canvasSave(h, "cv1", doc)
 	got := canvasLoad(h, "cv1")
-	if len(got.Cells) != 1 || len(got.Objects) != 1 || len(got.Ties) != 1 {
+	if len(got.Cells) != 1 || len(got.Objects) != 1 || len(got.Dists) != 1 {
 		t.Fatalf("round trip lost data: %+v", got)
 	}
 }
@@ -279,8 +269,8 @@ func TestCanvasPaletteSearch(t *testing.T) {
 	}
 }
 
-// TestCanvasViewPlanes: tab flips planes, enter paints the right plane, and
-// t+t on two objects lands a tie.
+// TestCanvasViewPlanes: tab flips planes, enter paints the right plane, a
+// background brush defines objects, and t+t lands a distance constraint.
 func TestCanvasViewPlanes(t *testing.T) {
 	h := newFakeHost(t)
 	n := &fakeNode{uuid: "cv2", typ: database.TypeCanvas}
@@ -290,7 +280,6 @@ func TestCanvasViewPlanes(t *testing.T) {
 	}
 	st := canvasStateOf(h, "cv2")
 
-	// draw plane stamp
 	key := func(s string) {
 		var k tea.KeyMsg
 		switch s {
@@ -305,37 +294,40 @@ func TestCanvasViewPlanes(t *testing.T) {
 		}
 		v.Key(h, n, k)
 	}
-	key("enter")
+
+	key("enter") // painter stamp
 	if len(st.doc.Cells) != 1 {
-		t.Fatal("draw plane must stamp a cell")
+		t.Fatal("the painter plane must stamp a cell")
 	}
 
-	// object plane: paint red at (1,0), blue at (3,0), tie them
 	key("tab")
 	if st.plane != "object" {
 		t.Fatal("tab must switch planes")
 	}
+	// paint a red region at (1,0) and a blue region at (4,0)
+	st.brush = canvasBrush{Ch: " ", Bg: "red"}
 	key("right")
-	key("enter") // red at (1,0)
-	st.objColor = "blue"
+	key("enter")
+	st.brush = canvasBrush{Ch: " ", Bg: "blue"}
 	key("right")
 	key("right")
-	key("enter") // blue at (3,0)
+	key("right")
+	key("enter")
 	if len(st.doc.objects()) != 2 {
-		t.Fatalf("two colors must be two objects: %+v", st.doc.Objects)
+		t.Fatalf("two background colors must be two objects: %+v", st.doc.Objects)
 	}
 	key("t") // from blue (cursor on it)
-	if st.tieFrom == nil || st.tieFrom.Obj != "blue" {
-		t.Fatalf("tie from = %+v", st.tieFrom)
+	if st.distFrom != "blue" {
+		t.Fatalf("distance from = %q", st.distFrom)
 	}
 	st.cx = 1 // over red
 	key("t")
-	if len(st.doc.Ties) != 1 {
-		t.Fatalf("tie must land: %+v", st.doc.Ties)
+	if len(st.doc.Dists) != 1 {
+		t.Fatalf("distance must land: %+v", st.doc.Dists)
 	}
 
 	v.Leave(h, n)
-	if got := canvasLoad(h, "cv2"); len(got.Ties) != 1 || len(got.Objects) != 2 {
+	if got := canvasLoad(h, "cv2"); len(got.Dists) != 1 || len(got.objects()) != 2 {
 		t.Fatalf("Leave must persist: %+v", got)
 	}
 }

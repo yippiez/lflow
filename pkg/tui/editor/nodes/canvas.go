@@ -3,6 +3,7 @@ package nodes
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,20 +18,23 @@ import (
 // stays at (12,4) whatever the terminal size; the viewport pans, the document
 // never reflows.
 //
-//   - the DRAW plane paints freely from the searchable named palette (p):
-//     glyphs, foreground and background colors, half blocks, shades, …
-//   - the OBJECT plane paints solid color regions where a DISTINCT COLOR IS a
-//     DISTINCT OBJECT. The only other thing the object plane does is TIE
-//     constraints: object edge ↔ object edge, or object edge ↔ the canvas
-//     border, each holding a gap. The solver translates objects to keep every
-//     tie satisfied — adjust a gap and the shape layout re-flows.
+//   - PAINTER (green badge): free painting — glyphs, colors, half blocks.
+//   - OBJECT (light purple badge): items place exactly the same, and colored
+//     BACKGROUNDS define the objects — one background color is one object,
+//     grouping every item painted on it. The one constraint is DISTANCE:
+//     t on one object, t on another draws a white line between them labeled
+//     with the distance as a percentage of the canvas width.
 //
-// tab switches planes. The document persists as JSON in node_blobs; the
-// outline shows a single summary line (never a multi-line preview).
+// tab switches planes. The palette is a GRID pinned to the bottom of the
+// editor: p focuses it, arrows move through it, typing filters, enter picks.
+// The document persists as JSON in node_blobs; the outline shows a single
+// summary line (never a multi-line preview).
 
 const canvasMime = "application/x-lflow-canvas+json"
 
-// canvasCell is one painted cell: a glyph and optional colors.
+// canvasCell is one painted cell: a glyph and optional colors. On the object
+// plane Bg is the OBJECT — background cells define the region, and items
+// stamped on a region carry its color so they travel with it.
 type canvasCell struct {
 	X  int    `json:"x"`
 	Y  int    `json:"y"`
@@ -39,47 +43,47 @@ type canvasCell struct {
 	Bg string `json:"bg,omitempty"`
 }
 
-// canvasEnd is one side of a tie: an object (a color name) or the border,
-// plus which edge.
-type canvasEnd struct {
-	Obj  string `json:"obj"`  // color name, or "border"
-	Edge string `json:"edge"` // left | right | top | bottom
-}
-
-// canvasTie is one constraint: From's edge sits Gap cells from To's edge
-// along the edge axis (signed: fromEdge = toEdge + Gap). The solver moves
-// From's object; the border never moves.
-type canvasTie struct {
-	From canvasEnd `json:"from"`
-	To   canvasEnd `json:"to"`
-	Gap  int       `json:"gap"`
+// canvasDist is the distance constraint: a white line between two objects'
+// centers, labeled with the distance as % of the canvas width. Pct remembers
+// the declared distance so a re-solve can restore it.
+type canvasDist struct {
+	A   string  `json:"a"`
+	B   string  `json:"b"`
+	Pct float64 `json:"pct"`
 }
 
 // canvasDoc is the persisted document. All coordinates are absolute.
 type canvasDoc struct {
 	W       int          `json:"w"`
 	H       int          `json:"h"`
-	Cells   []canvasCell `json:"cells,omitempty"`   // draw plane
-	Objects []canvasCell `json:"objects,omitempty"` // object plane: Fg IS the object
-	Ties    []canvasTie  `json:"ties,omitempty"`
+	Cells   []canvasCell `json:"cells,omitempty"`   // painter plane
+	Objects []canvasCell `json:"objects,omitempty"` // object plane: Bg IS the object
+	Dists   []canvasDist `json:"dists,omitempty"`
 }
 
-// canvasObj is a derived object: the bounding box of one color's cells.
+// canvasObj is a derived object: the bounding box of one background color's
+// cells on the object plane.
 type canvasObj struct {
 	Color                  string
 	MinX, MinY, MaxX, MaxY int
 }
 
-// objects groups the object plane by color.
+func (o canvasObj) center() (float64, float64) {
+	return float64(o.MinX+o.MaxX) / 2, float64(o.MinY+o.MaxY) / 2
+}
+
+// objects groups the object plane's background regions by color.
 func (d *canvasDoc) objects() []canvasObj {
 	byColor := map[string]*canvasObj{}
 	var order []string
 	for _, c := range d.Objects {
-		o := byColor[c.Fg]
+		if c.Bg == "" {
+			continue // an unattached item is not an object
+		}
+		o := byColor[c.Bg]
 		if o == nil {
-			o = &canvasObj{Color: c.Fg, MinX: c.X, MinY: c.Y, MaxX: c.X, MaxY: c.Y}
-			byColor[c.Fg] = o
-			order = append(order, c.Fg)
+			byColor[c.Bg] = &canvasObj{Color: c.Bg, MinX: c.X, MinY: c.Y, MaxX: c.X, MaxY: c.Y}
+			order = append(order, c.Bg)
 			continue
 		}
 		o.MinX, o.MaxX = min(o.MinX, c.X), max(o.MaxX, c.X)
@@ -101,48 +105,32 @@ func (d *canvasDoc) objectByColor(color string) (canvasObj, bool) {
 	return canvasObj{}, false
 }
 
-// edgeCoord is an end's edge position along its axis. Border edges are the
-// canvas bounds.
-func (d *canvasDoc) edgeCoord(e canvasEnd) (coord int, ok bool) {
-	if e.Obj == "border" {
-		switch e.Edge {
-		case "left":
-			return 0, true
-		case "right":
-			return d.W - 1, true
-		case "top":
-			return 0, true
-		case "bottom":
-			return d.H - 1, true
+// objectColorAt returns the object (background) color under a point, or "".
+func (d *canvasDoc) objectColorAt(x, y int) string {
+	for _, c := range d.Objects {
+		if c.X == x && c.Y == y && c.Bg != "" {
+			return c.Bg
 		}
-		return 0, false
 	}
-	o, found := d.objectByColor(e.Obj)
-	if !found {
-		return 0, false
-	}
-	switch e.Edge {
-	case "left":
-		return o.MinX, true
-	case "right":
-		return o.MaxX, true
-	case "top":
-		return o.MinY, true
-	case "bottom":
-		return o.MaxY, true
-	}
-	return 0, false
+	return ""
 }
 
-// edgeAxis: left/right constrain X, top/bottom constrain Y.
-func edgeAxis(edge string) byte {
-	if edge == "left" || edge == "right" {
-		return 'x'
+// distance returns a constraint's current center distance in cells and as a
+// percentage of the canvas width.
+func (d *canvasDoc) distance(t canvasDist) (cells, pct float64, ok bool) {
+	a, okA := d.objectByColor(t.A)
+	b, okB := d.objectByColor(t.B)
+	if !okA || !okB || d.W == 0 {
+		return 0, 0, false
 	}
-	return 'y'
+	ax, ay := a.center()
+	bx, by := b.center()
+	cells = math.Hypot(bx-ax, by-ay)
+	return cells, cells / float64(d.W) * 100, true
 }
 
-// translateObject shifts every cell of one color, clamped into the canvas.
+// translateObject shifts one object — its background cells and every item
+// riding it — clamped into the canvas.
 func (d *canvasDoc) translateObject(color string, dx, dy int) {
 	if dx == 0 && dy == 0 {
 		return
@@ -164,41 +152,39 @@ func (d *canvasDoc) translateObject(color string, dx, dy int) {
 		dy = d.H - 1 - o.MaxY
 	}
 	for i := range d.Objects {
-		if d.Objects[i].Fg == color {
+		if d.Objects[i].Bg == color {
 			d.Objects[i].X += dx
 			d.Objects[i].Y += dy
 		}
 	}
 }
 
-// solve satisfies every tie by translating each tie's From object (the border
-// never moves; a border From swaps ends). A few passes settle chains.
+// solve nudges each constraint's B object along the AB line until the center
+// distance matches the declared percentage again.
 func (d *canvasDoc) solve() {
 	for pass := 0; pass < 4; pass++ {
 		moved := false
-		for _, t := range d.Ties {
-			from, to, gap := t.From, t.To, t.Gap
-			if from.Obj == "border" {
-				if to.Obj == "border" {
-					continue
-				}
-				from, to, gap = to, from, -gap
-			}
-			fc, ok1 := d.edgeCoord(from)
-			tc, ok2 := d.edgeCoord(to)
-			if !ok1 || !ok2 || edgeAxis(from.Edge) != edgeAxis(to.Edge) {
+		for _, t := range d.Dists {
+			a, okA := d.objectByColor(t.A)
+			b, okB := d.objectByColor(t.B)
+			if !okA || !okB {
 				continue
 			}
-			delta := tc + gap - fc
-			if delta == 0 {
+			ax, ay := a.center()
+			bx, by := b.center()
+			cur := math.Hypot(bx-ax, by-ay)
+			want := t.Pct / 100 * float64(d.W)
+			if cur == 0 || math.Abs(cur-want) < 0.75 {
+				continue
+			}
+			ux, uy := (bx-ax)/cur, (by-ay)/cur
+			dx := int(math.Round(ux * (want - cur)))
+			dy := int(math.Round(uy * (want - cur)))
+			if dx == 0 && dy == 0 {
 				continue
 			}
 			moved = true
-			if edgeAxis(from.Edge) == 'x' {
-				d.translateObject(from.Obj, delta, 0)
-			} else {
-				d.translateObject(from.Obj, 0, delta)
-			}
+			d.translateObject(t.B, dx, dy)
 		}
 		if !moved {
 			return
@@ -228,52 +214,34 @@ func eraseCell(cells *[]canvasCell, x, y int) bool {
 	return false
 }
 
-// objectColorAt returns the object color under a point, or "".
-func (d *canvasDoc) objectColorAt(x, y int) string {
-	for _, c := range d.Objects {
-		if c.X == x && c.Y == y {
-			return c.Fg
+// linePoints is the straight cell path between two points (Bresenham).
+func linePoints(x1, y1, x2, y2 int) [][2]int {
+	dx, dy := abs(x2-x1), -abs(y2-y1)
+	sx, sy := 1, 1
+	if x1 > x2 {
+		sx = -1
+	}
+	if y1 > y2 {
+		sy = -1
+	}
+	err := dx + dy
+	var out [][2]int
+	x, y := x1, y1
+	for {
+		out = append(out, [2]int{x, y})
+		if x == x2 && y == y2 {
+			return out
+		}
+		e2 := 2 * err
+		if e2 >= dy {
+			err += dy
+			x += sx
+		}
+		if e2 <= dx {
+			err += dx
+			y += sy
 		}
 	}
-	return ""
-}
-
-// nearestEdge picks the bbox edge closest to a point.
-func nearestEdge(o canvasObj, x, y int) string {
-	best, edge := 1<<30, "left"
-	for _, cand := range []struct {
-		name string
-		dist int
-	}{
-		{"left", abs(x - o.MinX)}, {"right", abs(x - o.MaxX)},
-		{"top", abs(y - o.MinY)}, {"bottom", abs(y - o.MaxY)},
-	} {
-		if cand.dist < best {
-			best, edge = cand.dist, cand.name
-		}
-	}
-	return edge
-}
-
-// endAt resolves the tie end under the cursor: an object when the cursor sits
-// on one, else the nearest border edge.
-func (d *canvasDoc) endAt(x, y int) canvasEnd {
-	if color := d.objectColorAt(x, y); color != "" {
-		o, _ := d.objectByColor(color)
-		return canvasEnd{Obj: color, Edge: nearestEdge(o, x, y)}
-	}
-	// border: whichever canvas edge is closest
-	best, edge := x, "left"
-	if d.W-1-x < best {
-		best, edge = d.W-1-x, "right"
-	}
-	if y < best {
-		best, edge = y, "top"
-	}
-	if d.H-1-y < best {
-		edge = "bottom"
-	}
-	return canvasEnd{Obj: "border", Edge: edge}
 }
 
 func abs(v int) int {
@@ -283,10 +251,9 @@ func abs(v int) int {
 	return v
 }
 
-// endLabel renders a tie end for headers and context.
-func endLabel(e canvasEnd) string { return e.Obj + "." + e.Edge }
-
 // ── persistence ─────────────────────────────────────────────────────────────
+
+type canvasBrush struct{ Ch, Fg, Bg string }
 
 type canvasState struct {
 	doc    *canvasDoc
@@ -295,24 +262,21 @@ type canvasState struct {
 	vx, vy int
 	vw, vh int
 
-	brush    canvasBrush // draw plane
-	objColor string      // object plane: the color being painted = the object
+	brush canvasBrush
 
-	tieFrom *canvasEnd // pending tie start
-	tieSel  int        // selected tie for +/-/D
+	distFrom string // pending distance constraint: the first object's color
+	distSel  int    // selected constraint for D delete
 
-	pal    bool
-	palQ   string
-	palSel int
+	palFocus bool   // the bottom palette grid holds the keys
+	palQ     string // type-to-filter query
+	palSel   int    // index into the filtered entries
 }
-
-type canvasBrush struct{ Ch, Fg, Bg string }
 
 func canvasStateOf(h editor.NodeHost, uuid string) *canvasState {
 	d := h.NodeStore(uuid)
 	st, _ := d["canvas"].(*canvasState)
 	if st == nil {
-		st = &canvasState{brush: canvasBrush{Ch: "─"}, plane: "draw", objColor: "red", tieSel: -1}
+		st = &canvasState{brush: canvasBrush{Ch: "─"}, plane: "draw", distSel: -1}
 		d["canvas"] = st
 	}
 	return st
@@ -345,8 +309,6 @@ func canvasSave(h editor.NodeHost, uuid string, doc *canvasDoc) {
 	}
 }
 
-// canvasDocOf is the cached read: the live (or last-saved) document when one
-// is in the node store, else one blob load that sticks as the cache.
 func canvasDocOf(h editor.NodeHost, uuid string) *canvasDoc {
 	st := canvasStateOf(h, uuid)
 	if st.doc == nil {
@@ -370,8 +332,7 @@ func init() {
 	})
 }
 
-// canvasRender is the outline line — a SINGLE summary line, like an image's:
-// caption + dim size/content counts. Never a multi-line preview.
+// canvasRender is the outline line — a SINGLE summary line, like an image's.
 func canvasRender(h editor.NodeHost, n editor.NodeRef) string {
 	th := editor.NodeTheme()
 	doc := canvasDocOf(h, n.UUID())
@@ -382,8 +343,8 @@ func canvasRender(h editor.NodeHost, n editor.NodeRef) string {
 	if o := len(doc.objects()); o > 0 {
 		parts += fmt.Sprintf(" · %d objects", o)
 	}
-	if t := len(doc.Ties); t > 0 {
-		parts += fmt.Sprintf(" · %d ties", t)
+	if t := len(doc.Dists); t > 0 {
+		parts += fmt.Sprintf(" · %d distances", t)
 	}
 	name := strings.TrimSpace(n.Text())
 	if name != "" {
@@ -392,12 +353,16 @@ func canvasRender(h editor.NodeHost, n editor.NodeRef) string {
 	return th.Dim + "canvas " + parts + th.Reset
 }
 
-// canvasText renders the document as plain text (draw plane over object
-// blocks) plus the tie list — what agents receive.
+// canvasText renders the document as plain text (painter cells over object
+// items over region blocks) plus the constraint list — what agents receive.
 func canvasText(d *canvasDoc) string {
 	grid := map[[2]int]string{}
 	for _, c := range d.Objects {
-		grid[[2]int{c.X, c.Y}] = "▓"
+		ch := c.Ch
+		if ch == "" || ch == " " {
+			ch = "▓"
+		}
+		grid[[2]int{c.X, c.Y}] = ch
 	}
 	for _, c := range d.Cells {
 		if c.Ch != "" && c.Ch != " " {
@@ -425,8 +390,10 @@ func canvasText(d *canvasDoc) string {
 	for len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-	for _, t := range d.Ties {
-		lines = append(lines, fmt.Sprintf("tie: %s → %s gap %d", endLabel(t.From), endLabel(t.To), t.Gap))
+	for _, t := range d.Dists {
+		if _, pct, ok := d.distance(t); ok {
+			lines = append(lines, fmt.Sprintf("distance: %s ↔ %s = %.0f%% of width", t.A, t.B, pct))
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -436,16 +403,20 @@ func canvasText(d *canvasDoc) string {
 type canvasView struct{}
 
 const (
-	canvasViewH    = 20
-	canvasPalRows  = 8
+	canvasViewH    = 18
+	canvasPalRows  = 4
 	canvasCrossBG  = "\x1b[48;2;24;40;74m"
 	canvasCursorBG = "\x1b[48;2;60;100;190m"
+	// the mode badges: uppercase white on green (PAINTER) / light purple (OBJECT)
+	canvasBadgePainter = "\x1b[1m\x1b[38;2;255;255;255m\x1b[48;2;35;134;54m PAINTER \x1b[0m"
+	canvasBadgeObject  = "\x1b[1m\x1b[38;2;255;255;255m\x1b[48;2;155;126;222m OBJECT \x1b[0m"
+	canvasWhite        = "\x1b[38;2;235;235;235m"
 )
 
 func (canvasView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
 	st := canvasStateOf(h, n.UUID())
 	st.doc = canvasLoad(h, n.UUID()) // reload: pick up external edits
-	st.pal, st.tieFrom, st.tieSel = false, nil, -1
+	st.palFocus, st.distFrom, st.distSel = false, "", -1
 	return true
 }
 
@@ -454,17 +425,12 @@ func (canvasView) Leave(h editor.NodeHost, n editor.NodeRef) {
 	if st.doc != nil {
 		canvasSave(h, n.UUID(), st.doc)
 	}
-	// st.doc stays as the render cache
-	st.pal, st.tieFrom = false, nil
+	st.palFocus, st.distFrom = false, ""
 }
 
-func (canvasView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
+func (v canvasView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
 	st := canvasStateOf(h, n.UUID())
-	nLines := 1 + canvasViewH
-	if st.pal {
-		nLines += 1 + canvasPalRows
-	}
-	return nLines
+	return len(v.headerLines(st, width)) + canvasViewH + 1 + canvasPalRows
 }
 
 func (v canvasView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
@@ -472,8 +438,8 @@ func (v canvasView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.
 	if st.doc == nil {
 		return nil, false
 	}
-	if st.pal {
-		return nil, v.paletteKey(h, st, k)
+	if st.palFocus {
+		return nil, v.paletteKey(st, k)
 	}
 	doc := st.doc
 
@@ -500,18 +466,24 @@ func (v canvasView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.
 		} else {
 			st.plane = "draw"
 		}
-		st.tieFrom = nil
-	case "p", "/":
-		st.pal, st.palQ, st.palSel = true, "", 0
+		st.distFrom = ""
+	case "p":
+		st.palFocus, st.palQ, st.palSel = true, "", 0
 	case "enter", " ", "space":
+		b := st.brush
+		if b.Ch == "" {
+			b.Ch = " "
+		}
 		if st.plane == "object" {
-			setCell(&doc.Objects, canvasCell{X: st.cx, Y: st.cy, Ch: "█", Fg: st.objColor})
+			cell := canvasCell{X: st.cx, Y: st.cy, Ch: b.Ch, Fg: b.Fg, Bg: b.Bg}
+			if b.Bg == "" {
+				// an item rides whatever region it lands on — that region's
+				// color is its group
+				cell.Bg = doc.objectColorAt(st.cx, st.cy)
+			}
+			setCell(&doc.Objects, cell)
 			doc.solve()
 		} else {
-			b := st.brush
-			if b.Ch == "" {
-				b.Ch = " "
-			}
 			setCell(&doc.Cells, canvasCell{X: st.cx, Y: st.cy, Ch: b.Ch, Fg: b.Fg, Bg: b.Bg})
 		}
 	case "x", "backspace", "delete":
@@ -524,49 +496,49 @@ func (v canvasView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.
 		}
 	case "t":
 		if st.plane != "object" {
-			h.NodeFlash("ties live on the object plane · tab")
+			h.NodeFlash("distances live on the object plane · tab")
 			break
 		}
-		end := doc.endAt(st.cx, st.cy)
-		if st.tieFrom == nil {
-			st.tieFrom = &end
+		color := doc.objectColorAt(st.cx, st.cy)
+		if color == "" {
+			h.NodeFlash("no object under the cursor · paint a colored background first")
 			break
 		}
-		from := *st.tieFrom
-		st.tieFrom = nil
-		if from == end {
+		if st.distFrom == "" {
+			st.distFrom = color
 			break
 		}
-		if edgeAxis(from.Edge) != edgeAxis(end.Edge) {
-			h.NodeFlash("tie edges must share an axis (left/right or top/bottom)")
+		from := st.distFrom
+		st.distFrom = ""
+		if from == color {
 			break
 		}
-		fc, ok1 := doc.edgeCoord(from)
-		tc, ok2 := doc.edgeCoord(end)
-		if !ok1 || !ok2 {
-			break
+		t := canvasDist{A: from, B: color}
+		if _, pct, ok := doc.distance(t); ok {
+			t.Pct = pct
+			doc.Dists = append(doc.Dists, t)
+			st.distSel = len(doc.Dists) - 1
 		}
-		doc.Ties = append(doc.Ties, canvasTie{From: from, To: end, Gap: fc - tc})
-		st.tieSel = len(doc.Ties) - 1
-		doc.solve()
-	case "T": // cycle the selected tie
-		if len(doc.Ties) > 0 {
-			st.tieSel = (st.tieSel + 1) % len(doc.Ties)
+	case "T":
+		if len(doc.Dists) > 0 {
+			st.distSel = (st.distSel + 1) % len(doc.Dists)
 		}
 	case "+", "=":
-		if st.tieSel >= 0 && st.tieSel < len(doc.Ties) {
-			doc.Ties[st.tieSel].Gap++
+		if st.distSel >= 0 && st.distSel < len(doc.Dists) {
+			doc.Dists[st.distSel].Pct++
 			doc.solve()
 		}
 	case "-":
-		if st.tieSel >= 0 && st.tieSel < len(doc.Ties) {
-			doc.Ties[st.tieSel].Gap--
+		if st.distSel >= 0 && st.distSel < len(doc.Dists) {
+			if doc.Dists[st.distSel].Pct > 1 {
+				doc.Dists[st.distSel].Pct--
+			}
 			doc.solve()
 		}
 	case "D":
-		if st.tieSel >= 0 && st.tieSel < len(doc.Ties) {
-			doc.Ties = append(doc.Ties[:st.tieSel], doc.Ties[st.tieSel+1:]...)
-			st.tieSel = -1
+		if st.distSel >= 0 && st.distSel < len(doc.Dists) {
+			doc.Dists = append(doc.Dists[:st.distSel], doc.Dists[st.distSel+1:]...)
+			st.distSel = -1
 		}
 	default:
 		return nil, false // esc & friends → central (Leave saves)
@@ -575,47 +547,52 @@ func (v canvasView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.
 	return nil, true
 }
 
-func (v canvasView) paletteKey(h editor.NodeHost, st *canvasState, k tea.KeyMsg) bool {
+// paletteKey drives the bottom grid while it holds focus.
+func (v canvasView) paletteKey(st *canvasState, k tea.KeyMsg) bool {
+	hits := canvasPaletteSearch(st.palQ)
+	cols := st.palCols()
 	switch k.String() {
-	case "esc":
-		st.pal = false
+	case "esc", "p":
+		st.palFocus = false
 		return true
-	case "enter":
-		hits := canvasPaletteSearch(st.palQ)
+	case "enter", " ", "space":
 		if st.palSel >= 0 && st.palSel < len(hits) {
 			e := hits[st.palSel]
-			if st.plane == "object" {
-				// the object plane speaks colors only — a color IS an object
-				if e.color != "" && e.color != "none" {
-					st.objColor = e.color
+			switch e.cat {
+			case "background":
+				if e.color == "none" {
+					st.brush.Bg = ""
 				} else {
-					h.NodeFlash("object plane uses colors · pick foreground/background <color>")
+					st.brush.Bg = e.color
+					st.brush.Ch = " " // a background pick paints regions
 				}
-			} else {
-				switch e.cat {
-				case "background":
-					if e.color == "none" {
-						st.brush.Bg = ""
-					} else {
-						st.brush.Bg = e.color
-					}
-				case "foreground":
-					st.brush.Fg = e.color
-				default:
-					st.brush.Ch = e.ch
-				}
+			case "foreground":
+				st.brush.Fg = e.color
+			default:
+				st.brush.Ch = e.ch
+				st.brush.Bg = "" // a glyph pick paints items, not regions
 			}
 		}
-		st.pal = false
+		st.palFocus = false
 		return true
-	case "up":
+	case "left":
 		if st.palSel > 0 {
 			st.palSel--
 		}
 		return true
-	case "down":
-		if st.palSel < canvasPalRows-1 {
+	case "right":
+		if st.palSel < len(hits)-1 {
 			st.palSel++
+		}
+		return true
+	case "up":
+		if st.palSel-cols >= 0 {
+			st.palSel -= cols
+		}
+		return true
+	case "down":
+		if st.palSel+cols < len(hits) {
+			st.palSel += cols
 		}
 		return true
 	case "backspace":
@@ -625,17 +602,25 @@ func (v canvasView) paletteKey(h editor.NodeHost, st *canvasState, k tea.KeyMsg)
 		}
 		return true
 	}
-	if k.Type == tea.KeySpace && !k.Alt {
-		st.palQ += " "
-		st.palSel = 0
-		return true
-	}
 	if k.Type == tea.KeyRunes && !k.Alt {
 		st.palQ += string(k.Runes)
 		st.palSel = 0
 		return true
 	}
 	return false
+}
+
+// palCols is how many grid slots fit per palette row (each 4 cells wide).
+func (st *canvasState) palCols() int {
+	vw := st.vw
+	if vw <= 0 {
+		vw = 60
+	}
+	c := vw / 4
+	if c < 1 {
+		c = 1
+	}
+	return c
 }
 
 func (canvasView) pan(st *canvasState) {
@@ -671,6 +656,56 @@ func canvasBg(name string) string {
 	return strings.Replace(editor.NodeColor(name), "[38;", "[48;", 1)
 }
 
+// headerLines composes the header and WRAPS it (never truncates): the badge
+// plus " · " separated parts flow onto as many lines as they need.
+func (v canvasView) headerLines(st *canvasState, width int) []string {
+	th := editor.NodeTheme()
+	doc := st.doc
+	badge := canvasBadgePainter
+	if st.plane == "object" {
+		badge = canvasBadgeObject
+	}
+	parts := []string{fmt.Sprintf("(%d,%d)", st.cx, st.cy)}
+	if st.plane == "object" {
+		brush := "item " + editor.NodeFirstNonEmpty(st.brush.Ch, "─")
+		if st.brush.Bg != "" {
+			brush = "object " + editor.NodeColor(st.brush.Bg) + st.brush.Bg + th.Reset + th.Dim
+		}
+		parts = append(parts, brush)
+		switch {
+		case st.distFrom != "":
+			parts = append(parts, "distance from "+st.distFrom+" → t on the other object")
+		case doc != nil && st.distSel >= 0 && st.distSel < len(doc.Dists):
+			t := doc.Dists[st.distSel]
+			parts = append(parts, fmt.Sprintf("distance %s↔%s %.0f%%", t.A, t.B, t.Pct), "+/- adjust", "D delete")
+		default:
+			parts = append(parts, "t distance", "T select")
+		}
+	} else {
+		brush := st.brush.Ch
+		if brush == "" {
+			brush = "·bg"
+		}
+		parts = append(parts, "brush "+brush, "x erase")
+	}
+	parts = append(parts, "p palette", "tab plane", "esc save")
+
+	var lines []string
+	cur := " " + badge + th.Dim
+	curW := 1 + editor.NodeVisibleWidth(badge)
+	for _, p := range parts {
+		pw := editor.NodeVisibleWidth(p) + 3
+		if curW+pw > width-2 && curW > 0 {
+			lines = append(lines, cur+th.Reset)
+			cur, curW = " "+th.Dim, 1
+		}
+		cur += " · " + p
+		curW += pw
+	}
+	lines = append(lines, cur+th.Reset)
+	return lines
+}
+
 func (v canvasView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
 	th := editor.NodeTheme()
 	st := canvasStateOf(h, n.UUID())
@@ -689,39 +724,51 @@ func (v canvasView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, widt
 	st.vw, st.vh = vw, canvasViewH
 	v.pan(st)
 
-	// header: plane, position, brush/object color, the live tie
-	head := fmt.Sprintf("  %s · (%d,%d)", st.plane, st.cx, st.cy)
-	if st.plane == "object" {
-		head += " · object " + editor.NodeColor(st.objColor) + st.objColor + th.Reset + th.Dim
-		switch {
-		case st.tieFrom != nil:
-			head += " · tie from " + endLabel(*st.tieFrom) + " → t on target"
-		case st.tieSel >= 0 && st.tieSel < len(doc.Ties):
-			t := doc.Ties[st.tieSel]
-			head += fmt.Sprintf(" · tie %s→%s gap %d · +/- adjust · D delete", endLabel(t.From), endLabel(t.To), t.Gap)
-		default:
-			head += " · t tie · T select · p color"
-		}
-	} else {
-		brush := st.brush.Ch
-		if brush == "" {
-			brush = "·bg"
-		}
-		head += " · brush " + brush + " · p palette · x erase"
-	}
-	head += " · tab plane · esc save"
 	var content []string
-	content = append(content, editor.NodeClip(rail+th.Reset+th.Dim+head+th.Reset, width))
+	for _, hl := range v.headerLines(st, width-editor.NodeVisibleWidth(rail)) {
+		content = append(content, editor.NodeClip(rail+th.Reset+hl, width))
+	}
 
-	// composite: object blocks under draw cells
+	// composite: object regions + items, then painter cells, then the white
+	// distance lines with their % labels on top
 	type cell struct{ ch, fg, bg string }
 	grid := map[[2]int]cell{}
 	for _, c := range doc.Objects {
-		grid[[2]int{c.X, c.Y}] = cell{ch: "█", fg: c.Fg}
+		ch := c.Ch
+		if ch == "" {
+			ch = " "
+		}
+		grid[[2]int{c.X, c.Y}] = cell{ch: ch, fg: c.Fg, bg: c.Bg}
 	}
 	for _, c := range doc.Cells {
 		if c.Ch != "" {
 			grid[[2]int{c.X, c.Y}] = cell{ch: c.Ch, fg: c.Fg, bg: c.Bg}
+		}
+	}
+	for i, t := range doc.Dists {
+		a, okA := doc.objectByColor(t.A)
+		b, okB := doc.objectByColor(t.B)
+		if !okA || !okB {
+			continue
+		}
+		ax, ay := a.center()
+		bx, by := b.center()
+		pts := linePoints(int(math.Round(ax)), int(math.Round(ay)), int(math.Round(bx)), int(math.Round(by)))
+		for _, p := range pts {
+			if c, taken := grid[p]; taken && c.bg != "" {
+				continue // the line stops at the objects, not over them
+			}
+			grid[p] = cell{ch: "·", fg: "white"}
+		}
+		// the % label sits at the line's midpoint
+		_, pct, _ := doc.distance(t)
+		label := fmt.Sprintf("%.0f%%", pct)
+		if i == st.distSel {
+			label = "[" + label + "]"
+		}
+		mid := pts[len(pts)/2]
+		for j, r := range label {
+			grid[[2]int{mid[0] + j - len(label)/2, mid[1]}] = cell{ch: string(r), fg: "white"}
 		}
 	}
 
@@ -744,7 +791,7 @@ func (v canvasView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, widt
 			if c.bg != "" {
 				sgr += canvasBg(c.bg)
 			}
-			if focused {
+			if focused && !st.palFocus {
 				switch {
 				case x == st.cx && y == st.cy:
 					sgr = canvasCursorBG
@@ -752,7 +799,9 @@ func (v canvasView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, widt
 					sgr = canvasCrossBG
 				}
 			}
-			if c.fg != "" {
+			if c.fg == "white" {
+				sgr += canvasWhite
+			} else if c.fg != "" {
 				sgr += editor.NodeColor(c.fg)
 			}
 			if sgr == "" {
@@ -764,31 +813,63 @@ func (v canvasView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, widt
 		content = append(content, editor.NodeClip(b.String(), width))
 	}
 
-	if st.pal {
-		content = append(content, editor.NodeClip(rail+th.Reset+th.Dim+"  palette › "+th.Reset+th.FG+st.palQ+th.Reset+th.Dim+"▏ enter picks · esc closes"+th.Reset, width))
-		hits := canvasPaletteSearch(st.palQ)
-		for i := 0; i < canvasPalRows; i++ {
-			line := rail + th.Reset + "  "
-			if i < len(hits) {
-				e := hits[i]
-				marker, style := "  ", th.Dim
-				if i == st.palSel {
-					marker, style = th.Accent+"▸ "+th.Reset, th.FG
-				}
-				sample := " " + e.ch + " "
-				switch e.cat {
-				case "background":
-					sample = canvasBg(e.color) + "   " + th.Reset
-					if e.color == "none" {
-						sample = "   "
-					}
-				case "foreground":
-					sample = editor.NodeColor(e.color) + "██▌" + th.Reset
-				}
-				line += marker + sample + " " + style + e.cat + " · " + e.name + th.Reset
-			}
-			content = append(content, editor.NodeClip(line, width))
-		}
-	}
+	content = append(content, v.paletteBands(st, rail, width)...)
 	return editor.NodeWindowBands(content, scroll, winH)
+}
+
+// paletteBands renders the always-visible palette GRID pinned under the
+// canvas: a filter line, then rows of glyph/color swatches. When focused the
+// selection is highlighted and arrows walk the grid.
+func (v canvasView) paletteBands(st *canvasState, rail string, width int) []string {
+	th := editor.NodeTheme()
+	hits := canvasPaletteSearch(st.palQ)
+	cols := st.palCols()
+
+	head := rail + th.Reset + th.Dim + "  palette"
+	if st.palFocus {
+		head += " › " + th.Reset + th.FG + st.palQ + th.Reset + th.Dim + "▏ type to filter · enter picks · esc back"
+	} else {
+		head += " · p to focus"
+	}
+	out := []string{editor.NodeClip(head+th.Reset, width)}
+
+	// keep the selection's row visible inside the fixed grid height
+	selRow := 0
+	if cols > 0 {
+		selRow = st.palSel / cols
+	}
+	topRow := 0
+	if selRow >= canvasPalRows {
+		topRow = selRow - canvasPalRows + 1
+	}
+	for r := 0; r < canvasPalRows; r++ {
+		var b strings.Builder
+		b.WriteString(rail + th.Reset + "  ")
+		for c := 0; c < cols; c++ {
+			i := (topRow+r)*cols + c
+			if i >= len(hits) {
+				b.WriteString("    ")
+				continue
+			}
+			e := hits[i]
+			sample := " " + e.ch + " "
+			switch e.cat {
+			case "background":
+				if e.color == "none" {
+					sample = " ∅ "
+				} else {
+					sample = canvasBg(e.color) + "   " + th.Reset
+				}
+			case "foreground":
+				sample = editor.NodeColor(e.color) + " ■ " + th.Reset
+			}
+			if st.palFocus && i == st.palSel {
+				b.WriteString(th.Accent + "▐" + th.Reset + sample + th.Accent + "▌" + th.Reset)
+			} else {
+				b.WriteString(" " + sample + " ")
+			}
+		}
+		out = append(out, editor.NodeClip(b.String(), width))
+	}
+	return out
 }
