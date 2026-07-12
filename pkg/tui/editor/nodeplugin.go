@@ -332,5 +332,13 @@ func NodeFirstNonEmpty(a, b string) string {
 // NodeVisibleWidth measures a styled string's display width (ANSI aware).
 func NodeVisibleWidth(s string) int { return visibleWidth(s) }
 
+// The multi-line caret helpers behind a plugin's code face (see CodeBlockBands):
+// NodeCaretVMove walks the caret up/down a line keeping its column;
+// NodeCaretLineCol / NodeCaretAt convert between a caret index and line/column
+// (home = col 0, end = a huge col).
+func NodeCaretVMove(s string, caret, dir int) int      { return jsonCaretLineMove(s, caret, dir) }
+func NodeCaretLineCol(s string, caret int) (int, int)  { return jsonCaretLC(s, caret) }
+func NodeCaretAt(s string, line, col int) int          { return jsonLCCaret(s, line, col) }
+
 // NodeFuzzyMatch reports whether needle subsequence-matches hay.
 func NodeFuzzyMatch(hay, needle string) bool { return fuzzyMatch(hay, needle) }

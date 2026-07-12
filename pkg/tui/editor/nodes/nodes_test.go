@@ -2,9 +2,9 @@ package nodes
 
 import (
 	"context"
-	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/editor"
 	"github.com/lflow/lflow/pkg/tui/tag"
@@ -145,13 +145,36 @@ func TestNLPComputeFlow(t *testing.T) {
 	}
 }
 
-// TestNCColorLine: the simple highlighter's three behaviors.
-func TestNCColorLine(t *testing.T) {
-	th := editor.NodeTheme()
-	if got := ncColorLine("# a comment"); !strings.HasPrefix(got, th.Dim) {
-		t.Fatalf("comment must dim: %q", got)
+// TestNCCodeFaceEdits: the code face seeds from the generated snippet, takes
+// edits, and flushes them back to the cell — the "in code it's editable" rule.
+func TestNCCodeFaceEdits(t *testing.T) {
+	h := newFakeHost(t)
+	n := &fakeNode{uuid: "cell1", typ: database.TypeNLPCompute, text: "sum inputs"}
+	ncSave(h, "cell1", ncData{Code: "b = 0"})
+
+	v := ncView{}
+	if !v.Enter(h, n) {
+		t.Fatal("code face must open when code exists")
 	}
-	if got := ncColorLine("def train(x):"); !strings.Contains(got, th.Accent+"def"+th.Reset) {
-		t.Fatalf("keyword must color: %q", got)
+	// append " + 1" at the end (Enter seeded the caret there)
+	for _, r := range " + 1" {
+		if r == ' ' {
+			v.Key(h, n, tea.KeyMsg{Type: tea.KeySpace})
+		} else {
+			v.Key(h, n, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+	}
+	v.Leave(h, n)
+	if got := ncLoad(h, "cell1").Code; got != "b = 0 + 1" {
+		t.Fatalf("edited code = %q, want %q", got, "b = 0 + 1")
+	}
+}
+
+// TestNCCodeFaceRefusesEmpty: with no code yet the face declines, nudging alt+r.
+func TestNCCodeFaceRefusesEmpty(t *testing.T) {
+	h := newFakeHost(t)
+	n := &fakeNode{uuid: "cell2", typ: database.TypeNLPCompute}
+	if (ncView{}).Enter(h, n) {
+		t.Fatal("code face must refuse when there is no code")
 	}
 }

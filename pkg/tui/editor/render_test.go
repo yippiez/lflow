@@ -299,7 +299,7 @@ func TestRenderBodyCodeRow(t *testing.T) {
 // TestCodeBlockBands: the gray block wears a white left rule, dim line numbers,
 // and a full-width gray background on every band line.
 func TestCodeBlockBands(t *testing.T) {
-	bands := CodeBlockBands("a = 1\nb = 2", "code", -1, -1, false, "", 40, 0, 0)
+	bands := CodeBlockBands("a = 1\nb = 2", "code", -1, false, "", 40, 0, 0)
 	if len(bands) != 4 { // ┌ header, two code lines, └ footer
 		t.Fatalf("bands = %d, want 4", len(bands))
 	}

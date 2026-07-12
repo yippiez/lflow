@@ -3,7 +3,6 @@ package nodes
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 
@@ -19,10 +18,12 @@ import (
 // an ipynb cell whose source is prose. alt+r launches an agent pinned to the
 // node's CWD (recorded the first time it runs — the cell stays tied to that
 // repo); the agent reads the surrounding lflow nodes and the underlying repo
-// and generates the code snippet implementing the instruction. alt+e switches
-// to the CODE version: numbered lines with simple syntax highlighting; esc
-// switches back to the NLP version. The cell data ({cwd, code, lang}) lives
-// in node_output — local, decoupled from the node row.
+// and generates the code snippet implementing the instruction. alt+e TOGGLES the
+// node's face: the NLP prose flips to the code face — the same gray code block
+// the Code node wears (white rule, line numbers, editable) — and alt+e/esc flips
+// back. The natural language lives in the node text; the code face's edits (and
+// the cell data {cwd, code, lang}) live in node_output — local, decoupled from
+// the node row.
 
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
@@ -57,11 +58,14 @@ type ncData struct {
 	Lang string `json:"lang,omitempty"`
 }
 
-// ncState is the in-memory turn state (NodeStore, key "nlpcompute").
+// ncState is the in-memory turn state (NodeStore, key "nlpcompute"). It also
+// holds the code face's live edit buffer while alt+e has it open.
 type ncState struct {
 	busy   bool
 	cancel func()
 	tool   string // last tool line, shown while generating
+	buf    string // code-face edit buffer (seeded on Enter, flushed on Leave)
+	caret  int    // caret index into buf
 }
 
 func ncStateOf(h editor.NodeHost, uuid string) *ncState {
@@ -164,7 +168,7 @@ func (msg ncEvMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 		data := ncLoad(h, msg.uuid)
 		data.Code, data.Lang = code, lang
 		ncSave(h, msg.uuid, data)
-		h.NodeFlash("code ready · alt+e views it")
+		h.NodeFlash("code ready · alt+e toggles the code face")
 		return waitNCCmd(msg.uuid, msg.ch)
 	case "error":
 		h.NodeFlash("compute: " + msg.ev.Text)
@@ -260,123 +264,104 @@ func ncRender(h editor.NodeHost, n editor.NodeRef) string {
 	return name
 }
 
-// ── the CODE version (alt+e) ────────────────────────────────────────────────
+// ── the code face (alt+e toggle) ────────────────────────────────────────────
 
-// ncView shows the generated snippet: numbered lines, simple highlighting.
+// ncView is the editable code face: the same gray block the Code node wears
+// (editor.CodeBlockBands), seeded from the generated snippet and flushed back
+// to node_output on leave. alt+e/esc flip back to the NLP prose; alt+r
+// regenerates. The live buffer lives in ncState (NodeStore).
 type ncView struct{}
 
 func (ncView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
-	if ncLoad(h, n.UUID()).Code == "" {
+	d := ncLoad(h, n.UUID())
+	if d.Code == "" {
 		h.NodeFlash("no code yet · alt+r computes it")
 		return false
 	}
+	st := ncStateOf(h, n.UUID())
+	st.buf, st.caret = d.Code, len([]rune(d.Code))
 	return true
 }
 
-func (ncView) Leave(h editor.NodeHost, n editor.NodeRef) {}
+// Leave flushes the edited buffer back to the cell (node_output).
+func (ncView) Leave(h editor.NodeHost, n editor.NodeRef) {
+	st := ncStateOf(h, n.UUID())
+	if d := ncLoad(h, n.UUID()); st.buf != d.Code {
+		d.Code = st.buf
+		ncSave(h, n.UUID(), d)
+	}
+	st.buf, st.caret = "", 0
+}
 
 func (ncView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
-	return 1 + len(strings.Split(ncLoad(h, n.UUID()).Code, "\n"))
+	return 2 + len(strings.Split(ncStateOf(h, n.UUID()).buf, "\n"))
 }
 
+// Key edits the code buffer; alt+r regenerates; esc/alt+e fall through to the
+// central toggle back to the NLP prose.
 func (ncView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
-	switch k.String() {
-	case "r": // regenerate from the NLP version
+	if k.String() == "alt+r" {
 		return runNLPCompute(h, n), true
 	}
-	return nil, false // esc → central: back to the NLP version
-}
-
-func (v ncView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
-	th := editor.NodeTheme()
-	d := ncLoad(h, n.UUID())
-	lang := d.Lang
-	if lang == "" {
-		lang = "code"
-	}
-	var content []string
-	content = append(content, editor.NodeClip(rail+th.Reset+th.Dim+"  "+lang+" · r recompute · esc nlp view"+th.Reset, width))
-	lines := strings.Split(d.Code, "\n")
-	numW := len(fmt.Sprintf("%d", len(lines)))
-	for i, l := range lines {
-		content = append(content, editor.NodeClip(fmt.Sprintf("%s%s  %s%*d%s %s",
-			rail, th.Reset, th.Dim, numW, i+1, th.Reset, ncColorLine(l)), width))
-	}
-	return editor.NodeWindowBands(content, scroll, winH)
-}
-
-// ncKeywords is the shared keyword set for the simple highlighter — deliberately
-// small and cross-language (python/go/js flavored); nothing token-perfect.
-var ncKeywords = map[string]bool{
-	"def": true, "return": true, "if": true, "else": true, "elif": true, "for": true,
-	"while": true, "import": true, "from": true, "class": true, "func": true,
-	"var": true, "let": true, "const": true, "type": true, "struct": true,
-	"range": true, "in": true, "not": true, "and": true, "or": true, "with": true,
-	"try": true, "except": true, "finally": true, "raise": true, "lambda": true,
-	"go": true, "defer": true, "switch": true, "case": true, "break": true,
-	"continue": true, "package": true, "function": true, "async": true, "await": true,
-	"True": true, "False": true, "None": true, "true": true, "false": true,
-	"nil": true, "null": true, "pass": true, "yield": true, "print": true,
-}
-
-// ncColorLine is the simple syntax highlighter: comments dim, strings orange,
-// numbers green, keywords blue — tolerant, line-local, nothing clever.
-func ncColorLine(line string) string {
-	th := editor.NodeTheme()
-	trimmed := strings.TrimSpace(line)
-	if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
-		return th.Dim + line + th.Reset
-	}
-	r := []rune(line)
-	var b strings.Builder
-	i := 0
-	for i < len(r) {
-		c := r[i]
+	st := ncStateOf(h, n.UUID())
+	buf, caret := st.buf, st.caret
+	rl := []rune(buf)
+	switch k.String() {
+	case "left":
+		if caret > 0 {
+			caret--
+		}
+	case "right":
+		if caret < len(rl) {
+			caret++
+		}
+	case "up":
+		caret = editor.NodeCaretVMove(buf, caret, -1)
+	case "down":
+		caret = editor.NodeCaretVMove(buf, caret, +1)
+	case "home":
+		line, _ := editor.NodeCaretLineCol(buf, caret)
+		caret = editor.NodeCaretAt(buf, line, 0)
+	case "end":
+		line, _ := editor.NodeCaretLineCol(buf, caret)
+		caret = editor.NodeCaretAt(buf, line, 1<<30)
+	case "enter":
+		buf = string(rl[:caret]) + "\n" + string(rl[caret:])
+		caret++
+	case "tab":
+		buf = string(rl[:caret]) + "  " + string(rl[caret:])
+		caret += 2
+	case "backspace":
+		if caret > 0 {
+			buf = string(rl[:caret-1]) + string(rl[caret:])
+			caret--
+		}
+	default:
 		switch {
-		case c == '"' || c == '\'':
-			q := c
-			j := i + 1
-			for j < len(r) && r[j] != q {
-				if r[j] == '\\' {
-					j++
-				}
-				j++
-			}
-			if j < len(r) {
-				j++
-			}
-			b.WriteString(editor.NodeColor("orange") + string(r[i:j]) + th.Reset)
-			i = j
-		case c == '#' || (c == '/' && i+1 < len(r) && r[i+1] == '/'):
-			b.WriteString(th.Dim + string(r[i:]) + th.Reset)
-			i = len(r)
-		case c >= '0' && c <= '9':
-			j := i
-			for j < len(r) && ((r[j] >= '0' && r[j] <= '9') || r[j] == '.' || r[j] == '_') {
-				j++
-			}
-			b.WriteString(editor.NodeColor("green") + string(r[i:j]) + th.Reset)
-			i = j
-		case isWordRune(c):
-			j := i
-			for j < len(r) && isWordRune(r[j]) {
-				j++
-			}
-			word := string(r[i:j])
-			if ncKeywords[word] {
-				b.WriteString(th.Accent + word + th.Reset)
-			} else {
-				b.WriteString(word)
-			}
-			i = j
+		case k.Type == tea.KeySpace && !k.Alt:
+			buf = string(rl[:caret]) + " " + string(rl[caret:])
+			caret++
+		case k.Type == tea.KeyRunes && !k.Alt:
+			s := string(k.Runes)
+			buf = string(rl[:caret]) + s + string(rl[caret:])
+			caret += len(k.Runes)
 		default:
-			b.WriteRune(c)
-			i++
+			return nil, false // esc, alt+e, ctrl+c … → central
 		}
 	}
-	return b.String()
+	st.buf, st.caret = buf, caret
+	return nil, true
 }
 
-func isWordRune(c rune) bool {
-	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+func (ncView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
+	st := ncStateOf(h, n.UUID())
+	caret := st.caret
+	if !focused {
+		caret = -1
+	}
+	header := "code · alt+r recompute · esc nlp"
+	if d := ncLoad(h, n.UUID()); d.Lang != "" {
+		header = d.Lang + " · alt+r recompute · esc nlp"
+	}
+	return editor.CodeBlockBands(st.buf, header, caret, focused, rail, width, scroll, winH)
 }

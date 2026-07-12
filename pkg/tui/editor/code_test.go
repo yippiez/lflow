@@ -93,6 +93,16 @@ func TestCodeViewTabIndents(t *testing.T) {
 	}
 }
 
+// TestHLCodeLine: the shared highlighter dims comments and colors keywords.
+func TestHLCodeLine(t *testing.T) {
+	if got := HLCodeLine("# a comment"); !strings.HasPrefix(got, cDim) {
+		t.Fatalf("comment must dim: %q", got)
+	}
+	if got := HLCodeLine("def train(x):"); !strings.Contains(got, cAccent+"def") {
+		t.Fatalf("keyword must color: %q", got)
+	}
+}
+
 // TestCodeInlineRow: a multi-line code node's one-line row is the dim line-count
 // tag, and the always-on band renders the gray block beneath it.
 func TestCodeInlineRow(t *testing.T) {

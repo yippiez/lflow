@@ -78,11 +78,17 @@ per-feature column — and no scattered `switch typ`:
    node, both interfaces so a node file tests against fakes), async work flows
    back through `NodePluginMsg`, `OnRemove` cancels in-flight work. Core woven
    types (bullets…image, `json.go`, `voice.go`; `bash.go` holds the shared
-   shell-run machinery) stay in the editor as `nodeType` entries; a rich alt+e
-   editor implements the stateless view interface either way, per-node state
-   in the node store. (The canvas plugin — a two-plane crosshair painter —
-   was the maximal example until its removal in 2026-07; old `canvas` rows
-   fall back to bullets like any unknown type.)
+   shell-run machinery, `code.go` the shared multi-line **code block** —
+   `CodeBlockBands`: a fully gray background, a thin white left rule with box
+   corners, and dim line numbers, shared by the Code node and the nlpcompute
+   node's alt+e code face) stay in the editor as `nodeType` entries; a rich
+   alt+e editor implements the stateless view interface either way, per-node
+   state in the node store. The Code node is edited only in that focused block
+   (not inline): its multi-line body IS `it.name`, Enter is a newline inside
+   the block, two spaces after a content char at the end exit to a fresh
+   sibling, Tab indents two spaces. (The canvas plugin — a two-plane crosshair
+   painter — and the codereview / codesig plugins were removed in 2026-07; old
+   rows of any removed type fall back to bullets like any unknown type.)
 
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.

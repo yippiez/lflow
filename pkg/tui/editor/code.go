@@ -22,15 +22,19 @@ import (
 const cWhite = "\x1b[38;2;255;255;255m"
 
 // CodeBlockBands renders code as the standard gray code block. header labels the
-// top rule (e.g. "code" or "python · esc"); caretLine/caretCol place the block
-// cursor when focused (caretLine < 0 draws none). rail is the tree hanging
-// indent, width the render width. When winH > 0 the block is windowed to
-// [scroll, scroll+winH) (the focused editor); winH <= 0 returns the whole block
-// (the always-on band).
-func CodeBlockBands(code, header string, caretLine, caretCol int, focused bool, rail string, width, scroll, winH int) []string {
+// top rule (e.g. "code" or "python · esc"); caret is the rune index of the block
+// cursor when focused (< 0 draws none). rail is the tree hanging indent, width
+// the render width. When winH > 0 the block is windowed to [scroll, scroll+winH)
+// with the caret line kept in view (the focused editor); winH <= 0 returns the
+// whole block (the always-on band).
+func CodeBlockBands(code, header string, caret int, focused bool, rail string, width, scroll, winH int) []string {
 	inner := width - visibleWidth(rail) - 1
 	if inner < 8 {
 		inner = 8
+	}
+	caretLine, caretCol := -1, -1
+	if focused && caret >= 0 {
+		caretLine, caretCol = jsonCaretLC(code, caret)
 	}
 	lines := strings.Split(code, "\n")
 	numW := len(fmt.Sprintf("%d", len(lines)))
@@ -40,7 +44,7 @@ func CodeBlockBands(code, header string, caretLine, caretCol int, focused bool, 
 	for i, l := range lines {
 		num := cDim + fmt.Sprintf("%*d", numW, i+1) + cReset + bgCode
 		body := HLCodeLine(l)
-		if focused && i == caretLine {
+		if i == caretLine {
 			body = codeCaretLine(l, caretCol)
 		}
 		gutter := cWhite + "│" + cReset + bgCode + " " + num + " "
@@ -50,6 +54,15 @@ func CodeBlockBands(code, header string, caretLine, caretCol int, focused bool, 
 
 	if winH <= 0 {
 		return all
+	}
+	if caretLine >= 0 { // keep the caret line (offset +1 for the header) in view
+		cl := caretLine + 1
+		if cl < scroll {
+			scroll = cl
+		}
+		if cl >= scroll+winH {
+			scroll = cl - winH + 1
+		}
 	}
 	if scroll > len(all)-winH {
 		scroll = len(all) - winH
@@ -286,24 +299,13 @@ func (v codeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, true
 }
 
-// Bands renders the focused editor: caret-follow scroll, then the shared block.
+// Bands renders the focused editor through the shared block.
 func (v codeView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	buf, caret := v.get(m, it)
-	caretLine, caretCol := jsonCaretLC(buf, caret)
-	if focused { // keep the caret line (offset +1 for the header) in view
-		cl := caretLine + 1
-		if cl < scroll {
-			scroll = cl
-		}
-		if cl >= scroll+winH {
-			scroll = cl - winH + 1
-		}
-		if scroll < 0 {
-			scroll = 0
-		}
-		m.focusScroll = scroll
+	if !focused {
+		caret = -1
 	}
-	return CodeBlockBands(buf, "code · enter newline · ␣␣ exit · esc done", caretLine, caretCol, focused, rail, width, scroll, winH)
+	return CodeBlockBands(buf, "code · enter newline · ␣␣ exit · esc done", caret, focused, rail, width, scroll, winH)
 }
 
 // exitCodeToSibling flushes the code buffer, drops focus, and opens a fresh
@@ -349,5 +351,5 @@ func codeToContext(it *item) contextXML {
 // focused node, whose editor draws its own windowed block — see viewRenderRows).
 func (m *Model) codeBands(r row, subtreeBelow bool, maxLine int) []string {
 	rail := continuationPrefix(r, subtreeBelow)
-	return CodeBlockBands(r.it.name, "code", -1, -1, false, rail, maxLine, 0, 0)
+	return CodeBlockBands(r.it.name, "code", -1, false, rail, maxLine, 0, 0)
 }
