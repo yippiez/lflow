@@ -71,13 +71,20 @@ per-feature column — and no scattered `switch typ`:
    field doc-comments there list every hook (`sign`, `glyph`, `render`,
    `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e,
    `toContext`/`toContextM` for the node's XML element in agent context).
-3. Put the behavior in its own `pkg/tui/editor/<type>.go` (see `json.go`,
-   `voice.go`, `canvas.go`, `codereview.go`, `codesig.go`, `nlpcompute.go`; `bash.go` holds the shared shell-run machinery). A rich alt+e editor implements the
-   stateless `nodeView` interface, keeping per-node state in `m.nodeStore(it.uuid)`.
-   The canvas type is the maximal example: a crosshair grid painter with a
-   searchable named-glyph palette, rectangle objects and constraint spans
-   (anchored endpoints that follow their object), document as JSON in
-   node_blobs, the rendered grid shipped to agents via `toContextM`.
+3. Put the behavior in its own file. PLUGGABLE types live in
+   `pkg/tui/editor/nodes/<type>.go` — ONE file per node — registered at init
+   via `editor.RegisterNodePlugin` (see `editor/nodeplugin.go`): the editor
+   hosts the generic plugin API (`NodeHost` = editor surface, `NodeRef` = the
+   node, both interfaces so a node file tests against fakes), async work flows
+   back through `NodePluginMsg`, `OnRemove` cancels in-flight work. Core woven
+   types (bullets…image, `json.go`, `voice.go`; `bash.go` holds the shared
+   shell-run machinery) stay in the editor as `nodeType` entries; a rich alt+e
+   editor implements the stateless view interface either way, per-node state
+   in the node store. The canvas plugin is the maximal example: a two-plane
+   crosshair painter (draw = free palette painting; object = color regions
+   where a distinct color IS a distinct object, tied to each other and the
+   border by gap constraints a solver maintains), document as JSON in
+   node_blobs, the rendered grid shipped to agents via its ToContext hook.
 
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
