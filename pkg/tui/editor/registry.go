@@ -46,6 +46,11 @@ type nodeType struct {
 	// paths (viewRenderRows and finalView) so a banded type declares it once here
 	// instead of a type check in each. nil → no extra bands.
 	bands func(m *Model, r row, below bool, maxLine int) []string
+	// blockCode makes the node render AS a borderless code block that REPLACES its
+	// row (no glyph/body line — see viewRenderRows / blockGroupLines): it returns
+	// the code, the caret rune index when the node is the focused editing target
+	// (else -1), and ok=false to fall back to the normal row. nil → normal row.
+	blockCode func(m *Model, it *item, focused bool) (code string, caret int, ok bool)
 	// continueOnEnter makes Enter from this type open another node of the same type
 	// — the todo-list continuation, where a fresh sibling stays a todo.
 	continueOnEnter bool
@@ -131,13 +136,13 @@ var nodeTypes = []nodeType{
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true, toContext: xmlTag("h2")},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true, toContext: xmlTag("h3")},
 	// the Code node is a multi-line block edited only in its focused view (alt+e),
-	// so it is not inlineEditable; the gray block hangs beneath it as an always-on
-	// band, and its multi-line body IS it.name (see code.go).
+	// so it is not inlineEditable; the borderless gray block REPLACES the node's
+	// row (blockCode), and its multi-line body IS it.name (see code.go).
 	{
 		key: database.TypeCode, label: "Code", inlineEditable: false,
-		render:    codeInlineRender,
+		render:    codeInlineRender, // compact fallback (the temp panel, unknown surfaces)
 		view:      codeView{},
-		bands:     func(m *Model, r row, below bool, maxLine int) []string { return m.codeBands(r, below, maxLine) },
+		blockCode: codeBlockCode,
 		toContext: codeToContext,
 	},
 	{key: database.TypeQuote, label: "Quote", inlineEditable: true, toContext: xmlTag("quote")},

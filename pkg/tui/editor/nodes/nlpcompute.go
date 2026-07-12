@@ -34,6 +34,7 @@ func init() {
 		Render:         ncRender,
 		Run:            runNLPCompute,
 		View:           ncView{},
+		BlockCode:      ncBlockCode,
 		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
 			d := ncLoad(h, n.UUID())
 			attrs := ""
@@ -43,6 +44,7 @@ func init() {
 			return "nlpcompute", attrs, d.Code
 		},
 		OnRemove: func(h editor.NodeHost, uuid string) {
+			delete(h.NodeStore(uuid), "animating")
 			if st := ncStateOf(h, uuid); st.cancel != nil {
 				st.cancel()
 				st.cancel, st.busy, st.tool = nil, false, ""
@@ -175,6 +177,7 @@ func (msg ncEvMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 	}
 	// done / error: park the cell
 	st.busy, st.tool = false, ""
+	delete(h.NodeStore(msg.uuid), "animating")
 	if st.cancel != nil {
 		st.cancel()
 		st.cancel = nil
@@ -217,6 +220,7 @@ func runNLPCompute(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 		return nil
 	}
 	st.busy, st.cancel, st.tool = true, cancel, ""
+	h.NodeStore(n.UUID())["animating"] = true // keep the shine tick alive while generating
 	return waitNCCmd(n.UUID(), ch)
 }
 
@@ -241,27 +245,43 @@ func peelCodeFence(text string) (code, lang string) {
 	return strings.TrimRight(body, "\n"), lang
 }
 
-// ncRender is the NLP version's inline body: the red instruction, with a dim
-// state chip when the cell has code or is computing.
+// ncRender is the NLP version's inline body — the whole instruction is red. While
+// generating it SHINES (the ultraloop slide) with no agent trace; otherwise plain
+// red. When code exists the block replaces the row (ncBlockCode), so the trailing
+// {lang} chip is only ever seen off the main outline (the temp panel).
 func ncRender(h editor.NodeHost, n editor.NodeRef) string {
 	th := editor.NodeTheme()
 	st := ncStateOf(h, n.UUID())
 	name := n.Text()
 	if st.busy {
-		suffix := "computing…"
-		if st.tool != "" {
-			suffix = st.tool + "…"
-		}
-		return name + " " + th.Dim + "⋯ " + suffix + th.Reset
+		return editor.ShineText(name)
 	}
 	if d := ncLoad(h, n.UUID()); d.Code != "" {
 		label := "{code}"
 		if d.Lang != "" {
 			label = "{" + d.Lang + "}"
 		}
-		return name + " " + th.Dim + label + th.Reset
+		return th.Red + name + th.Reset + " " + th.Dim + label + th.Reset
 	}
-	return name
+	return th.Red + name + th.Reset
+}
+
+// ncBlockCode makes the node render AS the borderless code block once a snippet
+// exists (replacing the red prose row). While generating it yields to the shining
+// prose (ok=false); focused, the live edit buffer + caret drive the block.
+func ncBlockCode(h editor.NodeHost, n editor.NodeRef, focused bool) (string, int, bool) {
+	st := ncStateOf(h, n.UUID())
+	if st.busy {
+		return "", -1, false
+	}
+	d := ncLoad(h, n.UUID())
+	if d.Code == "" {
+		return "", -1, false
+	}
+	if focused {
+		return st.buf, st.caret, true
+	}
+	return d.Code, -1, true
 }
 
 // ── the code face (alt+e toggle) ────────────────────────────────────────────
@@ -359,9 +379,5 @@ func (ncView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scr
 	if !focused {
 		caret = -1
 	}
-	header := "code · alt+r recompute · esc nlp"
-	if d := ncLoad(h, n.UUID()); d.Lang != "" {
-		header = d.Lang + " · alt+r recompute · esc nlp"
-	}
-	return editor.CodeBlockBands(st.buf, header, caret, focused, rail, width, scroll, winH)
+	return editor.CodeBlockBands(st.buf, caret, focused, rail, width, scroll, winH)
 }

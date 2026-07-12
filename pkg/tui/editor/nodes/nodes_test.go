@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -176,5 +177,78 @@ func TestNCCodeFaceRefusesEmpty(t *testing.T) {
 	n := &fakeNode{uuid: "cell2", typ: database.TypeNLPCompute}
 	if (ncView{}).Enter(h, n) {
 		t.Fatal("code face must refuse when there is no code")
+	}
+}
+
+// TestNCBlockCode: the node renders AS the code block once a snippet exists (and
+// not while generating). No code / busy → the prose row (ok=false); idle+code →
+// the block with no caret; focused → the live edit buffer + caret.
+func TestNCBlockCode(t *testing.T) {
+	h := newFakeHost(t)
+	n := &fakeNode{uuid: "cell1", typ: database.TypeNLPCompute, text: "sum inputs"}
+
+	if _, _, ok := ncBlockCode(h, n, false); ok {
+		t.Fatal("no code yet → prose row, not a block")
+	}
+	ncSave(h, "cell1", ncData{Code: "b = 1", Lang: "python"})
+	code, caret, ok := ncBlockCode(h, n, false)
+	if !ok || code != "b = 1" || caret != -1 {
+		t.Fatalf("idle+code block = %q,%d,%v", code, caret, ok)
+	}
+	// busy yields to the shining prose even with code present
+	ncStateOf(h, "cell1").busy = true
+	if _, _, ok := ncBlockCode(h, n, false); ok {
+		t.Fatal("while generating → shining prose, not a block")
+	}
+	ncStateOf(h, "cell1").busy = false
+	// focused → the live buffer drives the block
+	st := ncStateOf(h, "cell1")
+	st.buf, st.caret = "b = 2", 3
+	if code, caret, _ := ncBlockCode(h, n, true); code != "b = 2" || caret != 3 {
+		t.Fatalf("focused block = %q,%d", code, caret)
+	}
+}
+
+// TestNCRenderShineAndFlag: while generating the instruction shines (colored, no
+// "computing…" trace) and the animating flag is raised so the shine tick lives;
+// idle it is plain red; completion drops the flag.
+func TestNCRenderShineAndFlag(t *testing.T) {
+	h := newFakeHost(t)
+	h.compute = func() <-chan tag.Event {
+		ch := make(chan tag.Event, 4)
+		ch <- tag.Event{Op: "message", Text: "```python\nb = 1\n```"}
+		ch <- tag.Event{Op: "done"}
+		close(ch)
+		return ch
+	}
+	n := &fakeNode{uuid: "cell1", typ: database.TypeNLPCompute, text: "sum inputs"}
+
+	cmd := runNLPCompute(h, n)
+	if a, _ := h.NodeStore("cell1")["animating"].(bool); !a {
+		t.Fatal("run must raise the animating flag")
+	}
+	shown := ncRender(h, n)
+	if strings.Contains(shown, "computing") || strings.Contains(shown, "⋯") {
+		t.Fatalf("busy render must not show an agent trace: %q", shown)
+	}
+	if !strings.Contains(shown, "\x1b[38;2;") { // an animated (shine) color is present
+		t.Fatalf("busy render must be colored (shine): %q", shown)
+	}
+
+	// drain the turn to completion
+	msg := cmd()
+	for i := 0; i < 20; i++ {
+		ev, ok := msg.(ncEvMsg)
+		if !ok {
+			t.Fatalf("unexpected msg %T", msg)
+		}
+		next := ev.HandleNodePlugin(h)
+		if next == nil {
+			break
+		}
+		msg = next()
+	}
+	if a, _ := h.NodeStore("cell1")["animating"].(bool); a {
+		t.Fatal("completion must drop the animating flag")
 	}
 }

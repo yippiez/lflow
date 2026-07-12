@@ -103,20 +103,25 @@ func TestHLCodeLine(t *testing.T) {
 	}
 }
 
-// TestCodeInlineRow: a multi-line code node's one-line row is the dim line-count
-// tag, and the always-on band renders the gray block beneath it.
+// TestCodeInlineRow: a multi-line code node renders AS the borderless block,
+// replacing its row — blockCode yields the whole body and the block is one line
+// per code line (no header/footer rule), the block hanging at the node's indent.
 func TestCodeInlineRow(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "c", Name: "a\nb\nc", Type: database.TypeCode})
 	cursorOn(m, "c")
-	row := renderBody(m.tree.byUUID["c"], "a\nb\nc", -1, false, nil, false)
-	if got := stripSGR(row); got != "code · 3 lines" {
-		t.Fatalf("code row = %q", got)
+	it := m.tree.byUUID["c"]
+	code, caret, ok := codeBlockCode(m, it, false)
+	if !ok || code != "a\nb\nc" || caret != -1 {
+		t.Fatalf("blockCode = %q,%d,%v", code, caret, ok)
 	}
-	bands := m.codeBands(m.rows[m.cursor], false, 80)
-	if len(bands) != 5 { // ┌ header, 3 lines, └ footer
-		t.Fatalf("bands = %d, want 5", len(bands))
+	lines := codeBlockLines(code, caret, 78)
+	if len(lines) != 3 { // one line per code line, no border rows
+		t.Fatalf("block = %d lines, want 3", len(lines))
 	}
-	if !strings.Contains(bands[0], "code") {
-		t.Fatalf("header band missing label: %q", bands[0])
+	if !strings.Contains(lines[0], cWhite+"│") {
+		t.Fatalf("code line missing white rule: %q", lines[0])
+	}
+	if strings.ContainsAny(stripSGR(lines[0]), "┌└") {
+		t.Fatalf("block must be borderless: %q", stripSGR(lines[0]))
 	}
 }

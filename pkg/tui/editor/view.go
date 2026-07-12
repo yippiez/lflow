@@ -161,6 +161,30 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			continue
 		}
 
+		// a code-block node renders AS the borderless block, standing in for its row
+		// (no glyph/body line): the line-number gutter + code hang at the node's
+		// indent. While focused the block carries the edit caret (viewFocusedBand
+		// then skips it — the group already shows it).
+		if bc := typeOf(it.typ).blockCode; bc != nil {
+			if code, caret, ok := bc(m, it, selected && m.focused); ok {
+				below := i+1 < len(rows) && rows[i+1].depth > r.depth
+				inner := maxLine - visibleWidth(continuationPrefix(r, below))
+				content := codeBlockLines(code, caret, inner)
+				groups[i] = m.blockGroupLines(r, content, below)
+				if m.inSelection(i) {
+					for j := range groups[i] {
+						groups[i][j] = selFill(groups[i][j], maxLine)
+					}
+				}
+				noteCaret := -1
+				if selected && m.mode == modeNote {
+					noteCaret = m.caret
+				}
+				bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+				continue
+			}
+		}
+
 		glyph, glyphColor := glyphFor(it)
 		if m.tempActive && !r.mirrored {
 			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
@@ -320,6 +344,13 @@ func (m *Model) viewFocusedBand(groups, bands [][]string, lay viewLayout, maxLin
 	rows := m.rows
 	if m.focused && m.cursor >= 0 && m.cursor < len(rows) {
 		cur := rows[m.cursor].it
+		// a code-block node draws its focused editor in the group (block replaces
+		// the row), not as a hanging band — don't double-render it.
+		if bc := typeOf(cur.typ).blockCode; bc != nil {
+			if _, _, ok := bc(m, cur, true); ok {
+				return
+			}
+		}
 		if v := m.activeView(cur); v != nil {
 			r := rows[m.cursor]
 			below := m.cursor+1 < len(rows) && rows[m.cursor+1].depth > r.depth

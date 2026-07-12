@@ -688,8 +688,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// animation tick if it isn't already running.
 		return m, m.startAnim(cmd)
 	case NodePluginMsg:
-		// a plugin's async work flowing back (e.g. nlpcompute generation)
-		return m, msg.HandleNodePlugin(m)
+		// a plugin's async work flowing back (e.g. nlpcompute generation) — keep the
+		// animation tick alive so a node's shine indicator keeps sliding
+		return m, m.startAnim(msg.HandleNodePlugin(m))
 	case agentThinkMsg:
 		// a newer edit supersedes older ticks — only the latest gen fires
 		if msg.gen != m.agentThinkGen {

@@ -7,61 +7,81 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// The Code node is a multi-line code block: a fully gray background, a thin
-// white left rule with box corners, and dim line numbers. The code lives in
-// it.name (multi-line, like the json node's document) so it syncs and greps as
-// plain text. alt+e focuses the block for editing; Enter makes a newline INSIDE
-// the block, and two spaces in a row at the end exit to a fresh sibling (the
-// outline gesture — the trailing spaces are trimmed). esc leaves in place.
+// The Code node is a multi-line code block: a fully gray background, dim line
+// numbers, and a thin white vertical rule to the RIGHT of the numbers separating
+// them from the code. It carries no border and no header — the block REPLACES the
+// node's row (there is no separate "code" text line above it, see viewRenderRows
+// / blockGroupLines). The code lives in it.name (multi-line, like the json node's
+// document) so it syncs and greps as plain text. alt+e focuses the block for
+// editing; Enter makes a newline INSIDE the block, and two spaces in a row at the
+// end exit to a fresh sibling (the outline gesture — the trailing spaces are
+// trimmed). esc leaves in place.
 //
-// CodeBlockBands is the shared renderer — the nlpcompute node's code face draws
-// through it too, so both wear the same gray block.
+// codeBlockLines is the shared content renderer — the nlpcompute node's code face
+// draws through it too, so both wear the same borderless gray block.
 
-// cWhite is the code block's left rule and corners — white is white, never
-// themed (like the painter bar).
+// cWhite is the code block's vertical rule — white is white, never themed (like
+// the painter bar).
 const cWhite = "\x1b[38;2;255;255;255m"
 
-// CodeBlockBands renders code as the standard gray code block. header labels the
-// top rule (e.g. "code" or "python · esc"); caret is the rune index of the block
-// cursor when focused (< 0 draws none). rail is the tree hanging indent, width
-// the render width. When winH > 0 the block is windowed to [scroll, scroll+winH)
-// with the caret line kept in view (the focused editor); winH <= 0 returns the
-// whole block (the always-on band).
-func CodeBlockBands(code, header string, caret int, focused bool, rail string, width, scroll, winH int) []string {
-	inner := width - visibleWidth(rail) - 1
+// codeBlockLines renders code as the borderless block CONTENT (no tree rail — the
+// caller prefixes that): each line is the dim right-padded line number, a space,
+// a white vertical rule, a space, then the syntax-highlighted code, all on the
+// gray background, padded to inner columns. caret is the rune index of the block
+// cursor when focused (< 0 draws none) — its line is drawn raw so the cell reads
+// cleanly.
+func codeBlockLines(code string, caret, inner int) []string {
 	if inner < 8 {
 		inner = 8
 	}
 	caretLine, caretCol := -1, -1
-	if focused && caret >= 0 {
+	if caret >= 0 {
 		caretLine, caretCol = jsonCaretLC(code, caret)
 	}
 	lines := strings.Split(code, "\n")
 	numW := len(fmt.Sprintf("%d", len(lines)))
-
-	all := make([]string, 0, len(lines)+2)
-	all = append(all, rail+cReset+bgCode+codeRule("┌", header, inner))
+	out := make([]string, len(lines))
 	for i, l := range lines {
 		num := cDim + fmt.Sprintf("%*d", numW, i+1) + cReset + bgCode
 		body := HLCodeLine(l)
 		if i == caretLine {
 			body = codeCaretLine(l, caretCol)
 		}
-		gutter := cWhite + "│" + cReset + bgCode + " " + num + " "
-		all = append(all, rail+cReset+bgCode+padGray(gutter+body, inner))
+		gutter := num + " " + cWhite + "│" + cReset + bgCode + " "
+		out[i] = cReset + bgCode + padGray(gutter+body, inner)
 	}
-	all = append(all, rail+cReset+bgCode+codeRule("└", "", inner))
+	return out
+}
+
+// CodeBlockBands renders code as the borderless gray block, windowed as a band
+// (the focused nodeView path). caret is the block cursor's rune index (drawn only
+// when focused); rail is the tree hanging indent, width the render width. When
+// winH > 0 the block is windowed to [scroll, scroll+winH) with the caret line kept
+// in view; winH <= 0 returns the whole block.
+func CodeBlockBands(code string, caret int, focused bool, rail string, width, scroll, winH int) []string {
+	c := -1
+	if focused {
+		c = caret
+	}
+	content := codeBlockLines(code, c, width-visibleWidth(rail))
+	all := make([]string, len(content))
+	for i, l := range content {
+		all[i] = rail + l
+	}
 
 	if winH <= 0 {
 		return all
 	}
-	if caretLine >= 0 { // keep the caret line (offset +1 for the header) in view
-		cl := caretLine + 1
-		if cl < scroll {
-			scroll = cl
+	caretLine := -1
+	if c >= 0 {
+		caretLine, _ = jsonCaretLC(code, c)
+	}
+	if caretLine >= 0 { // keep the caret line in view
+		if caretLine < scroll {
+			scroll = caretLine
 		}
-		if cl >= scroll+winH {
-			scroll = cl - winH + 1
+		if caretLine >= scroll+winH {
+			scroll = caretLine - winH + 1
 		}
 	}
 	if scroll > len(all)-winH {
@@ -77,20 +97,32 @@ func CodeBlockBands(code, header string, caret int, focused bool, rail string, w
 	return all[scroll:end]
 }
 
-// codeRule builds a top/bottom rule: a white corner, an optional dim label, and
-// a white dashed fill out to cols, all over the gray background.
-func codeRule(corner, label string, cols int) string {
-	head := cWhite + corner
-	used := 1
-	if label != "" {
-		head += cReset + bgCode + " " + cDim + label + cReset + bgCode + " " + cWhite
-		used += 2 + visibleWidth(label)
+// codeBlockCode is the Code node's blockCode hook: the node always renders AS the
+// block (replacing its row). While focused the live edit buffer + caret drive it;
+// otherwise the persisted body with no caret.
+func codeBlockCode(m *Model, it *item, focused bool) (string, int, bool) {
+	if focused {
+		buf, caret := codeView{}.get(m, it)
+		return buf, caret, true
 	}
-	rem := cols - used
-	if rem < 0 {
-		rem = 0
+	return it.name, -1, true
+}
+
+// blockGroupLines wraps borderless block content into a node's group lines: the
+// tree connector sits on the first line (no glyph — the block IS the node), the
+// hanging rail on every continuation, so the block hangs at the node's indent.
+func (m *Model) blockGroupLines(r row, content []string, below bool) []string {
+	first := " " + cDim + connector(r) + "  " // "  " fills the (glyph-less) glyph slot
+	cont := continuationPrefix(r, below)
+	out := make([]string, len(content))
+	for i, c := range content {
+		p := cont
+		if i == 0 {
+			p = first
+		}
+		out[i] = p + c
 	}
-	return head + strings.Repeat("─", rem) + cReset
+	return out
 }
 
 // padGray pads a styled inner string (drawn under an active bgCode) with gray
@@ -305,7 +337,7 @@ func (v codeView) Bands(m *Model, it *item, rail string, width, scroll, winH int
 	if !focused {
 		caret = -1
 	}
-	return CodeBlockBands(buf, "code · enter newline · ␣␣ exit · esc done", caret, focused, rail, width, scroll, winH)
+	return CodeBlockBands(buf, caret, focused, rail, width, scroll, winH)
 }
 
 // exitCodeToSibling flushes the code buffer, drops focus, and opens a fresh
@@ -345,11 +377,4 @@ func codeInlineRender(it *item, name string) string {
 // mangle it for the agent.
 func codeToContext(it *item) contextXML {
 	return contextXML{tag: "code", body: strings.TrimRight(it.name, "\n")}
-}
-
-// codeBands hangs the always-on gray block beneath a code node (skipped for the
-// focused node, whose editor draws its own windowed block — see viewRenderRows).
-func (m *Model) codeBands(r row, subtreeBelow bool, maxLine int) []string {
-	rail := continuationPrefix(r, subtreeBelow)
-	return CodeBlockBands(r.it.name, "code", -1, false, rail, maxLine, 0, 0)
 }

@@ -131,6 +131,11 @@ type NodePlugin struct {
 	Render    func(h NodeHost, n NodeRef) string // inline body override
 	Run       func(h NodeHost, n NodeRef) tea.Cmd          // alt+r
 	View      NodePluginView                               // alt+e inline expanded view
+	// BlockCode makes the node render AS a borderless code block that REPLACES its
+	// row (no glyph/body line): it returns the code, the caret rune index when the
+	// node is the focused editing target (else -1), and ok=false to render the
+	// normal Render row instead. nil → always the normal row.
+	BlockCode func(h NodeHost, n NodeRef, focused bool) (code string, caret int, ok bool)
 	// Preview renders always-on band lines beneath the unfocused node (the
 	// image-thumbnail slot); focused reports the expanded view being open.
 	Preview   func(h NodeHost, n NodeRef, rail string, maxLine int, focused bool) []string
@@ -188,6 +193,12 @@ func RegisterNodePlugin(p NodePlugin) {
 	}
 	if p.View != nil {
 		nt.view = nodePluginViewAdapter{v: p.View}
+	}
+	if p.BlockCode != nil {
+		bc := p.BlockCode
+		nt.blockCode = func(m *Model, it *item, focused bool) (string, int, bool) {
+			return bc(m, nodeRef{m: m, it: it}, focused)
+		}
 	}
 	if p.Preview != nil {
 		pv := p.Preview

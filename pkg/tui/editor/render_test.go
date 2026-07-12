@@ -296,12 +296,13 @@ func TestRenderBodyCodeRow(t *testing.T) {
 	}
 }
 
-// TestCodeBlockBands: the gray block wears a white left rule, dim line numbers,
-// and a full-width gray background on every band line.
+// TestCodeBlockBands: the borderless block is one line per code line (no header /
+// footer rule), each a full-width gray background with a dim line number, a white
+// vertical rule to its right, then the code.
 func TestCodeBlockBands(t *testing.T) {
-	bands := CodeBlockBands("a = 1\nb = 2", "code", -1, false, "", 40, 0, 0)
-	if len(bands) != 4 { // ┌ header, two code lines, └ footer
-		t.Fatalf("bands = %d, want 4", len(bands))
+	bands := CodeBlockBands("a = 1\nb = 2", -1, false, "", 40, 0, 0)
+	if len(bands) != 2 { // one line per code line — no border rows
+		t.Fatalf("bands = %d, want 2", len(bands))
 	}
 	for i, b := range bands {
 		if !strings.Contains(b, bgCode) {
@@ -311,11 +312,11 @@ func TestCodeBlockBands(t *testing.T) {
 			t.Errorf("band %d not full width: %d cols", i, visibleWidth(b))
 		}
 	}
-	if !strings.Contains(bands[1], cWhite+"│") {
-		t.Errorf("code line missing white rule: %q", bands[1])
+	if !strings.Contains(bands[0], cWhite+"│") {
+		t.Errorf("code line missing white rule: %q", bands[0])
 	}
-	if got := stripSGR(bands[1]); !strings.Contains(got, "1 a = 1") {
-		t.Errorf("first code line missing its number: %q", got)
+	if got := stripSGR(bands[0]); !strings.Contains(got, "1 │ a = 1") {
+		t.Errorf("first code line missing its number/rule: %q", got)
 	}
 }
 

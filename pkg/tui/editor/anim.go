@@ -77,10 +77,37 @@ func markKeywords(runes []rune, flags []spanFlags, frame int) {
 	}
 }
 
+// ShineText applies the ultraloop red sliding-shine across an entire string at the
+// current animation frame — a plugin's "generating…" indicator (see nlpcompute).
+// It colors every rune; callers pass plain text (no existing SGR).
+func ShineText(s string) string {
+	kw := magicKeywords[1] // ultraloop — red
+	r := []rune(s)
+	var b strings.Builder
+	for j, c := range r {
+		b.WriteString(shineColorAt(len(r), j, animFrame, kw.speed, kw.base, kw.peak))
+		b.WriteRune(c)
+	}
+	b.WriteString(cReset)
+	return b.String()
+}
+
 // animActive reports whether anything on screen needs the animation tick — a
-// magic keyword or an in-flight image paste (its spinner).
+// magic keyword, an in-flight image paste (its spinner), or a plugin node marked
+// animating (nlpcompute while generating).
 func (m *Model) animActive() bool {
-	return m.hasMagicKeyword() || m.anyImagePasting()
+	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating()
+}
+
+// anyNodeAnimating reports whether any node set the generic "animating" flag in
+// its ephemeral store — the shine indicator a plugin raises while it works.
+func (m *Model) anyNodeAnimating() bool {
+	for _, d := range m.nodeData {
+		if a, _ := d["animating"].(bool); a {
+			return true
+		}
+	}
+	return false
 }
 
 // hasMagicKeyword reports whether any currently visible row contains an animated
