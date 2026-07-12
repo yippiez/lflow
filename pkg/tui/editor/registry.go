@@ -199,6 +199,18 @@ var nodeTypes = []nodeType{
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
 	{
+		// natural language as code (see nlpcompute.go): a red → instruction;
+		// alt+r launches the generator agent pinned to the cell's cwd, alt+e
+		// switches to the CODE version (numbered, simply highlighted lines).
+		key: database.TypeNLPCompute, label: "NLP Compute", inlineEditable: true,
+		glyph:      ncGlyph,
+		baseColor:  func(it *item) string { return cRed },
+		renderM:    func(m *Model, it *item) string { return m.ncRender(it) },
+		run:        runNLPCompute,
+		view:       ncView{},
+		toContextM: func(m *Model, it *item) contextXML { return m.ncToContext(it) },
+	},
+	{
 		// a critique launcher (see codereview.go): the text holds a commit
 		// range; alt+e picks the beginning and end commits from git log and
 		// opens the critique TUI; alt+r re-opens it on the stored range.

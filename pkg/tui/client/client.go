@@ -206,11 +206,21 @@ func (c *Client) Deps(bins []string) (map[string]bool, error) {
 // A refused turn (Unknown agent, Missing dependency) errors here, before any
 // streaming starts.
 func (c *Client) AgentTurn(ctx context.Context, agentName string, thread json.RawMessage, cwd, skillDir string) (<-chan wire.AgentEv, error) {
+	return c.agentStream(ctx, wire.Req{Op: wire.OpAgent, Agent: agentName, Thread: thread, Cwd: cwd, SkillDir: skillDir})
+}
+
+// AgentPrompt runs one RAW daemon-side turn: system + prompt as-is, no chat
+// thread framing — the NLPCompute code generator path.
+func (c *Client) AgentPrompt(ctx context.Context, agentName, system, prompt, cwd, skillDir string) (<-chan wire.AgentEv, error) {
+	return c.agentStream(ctx, wire.Req{Op: wire.OpAgent, Agent: agentName, System: system, Prompt: prompt, Cwd: cwd, SkillDir: skillDir})
+}
+
+func (c *Client) agentStream(ctx context.Context, req wire.Req) (<-chan wire.AgentEv, error) {
 	nc, err := c.dialHealing()
 	if err != nil {
 		return nil, err
 	}
-	if _, err := nc.call(wire.Req{Op: wire.OpAgent, Agent: agentName, Thread: thread, Cwd: cwd, SkillDir: skillDir}); err != nil {
+	if _, err := nc.call(req); err != nil {
 		nc.Close()
 		return nil, err
 	}

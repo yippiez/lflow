@@ -721,6 +721,11 @@ func (m *Model) stopAgentsUnder(it *item) {
 			t.busy = false
 			t.tool = agentToolLine{}
 		}
+		// an in-flight nlpcompute generation dies with its cell too
+		if st := ncStateOfUUID(m, x.uuid); st.cancel != nil {
+			st.cancel()
+			st.cancel, st.busy, st.tool = nil, false, ""
+		}
 		for _, c := range x.children {
 			walk(c)
 		}

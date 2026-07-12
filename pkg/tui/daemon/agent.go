@@ -53,6 +53,9 @@ func prepAgent(req wire.Req) (tag.Client, []tag.ThreadNode, error) {
 	if c, ok := cl.(*tag.CLIClient); ok {
 		c.Cwd, c.SkillDir = req.Cwd, req.SkillDir
 	}
+	if req.Prompt != "" {
+		return cl, nil, nil // raw mode: System+Prompt run as-is
+	}
 	var thread []tag.ThreadNode
 	if err := json.Unmarshal(req.Thread, &thread); err != nil {
 		return nil, nil, errors.Wrap(err, "decoding thread")
@@ -86,7 +89,21 @@ func (sv *server) agentTurn(conn net.Conn, dec *json.Decoder, enc *json.Encoder,
 	}()
 
 	sv.logf("→ agent @%s turn · %q", req.Agent, sess.name)
-	ch, err := cl.Send(ctx, req.Agent, thread)
+	var ch <-chan tag.Event
+	var err error
+	if req.Prompt != "" {
+		// raw mode needs the CLI transport (SendPrompt); the mock and the
+		// websocket client only speak threads — wrap the prompt as one
+		if c, ok := cl.(*tag.CLIClient); ok {
+			ch, err = c.SendPrompt(ctx, req.Agent, req.System, req.Prompt)
+		} else {
+			// mock/websocket transports only speak threads — wrap the prompt,
+			// mention included so a discretionary agent knows it is addressed
+			ch, err = cl.Send(ctx, req.Agent, []tag.ThreadNode{{Name: "@" + req.Agent + " " + req.Prompt, Role: "user", Asked: true}})
+		}
+	} else {
+		ch, err = cl.Send(ctx, req.Agent, thread)
+	}
 	if err != nil {
 		_ = enc.Encode(wire.Msg{Agent: &wire.AgentEv{Op: "error", Text: err.Error()}})
 		_ = enc.Encode(wire.Msg{Agent: &wire.AgentEv{Done: true}})

@@ -36,6 +36,9 @@ const (
 	// TypeCodeSig explores a source file's signatures with the signatures /
 	// dshell / cstack CLIs (see editor/codesig.go).
 	TypeCodeSig = "codesig"
+	// TypeNLPCompute is natural language as code: a red → instruction whose
+	// alt+r generates the implementing snippet (see editor/nlpcompute.go).
+	TypeNLPCompute = "nlpcompute"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -69,6 +72,7 @@ var TypeOrder = []string{
 	TypeCanvas,
 	TypeCodeReview,
 	TypeCodeSig,
+	TypeNLPCompute,
 	TypeAgent,
 	TypeWF,
 }

@@ -47,8 +47,12 @@ type Req struct {
 	// agent fields: the turn runs ON THE DAEMON (the client is only a client).
 	// Thread is the rendered []tag.ThreadNode as raw JSON so wire stays free of
 	// higher-level imports; Cwd/SkillDir carry the client's environment choices.
+	// A non-empty Prompt switches the turn to RAW mode — System+Prompt run
+	// as-is (the NLPCompute code generator) instead of the chat thread framing.
 	Agent    string          `json:"agent,omitempty"`
 	Thread   json.RawMessage `json:"thread,omitempty"`
+	System   string          `json:"system,omitempty"`
+	Prompt   string          `json:"prompt,omitempty"`
 	Cwd      string          `json:"cwd,omitempty"`
 	SkillDir string          `json:"skillDir,omitempty"`
 }

@@ -121,10 +121,21 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 			break
 		}
 	}
+	return c.run(ctx, agentName, cliSystemPrompt(agentName), turnPrompt(thread), placement)
+}
 
+// SendPrompt runs one RAW turn — system + prompt as-is, no thread framing.
+// The NLPCompute code generator speaks this: it wants a single answer to a
+// bespoke instruction, not a chat reply into an outline.
+func (c *CLIClient) SendPrompt(ctx context.Context, agentName, system, prompt string) (<-chan Event, error) {
+	return c.run(ctx, agentName, system, prompt, "thread")
+}
+
+// run is the shared turn engine: spawn, stream, one pre-work retry.
+func (c *CLIClient) run(ctx context.Context, agentName, system, prompt, placement string) (<-chan Event, error) {
 	opts := agent.RunOptions{
 		NoSession:    true, // launch-and-forget: the thread IS the memory
-		SystemPrompt: cliSystemPrompt(agentName),
+		SystemPrompt: system,
 	}
 	// pin the agent process to the caller's cwd at send time — same "pwd where
 	// run" rule as $ chips (startBash). A daemon-side run carries the CLIENT's
@@ -143,7 +154,7 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 	// (@Pi → pi, @Grok → grok), set by ClientFor; its default model + thinking
 	// ride every turn.
 	opts.Model, opts.Thinking = agent.ProviderDefault(c.Provider)
-	sess, err := agent.Run(ctx, c.Provider, turnPrompt(thread), opts)
+	sess, err := agent.Run(ctx, c.Provider, prompt, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +179,7 @@ func (c *CLIClient) Send(ctx context.Context, agentName string, thread []ThreadN
 			}
 			if ctx.Err() == nil && !sawWork && attempt == 0 {
 				out <- Event{Op: "tool", Tool: "retry", Text: firstNonEmpty(errText, "transient agent error")}
-				s2, err := agent.Run(ctx, c.Provider, turnPrompt(thread), opts)
+				s2, err := agent.Run(ctx, c.Provider, prompt, opts)
 				if err == nil {
 					sess = s2
 					continue
