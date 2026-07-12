@@ -199,6 +199,25 @@ var nodeTypes = []nodeType{
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
 	{
+		// a critique launcher (see codereview.go): the text holds a commit
+		// range; alt+e picks the beginning and end commits from git log and
+		// opens the critique TUI; alt+r re-opens it on the stored range.
+		key: database.TypeCodeReview, label: "Code Review", sign: "⌁ ", inlineEditable: true,
+		run:       runCodeReview,
+		view:      codeReviewView{},
+		cliDeps:   []string{"critique", "git"},
+		toContext: xmlTag("codereview"),
+	},
+	{
+		// a signature explorer (see codesig.go): the text (or a path chip)
+		// names a source file; alt+e lists its signatures and drills into a
+		// function's call tree (cstack) or a structure's shell (dshell).
+		key: database.TypeCodeSig, label: "Code Signatures", sign: "∑ ", inlineEditable: true,
+		view:      codeSigView{},
+		cliDeps:   []string{"signatures"},
+		toContext: xmlTag("codesignatures"),
+	},
+	{
 		// a character-grid drawing (see canvas.go): alt+e opens the crosshair
 		// painter — searchable glyph palette, rectangle objects, constraint
 		// spans that follow their objects. The document is JSON in node_blobs;
