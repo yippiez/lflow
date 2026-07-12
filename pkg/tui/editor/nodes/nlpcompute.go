@@ -1,4 +1,4 @@
-package editor
+package nodes
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/editor"
 	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
@@ -21,7 +22,33 @@ import (
 // and generates the code snippet implementing the instruction. alt+e switches
 // to the CODE version: numbered lines with simple syntax highlighting; esc
 // switches back to the NLP version. The cell data ({cwd, code, lang}) lives
-// in node_output — local, decoupled from the node row, like a run's output.
+// in node_output — local, decoupled from the node row.
+
+func init() {
+	editor.RegisterNodePlugin(editor.NodePlugin{
+		Key: database.TypeNLPCompute, Label: "NLP Compute",
+		InlineEditable: true,
+		Glyph:          func() (string, string) { return "→", editor.NodeTheme().Red },
+		BaseColor:      func() string { return editor.NodeTheme().Red },
+		Render:         ncRender,
+		Run:            runNLPCompute,
+		View:           ncView{},
+		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
+			d := ncLoad(h, n.UUID())
+			attrs := ""
+			if d.Lang != "" {
+				attrs = `lang="` + d.Lang + `"`
+			}
+			return "nlpcompute", attrs, d.Code
+		},
+		OnRemove: func(h editor.NodeHost, uuid string) {
+			if st := ncStateOf(h, uuid); st.cancel != nil {
+				st.cancel()
+				st.cancel, st.busy, st.tool = nil, false, ""
+			}
+		},
+	})
+}
 
 // ncData is the persisted cell state (node_output JSON).
 type ncData struct {
@@ -30,17 +57,15 @@ type ncData struct {
 	Lang string `json:"lang,omitempty"`
 }
 
-// ncState is the in-memory turn state (nodeStore, key "nlpcompute").
+// ncState is the in-memory turn state (NodeStore, key "nlpcompute").
 type ncState struct {
 	busy   bool
 	cancel func()
 	tool   string // last tool line, shown while generating
 }
 
-func ncStateOf(m *Model, it *item) *ncState { return ncStateOfUUID(m, it.uuid) }
-
-func ncStateOfUUID(m *Model, uuid string) *ncState {
-	d := m.nodeStore(uuid)
+func ncStateOf(h editor.NodeHost, uuid string) *ncState {
+	d := h.NodeStore(uuid)
 	st, _ := d["nlpcompute"].(*ncState)
 	if st == nil {
 		st = &ncState{}
@@ -49,29 +74,26 @@ func ncStateOfUUID(m *Model, uuid string) *ncState {
 	return st
 }
 
-func (m *Model) ncLoad(uuid string) ncData {
+func ncLoad(h editor.NodeHost, uuid string) ncData {
 	var d ncData
-	if m.db == nil {
+	db := h.NodeDB()
+	if db == nil {
 		return d
 	}
-	if raw, err := database.LoadNodeOutput(m.db, uuid); err == nil && raw != "" {
+	if raw, err := database.LoadNodeOutput(db, uuid); err == nil && raw != "" {
 		_ = json.Unmarshal([]byte(raw), &d)
 	}
 	return d
 }
 
-func (m *Model) ncSave(uuid string, d ncData) {
-	if m.db == nil {
+func ncSave(h editor.NodeHost, uuid string, d ncData) {
+	db := h.NodeDB()
+	if db == nil {
 		return
 	}
 	if raw, err := json.Marshal(d); err == nil {
-		_ = database.SaveNodeOutput(m.db, uuid, string(raw))
+		_ = database.SaveNodeOutput(db, uuid, string(raw))
 	}
-}
-
-// ncGlyph: the red arrow — natural language that runs.
-func ncGlyph(it *item) (string, string) {
-	return "→", cRed
 }
 
 // ncSystemPrompt frames the agent as a code generation engine.
@@ -89,28 +111,28 @@ func ncSystemPrompt() string {
 }
 
 // ncPrompt renders the instruction and its outline neighborhood.
-func (m *Model) ncPrompt(it *item) string {
+func ncPrompt(n editor.NodeRef) string {
 	var b strings.Builder
-	b.WriteString("<instruction>\n" + expandAnchors(it.name, m.chips) + "\n</instruction>\n\n")
+	b.WriteString("<instruction>\n" + n.Text() + "\n</instruction>\n\n")
 	b.WriteString("<outline-context>\n")
-	if p := it.parent; p != nil && p.uuid != "" {
-		b.WriteString("parent: " + expandAnchors(m.tree.displayName(p), m.chips) + "\n")
-		for _, s := range p.children {
+	if p, ok := n.Parent(); ok {
+		b.WriteString("parent: " + p.Text() + "\n")
+		for _, s := range n.Siblings() {
 			marker := "- "
-			if s == it {
+			if s.Is(n) {
 				marker = "- (the instruction) "
 			}
-			b.WriteString(marker + expandAnchors(m.tree.displayName(s), m.chips) + "\n")
+			b.WriteString(marker + s.Text() + "\n")
 		}
 	}
-	for _, c := range it.children {
-		b.WriteString("  input: " + expandAnchors(m.tree.displayName(c), m.chips) + "\n")
+	for _, c := range n.Children() {
+		b.WriteString("  input: " + c.Text() + "\n")
 	}
 	b.WriteString("</outline-context>")
 	return b.String()
 }
 
-// ncEvMsg carries one generation-stream event into the update loop.
+// ncEvMsg carries one generation-stream event back into the plugin.
 type ncEvMsg struct {
 	uuid string
 	ev   tag.Event
@@ -127,109 +149,25 @@ func waitNCCmd(uuid string, ch <-chan tag.Event) tea.Cmd {
 	}
 }
 
-// runNLPCompute (alt+r) launches the generator agent in the cell's cwd.
-func runNLPCompute(m *Model, it *item) tea.Cmd {
-	st := ncStateOf(m, it)
-	if st.busy {
-		m.flash = "already computing"
-		return nil
-	}
-	if strings.TrimSpace(it.name) == "" {
-		m.flash = "write the instruction first"
-		return nil
-	}
-	data := m.ncLoad(it.uuid)
-	// the cell is TIED to the cwd it first ran in; later runs reuse it even
-	// if the editor has moved elsewhere
-	if data.Cwd == "" {
-		if pwd, err := os.Getwd(); err == nil {
-			data.Cwd = pwd
-		}
-		m.ncSave(it.uuid, data)
-	}
-
-	agentName := "Pi"
-	for _, a := range m.agents {
-		agentName = a.Name
-		break
-	}
-	if ag, ok := m.agentByName(agentName); ok {
-		if bin, missing := m.agentDepMissing(ag); missing {
-			m.flash = "Missing dependency: " + bin
-			return nil
-		}
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := m.ncSend(ctx, agentName, it, data.Cwd)
-	if err != nil {
-		cancel()
-		m.flash = err.Error()
-		return nil
-	}
-	st.busy, st.cancel, st.tool = true, cancel, ""
-	return waitNCCmd(it.uuid, ch)
-}
-
-// ncSend runs the raw generation turn — on the daemon when connected (the
-// client is only a client), locally otherwise.
-func (m *Model) ncSend(ctx context.Context, agentName string, it *item, cwd string) (<-chan tag.Event, error) {
-	system, prompt := ncSystemPrompt(), m.ncPrompt(it)
-	if m.live != nil {
-		if ag, ok := m.agentByName(agentName); !ok || (!ag.Mock && ag.URL == "") {
-			wch, err := m.live.AgentPrompt(ctx, agentName, system, prompt, cwd, tag.SkillDir())
-			if err != nil {
-				return nil, err
-			}
-			out := make(chan tag.Event, 16)
-			go func() {
-				defer close(out)
-				for ev := range wch {
-					out <- tag.Event{Op: ev.Op, Text: ev.Text, Tool: ev.Tool, Placement: ev.Placement}
-				}
-			}()
-			return out, nil
-		}
-	}
-	cl, err := m.tagClientFor(tagAgentOrDefault(m, agentName))
-	if err != nil {
-		return nil, err
-	}
-	if c, ok := cl.(*tag.CLIClient); ok {
-		c.Cwd = cwd
-		return c.SendPrompt(ctx, agentName, system, prompt)
-	}
-	// mock/websocket transports only speak threads — wrap the prompt as one,
-	// mention included so a discretionary agent knows it is addressed
-	return cl.Send(ctx, agentName, []tag.ThreadNode{{Name: "@" + agentName + " " + prompt, Role: "user", Asked: true}})
-}
-
-func tagAgentOrDefault(m *Model, name string) tag.Agent {
-	if a, ok := m.agentByName(name); ok {
-		return a
-	}
-	return tag.Agent{Name: name}
-}
-
-// handleNCEvent lands one generation event.
-func (m *Model) handleNCEvent(msg ncEvMsg) (tea.Model, tea.Cmd) {
-	st := ncStateOfUUID(m, msg.uuid)
+// HandleNodePlugin lands one generation event (editor.NodePluginMsg).
+func (msg ncEvMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
+	st := ncStateOf(h, msg.uuid)
 	switch msg.ev.Op {
 	case "tool":
 		st.tool = msg.ev.Tool
-		return m, waitNCCmd(msg.uuid, msg.ch)
+		return waitNCCmd(msg.uuid, msg.ch)
 	case "thinking":
 		st.tool = ""
-		return m, waitNCCmd(msg.uuid, msg.ch)
+		return waitNCCmd(msg.uuid, msg.ch)
 	case "message":
 		code, lang := peelCodeFence(msg.ev.Text)
-		data := m.ncLoad(msg.uuid)
+		data := ncLoad(h, msg.uuid)
 		data.Code, data.Lang = code, lang
-		m.ncSave(msg.uuid, data)
-		m.flash = "code ready · alt+e views it"
-		return m, waitNCCmd(msg.uuid, msg.ch)
+		ncSave(h, msg.uuid, data)
+		h.NodeFlash("code ready · alt+e views it")
+		return waitNCCmd(msg.uuid, msg.ch)
 	case "error":
-		m.flash = "compute: " + msg.ev.Text
+		h.NodeFlash("compute: " + msg.ev.Text)
 	}
 	// done / error: park the cell
 	st.busy, st.tool = false, ""
@@ -237,7 +175,45 @@ func (m *Model) handleNCEvent(msg ncEvMsg) (tea.Model, tea.Cmd) {
 		st.cancel()
 		st.cancel = nil
 	}
-	return m, nil
+	return nil
+}
+
+// runNLPCompute (alt+r) launches the generator agent in the cell's cwd.
+func runNLPCompute(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
+	st := ncStateOf(h, n.UUID())
+	if st.busy {
+		h.NodeFlash("already computing")
+		return nil
+	}
+	if strings.TrimSpace(n.Text()) == "" {
+		h.NodeFlash("write the instruction first")
+		return nil
+	}
+	data := ncLoad(h, n.UUID())
+	// the cell is TIED to the cwd it first ran in; later runs reuse it even
+	// if the editor has moved elsewhere
+	if data.Cwd == "" {
+		if pwd, err := os.Getwd(); err == nil {
+			data.Cwd = pwd
+		}
+		ncSave(h, n.UUID(), data)
+	}
+
+	agentName := h.NodeDefaultAgent()
+	if bin, missing := h.NodeAgentGate(agentName); missing {
+		h.NodeFlash("Missing dependency: " + bin)
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := h.NodeComputeTurn(ctx, agentName, ncSystemPrompt(), ncPrompt(n), data.Cwd)
+	if err != nil {
+		cancel()
+		h.NodeFlash(err.Error())
+		return nil
+	}
+	st.busy, st.cancel, st.tool = true, cancel, ""
+	return waitNCCmd(n.UUID(), ch)
 }
 
 // peelCodeFence extracts the first fenced block ("```lang\n…\n```"); unfenced
@@ -261,35 +237,25 @@ func peelCodeFence(text string) (code, lang string) {
 	return strings.TrimRight(body, "\n"), lang
 }
 
-// ncToContext ships the cell to agents as both versions: the instruction is
-// the element line, the generated code its body.
-func (m *Model) ncToContext(it *item) contextXML {
-	d := m.ncLoad(it.uuid)
-	attrs := ""
-	if d.Lang != "" {
-		attrs = `lang="` + d.Lang + `"`
-	}
-	return contextXML{tag: "nlpcompute", attrs: attrs, body: d.Code}
-}
-
 // ncRender is the NLP version's inline body: the red instruction, with a dim
 // state chip when the cell has code or is computing.
-func (m *Model) ncRender(it *item) string {
-	st := ncStateOf(m, it)
-	name := it.name
+func ncRender(h editor.NodeHost, n editor.NodeRef) string {
+	th := editor.NodeTheme()
+	st := ncStateOf(h, n.UUID())
+	name := n.Text()
 	if st.busy {
 		suffix := "computing…"
 		if st.tool != "" {
 			suffix = st.tool + "…"
 		}
-		return name + " " + cDim + "⋯ " + suffix + cReset
+		return name + " " + th.Dim + "⋯ " + suffix + th.Reset
 	}
-	if d := m.ncLoad(it.uuid); d.Code != "" {
+	if d := ncLoad(h, n.UUID()); d.Code != "" {
 		label := "{code}"
 		if d.Lang != "" {
 			label = "{" + d.Lang + "}"
 		}
-		return name + " " + cDim + label + cReset
+		return name + " " + th.Dim + label + th.Reset
 	}
 	return name
 }
@@ -299,45 +265,44 @@ func (m *Model) ncRender(it *item) string {
 // ncView shows the generated snippet: numbered lines, simple highlighting.
 type ncView struct{}
 
-func (ncView) Enter(m *Model, it *item) bool {
-	d := m.ncLoad(it.uuid)
-	if d.Code == "" {
-		m.flash = "no code yet · alt+r computes it"
+func (ncView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
+	if ncLoad(h, n.UUID()).Code == "" {
+		h.NodeFlash("no code yet · alt+r computes it")
 		return false
 	}
 	return true
 }
 
-func (ncView) Leave(m *Model, it *item) {}
+func (ncView) Leave(h editor.NodeHost, n editor.NodeRef) {}
 
-func (ncView) Lines(m *Model, it *item, width int) int {
-	d := m.ncLoad(it.uuid)
-	return 1 + len(strings.Split(d.Code, "\n"))
+func (ncView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
+	return 1 + len(strings.Split(ncLoad(h, n.UUID()).Code, "\n"))
 }
 
-func (ncView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (ncView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "r": // regenerate from the NLP version
-		return runNLPCompute(m, it), true
+		return runNLPCompute(h, n), true
 	}
 	return nil, false // esc → central: back to the NLP version
 }
 
-func (v ncView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
-	d := m.ncLoad(it.uuid)
+func (v ncView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
+	th := editor.NodeTheme()
+	d := ncLoad(h, n.UUID())
 	lang := d.Lang
 	if lang == "" {
 		lang = "code"
 	}
 	var content []string
-	content = append(content, clip(rail+cReset+cDim+"  "+lang+" · r recompute · esc nlp view"+cReset, width))
+	content = append(content, editor.NodeClip(rail+th.Reset+th.Dim+"  "+lang+" · r recompute · esc nlp view"+th.Reset, width))
 	lines := strings.Split(d.Code, "\n")
 	numW := len(fmt.Sprintf("%d", len(lines)))
 	for i, l := range lines {
-		content = append(content, clip(fmt.Sprintf("%s%s  %s%*d%s %s",
-			rail, cReset, cDim, numW, i+1, cReset, ncColorLine(l)), width))
+		content = append(content, editor.NodeClip(fmt.Sprintf("%s%s  %s%*d%s %s",
+			rail, th.Reset, th.Dim, numW, i+1, th.Reset, ncColorLine(l)), width))
 	}
-	return windowBands(content, scroll, winH)
+	return editor.NodeWindowBands(content, scroll, winH)
 }
 
 // ncKeywords is the shared keyword set for the simple highlighter — deliberately
@@ -357,10 +322,10 @@ var ncKeywords = map[string]bool{
 // ncColorLine is the simple syntax highlighter: comments dim, strings orange,
 // numbers green, keywords blue — tolerant, line-local, nothing clever.
 func ncColorLine(line string) string {
-	// full-line comment shortcut
+	th := editor.NodeTheme()
 	trimmed := strings.TrimSpace(line)
 	if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
-		return cDim + line + cReset
+		return th.Dim + line + th.Reset
 	}
 	r := []rune(line)
 	var b strings.Builder
@@ -380,17 +345,17 @@ func ncColorLine(line string) string {
 			if j < len(r) {
 				j++
 			}
-			b.WriteString(styleColorCode["orange"] + string(r[i:j]) + cReset)
+			b.WriteString(editor.NodeColor("orange") + string(r[i:j]) + th.Reset)
 			i = j
 		case c == '#' || (c == '/' && i+1 < len(r) && r[i+1] == '/'):
-			b.WriteString(cDim + string(r[i:]) + cReset)
+			b.WriteString(th.Dim + string(r[i:]) + th.Reset)
 			i = len(r)
 		case c >= '0' && c <= '9':
 			j := i
 			for j < len(r) && ((r[j] >= '0' && r[j] <= '9') || r[j] == '.' || r[j] == '_') {
 				j++
 			}
-			b.WriteString(styleColorCode["green"] + string(r[i:j]) + cReset)
+			b.WriteString(editor.NodeColor("green") + string(r[i:j]) + th.Reset)
 			i = j
 		case isWordRune(c):
 			j := i
@@ -399,7 +364,7 @@ func ncColorLine(line string) string {
 			}
 			word := string(r[i:j])
 			if ncKeywords[word] {
-				b.WriteString(cAccent + word + cReset)
+				b.WriteString(th.Accent + word + th.Reset)
 			} else {
 				b.WriteString(word)
 			}

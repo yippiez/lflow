@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	_ "github.com/lflow/lflow/pkg/tui/editor/nodes" // register the pluggable node types
 	"github.com/lflow/lflow/pkg/tui/infra"
 	"github.com/lflow/lflow/pkg/utils/log"
 	_ "github.com/mattn/go-sqlite3"

@@ -1,4 +1,4 @@
-package editor
+package nodes
 
 import (
 	"encoding/json"
@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/editor"
 )
 
 // The codesig node: explore a source file's shape with the signatures /
@@ -13,10 +16,19 @@ import (
 // file; alt+e lists its signatures (functions, classes, constants — parsed
 // from `signatures --format jsonl`), and drilling into an entry runs the
 // right tool for its kind: c = cstack (the call tree of a function), d =
-// dshell (a structure's shell), enter picks by kind. esc backs out of a
-// drill, then closes. Dep-gated on the signatures binary; dshell/cstack are
-// checked at drill time (they support fewer languages and may be absent
-// independently).
+// dshell (a structure's shell), enter picks by kind; backspace backs out.
+
+func init() {
+	editor.RegisterNodePlugin(editor.NodePlugin{
+		Key: database.TypeCodeSig, Label: "Code Signatures", Sign: "∑ ",
+		InlineEditable: true,
+		CLIDeps:        []string{"signatures"},
+		View:           codeSigView{},
+		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
+			return "codesignatures", "", ""
+		},
+	})
+}
 
 // sigEntry is one signature row from the jsonl stream.
 type sigEntry struct {
@@ -26,7 +38,7 @@ type sigEntry struct {
 	Indent int    `json:"indent"`
 }
 
-// csState is the per-node ephemeral explorer state (nodeStore, key "codesig").
+// csState is the per-node ephemeral explorer state (NodeStore, key "codesig").
 type csState struct {
 	file    string
 	entries []sigEntry
@@ -36,8 +48,8 @@ type csState struct {
 	err     string
 }
 
-func csStateOf(m *Model, it *item) *csState {
-	d := m.nodeStore(it.uuid)
+func csStateOf(h editor.NodeHost, uuid string) *csState {
+	d := h.NodeStore(uuid)
 	st, _ := d["codesig"].(*csState)
 	if st == nil {
 		st = &csState{}
@@ -46,15 +58,12 @@ func csStateOf(m *Model, it *item) *csState {
 	return st
 }
 
-// csFile resolves the node's file: the first path chip wins, else the node's
-// plain text.
-func (m *Model) csFile(it *item) string {
-	for _, sp := range anchorSpans([]rune(it.name)) {
-		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindPath {
-			return c.Value
-		}
+// csFile resolves the node's file: the first path chip wins, else the plain text.
+func csFile(n editor.NodeRef) string {
+	if p := n.PathChip(); p != "" {
+		return p
 	}
-	return strings.TrimSpace(expandAnchors(it.name, m.chips))
+	return strings.TrimSpace(n.Text())
 }
 
 // codeSigView is the alt+e signature explorer.
@@ -63,10 +72,10 @@ type codeSigView struct{}
 // csShowRows is the explorer window height.
 const csShowRows = 18
 
-func (codeSigView) Enter(m *Model, it *item) bool {
-	st := csStateOf(m, it)
+func (codeSigView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
+	st := csStateOf(h, n.UUID())
 	st.sel, st.out, st.title, st.err = 0, nil, "", ""
-	st.file = m.csFile(it)
+	st.file = csFile(n)
 	if st.file == "" {
 		st.err = "name a source file first (text or path chip)"
 		return true
@@ -89,13 +98,13 @@ func (codeSigView) Enter(m *Model, it *item) bool {
 	return true
 }
 
-func (codeSigView) Leave(m *Model, it *item) {
-	st := csStateOf(m, it)
+func (codeSigView) Leave(h editor.NodeHost, n editor.NodeRef) {
+	st := csStateOf(h, n.UUID())
 	st.entries, st.out, st.err = nil, nil, ""
 }
 
-func (codeSigView) Lines(m *Model, it *item, width int) int {
-	st := csStateOf(m, it)
+func (codeSigView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
+	st := csStateOf(h, n.UUID())
 	if st.err != "" {
 		return 2
 	}
@@ -140,9 +149,9 @@ func sigIdent(text string) string {
 }
 
 // csDrill runs one drill tool over the current entry.
-func (m *Model) csDrill(st *csState, tool string) {
-	if !m.depOK(tool) {
-		m.flash = "Missing dependency: " + tool
+func csDrill(h editor.NodeHost, st *csState, tool string) {
+	if !h.NodeDepOK(tool) {
+		h.NodeFlash("Missing dependency: " + tool)
 		return
 	}
 	if st.sel < 0 || st.sel >= len(st.entries) {
@@ -150,7 +159,7 @@ func (m *Model) csDrill(st *csState, tool string) {
 	}
 	name := sigIdent(st.entries[st.sel].Text)
 	if name == "" {
-		m.flash = "no identifier on this line"
+		h.NodeFlash("no identifier on this line")
 		return
 	}
 	out, err := exec.Command(tool, name, st.file).CombinedOutput()
@@ -162,9 +171,9 @@ func (m *Model) csDrill(st *csState, tool string) {
 	st.title = tool + " " + name
 }
 
-func (v codeSigView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
-	st := csStateOf(m, it)
-	// drill output showing: any nav key browses, backspace/q returns to the list
+func (v codeSigView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
+	st := csStateOf(h, n.UUID())
+	// drill output showing: backspace/q returns to the list
 	if st.out != nil {
 		switch k.String() {
 		case "backspace", "q", "left", "h":
@@ -185,21 +194,21 @@ func (v codeSigView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case "c": // call tree of a function
-		m.csDrill(st, "cstack")
+		csDrill(h, st, "cstack")
 		return nil, true
 	case "d": // a data structure's shell
-		m.csDrill(st, "dshell")
+		csDrill(h, st, "dshell")
 		return nil, true
 	case "enter", " ", "space", "right", "l":
 		// pick by kind: functions get their call tree, everything else its shell
 		if st.sel >= 0 && st.sel < len(st.entries) && st.entries[st.sel].Kind == "function" {
-			m.csDrill(st, "cstack")
+			csDrill(h, st, "cstack")
 		} else {
-			m.csDrill(st, "dshell")
+			csDrill(h, st, "dshell")
 		}
 		return nil, true
 	case "r": // reload the file
-		v.Enter(m, it)
+		v.Enter(h, n)
 		return nil, true
 	}
 	return nil, false
@@ -207,34 +216,36 @@ func (v codeSigView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 
 // sigKindColor colors a signature row by its kind.
 func sigKindColor(kind string) string {
+	th := editor.NodeTheme()
 	switch kind {
 	case "function":
-		return cYellow
+		return th.Yellow
 	case "class":
-		return cCyan
+		return th.Cyan
 	case "constant":
-		return cDim
+		return th.Dim
 	}
-	return cFG
+	return th.FG
 }
 
-func (v codeSigView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
-	st := csStateOf(m, it)
+func (v codeSigView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
+	st := csStateOf(h, n.UUID())
+	th := editor.NodeTheme()
 	var content []string
 	if st.err != "" {
 		content = append(content,
-			clip(rail+cReset+cDim+"  codesig"+cReset, width),
-			clip(rail+cReset+"  "+cRed+st.err+cReset, width))
-		return windowBands(content, scroll, winH)
+			editor.NodeClip(rail+th.Reset+th.Dim+"  codesig"+th.Reset, width),
+			editor.NodeClip(rail+th.Reset+"  "+th.Red+st.err+th.Reset, width))
+		return editor.NodeWindowBands(content, scroll, winH)
 	}
 	if st.out != nil {
-		content = append(content, clip(rail+cReset+cDim+"  "+st.title+" · backspace list · esc close"+cReset, width))
+		content = append(content, editor.NodeClip(rail+th.Reset+th.Dim+"  "+st.title+" · backspace list · esc close"+th.Reset, width))
 		for _, l := range st.out {
-			content = append(content, clip(rail+cReset+"  "+l, width))
+			content = append(content, editor.NodeClip(rail+th.Reset+"  "+l, width))
 		}
-		return windowBands(content, scroll, winH)
+		return editor.NodeWindowBands(content, scroll, winH)
 	}
-	content = append(content, clip(rail+cReset+cDim+"  "+st.file+" · enter explore · c calls · d shell · r reload"+cReset, width))
+	content = append(content, editor.NodeClip(rail+th.Reset+th.Dim+"  "+st.file+" · enter explore · c calls · d shell · r reload"+th.Reset, width))
 	top := 0
 	if st.sel >= csShowRows {
 		top = st.sel - csShowRows + 1
@@ -243,11 +254,11 @@ func (v codeSigView) Bands(m *Model, it *item, rail string, width, scroll, winH 
 		e := st.entries[i]
 		marker, style := "  ", sigKindColor(e.Kind)
 		if focused && i == st.sel {
-			marker = cAccent + "▸ " + cReset
-			style = cFG
+			marker = th.Accent + "▸ " + th.Reset
+			style = th.FG
 		}
 		ind := strings.Repeat("  ", e.Indent)
-		content = append(content, clip(rail+cReset+marker+ind+style+e.Text+cReset, width))
+		content = append(content, editor.NodeClip(rail+th.Reset+marker+ind+style+e.Text+th.Reset, width))
 	}
-	return windowBands(content, scroll, winH)
+	return editor.NodeWindowBands(content, scroll, winH)
 }

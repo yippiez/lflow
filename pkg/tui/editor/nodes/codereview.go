@@ -1,4 +1,9 @@
-package editor
+// Package nodes hosts the pluggable node types — one Go file per node — each
+// registered into the editor through its node plugin API (editor.NodePlugin).
+// The editor owns the generic machinery (registry, pickers, bands, dep
+// gating, agent transport); a file here reads standalone against
+// editor.NodeHost / editor.NodeRef.
+package nodes
 
 import (
 	"fmt"
@@ -8,15 +13,27 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/editor"
 )
 
 // The codereview node: a critique launcher. The node's text holds a commit
 // range ("base..head"); alt+e opens the inline commit picker — `git log` of
 // the editor's cwd, pick the BEGINNING commit then the END commit — and the
-// pick immediately opens the critique TUI on that range (suspending the
-// inline UI, the way a path chip opens $EDITOR). alt+r re-opens critique on
-// the stored range; an empty range reviews the working tree (critique's own
-// default). Dep-gated on the critique binary (NodeCLIDeps).
+// pick immediately opens the critique TUI on that range. alt+r re-opens
+// critique on the stored range; an empty range reviews the working tree.
+
+func init() {
+	editor.RegisterNodePlugin(editor.NodePlugin{
+		Key: database.TypeCodeReview, Label: "Code Review", Sign: "⌁ ",
+		InlineEditable: true,
+		CLIDeps:        []string{"critique", "git"},
+		Run:            runCodeReview,
+		View:           codeReviewView{},
+		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
+			return "codereview", "", ""
+		},
+	})
+}
 
 // crCommit is one pickable commit.
 type crCommit struct {
@@ -24,7 +41,7 @@ type crCommit struct {
 	subject string
 }
 
-// crState is the per-node ephemeral picker state (nodeStore, key "codereview").
+// crState is the per-node ephemeral picker state (NodeStore, key "codereview").
 type crState struct {
 	commits []crCommit
 	sel     int
@@ -32,8 +49,8 @@ type crState struct {
 	err     string
 }
 
-func crStateOf(m *Model, it *item) *crState {
-	d := m.nodeStore(it.uuid)
+func crStateOf(h editor.NodeHost, uuid string) *crState {
+	d := h.NodeStore(uuid)
 	st, _ := d["codereview"].(*crState)
 	if st == nil {
 		st = &crState{}
@@ -68,9 +85,8 @@ func crRange(text string) []string {
 }
 
 // runCodeReview opens the critique TUI on the node's range (alt+r).
-func runCodeReview(m *Model, it *item) tea.Cmd {
-	args := crRange(expandAnchors(it.name, m.chips))
-	c := exec.Command("critique", args...)
+func runCodeReview(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
+	c := exec.Command("critique", crRange(n.Text())...)
 	return tea.ExecProcess(c, func(error) tea.Msg { return nil })
 }
 
@@ -80,8 +96,8 @@ type codeReviewView struct{}
 // crShowRows is the picker window height.
 const crShowRows = 14
 
-func (codeReviewView) Enter(m *Model, it *item) bool {
-	st := crStateOf(m, it)
+func (codeReviewView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
+	st := crStateOf(h, n.UUID())
 	st.sel, st.base, st.err = 0, "", ""
 	out, err := exec.Command("git", "log", "--oneline", "--no-decorate", "-60").Output()
 	if err != nil {
@@ -99,21 +115,21 @@ func (codeReviewView) Enter(m *Model, it *item) bool {
 	return true
 }
 
-func (codeReviewView) Leave(m *Model, it *item) {
-	st := crStateOf(m, it)
+func (codeReviewView) Leave(h editor.NodeHost, n editor.NodeRef) {
+	st := crStateOf(h, n.UUID())
 	st.commits, st.base, st.err = nil, "", ""
 }
 
-func (codeReviewView) Lines(m *Model, it *item, width int) int {
-	st := crStateOf(m, it)
+func (codeReviewView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
+	st := crStateOf(h, n.UUID())
 	if st.err != "" {
 		return 2
 	}
 	return 1 + min(len(st.commits), crShowRows)
 }
 
-func (v codeReviewView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
-	st := crStateOf(m, it)
+func (v codeReviewView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
+	st := crStateOf(h, n.UUID())
 	switch k.String() {
 	case "up", "k":
 		if st.sel > 0 {
@@ -135,31 +151,31 @@ func (v codeReviewView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		// beginning + end picked: store the range and open critique
-		it.name = st.base + ".." + sha
-		m.unsaved = true
-		if bin, missing := m.typeDepMissing(database.TypeCodeReview); missing {
-			m.flash = "Missing dependency: " + bin
+		n.SetText(st.base + ".." + sha)
+		if !h.NodeDepOK("critique") {
+			h.NodeFlash("Missing dependency: critique")
 			return nil, true
 		}
-		return runCodeReview(m, it), true
+		return runCodeReview(h, n), true
 	}
 	return nil, false // esc & friends → central (Leave clears)
 }
 
-func (v codeReviewView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
-	st := crStateOf(m, it)
+func (v codeReviewView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
+	st := crStateOf(h, n.UUID())
+	th := editor.NodeTheme()
 	var content []string
 	if st.err != "" {
 		content = append(content,
-			clip(rail+cReset+cDim+"  codereview"+cReset, width),
-			clip(rail+cReset+"  "+cRed+st.err+cReset, width))
-		return windowBands(content, scroll, winH)
+			editor.NodeClip(rail+th.Reset+th.Dim+"  codereview"+th.Reset, width),
+			editor.NodeClip(rail+th.Reset+"  "+th.Red+st.err+th.Reset, width))
+		return editor.NodeWindowBands(content, scroll, winH)
 	}
 	head := "  pick the beginning commit · enter"
 	if st.base != "" {
 		head = "  beginning " + st.base + " · pick the end commit · enter opens critique"
 	}
-	content = append(content, clip(rail+cReset+cDim+head+cReset, width))
+	content = append(content, editor.NodeClip(rail+th.Reset+th.Dim+head+th.Reset, width))
 
 	// keep the selection visible inside the fixed window
 	top := 0
@@ -168,28 +184,16 @@ func (v codeReviewView) Bands(m *Model, it *item, rail string, width, scroll, wi
 	}
 	for i := top; i < len(st.commits) && i < top+crShowRows; i++ {
 		c := st.commits[i]
-		marker, style := "  ", cDim
+		marker, style := "  ", th.Dim
 		if focused && i == st.sel {
-			marker, style = cAccent+"▸ "+cReset, cFG
+			marker, style = th.Accent+"▸ "+th.Reset, th.FG
 		}
 		mark := ""
 		if c.sha == st.base {
-			mark = cGreen + " · beginning" + cReset
+			mark = th.Green + " · beginning" + th.Reset
 		}
-		content = append(content, clip(fmt.Sprintf("%s%s  %s%s%s %s%s%s%s",
-			rail+cReset, marker, cYellow, c.sha, cReset, style, c.subject, cReset, mark), width))
+		content = append(content, editor.NodeClip(fmt.Sprintf("%s%s  %s%s%s %s%s%s%s",
+			rail+th.Reset, marker, th.Yellow, c.sha, th.Reset, style, c.subject, th.Reset, mark), width))
 	}
-	return windowBands(content, scroll, winH)
-}
-
-// windowBands clamps a band list to the caller's [scroll, scroll+winH) window.
-func windowBands(content []string, scroll, winH int) []string {
-	if scroll > len(content) {
-		scroll = len(content)
-	}
-	end := scroll + winH
-	if end > len(content) {
-		end = len(content)
-	}
-	return content[scroll:end]
+	return editor.NodeWindowBands(content, scroll, winH)
 }

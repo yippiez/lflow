@@ -1,4 +1,11 @@
-package editor
+package nodes
+
+import (
+	"sort"
+	"strings"
+
+	"github.com/lflow/lflow/pkg/tui/editor"
+)
 
 // The canvas palette catalog: every entry is a NAMED glyph (or color) the
 // painter can search — "branch curved", "geometry square", "background blue",
@@ -6,6 +13,56 @@ package editor
 // lowercase so search is case-free.
 
 var canvasPalette []canvasPaletteEntry
+
+// canvasPaletteEntry is one named, searchable palette item: a glyph, or a
+// color (background/foreground categories).
+type canvasPaletteEntry struct {
+	cat   string
+	name  string
+	ch    string
+	color string // background/foreground entries
+}
+
+// canvasPaletteSearch fuzzy-filters the catalog: every query word must
+// subsequence-match "cat name". Exact substring hits rank first.
+func canvasPaletteSearch(q string) []canvasPaletteEntry {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return canvasPalette[:min(len(canvasPalette), 64)]
+	}
+	words := strings.Fields(q)
+	type scored struct {
+		e     canvasPaletteEntry
+		score int
+	}
+	var hits []scored
+	for _, e := range canvasPalette {
+		hay := e.cat + " " + e.name
+		ok, sc := true, 0
+		for _, w := range words {
+			if strings.Contains(hay, w) {
+				sc += 2
+				continue
+			}
+			if editor.NodeFuzzyMatch(hay, w) {
+				sc++
+				continue
+			}
+			ok = false
+			break
+		}
+		if ok {
+			hits = append(hits, scored{e, sc})
+		}
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].score > hits[j].score })
+	out := make([]canvasPaletteEntry, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.e)
+	}
+	return out
+}
+
 
 // palAdd registers ch/name pairs under one category.
 func palAdd(cat string, pairs ...string) {

@@ -198,49 +198,9 @@ var nodeTypes = []nodeType{
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
-	{
-		// natural language as code (see nlpcompute.go): a red → instruction;
-		// alt+r launches the generator agent pinned to the cell's cwd, alt+e
-		// switches to the CODE version (numbered, simply highlighted lines).
-		key: database.TypeNLPCompute, label: "NLP Compute", inlineEditable: true,
-		glyph:      ncGlyph,
-		baseColor:  func(it *item) string { return cRed },
-		renderM:    func(m *Model, it *item) string { return m.ncRender(it) },
-		run:        runNLPCompute,
-		view:       ncView{},
-		toContextM: func(m *Model, it *item) contextXML { return m.ncToContext(it) },
-	},
-	{
-		// a critique launcher (see codereview.go): the text holds a commit
-		// range; alt+e picks the beginning and end commits from git log and
-		// opens the critique TUI; alt+r re-opens it on the stored range.
-		key: database.TypeCodeReview, label: "Code Review", sign: "⌁ ", inlineEditable: true,
-		run:       runCodeReview,
-		view:      codeReviewView{},
-		cliDeps:   []string{"critique", "git"},
-		toContext: xmlTag("codereview"),
-	},
-	{
-		// a signature explorer (see codesig.go): the text (or a path chip)
-		// names a source file; alt+e lists its signatures and drills into a
-		// function's call tree (cstack) or a structure's shell (dshell).
-		key: database.TypeCodeSig, label: "Code Signatures", sign: "∑ ", inlineEditable: true,
-		view:      codeSigView{},
-		cliDeps:   []string{"signatures"},
-		toContext: xmlTag("codesignatures"),
-	},
-	{
-		// a character-grid drawing (see canvas.go): alt+e opens the crosshair
-		// painter — searchable glyph palette, rectangle objects, constraint
-		// spans that follow their objects. The document is JSON in node_blobs;
-		// the name holds an optional caption. The drawing itself travels to
-		// agents as the <canvas> body.
-		key: database.TypeCanvas, label: "Canvas", inlineEditable: false,
-		renderM:    func(m *Model, it *item) string { return m.canvasRender(it) },
-		view:       canvasView{},
-		bands:      func(m *Model, r row, below bool, maxLine int) []string { return m.canvasBandLines(r, below, maxLine) },
-		toContextM: func(m *Model, it *item) contextXML { return m.canvasToContext(it) },
-	},
+	// The pluggable node types — canvas, codereview, codesig, nlpcompute —
+	// live in editor/nodes (one Go file per node) and register themselves via
+	// RegisterNodePlugin at init; see nodeplugin.go.
 }
 
 // byType fills in init() — a var initializer would cycle: nodeTypes references

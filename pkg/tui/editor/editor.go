@@ -690,8 +690,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a keyword may have just been typed (or scrolled into view) — kick the
 		// animation tick if it isn't already running.
 		return m, m.startAnim(cmd)
-	case ncEvMsg:
-		return m.handleNCEvent(msg)
+	case NodePluginMsg:
+		// a plugin's async work flowing back (e.g. nlpcompute generation)
+		return m, msg.HandleNodePlugin(m)
 	case agentThinkMsg:
 		// a newer edit supersedes older ticks — only the latest gen fires
 		if msg.gen != m.agentThinkGen {
