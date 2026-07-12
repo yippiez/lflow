@@ -58,6 +58,10 @@ type nodeType struct {
 	// Children still nest inside the element, and the role tags (asked/answer/
 	// parent) still win the element name so threading survives. nil → <node>.
 	toContext func(it *item) contextXML
+	// toContextM is the Model-aware sibling (mirrors render/renderM) for types
+	// whose context body lives outside the item — the canvas grid loads from
+	// its blob. When set it wins over toContext.
+	toContextM func(m *Model, it *item) contextXML
 }
 
 // contextXML is what a toContext hook returns — the pieces of the node's XML
@@ -187,6 +191,18 @@ var nodeTypes = []nodeType{
 		flashActions: imageFlashActions,
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
+	},
+	{
+		// a character-grid drawing (see canvas.go): alt+e opens the crosshair
+		// painter — searchable glyph palette, rectangle objects, constraint
+		// spans that follow their objects. The document is JSON in node_blobs;
+		// the name holds an optional caption. The drawing itself travels to
+		// agents as the <canvas> body.
+		key: database.TypeCanvas, label: "Canvas", inlineEditable: false,
+		renderM:    func(m *Model, it *item) string { return m.canvasRender(it) },
+		view:       canvasView{},
+		bands:      func(m *Model, r row, below bool, maxLine int) []string { return m.canvasBandLines(r, below, maxLine) },
+		toContextM: func(m *Model, it *item) contextXML { return m.canvasToContext(it) },
 	},
 }
 

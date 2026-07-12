@@ -64,10 +64,14 @@ per-feature column — and no scattered `switch typ`:
    `pkg/tui/editor/registry.go` — that slice drives the `/type` picker, and the
    field doc-comments there list every hook (`sign`, `glyph`, `render`,
    `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e,
-   `toContext` for the node's XML element in agent context).
+   `toContext`/`toContextM` for the node's XML element in agent context).
 3. Put the behavior in its own `pkg/tui/editor/<type>.go` (see `json.go`,
-   `voice.go`, `worker.go`; `bash.go` holds the shared shell-run machinery). A rich alt+e editor implements the
+   `voice.go`, `canvas.go`; `bash.go` holds the shared shell-run machinery). A rich alt+e editor implements the
    stateless `nodeView` interface, keeping per-node state in `m.nodeStore(it.uuid)`.
+   The canvas type is the maximal example: a crosshair grid painter with a
+   searchable named-glyph palette, rectangle objects and constraint spans
+   (anchored endpoints that follow their object), document as JSON in
+   node_blobs, the rendered grid shipped to agents via `toContextM`.
 
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.

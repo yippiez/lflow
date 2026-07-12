@@ -120,9 +120,16 @@ func (m *Model) buildThread(root *item, askedUUID string) []tag.ThreadNode {
 	}
 	// typeXML folds the type's toContext hook (registry) into the wire node,
 	// so a todo carries done="…", a log its time, a json its multi-line body.
+	// The Model-aware toContextM wins when set (a canvas body loads from its
+	// blob).
 	typeXML := func(tn tag.ThreadNode, it *item) tag.ThreadNode {
-		if tc := typeOf(it.typ).toContext; tc != nil {
-			x := tc(it)
+		nt := typeOf(it.typ)
+		switch {
+		case nt.toContextM != nil:
+			x := nt.toContextM(m, it)
+			tn.XMLTag, tn.XMLAttrs, tn.XMLBody = x.tag, x.attrs, x.body
+		case nt.toContext != nil:
+			x := nt.toContext(it)
 			tn.XMLTag, tn.XMLAttrs, tn.XMLBody = x.tag, x.attrs, x.body
 		}
 		return tn
