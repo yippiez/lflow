@@ -233,9 +233,11 @@ var nodeTypes = []nodeType{
 	// whole subtree, and children fan out as the AST beneath it.
 	{
 		key: database.TypeMath, label: "Math", inlineEditable: true,
-		spanColor: mathSpanColor,
-		bodyTail:  mathBodyTail,
-		toContext: mathToContext,
+		spanColor:    mathSpanColor,
+		bodyTail:     mathBodyTail,
+		run:          runMathLatex, // alt+r: export this subtree's LaTeX to the run band
+		flashActions: mathFlashActions,
+		toContext:    mathToContext,
 	},
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see

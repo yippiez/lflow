@@ -104,6 +104,53 @@ func TestMathSpanColorFunctionWords(t *testing.T) {
 	}
 }
 
+func TestMathToLatexShapes(t *testing.T) {
+	cases := []struct {
+		name string
+		it   *item
+		want string
+	}{
+		{"atom unicode → latex", mleaf("θ ≤ π"), `\theta \leq \pi`},
+		{"superscript folds", mleaf("x²"), `x^{2}`},
+		{"multi superscript groups", mleaf("x²⁵"), `x^{25}`},
+		{"subscript folds", mleaf("aᵢ"), `a_{i}`},
+		{"fraction", mop("÷", mleaf("a"), mleaf("b")), `\frac{a}{b}`},
+		{"power wraps compound base",
+			mop("^", mop("+", mleaf("a"), mleaf("b")), mleaf("2")),
+			`(a + b)^{2}`},
+		{"power bare base", mop("^", mleaf("e"), mleaf("x")), `e^{x}`},
+		{"radical", mop("√", mleaf("2")), `\sqrt{2}`},
+		{"sum with limits",
+			mop("Σ", mleaf("i=1"), mleaf("n"), mop("^", mleaf("i"), mleaf("2"))),
+			`\sum_{i=1}^{n} i^{2}`},
+		{"integral with limits",
+			mop("∫", mleaf("0"), mleaf("∞"), mleaf("e⁻ˣ dx")),
+			`\int_{0}^{\infty} e^{-x} dx`},
+		{"function application", mop("sin", mleaf("θ")), `\sin(\theta)`},
+		{"relation infix", mop("=", mleaf("E"), mop("×", mleaf("m"), mleaf("c²"))),
+			`E = m \times c^{2}`},
+		{"matrix",
+			mop("matrix", mleaf("a & b"), mleaf("c & d")),
+			`\begin{pmatrix} a & b \\ c & d \end{pmatrix}`},
+		{"cases",
+			mop("cases", mleaf("x & x ≥ 0"), mleaf("-x & x < 0")),
+			`\begin{cases} x & x \geq 0 \\ -x & x < 0 \end{cases}`},
+		{"quadratic full tree",
+			mop("=", mleaf("x"),
+				mop("÷",
+					mop("±", mleaf("-b"), mop("√", mleaf("b²-4ac"))),
+					mleaf("2a"))),
+			`x = \frac{-b \pm \sqrt{b^{2}-4ac}}{2a}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := mathToLatex(c.it); got != c.want {
+				t.Errorf("mathToLatex()\n  got  %q\n  want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestMathToContext(t *testing.T) {
 	cx := mathToContext(mop("=", mleaf("E"), mop("×", mleaf("m"), mleaf("c²"))))
 	if cx.tag != "math" {
