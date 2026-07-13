@@ -20,16 +20,22 @@ import (
 // that repo); the agent reads the surrounding lflow nodes and the underlying repo
 // and generates the code snippet implementing the instruction. WHILE GENERATING
 // the prose SHINES (the ultraloop red slide, editor.ShineText) with no agent
-// trace. Once a snippet exists the borderless gray code block (the same one the
-// Code node wears — line numbers, white rule, editable) REPLACES the prose row
-// (ncBlockCode); alt+e focuses it to edit the code in place, esc leaves. The
-// natural language lives in the node text; the code and its edits (the cell data
-// {cwd, code, lang}) live in node_output — local, decoupled from the node row.
+// trace, and the cell counts toward the status bar's "N thinking" tally like a
+// mention thread. Once a snippet exists the borderless gray code block (the same
+// one the Code node wears — line numbers, white rule) REPLACES the prose row
+// (ncBlockCode). The node has TWO faces: the code block and the red prose. alt+e
+// TOGGLES between them (never an editor); on the code face the cursor auto-focuses
+// the block for editing like the Code node (AutoFocus — thin red beam caret, type
+// directly, esc collapses back to prose). The natural language lives in the node
+// text; the code and its edits (the cell data {cwd, code, lang}) live in
+// node_output — local, decoupled from the node row.
 
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
 		Key: database.TypeNLPCompute, Label: "NLPCompute",
-		InlineEditable: true,
+		InlineEditable: true, // the prose face: edit the instruction inline
+		AutoFocus:      true,  // the code face: rest the cursor on it to edit, like Code
+		BlockFaces:     true,  // alt+e toggles prose ⇄ code (never enters an editor)
 		Glyph:          func() (string, string) { return "→", editor.NodeTheme().Red },
 		BaseColor:      func() string { return editor.NodeTheme().Red },
 		Render:         ncRender,
@@ -281,6 +287,9 @@ func ncBlockCode(h editor.NodeHost, n editor.NodeRef, focused bool) (string, int
 	if st.busy {
 		return "", -1, false
 	}
+	if editor.NodeBlockFace(h, n.UUID()) == "nlp" {
+		return "", -1, false // alt+e flipped to the prose face — show ncRender
+	}
 	d := ncLoad(h, n.UUID())
 	if d.Code == "" {
 		return "", -1, false
@@ -295,14 +304,19 @@ func ncBlockCode(h editor.NodeHost, n editor.NodeRef, focused bool) (string, int
 
 // ncView is the editable code face: the same gray block the Code node wears
 // (editor.CodeBlockBands), seeded from the generated snippet and flushed back
-// to node_output on leave. alt+e/esc flip back to the NLP prose; alt+r
-// regenerates. The live buffer lives in ncState (NodeStore).
+// to node_output on leave. It is auto-focused when the cursor rests on the code
+// face (AutoFocus); esc collapses to the prose face, alt+e toggles either way,
+// alt+r regenerates. The live buffer lives in ncState (NodeStore).
 type ncView struct{}
 
 func (ncView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
+	// autoFocus calls this on every key — decline silently on the prose face or
+	// before any code exists so the cursor keeps editing the instruction inline.
+	if editor.NodeBlockFace(h, n.UUID()) == "nlp" {
+		return false
+	}
 	d := ncLoad(h, n.UUID())
 	if d.Code == "" {
-		h.NodeFlash("no code yet · alt+r computes it")
 		return false
 	}
 	st := ncStateOf(h, n.UUID())
@@ -324,8 +338,9 @@ func (ncView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
 	return 2 + len(strings.Split(ncStateOf(h, n.UUID()).buf, "\n"))
 }
 
-// Key edits the code buffer; alt+r regenerates; esc/alt+e fall through to the
-// central toggle back to the NLP prose.
+// Key edits the code buffer; alt+r regenerates; esc falls through to the central
+// handler (which collapses to the prose face). alt+e never reaches here — it is
+// intercepted upstream as the face toggle.
 func (ncView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
 	if k.String() == "alt+r" {
 		return runNLPCompute(h, n), true

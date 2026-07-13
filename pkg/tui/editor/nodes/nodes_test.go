@@ -209,6 +209,33 @@ func TestNCBlockCode(t *testing.T) {
 	}
 }
 
+// TestNCProseFace: the "nlp" face (alt+e flipped to prose) shows the prose row
+// and declines the code editor even with code present, so the instruction stays
+// inline-editable; the code face ("" / "code") shows and edits the block.
+func TestNCProseFace(t *testing.T) {
+	h := newFakeHost(t)
+	n := &fakeNode{uuid: "cell1", typ: database.TypeNLPCompute, text: "sum inputs"}
+	ncSave(h, "cell1", ncData{Code: "b = 1", Lang: "python"})
+
+	// default (code) face: block shows and the editor opens
+	if _, _, ok := ncBlockCode(h, n, false); !ok {
+		t.Fatal("default face → code block shows")
+	}
+	if !(ncView{}).Enter(h, n) {
+		t.Fatal("default face → code editor opens")
+	}
+	(ncView{}).Leave(h, n)
+
+	// prose face: block yields, editor declines (instruction edited inline)
+	h.NodeStore("cell1")["blockFace"] = "nlp"
+	if _, _, ok := ncBlockCode(h, n, false); ok {
+		t.Fatal("prose face → prose row, not the block")
+	}
+	if (ncView{}).Enter(h, n) {
+		t.Fatal("prose face → code editor must decline")
+	}
+}
+
 // TestNCRenderShineAndFlag: while generating the instruction shines (colored, no
 // "computing…" trace) and the animating flag is raised so the shine tick lives;
 // idle it is plain red; completion drops the flag.

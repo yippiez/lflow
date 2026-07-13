@@ -60,6 +60,17 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFlashKey(k)
 	}
 
+	// alt+e on a block-faced node (nlpcompute) flips its code ⇄ prose face rather
+	// than entering an editor — the code face auto-focuses for editing on its own.
+	// Handled before the focused-view capture below so it fires even while the code
+	// face is auto-focused.
+	if key == "alt+e" && m.mode == modeOutline {
+		if cur := m.cursorItem(); cur != nil && typeOf(cur.typ).blockFaces {
+			m.toggleBlockFace(cur)
+			return m, nil
+		}
+	}
+
 	// A focused inline node view captures input first (it stays inside the outline,
 	// so we're still modeOutline). The view handles its own keys; esc or alt+e
 	// defocuses (flushing edits); ctrl+c/ctrl+q fall through to quit; everything
@@ -80,7 +91,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "esc", "alt+e":
 				v.Leave(m, cur)
 				m.focused = false
-				if auto {
+				if typeOf(cur.typ).blockFaces {
+					// esc off a two-faced code editor collapses to the prose face —
+					// no held code-block state where typing would edit the hidden
+					// instruction; the prose face is plainly inline-editable.
+					m.nodeStore(cur.uuid)["blockFace"] = "nlp"
+					m.autoFocused = nil
+				} else if auto {
 					m.autoFocused = nil
 					m.autoFocusHold = cur
 				}

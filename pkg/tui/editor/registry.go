@@ -25,6 +25,7 @@ type nodeType struct {
 	renderM        func(m *Model, it *item) string    // Model-aware inline-body override (voice waveform)
 	inlineEditable bool                               // false → typing/backspace/enter is a no-op
 	autoFocus      bool                               // resting the cursor here auto-enters its view (thin caret, type directly) — no alt+e; see reconcileAutoFocus
+	blockFaces     bool                               // alt+e toggles the Render (prose) face ⇄ the BlockCode (code) face instead of entering an editor (nlpcompute); see toggleBlockFace
 	tempOnly       bool                               // only offered/allowed in the Temporary Domain
 	internal       bool                               // never offered in /type: only the app creates nodes of this type
 	searchHidden   bool                               // never surfaced by finders (/goto, /mirror, /move, [[) or live queries, unless ":type:" names it explicitly

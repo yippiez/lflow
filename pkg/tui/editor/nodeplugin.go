@@ -124,7 +124,17 @@ type NodeHost interface {
 type NodePlugin struct {
 	Key, Label, Sign string
 	InlineEditable   bool
-	CLIDeps          []string
+	// AutoFocus makes resting the cursor on this node's block face auto-enter its
+	// view for editing (thin caret, type directly, no alt+e) — like the Code node
+	// (see reconcileAutoFocus). The View's Enter gates it (return false to stay
+	// inline), so a two-faced node focuses only on its code face.
+	AutoFocus bool
+	// BlockFaces makes alt+e TOGGLE this node between its Render (prose) face and
+	// its BlockCode (code) face instead of entering an editor — editing the code
+	// face is handled by AutoFocus. The face lives in the node store under the key
+	// NodeBlockFace reads. Pair with AutoFocus + BlockCode.
+	BlockFaces bool
+	CLIDeps    []string
 
 	Glyph     func() (string, string) // static glyph + SGR (per-node glyphs stay core for now)
 	BaseColor func() string           // body SGR; nil/"" default
@@ -173,6 +183,8 @@ func RegisterNodePlugin(p NodePlugin) {
 		label:          p.Label,
 		sign:           p.Sign,
 		inlineEditable: p.InlineEditable,
+		autoFocus:      p.AutoFocus,
+		blockFaces:     p.BlockFaces,
 		cliDeps:        p.CLIDeps,
 	}
 	if p.Glyph != nil {
@@ -299,6 +311,14 @@ func (m *Model) NodeComputeTurn(ctx context.Context, agentName, system, prompt, 
 }
 
 // ── plugin-facing helpers (the render toolkit) ──────────────────────────────
+
+// NodeBlockFace reads the alt+e block/prose face toggle for a BlockFaces node
+// from the node store (core's alt+e handler writes it): "nlp" = show the Render
+// row, anything else ("" default, "code") = show the BlockCode block.
+func NodeBlockFace(h NodeHost, uuid string) string {
+	s, _ := h.NodeStore(uuid)["blockFace"].(string)
+	return s
+}
 
 // NodeClip trims a styled line to a display width (ANSI aware).
 func NodeClip(s string, width int) string { return clip(s, width) }

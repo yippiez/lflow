@@ -620,6 +620,33 @@ func (m *Model) reconcileAutoFocus() {
 	}
 }
 
+// toggleBlockFace flips a blockFaces node (nlpcompute) between its code block and
+// its prose row (alt+e). Showing code → flush any focused edit and drop to the
+// prose face (inline-editable text). Showing prose → switch to the code face and
+// clear the esc-hold so reconcileAutoFocus drops the cursor straight into it.
+func (m *Model) toggleBlockFace(cur *item) {
+	bc := typeOf(cur.typ).blockCode
+	if bc == nil {
+		return
+	}
+	d := m.nodeStore(cur.uuid)
+	face, _ := d["blockFace"].(string)
+	_, _, codeShown := bc(m, cur, false)
+	if face != "nlp" && codeShown {
+		if m.focused && m.autoFocused == cur {
+			if v := nodeViewOf(cur); v != nil {
+				v.Leave(m, cur)
+			}
+			m.focused = false
+			m.autoFocused = nil
+		}
+		d["blockFace"] = "nlp"
+		return
+	}
+	d["blockFace"] = "code"
+	m.autoFocusHold = nil // let reconcileAutoFocus enter the code face now
+}
+
 // rowBudget is how many screen lines the outline body may occupy: the terminal
 // height minus the two chrome lines (bottom bar plus its breathing room). When
 // the height is known we honour it down to a single line so the selected row
