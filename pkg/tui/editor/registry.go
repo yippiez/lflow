@@ -24,6 +24,7 @@ type nodeType struct {
 	render         func(it *item, name string) string // stateless inline-body override; nil → default
 	renderM        func(m *Model, it *item) string    // Model-aware inline-body override (voice waveform)
 	inlineEditable bool                               // false → typing/backspace/enter is a no-op
+	autoFocus      bool                               // resting the cursor here auto-enters its view (thin caret, type directly) — no alt+e; see reconcileAutoFocus
 	tempOnly       bool                               // only offered/allowed in the Temporary Domain
 	internal       bool                               // never offered in /type: only the app creates nodes of this type
 	searchHidden   bool                               // never surfaced by finders (/goto, /mirror, /move, [[) or live queries, unless ":type:" names it explicitly
@@ -135,11 +136,12 @@ var nodeTypes = []nodeType{
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true, toContext: xmlTag("h1")},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true, toContext: xmlTag("h2")},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true, toContext: xmlTag("h3")},
-	// the Code node is a multi-line block edited only in its focused view (alt+e),
-	// so it is not inlineEditable; the borderless gray block REPLACES the node's
+	// the Code node is a multi-line block; resting the cursor on it auto-focuses
+	// its block editor (autoFocus — a thin caret shows, type directly, no alt+e),
+	// so it is not inlineEditable. The borderless gray block REPLACES the node's
 	// row (blockCode), and its multi-line body IS it.name (see code.go).
 	{
-		key: database.TypeCode, label: "Code", inlineEditable: false,
+		key: database.TypeCode, label: "Code", inlineEditable: false, autoFocus: true,
 		render:    codeInlineRender, // compact fallback (the temp panel, unknown surfaces)
 		view:      codeView{},
 		blockCode: codeBlockCode,

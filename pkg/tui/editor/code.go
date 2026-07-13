@@ -109,10 +109,12 @@ func codeBlockCode(m *Model, it *item, focused bool) (string, int, bool) {
 }
 
 // blockGroupLines wraps borderless block content into a node's group lines: the
-// tree connector sits on the first line (no glyph — the block IS the node), the
-// hanging rail on every continuation, so the block hangs at the node's indent.
-func (m *Model) blockGroupLines(r row, content []string, below bool) []string {
-	first := " " + cDim + connector(r) + "  " // "  " fills the (glyph-less) glyph slot
+// tree connector AND the node's bullet glyph sit on the first line (the ○ stays
+// visible so a code block still reads as a node), the hanging rail on every
+// continuation, so the block hangs at the node's indent. glyph is the pre-styled
+// glyph cell (color + glyph + reset) built by the caller like a normal row.
+func (m *Model) blockGroupLines(r row, content []string, below bool, glyph string) []string {
+	first := " " + cDim + connector(r) + glyph + " "
 	cont := continuationPrefix(r, below)
 	out := make([]string, len(content))
 	for i, c := range content {
@@ -134,8 +136,13 @@ func padGray(inner string, cols int) string {
 	return clip(inner, cols) + cReset
 }
 
-// codeCaretLine draws one raw code line with the block cursor inverted at caret;
-// the caret line is not syntax-colored so the cursor cell reads cleanly.
+// cCaret is the code block's thin cursor: an underline on the caret cell rather
+// than a full inverted block, so it reads as a slim caret and keeps the code
+// character beneath it legible.
+const cCaret = "\x1b[4m"
+
+// codeCaretLine draws one raw code line with a thin (underline) block cursor at
+// caret; the caret line is not syntax-colored so the cursor cell reads cleanly.
 func codeCaretLine(line string, caret int) string {
 	r := []rune(line)
 	if caret < 0 {
@@ -145,13 +152,13 @@ func codeCaretLine(line string, caret int) string {
 	b.WriteString(cFG)
 	for i, c := range r {
 		if i == caret {
-			b.WriteString(cInvert + string(c) + cReset + bgCode + cFG)
+			b.WriteString(cCaret + string(c) + cReset + bgCode + cFG)
 		} else {
 			b.WriteString(string(c))
 		}
 	}
 	if caret >= len(r) {
-		b.WriteString(cInvert + " " + cReset + bgCode + cFG)
+		b.WriteString(cCaret + " " + cReset + bgCode + cFG)
 	}
 	return b.String()
 }
@@ -290,8 +297,16 @@ func (v codeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 			caret++
 		}
 	case "up":
+		// at the first line, decline so the outline crosses to the previous row
+		if line, _ := jsonCaretLC(buf, caret); line == 0 {
+			return nil, false
+		}
 		caret = jsonCaretLineMove(buf, caret, -1)
 	case "down":
+		// at the last line, decline so the outline crosses to the next row
+		if line, _ := jsonCaretLC(buf, caret); line == strings.Count(buf, "\n") {
+			return nil, false
+		}
 		caret = jsonCaretLineMove(buf, caret, +1)
 	case "home":
 		line, _ := jsonCaretLC(buf, caret)

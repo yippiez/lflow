@@ -213,6 +213,13 @@ type Model struct {
 	// and renders bands beneath it (replaces the per-feature full-screen modes).
 	focused     bool // is the cursor node's inline view capturing input
 	focusScroll int  // first visible line of the focused view's self-window
+	// auto-focus (Code node): the cursor resting on an autoFocus type enters its
+	// view without alt+e. autoFocused tracks that node (nil = manual/no focus, so
+	// reconcileAutoFocus leaves alt+e-focused json/bash untouched); autoFocusHold
+	// is a node the user esc'd out of — reconcile won't re-grab it until the
+	// cursor moves off. See reconcileAutoFocus.
+	autoFocused   *item
+	autoFocusHold *item
 
 	// Manual viewport scroll (pgup/pgdown): scrolling pins the body window at
 	// scrollTop instead of following the cursor — to read a long note/subtree that
@@ -579,6 +586,40 @@ func (m *Model) clampCursor() {
 	}
 }
 
+// reconcileAutoFocus keeps an autoFocus block node (the Code node) in edit focus
+// while the cursor rests on it: entering seeds the block buffer and thin caret,
+// and moving off flushes it back to the node. It runs after every key (and once
+// at open) so navigating onto a code block drops you straight into typing — no
+// alt+e. Manual alt+e focus (json/bash: autoFocused == nil) is left untouched,
+// and a node the user esc'd out of (autoFocusHold) is not re-grabbed until the
+// cursor leaves it.
+func (m *Model) reconcileAutoFocus() {
+	if m.mode != modeOutline {
+		return
+	}
+	cur := m.cursorItem()
+	if m.autoFocusHold != nil && m.autoFocusHold != cur {
+		m.autoFocusHold = nil // moved away — the esc hold is spent
+	}
+	// the cursor left an auto-focused block: flush and drop focus
+	if m.autoFocused != nil && m.autoFocused != cur {
+		if v := nodeViewOf(m.autoFocused); v != nil {
+			v.Leave(m, m.autoFocused)
+		}
+		m.focused = false
+		m.autoFocused = nil
+	}
+	// the cursor rests on an eligible auto-focus node: enter its view
+	if cur != nil && !m.focused && cur != m.autoFocusHold && !m.selOn &&
+		cur.mirrorOf == "" && !cur.readonly && typeOf(cur.typ).autoFocus {
+		if v := nodeViewOf(cur); v != nil && v.Enter(m, cur) {
+			m.focused = true
+			m.autoFocused = cur
+			m.focusScroll = 0
+		}
+	}
+}
+
 // rowBudget is how many screen lines the outline body may occupy: the terminal
 // height minus the two chrome lines (bottom bar plus its breathing room). When
 // the height is known we honour it down to a single line so the selected row
@@ -669,6 +710,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		_, cmd := m.handleKey(msg)
+		// track the cursor onto/off an auto-focus block (Code): enter it for
+		// direct typing, flush it on leave — so the next render shows the caret
+		m.reconcileAutoFocus()
 		// a local edit may have touched a descendant of a session-bound
 		// @mention — arm the debounced agent think (cursor-leave does not ship)
 		if m.agentTouched != "" {

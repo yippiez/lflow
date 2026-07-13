@@ -170,7 +170,14 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				below := i+1 < len(rows) && rows[i+1].depth > r.depth
 				inner := maxLine - visibleWidth(continuationPrefix(r, below))
 				content := codeBlockLines(code, caret, inner)
-				groups[i] = m.blockGroupLines(r, content, below)
+				glyph, glyphColor := glyphFor(it)
+				if m.tempActive && !r.mirrored {
+					glyph = glyphDotted
+				}
+				if selected || m.inSelection(i) {
+					glyphColor = cRed
+				}
+				groups[i] = m.blockGroupLines(r, content, below, glyphColor+glyph+cReset)
 				if m.inSelection(i) {
 					for j := range groups[i] {
 						groups[i][j] = selFill(groups[i][j], maxLine)

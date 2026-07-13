@@ -11,6 +11,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
 	m.flash = "" // one-shot: whatever this key does sets the next status
 
+	// establish auto-focus before this key is dispatched, so a key arriving while
+	// the cursor already rests on a code block (e.g. the first keystroke at open)
+	// routes into the block editor rather than the outline. Update re-runs it
+	// after the key to track cursor moves for the next render.
+	m.reconcileAutoFocus()
+
 	// page keys pin the viewport; every other key leaves pin mode. Cursor-follow
 	// then prefers the last window (see viewWindow) so typing after a page does
 	// not yank the view back.
@@ -64,15 +70,48 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if cmd, handled := v.Key(m, cur, k); handled {
 				return m, cmd
 			}
+			// auto-focus (Code): the view declined this key, so it is meant for the
+			// outline — release focus and let it act on the block node rather than
+			// swallowing it. esc/alt+e park the block unfocused (the hold stops an
+			// immediate re-grab); up/down at the block's top/bottom line cross to
+			// the neighbouring row; everything else falls through to outline keys.
+			auto := m.autoFocused != nil && m.autoFocused == cur
 			switch key {
 			case "esc", "alt+e":
 				v.Leave(m, cur)
 				m.focused = false
+				if auto {
+					m.autoFocused = nil
+					m.autoFocusHold = cur
+				}
 				return m, nil
 			case "ctrl+c", "ctrl+q":
 				// fall through to the quit handler below
 			default:
-				return m, nil
+				if !auto {
+					return m, nil // manual focus swallows everything else
+				}
+				v.Leave(m, cur)
+				m.focused = false
+				m.autoFocused = nil
+				switch key {
+				case "up":
+					if m.cursor > 0 {
+						m.cursor--
+						if c := m.cursorItem(); c != nil {
+							m.caret = len([]rune(c.name))
+						}
+						m.clampCaret()
+					}
+					return m, nil
+				case "down":
+					if m.cursor < len(m.rows)-1 {
+						m.cursor++
+						m.caret = 0
+					}
+					return m, nil
+				}
+				// any other key: fall through to normal outline handling below
 			}
 		} else {
 			m.focused = false
