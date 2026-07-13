@@ -102,7 +102,9 @@ func ncSave(h editor.NodeHost, uuid string, d ncData) {
 	}
 }
 
-// ncSystemPrompt frames the agent as a code generation engine.
+// ncSystemPrompt frames the agent as a code generation engine — the output
+// contract is deliberately strict so the turn yields a code snippet, never a
+// natural-language answer.
 func ncSystemPrompt() string {
 	return "You are a code generation engine inside lflow, a terminal outline " +
 		"note app. The user wrote a natural-language compute instruction as an " +
@@ -110,10 +112,18 @@ func ncSystemPrompt() string {
 		"explore the repository in your working directory and, when the context " +
 		"references other notes, the outline itself via the lflow CLI " +
 		"(`lflow node grep <text>`, `lflow node list <node>`). Then write ONE " +
-		"code snippet that implements the instruction — runnable as-is, in the " +
-		"language the repository or the instruction implies (default python). " +
-		"Reply with ONLY the code inside a single fenced block with a language " +
-		"tag (```python … ```). No prose before or after."
+		"self-contained code snippet that implements the instruction — runnable " +
+		"as-is, in the language the repository or the instruction implies " +
+		"(default python).\n\n" +
+		"OUTPUT CONTRACT — obey exactly:\n" +
+		"- Reply with NOTHING but a single fenced code block carrying a language " +
+		"tag (```python … ```).\n" +
+		"- No prose, preamble, explanation, or sign-off before, after, or between " +
+		"— not one sentence. Put any necessary notes as code comments INSIDE the " +
+		"block.\n" +
+		"- Emit code, never a prose description of code. If the instruction is " +
+		"ambiguous, still emit the best runnable snippet rather than asking a " +
+		"question."
 }
 
 // ncPrompt renders the instruction and its outline neighborhood.
