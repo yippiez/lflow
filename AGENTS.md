@@ -155,8 +155,12 @@ regardless of display order — the pi prompt tells the agent so.
   session to drift from edited nodes. `agent_sessions` holds only the LOCAL
   thread binding (node ↔ agent), so follow-ups keep reaching the agent across
   editor restarts.
-  Config `~/.config/lflow/agents.json`; without it a built-in mock **Pi** is
-  registered. Wire protocol: JSON over websocket, see `pkg/tui/tag/ws.go`.
+  Config `~/.config/lflow/agents.json`; without it the built-in **Pi** and
+  **Grok** agents are registered (`tag.LoadAgents`), each running ITS OWN local
+  CLI backend and nothing else (Pi→`pi`, Grok→`grok`; `tag.ClientFor`) — a
+  missing backend is a "Missing dependency" error, NOT a silent mock. The
+  offline **mock only serves an agent that sets `"mock": true`** in agents.json
+  (a test agent). Wire protocol: JSON over websocket, see `pkg/tui/tag/ws.go`.
 
 ## Key invariants
 
