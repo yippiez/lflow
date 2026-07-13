@@ -136,29 +136,27 @@ func padGray(inner string, cols int) string {
 	return clip(inner, cols) + cReset
 }
 
-// cCaret is the code block's thin cursor: an underline on the caret cell rather
-// than a full inverted block, so it reads as a slim caret and keeps the code
-// character beneath it legible.
-const cCaret = "\x1b[4m"
-
-// codeCaretLine draws one raw code line with a thin (underline) block cursor at
-// caret; the caret line is not syntax-colored so the cursor cell reads cleanly.
+// codeCaretLine draws one raw code line with a vertical-bar (beam) cursor at
+// caret — a thin red bar drawn just before the caret cell, like a text-insertion
+// caret, so the character beneath stays fully legible (a vertical line, not the
+// old underline or an inverted block). The caret line is not syntax-colored so
+// the bar reads cleanly against the code.
 func codeCaretLine(line string, caret int) string {
 	r := []rune(line)
 	if caret < 0 {
 		caret = 0
 	}
+	beam := cRed + "▏" + cReset + bgCode + cFG
 	var b strings.Builder
 	b.WriteString(cFG)
 	for i, c := range r {
 		if i == caret {
-			b.WriteString(cCaret + string(c) + cReset + bgCode + cFG)
-		} else {
-			b.WriteString(string(c))
+			b.WriteString(beam)
 		}
+		b.WriteString(string(c))
 	}
 	if caret >= len(r) {
-		b.WriteString(cCaret + " " + cReset + bgCode + cFG)
+		b.WriteString(beam)
 	}
 	return b.String()
 }
