@@ -51,13 +51,13 @@ func mirrorTestModel(t *testing.T) (*Model, *database.DB) {
 	return m, db
 }
 
-// TestMirrorToKeyFlow: /mirror:to on a named node lands a mirror of the picked
-// target as the next sibling, the typed slash text is stripped, and the saved
-// row carries mirror_of.
-func TestMirrorToKeyFlow(t *testing.T) {
+// TestMirrorFromKeyFlow: /mirror:from on a named node brings a mirror of the
+// picked target here — landing as the next sibling — the typed slash text is
+// stripped, and the saved row carries mirror_of.
+func TestMirrorFromKeyFlow(t *testing.T) {
 	m, db := mirrorTestModel(t)
 	m.cursor = 0 // alpha
-	typeKeys(m, "/mirror:to")
+	typeKeys(m, "/mirror:from")
 	pressEnter(m) // run the slash command → finder opens
 	if m.mode != modeFinder {
 		t.Fatalf("mode = %d, want finder", m.mode)
@@ -85,9 +85,9 @@ func TestMirrorToKeyFlow(t *testing.T) {
 	}
 }
 
-// TestMirrorToOnEmptyNodeKeyFlow: on a fresh empty node the node itself
-// becomes the mirror instead of spawning a sibling.
-func TestMirrorToOnEmptyNodeKeyFlow(t *testing.T) {
+// TestMirrorFromOnEmptyNodeKeyFlow: /mirror:from on a fresh empty node makes the
+// node itself become the mirror instead of spawning a sibling.
+func TestMirrorFromOnEmptyNodeKeyFlow(t *testing.T) {
 	m, _ := mirrorTestModel(t)
 	m.cursor = 0
 	pressEnter(m) // new empty sibling under root
@@ -95,7 +95,7 @@ func TestMirrorToOnEmptyNodeKeyFlow(t *testing.T) {
 	if cur.name != "" {
 		t.Fatalf("setup: cursor should be an empty node, got %q", cur.name)
 	}
-	typeKeys(m, "/mirror:to")
+	typeKeys(m, "/mirror:from")
 	pressEnter(m)
 	typeKeys(m, "beta")
 	pressEnter(m)
@@ -108,12 +108,12 @@ func TestMirrorToOnEmptyNodeKeyFlow(t *testing.T) {
 	}
 }
 
-// TestMirrorFromKeyFlow: /mirror:from plants a mirror of the cursor node under
-// the picked target; the original stays put and the row persists.
-func TestMirrorFromKeyFlow(t *testing.T) {
+// TestMirrorToKeyFlow: /mirror:to plants a mirror of the cursor node as a child
+// of the picked target; the original stays put and the row persists.
+func TestMirrorToKeyFlow(t *testing.T) {
 	m, db := mirrorTestModel(t)
 	m.cursor = 0 // alpha
-	typeKeys(m, "/mirror:from")
+	typeKeys(m, "/mirror:to")
 	pressEnter(m)
 	if m.mode != modeFinder {
 		t.Fatalf("mode = %d, want finder", m.mode)
@@ -200,7 +200,7 @@ func TestLiveMirrorGraftsExternalSource(t *testing.T) {
 }
 
 // TestLiveMirrorAdoptGraftsSource: an EXISTING empty node turning into a
-// mirror via a remote edit (the /mirror:to-on-empty-node flush) grafts too —
+// mirror via a remote edit (the /mirror:from-on-empty-node flush) grafts too —
 // the content-adopt branch, not the insert branch.
 func TestLiveMirrorAdoptGraftsSource(t *testing.T) {
 	m, db := zoneModel(t)

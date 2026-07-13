@@ -133,9 +133,9 @@ func (nodeFinderBackend) queryAffordance(m *Model, query string) string {
 func (nodeFinderBackend) label(m *Model) string {
 	switch m.finder.act {
 	case actMirrorHere:
-		return "/mirror:to"
-	case actMirrorFrom:
 		return "/mirror:from"
+	case actMirrorFrom:
+		return "/mirror:to"
 	case actMoveTo:
 		return "/move:to"
 	case actGoto:

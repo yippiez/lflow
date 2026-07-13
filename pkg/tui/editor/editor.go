@@ -49,8 +49,8 @@ const (
 type finderAction int
 
 const (
-	actMirrorHere finderAction = iota // /mirror:to — a mirror of the picked node lands at the cursor
-	actMirrorFrom                     // /mirror:from — a mirror of the cursor node lands under the picked node
+	actMirrorHere finderAction = iota // /mirror:from — a mirror of the picked node lands at the cursor
+	actMirrorFrom                     // /mirror:to — a mirror of the cursor node lands under the picked node
 	actMoveTo                         // /move:to — the cursor node moves under the picked node
 	actGoto
 	actBringHere  // /move:here — the picked node moves to the cursor
@@ -72,8 +72,8 @@ var slashCommands = []slashCommand{
 	{"/insert", "Insert a chip: cmd, date, link, path, tag"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
-	{"/mirror:from", "Mirror this node under another node"},
-	{"/mirror:to", "Mirror another node here"},
+	{"/mirror:from", "Mirror another node here"},
+	{"/mirror:to", "Mirror this node into another node"},
 	{"/move:here", "Move another node here"},
 	{"/move:to", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
@@ -1562,9 +1562,11 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// pick any node (incl. a Temporary Domain node) and move it here
 		m.openFinder(actBringHere)
 	case "/mirror:to":
-		m.openFinder(actMirrorHere)
-	case "/mirror:from":
+		// send THIS node's mirror in as a child of the picked node
 		m.openFinder(actMirrorFrom)
+	case "/mirror:from":
+		// bring the picked node's mirror here (replaces an empty node, else lands below)
+		m.openFinder(actMirrorHere)
 	case "/link":
 		// splice an inline link chip at the caret (same as the [[ trigger)
 		m.openFinder(actLinkInsert)
