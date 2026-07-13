@@ -647,7 +647,7 @@ func (m *Model) bottomBar(maxLine int) []string {
 	// the agent signals the bar carries, in the same slot: how many agents are
 	// thinking, or the last failure. No install/reply/progress chatter — the
 	// outline itself shows results.
-	if n := m.busyThreadCount(); n > 0 {
+	if n := m.busyThreadCount() + m.computingNodeCount(); n > 0 {
 		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
 	}
 	if m.agentErr != "" {

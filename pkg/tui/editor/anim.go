@@ -102,12 +102,21 @@ func (m *Model) animActive() bool {
 // anyNodeAnimating reports whether any node set the generic "animating" flag in
 // its ephemeral store — the shine indicator a plugin raises while it works.
 func (m *Model) anyNodeAnimating() bool {
+	return m.computingNodeCount() > 0
+}
+
+// computingNodeCount counts nodes mid-compute — the generic "animating" flag a
+// plugin raises while an agent turn runs for it (nlpcompute while generating).
+// These fold into the status bar's "N thinking" tally alongside the @mention
+// threads, so an NLPCompute cell reads as a thinking agent like a tag chip.
+func (m *Model) computingNodeCount() int {
+	n := 0
 	for _, d := range m.nodeData {
 		if a, _ := d["animating"].(bool); a {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 // hasMagicKeyword reports whether any currently visible row contains an animated
