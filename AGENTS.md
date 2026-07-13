@@ -77,7 +77,12 @@ per-feature column — and no scattered `switch typ`:
    hosts the generic plugin API (`NodeHost` = editor surface, `NodeRef` = the
    node, both interfaces so a node file tests against fakes), async work flows
    back through `NodePluginMsg`, `OnRemove` cancels in-flight work. Core woven
-   types (bullets…image, `json.go`, `voice.go`; `bash.go` holds the shared
+   types (bullets…image, `json.go`, `voice.go`, `math.go` — a math expression
+   composed AS an outline: a node's text is an operator (colored yellow via the
+   `spanColor` hook) with operands as children or a plain atom leaf; simple
+   expressions stay inline, complex ones fan into a child tree and the operator
+   row shows a dim linear preview of its subtree via the `bodyTail` hook;
+   `bash.go` holds the shared
    shell-run machinery, `code.go` the shared multi-line **code block** —
    `codeBlockLines`: a borderless gray block (no rule box, no header) whose every
    line is the dim line number, a white vertical rule to its RIGHT, then the

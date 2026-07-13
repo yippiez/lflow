@@ -32,6 +32,12 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
+	// TypeMath is a mathematical expression composed AS an outline: a node's text
+	// is an operator (= ÷ ± √ Σ ∫ ^ …, colored yellow) with its operands as
+	// children, or a plain atom leaf. Simple expressions stay inline on one row;
+	// complex ones fan out into a child tree and the operator row shows a dim
+	// linear preview of its whole subtree. See editor/math.go.
+	TypeMath = "math"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -63,6 +69,7 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
+	TypeMath,
 	TypeAgent,
 	TypeWF,
 }
