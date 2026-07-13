@@ -28,7 +28,7 @@ import (
 
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
-		Key: database.TypeNLPCompute, Label: "NLP Compute",
+		Key: database.TypeNLPCompute, Label: "NLPCompute",
 		InlineEditable: true,
 		Glyph:          func() (string, string) { return "→", editor.NodeTheme().Red },
 		BaseColor:      func() string { return editor.NodeTheme().Red },
