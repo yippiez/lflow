@@ -32,6 +32,11 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
+	// TypeDatapack is natural language as a Minecraft datapack: a green ◆
+	// instruction whose alt+r generates the implementing datapack file
+	// (mcfunction / advancement / loot / recipe JSON). Mirror it to share the
+	// generated file across outlines (see editor/nodes/datapack.go).
+	TypeDatapack = "datapack"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -63,6 +68,7 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
+	TypeDatapack,
 	TypeAgent,
 	TypeWF,
 }
