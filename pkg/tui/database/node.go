@@ -32,6 +32,15 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
+	// The factory family — Factorio-style automation machines (see
+	// editor/nodes/factory.go): contiguous factory-typed siblings form a belt
+	// line; alt+r runs it top-down, each machine's stdout feeding the next's
+	// stdin. Miner sources, assembler transforms, combinator gates (nonzero
+	// exit blocks the line), chest holds the arriving payload.
+	TypeMiner      = "miner"
+	TypeAssembler  = "assembler"
+	TypeCombinator = "combinator"
+	TypeChest      = "chest"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -63,6 +72,10 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
+	TypeMiner,
+	TypeAssembler,
+	TypeCombinator,
+	TypeChest,
 	TypeAgent,
 	TypeWF,
 }
