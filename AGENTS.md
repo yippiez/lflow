@@ -72,7 +72,9 @@ per-feature column — and no scattered `switch typ`:
    `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e,
    `toContext`/`toContextM` for the node's XML element in agent context).
 3. Put the behavior in its own file. PLUGGABLE types live in
-   `pkg/tui/editor/nodes/<type>.go` — ONE file per node — registered at init
+   `pkg/tui/editor/nodes/<type>.go` — ONE file per node (`nlpcompute.go`,
+   `redstone.go` — a Minecraft redstone circuit grid as node text, with a
+   built-in tick simulator and @template machine generators) — registered at init
    via `editor.RegisterNodePlugin` (see `editor/nodeplugin.go`): the editor
    hosts the generic plugin API (`NodeHost` = editor surface, `NodeRef` = the
    node, both interfaces so a node file tests against fakes), async work flows

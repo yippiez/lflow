@@ -50,7 +50,21 @@ func main() {}
 ```
 
 Types: `code`, `image`, `bash`, `json`, `quote`, `log`, `todo`, `h1`–`h3`,
-`query`, or any other node type key.
+`query`, `redstone`, or any other node type key.
+
+### Redstone machines
+
+A `redstone` node's text is a Minecraft redstone circuit as a 2D character
+grid, with a built-in tick simulator (alt+r on the node). You can author or
+edit machines directly — attach one with `{{attach:redstone}}…{{/attach}}` or
+rewrite a node's grid via `lflow node edit`. Cells: `-|+` dust (power decays
+15→0), `#` solid block (dust weakly powers it), `*` block of redstone (always
+on), `T` torch (attached to an adjacent `#`, inverts it, 1-tick delay),
+`>` `<` `^` `v` repeater facing that way (diode, 1-tick delay), `L` lever,
+`B` button, `O` lamp, `.` empty, `;` comment line. Dust never drives a torch
+directly — run it into the torch's block. A node whose whole text is one
+directive (`@not`, `@or`, `@and`, `@latch`, `@clock [repeaters]`) expands into
+that generated machine on alt+r.
 
 ## The lflow CLI — how to look around
 
