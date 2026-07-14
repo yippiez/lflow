@@ -34,8 +34,8 @@ func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
 		Key: database.TypeNLPCompute, Label: "NLPCompute",
 		InlineEditable: true, // the prose face: edit the instruction inline
-		AutoFocus:      true,  // the code face: rest the cursor on it to edit, like Code
-		BlockFaces:     true,  // alt+e toggles prose ⇄ code (never enters an editor)
+		AutoFocus:      true, // the code face: rest the cursor on it to edit, like Code
+		BlockFaces:     true, // alt+e toggles prose ⇄ code (never enters an editor)
 		Glyph:          func() (string, string) { return "→", editor.NodeTheme().Red },
 		BaseColor:      func() string { return editor.NodeTheme().Red },
 		Render:         ncRender,

@@ -136,11 +136,18 @@ type NodePlugin struct {
 	BlockFaces bool
 	CLIDeps    []string
 
-	Glyph     func() (string, string) // static glyph + SGR (per-node glyphs stay core for now)
-	BaseColor func() string           // body SGR; nil/"" default
+	Glyph     func() (string, string)            // static glyph + SGR (per-node glyphs stay core for now)
+	BaseColor func() string                      // body SGR; nil/"" default
 	Render    func(h NodeHost, n NodeRef) string // inline body override
-	Run       func(h NodeHost, n NodeRef) tea.Cmd          // alt+r
-	View      NodePluginView                               // alt+e inline expanded view
+	// Prefix is the granular look hook mirroring the core `prefix` descriptor
+	// (the log time chip): a styled chip rendered BEFORE the caret-editable
+	// body, so the type keeps full inline editing while its chrome changes per
+	// render (unlike Render, which replaces the body and loses the caret).
+	// renderBody has no Model, so it receives only the uuid — per-node state
+	// must live in the plugin's package state keyed by uuid, not NodeStore.
+	Prefix func(uuid string) string
+	Run    func(h NodeHost, n NodeRef) tea.Cmd // alt+r
+	View   NodePluginView                      // alt+e inline expanded view
 	// BlockCode makes the node render AS a borderless code block that REPLACES its
 	// row (no glyph/body line): it returns the code, the caret rune index when the
 	// node is the focused editing target (else -1), and ok=false to render the
@@ -198,6 +205,10 @@ func RegisterNodePlugin(p NodePlugin) {
 	if p.Render != nil {
 		r := p.Render
 		nt.renderM = func(m *Model, it *item) string { return r(m, nodeRef{m: m, it: it}) }
+	}
+	if p.Prefix != nil {
+		pf := p.Prefix
+		nt.prefix = func(it *item) string { return pf(it.uuid) }
 	}
 	if p.Run != nil {
 		run := p.Run
@@ -367,9 +378,14 @@ func NodeVisibleWidth(s string) int { return visibleWidth(s) }
 // NodeCaretVMove walks the caret up/down a line keeping its column;
 // NodeCaretLineCol / NodeCaretAt convert between a caret index and line/column
 // (home = col 0, end = a huge col).
-func NodeCaretVMove(s string, caret, dir int) int      { return jsonCaretLineMove(s, caret, dir) }
-func NodeCaretLineCol(s string, caret int) (int, int)  { return jsonCaretLC(s, caret) }
-func NodeCaretAt(s string, line, col int) int          { return jsonLCCaret(s, line, col) }
+func NodeCaretVMove(s string, caret, dir int) int     { return jsonCaretLineMove(s, caret, dir) }
+func NodeCaretLineCol(s string, caret int) (int, int) { return jsonCaretLC(s, caret) }
+func NodeCaretAt(s string, line, col int) int         { return jsonLCCaret(s, line, col) }
 
 // NodeFuzzyMatch reports whether needle subsequence-matches hay.
 func NodeFuzzyMatch(hay, needle string) bool { return fuzzyMatch(hay, needle) }
+
+// NodeAnimFrame is the render-time animation clock (see anim.go) — a plugin
+// keys spinners/belt animations off it while its "animating" store flag keeps
+// the tick alive.
+func NodeAnimFrame() int { return animFrame }
