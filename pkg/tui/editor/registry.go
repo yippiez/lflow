@@ -217,9 +217,9 @@ var nodeTypes = []nodeType{
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
-	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
-	// per node) and register themselves via RegisterNodePlugin at init; see
-	// nodeplugin.go.
+	// The pluggable node types — nlpcompute, mlmodel — live in editor/nodes (one
+	// Go file per node) and register themselves via RegisterNodePlugin at init;
+	// see nodeplugin.go.
 }
 
 // byType fills in init() — a var initializer would cycle: nodeTypes references
