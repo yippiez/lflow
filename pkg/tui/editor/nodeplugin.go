@@ -107,6 +107,10 @@ type NodeHost interface {
 	NodeDB() *database.DB
 	// NodeFlash shows a transient message in the bar.
 	NodeFlash(msg string)
+	// NodeScroll nudges the focused view's scroll offset (the render loop clamps
+	// it to the content height); negative scrolls up. A read-only expanded view
+	// uses it to page through output taller than its window.
+	NodeScroll(delta int)
 	// NodeDepOK reports a CLI binary's availability (NodeCLIDeps; judged by
 	// the daemon — the execution side).
 	NodeDepOK(bin string) bool
@@ -259,6 +263,13 @@ func (a nodePluginViewAdapter) Leave(m *Model, it *item) {
 func (m *Model) NodeStore(uuid string) map[string]any { return m.nodeStore(uuid) }
 func (m *Model) NodeDB() *database.DB                 { return m.db }
 func (m *Model) NodeFlash(msg string)                 { m.flash = msg }
+
+func (m *Model) NodeScroll(delta int) {
+	m.focusScroll += delta
+	if m.focusScroll < 0 {
+		m.focusScroll = 0
+	}
+}
 func (m *Model) NodeDepOK(bin string) bool            { return m.depOK(bin) }
 
 func (m *Model) NodeDefaultAgent() string {
