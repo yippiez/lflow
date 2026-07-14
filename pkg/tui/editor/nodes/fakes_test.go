@@ -18,6 +18,7 @@ type fakeHost struct {
 	db      *database.DB
 	stores  map[string]map[string]any
 	flash   string
+	scroll  int
 	deps    map[string]bool
 	compute func() <-chan tag.Event
 }
@@ -34,6 +35,12 @@ func (f *fakeHost) NodeStore(uuid string) map[string]any {
 }
 func (f *fakeHost) NodeDB() *database.DB { return f.db }
 func (f *fakeHost) NodeFlash(msg string) { f.flash = msg }
+func (f *fakeHost) NodeScroll(delta int) {
+	f.scroll += delta
+	if f.scroll < 0 {
+		f.scroll = 0
+	}
+}
 func (f *fakeHost) NodeDepOK(b string) bool {
 	if f.deps == nil {
 		return true
