@@ -32,6 +32,11 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
+	// TypeRedstone is a programmable Minecraft redstone machine: the circuit
+	// grid IS the node's multi-line text (so mirrors and sync share it), with
+	// a built-in tick simulator and @template generators
+	// (see editor/nodes/redstone.go).
+	TypeRedstone = "redstone"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -63,6 +68,7 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
+	TypeRedstone,
 	TypeAgent,
 	TypeWF,
 }
