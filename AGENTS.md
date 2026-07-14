@@ -95,6 +95,17 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
+The **factory family** (`miner` ▼, `assembler` ▣, `combinator` ◇, `chest` ▤ —
+`editor/nodes/factory.go` holds the shared belt machinery, one file per
+machine) are Factorio-style automation nodes: contiguous factory-typed
+SIBLINGS form a belt line; alt+r runs the line top-down, each machine's stdout
+feeding the next's stdin (miner sources, assembler transforms, combinator's
+nonzero predicate exit blocks the line, chest holds the arriving payload —
+alt+e views it). Dark-blue chrome + yellow flow chips via the `Prefix` plugin
+hook, so the command text stays caret-editable inline. Payloads/status are
+ephemeral package state (`facStats`), never the DB; alt+r on a running line
+stops it.
+
 ## Node priority
 
 `nodes.priority` (lm39) says where INCOMING nodes land among a node's children:

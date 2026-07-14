@@ -15,7 +15,11 @@ d3f532    retry only transient failures                0  bullets
 
 Flags: `--all` includes completed nodes; `--type <t>` filters by node type
 (bullets, todo, log, h1..h3, code, quote, json, bash, query, voice, image,
-agent, wf, or any installed mod key).
+miner, assembler, combinator, chest, agent, wf, or any installed mod key).
+The factory types compose: contiguous factory-typed siblings form a belt line
+the user runs with alt+r — miner sources stdout, assembler pipes it through
+its command, combinator gates on its predicate's exit code, chest holds the
+result. Build automations by adding factory siblings in belt order.
 
 ## Read a subtree — `lflow node list [node]`
 
