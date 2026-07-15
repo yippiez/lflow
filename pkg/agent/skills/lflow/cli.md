@@ -16,9 +16,10 @@ d3f532    retry only transient failures                0  bullets
 Flags: `--all` includes completed nodes; `--type <t>` filters by node type
 (bullets, todo, log, h1..h3, code, quote, json, bash, query, voice, image,
 circuit, agent, wf, or any installed mod key). A circuit node is a drawn
-pixel machine the user paints in the editor and runs live (Wireworld);
-contiguous circuit siblings fuse into one board. Its cells are not editable
-from the CLI — treat circuit nodes as visual content with a text label.
+factory floor the user builds in the editor (conveyor belts, drills, cores)
+and runs live; contiguous circuit siblings fuse into one board. Its tiles
+are not editable from the CLI — treat circuit nodes as visual content with a
+text label.
 
 ## Read a subtree — `lflow node list [node]`
 

@@ -11,11 +11,14 @@ import (
 
 func circReset() {
 	circGrids = map[string][][]byte{}
+	circItems = map[string][][]bool{}
+	circScores = map[string]int{}
 	circCursors = map[string][2]int{}
+	circLastDir = map[string]byte{}
 	circRuns = map[string]*circRun{}
 }
 
-// circTestStack hangs circuit kids (plus optional other types) under a parent.
+// circTestStack hangs kids of the given types under one parent.
 func circTestStack(types ...string) []*fakeNode {
 	circReset()
 	parent := &fakeNode{uuid: "p", typ: database.TypeBullets}
@@ -26,79 +29,91 @@ func circTestStack(types ...string) []*fakeNode {
 	return parent.kids
 }
 
-// TestCircStepRules: the Wireworld generation — head cools to tail, tail back
-// to conductor, a conductor fires on 1–2 neighboring heads and holds on more.
-func TestCircStepRules(t *testing.T) {
-	g := [][]byte{
-		[]byte("THC."),
-		[]byte("...."),
+// board/items helpers for step tests.
+func rowsOf(rows ...string) [][]byte {
+	g := make([][]byte, len(rows))
+	for i, r := range rows {
+		g[i] = []byte(r)
 	}
-	out := circStep(g)
-	if out[0][0] != circCond || out[0][1] != circTail {
-		t.Fatalf("H→T, T→C broken: %s", out[0])
+	return g
+}
+
+func itemsAt(g [][]byte, at ...[2]int) [][]bool {
+	it := make([][]bool, len(g))
+	for y := range g {
+		it[y] = make([]bool, len(g[y]))
 	}
-	if out[0][2] != circHead {
-		t.Fatal("a conductor beside one head must fire")
+	for _, p := range at {
+		it[p[0]][p[1]] = true
 	}
-	// three heads around a conductor → it holds
-	g = [][]byte{
-		[]byte("HHH"),
-		[]byte(".C."),
-	}
-	if out := circStep(g); out[1][1] != circCond {
-		t.Fatal("a conductor beside three heads must hold")
+	return it
+}
+
+// TestCircBeltCarries: an item rides a belt one tile per beat and a whole
+// convoy moves as one — no gaps opening between queued items.
+func TestCircBeltCarries(t *testing.T) {
+	g := rowsOf(">>>>")
+	it := itemsAt(g, [2]int{0, 0}, [2]int{0, 1})
+	circStepBoard(g, it, 1)
+	if it[0][0] || !it[0][1] || !it[0][2] {
+		t.Fatalf("convoy must advance as one: %v", it[0])
 	}
 }
 
-// TestCircElectronTravelsWire: an electron runs down a straight track and
-// leaves the far end without residue.
-func TestCircElectronTravelsWire(t *testing.T) {
-	g := [][]byte{[]byte("THCCCC")}
-	for i := 0; i < 4; i++ {
-		g = circStep(g)
-	}
-	if g[0][5] != circHead {
-		t.Fatalf("electron must reach the wire end: %s", g[0])
-	}
-	g = circStep(g)
-	g = circStep(g)
-	if strings.ContainsAny(string(g[0]), "HT") {
-		t.Fatalf("electron must leave the board: %s", g[0])
+// TestCircBackpressure: a jammed line holds — the front item has nowhere to
+// go (belt end), so the follower waits and nothing falls off the board.
+func TestCircBackpressure(t *testing.T) {
+	g := rowsOf(">>")
+	it := itemsAt(g, [2]int{0, 0}, [2]int{0, 1})
+	circStepBoard(g, it, 1)
+	if !it[0][0] || !it[0][1] {
+		t.Fatalf("jammed belt must hold both items: %v", it[0])
 	}
 }
 
-// TestCircSaveLoadRoundtrip: the drawing persists to node_output and reloads
-// cell-perfect after the live canvas is dropped (an editor restart).
-func TestCircSaveLoadRoundtrip(t *testing.T) {
-	h := newFakeHost(t)
-	circTestStack(database.TypeCircuit)
-	g := circGridOf(h, "a")
-	g[3][7], g[3][8], g[4][7] = circCond, circHead, circTail
-	circSave(h, "a")
-	delete(circGrids, "a") // restart: live canvases are ephemeral
-	g2 := circGridOf(h, "a")
-	if g2[3][7] != circCond || g2[3][8] != circHead || g2[4][7] != circTail {
-		t.Fatalf("reloaded cells = %c %c %c", g2[3][7], g2[3][8], g2[4][7])
+// TestCircCoreCollects: an item reaching a core is consumed and scored to the
+// core's board row.
+func TestCircCoreCollects(t *testing.T) {
+	g := rowsOf(">>O")
+	it := itemsAt(g, [2]int{0, 1})
+	scored := circStepBoard(g, it, 1)
+	if it[0][1] || it[0][2] {
+		t.Fatalf("the core must consume the item: %v", it[0])
 	}
-	if g2[0][0] != circEmpty {
-		t.Fatal("untouched cells must stay empty")
+	if scored[0] != 1 {
+		t.Fatalf("scored = %v, want one at row 0", scored)
 	}
 }
 
-// TestCircStackFuses: contiguous circuit siblings simulate as ONE board — an
-// electron aimed at the bottom seam of the first node crosses into the second.
-func TestCircStackFuses(t *testing.T) {
+// TestCircDrillEmits: on its beat a drill fills free neighboring belts; off
+// the beat it stays quiet.
+func TestCircDrillEmits(t *testing.T) {
+	g := rowsOf(
+		".v.",
+		">D>",
+	)
+	it := itemsAt(g)
+	circStepBoard(g, it, 1) // beat 1: not a drill beat
+	if it[0][1] || it[1][0] || it[1][2] {
+		t.Fatal("no emission off the drill beat")
+	}
+	circStepBoard(g, it, circDrillEvery) // a drill beat
+	if !it[0][1] || !it[1][0] || !it[1][2] {
+		t.Fatalf("drill must fill its free neighbor belts: %v", it)
+	}
+}
+
+// TestCircSeamCarries: contiguous circuit siblings fuse floors — a down-belt
+// line carries an item across the node seam into the lower canvas.
+func TestCircSeamCarries(t *testing.T) {
 	h := newFakeHost(t)
 	kids := circTestStack(database.TypeCircuit, database.TypeCircuit)
 	top, bottom := circGridOf(h, "a"), circGridOf(h, "b")
-	// a vertical track spanning the seam, spark at its top
-	for y := 6; y < circH; y++ {
-		top[y][5] = circCond
+	for y := 0; y < tileH; y++ {
+		top[y][5] = tileBeltD
+		bottom[y][5] = tileBeltD
 	}
-	for y := 0; y < 4; y++ {
-		bottom[y][5] = circCond
-	}
-	top[6][5], top[7][5] = circTail, circHead
+	bottom[tileH-1][5] = tileCore
 
 	cmd := circToggle(h, kids[0])
 	if cmd == nil {
@@ -107,22 +122,30 @@ func TestCircStackFuses(t *testing.T) {
 	if circRuns["a"] == nil || circRuns["b"] == nil {
 		t.Fatal("both stack members must join the run")
 	}
-	// step the fused board a few generations by hand
+	circItemsOf("a")[tileH-1][5] = true // an item at the seam's upper lip
 	r := circRuns["a"]
-	for i := 0; i < 5; i++ {
+	circTickMsg{run: r}.HandleNodePlugin(h)
+	if !circItemsOf("b")[0][5] {
+		t.Fatal("the item must cross the node seam onto the lower floor")
+	}
+	// ride it down to the core — the lower node's tally takes the score
+	for i := 0; i < tileH; i++ {
 		circTickMsg{run: r}.HandleNodePlugin(h)
 	}
-	if !strings.ContainsAny(string(circGrids["b"][0])+string(circGrids["b"][1])+string(circGrids["b"][2]), "HT") {
-		t.Fatal("the electron must cross the node seam into the lower canvas")
+	if circScores["b"] == 0 {
+		t.Fatal("the lower node's core must collect and score")
 	}
-
-	// stop restores both drawings (the spark back at its seed)
+	// stop restores drawings and clears the floor of items
 	circToggle(h, kids[0])
 	if circRuns["a"] != nil || circRuns["b"] != nil {
 		t.Fatal("stop must clear the run")
 	}
-	if circGrids["a"][7][5] != circHead {
-		t.Fatal("stop must restore the drawing")
+	for y := range circItemsOf("a") {
+		for x := range circItemsOf("a")[y] {
+			if circItemsOf("a")[y][x] {
+				t.Fatal("stop must sweep the items")
+			}
+		}
 	}
 }
 
@@ -134,48 +157,88 @@ func TestCircStackContiguity(t *testing.T) {
 	}
 }
 
-// TestCircPainter: the crosshair paints conductor/electron/erase and the
-// drawing lands in node_output on leave.
-func TestCircPainter(t *testing.T) {
+// TestCircBuilder: belts lay along the cursor's drag direction, r spins them,
+// d/o place drill and core, x erases, and leave persists the floor.
+func TestCircBuilder(t *testing.T) {
 	h := newFakeHost(t)
 	kids := circTestStack(database.TypeCircuit)
 	n := kids[0]
 	v := circView{}
 	if !v.Enter(h, n) {
-		t.Fatal("painter must open")
+		t.Fatal("builder must open")
 	}
-	v.Key(h, n, tea.KeyMsg{Type: tea.KeySpace}) // conductor under the cursor
-	v.Key(h, n, tea.KeyMsg{Type: tea.KeyRight})
-	v.Key(h, n, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}}) // electron
+	v.Key(h, n, tea.KeyMsg{Type: tea.KeyRight}) // drag right…
+	v.Key(h, n, tea.KeyMsg{Type: tea.KeySpace}) // …and lay a belt flowing right
 	cur := circCursors["a"]
 	g := circGridOf(h, "a")
-	if g[cur[1]][cur[0]-1] != circCond || g[cur[1]][cur[0]] != circHead {
-		t.Fatalf("painted cells = %c %c", g[cur[1]][cur[0]-1], g[cur[1]][cur[0]])
+	if g[cur[1]][cur[0]] != tileBeltR {
+		t.Fatalf("belt = %c, want > after a rightward drag", g[cur[1]][cur[0]])
+	}
+	v.Key(h, n, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}) // spin clockwise
+	if g[cur[1]][cur[0]] != tileBeltD {
+		t.Fatalf("spun belt = %c, want v", g[cur[1]][cur[0]])
+	}
+	v.Key(h, n, tea.KeyMsg{Type: tea.KeyDown}) // drag down: lastDir follows
+	v.Key(h, n, tea.KeyMsg{Type: tea.KeySpace})
+	cur = circCursors["a"]
+	if g[cur[1]][cur[0]] != tileBeltD {
+		t.Fatal("belts lay along the drag direction")
+	}
+	v.Key(h, n, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if g[cur[1]][cur[0]] != tileDrill {
+		t.Fatal("d must place a drill")
+	}
+	v.Key(h, n, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	if g[cur[1]][cur[0]] != tileCore {
+		t.Fatal("o must place a core")
 	}
 	v.Key(h, n, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	if g[cur[1]][cur[0]] != circEmpty {
+	if g[cur[1]][cur[0]] != tileEmpty {
 		t.Fatal("x must erase")
 	}
 	v.Leave(h, n)
+	spun := [2]int{cur[0], cur[1] - 1} // the belt spun to v before the drag down
 	delete(circGrids, "a")
-	if g2 := circGridOf(h, "a"); g2[cur[1]][cur[0]-1] != circCond {
-		t.Fatal("leave must persist the drawing")
+	if g2 := circGridOf(h, "a"); g2[spun[1]][spun[0]] != tileBeltD {
+		t.Fatalf("leave must persist the floor: %c", g2[spun[1]][spun[0]])
 	}
 }
 
-// TestCircPreviewPixels: the closed row hangs the pixelated preview — one text
-// row per two cell rows, painted with the board palette.
-func TestCircPreviewPixels(t *testing.T) {
+// TestCircSaveLoadRoundtrip: the floor persists to node_output and reloads
+// tile-perfect after the live state is dropped (an editor restart).
+func TestCircSaveLoadRoundtrip(t *testing.T) {
+	h := newFakeHost(t)
+	circTestStack(database.TypeCircuit)
+	g := circGridOf(h, "a")
+	g[2][3], g[2][4], g[2][5], g[3][3] = tileDrill, tileBeltR, tileCore, tileBeltU
+	circSave(h, "a")
+	delete(circGrids, "a")
+	g2 := circGridOf(h, "a")
+	if g2[2][3] != tileDrill || g2[2][4] != tileBeltR || g2[2][5] != tileCore || g2[3][3] != tileBeltU {
+		t.Fatalf("reloaded tiles = %c %c %c %c", g2[2][3], g2[2][4], g2[2][5], g2[3][3])
+	}
+	if g2[0][0] != tileEmpty {
+		t.Fatal("untouched tiles must stay floor")
+	}
+}
+
+// TestCircPreviewTiles: the closed row hangs the tile preview — one text row
+// per tile row, half-block pixels on the checkered floor.
+func TestCircPreviewTiles(t *testing.T) {
 	h := newFakeHost(t)
 	kids := circTestStack(database.TypeCircuit)
 	lines := circPreview(h, kids[0], "", 200, false)
-	if len(lines) != circH/2 {
-		t.Fatalf("preview rows = %d, want %d", len(lines), circH/2)
+	if len(lines) != tileH {
+		t.Fatalf("preview rows = %d, want %d", len(lines), tileH)
 	}
-	if !strings.Contains(lines[0], "▀") || !strings.Contains(lines[0], "\x1b[48;2;15;22;38m") {
-		t.Fatalf("preview must be half-block pixels on the navy board: %q", lines[0][:80])
+	if !strings.Contains(lines[0], "▀") || !strings.Contains(lines[0], "\x1b[48;2;") {
+		t.Fatalf("preview must be half-block pixels: %q", lines[0][:60])
+	}
+	// the checker: two floor shades alternate along the row
+	if !strings.Contains(lines[0], "13;19;33") || !strings.Contains(lines[0], "17;24;41") {
+		t.Fatalf("floor must checker: %q", lines[0][:120])
 	}
 	if circPreview(h, kids[0], "", 200, true) != nil {
-		t.Fatal("the painter's bands take over while focused")
+		t.Fatal("the builder's bands take over while focused")
 	}
 }

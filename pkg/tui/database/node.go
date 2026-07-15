@@ -32,11 +32,10 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
-	// TypeCircuit is a drawn machine — a half-block pixel canvas (the image
-	// node's look) whose dark-blue conductor tracks carry live yellow
-	// electrons under Wireworld rules on alt+r; contiguous circuit siblings
-	// fuse their canvases into one simulated system (see editor/nodes/
-	// circuit.go).
+	// TypeCircuit is a drawn factory floor — a chunky tile canvas (the image
+	// node's pixelated look) of conveyor belts, drills and cores; alt+r sets
+	// yellow items riding the belts live, and contiguous circuit siblings
+	// fuse their floors into one factory (see editor/nodes/circuit.go).
 	TypeCircuit = "circuit"
 )
 

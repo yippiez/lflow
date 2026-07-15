@@ -96,17 +96,20 @@ Then build/install with the fts5 tag. Runnable types execute on alt+r only (neve
 auto-run) and their output is ephemeral — never persisted or synced.
 
 The **circuit node** (`circuit` ▚ — `editor/nodes/circuit.go`) is a DRAWN
-machine: the node hangs a half-block pixel canvas beneath its row (the image
-node's pixelated-preview look — always on), you paint the machine on it in
-alt+e's crosshair painter (space = dark-blue conductor, f = yellow electron,
-x = erase), and alt+r sets the electrons flowing live under Wireworld rules
-(head → tail → conductor; a conductor fires on exactly 1–2 neighboring
-heads); alt+r again stops and restores the drawing. Contiguous circuit-typed
-SIBLINGS fuse their canvases top-to-bottom into ONE board, so electrons cross
-node seams and a stack of nodes is one live system. The drawing persists in
-`node_output` (local, never synced); the simulation is ephemeral package
-state, alt+r only. The row text is a free label, caret-editable via the
-`Prefix` plugin hook.
+factory floor, the Mindustry look: the node hangs a chunky tile canvas
+beneath its row (the image node's pixelated-preview slot, always on — a
+checkered navy floor, 2×2 half-block pixels per tile) and alt+e opens the
+builder: space lays a CONVEYOR BELT flowing the direction the cursor last
+moved (drag a path, tap space), r spins it, d places a DRILL, o a CORE, x
+erases. alt+r brings the floor to life: drills emit yellow items onto
+neighboring belts, items ride one tile per beat with real backpressure
+(jams hold, convoys move as one), cores collect them and the row's yellow
+chip tallies the count; alt+r again stops and restores the drawing.
+Contiguous circuit-typed SIBLINGS fuse their floors top-to-bottom into ONE
+board, so belts carry across node seams and a stack of nodes is a single
+live factory. The drawing persists in `node_output` (local, never synced);
+items/timers/tallies are ephemeral package state, alt+r only. The row text
+is a free label, caret-editable via the `Prefix` plugin hook.
 
 ## Node priority
 
