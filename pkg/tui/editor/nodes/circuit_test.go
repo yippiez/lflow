@@ -215,32 +215,43 @@ func TestCircSaveLoadRoundtrip(t *testing.T) {
 	}
 }
 
-// TestCircInlineRender: the whole machine lives in the row body — the strip's
-// half-block pixels, the checkered floor, the ⌥r hint idle and the yellow
-// tally while live. No bands, no expansion.
+// TestCircInlineRender: the whole machine lives in the row body — a braille
+// strip drawn in foreground color only (no filled backgrounds — that is the
+// minimal contract), the ⌥r hint idle, the yellow tally live, and marching
+// belt dots that change with the beat.
 func TestCircInlineRender(t *testing.T) {
 	h := newFakeHost(t)
 	kids := circTestStack(database.TypeCircuit)
 	n := kids[0]
+	g := circGridOf(h, "a")
+	g[2], g[3], g[4] = tileDrill, tileBeltR, tileCore
 	body := circRender(h, n)
-	if !strings.Contains(body, "▀") || !strings.Contains(body, "\x1b[48;2;") {
-		t.Fatalf("the body must be the half-block strip: %q", body[:60])
+	if !strings.ContainsRune(body, glyphDrill) || !strings.ContainsRune(body, glyphCore) {
+		t.Fatalf("the strip must speak braille machines: %q", body)
 	}
-	if !strings.Contains(body, "13;19;33") || !strings.Contains(body, "17;24;41") {
-		t.Fatalf("floor must checker: %q", body[:120])
+	if !strings.ContainsRune(body, beltIdle[tileBeltR]) {
+		t.Fatalf("an idle belt lights the side it flows toward: %q", body)
+	}
+	if strings.Contains(body, "\x1b[48;2;") {
+		t.Fatalf("the strip must never paint backgrounds: %q", body)
 	}
 	if !strings.Contains(body, "⌥r run") {
 		t.Fatalf("idle tail must hint the run: %q", body)
 	}
 	circToggle(h, n)
 	circScores["a"] = 7
-	if body := circRender(h, n); !strings.Contains(body, "live 7") {
-		t.Fatalf("live tail must tally: %q", body)
+	live1 := circRender(h, n)
+	if !strings.Contains(live1, "live 7") {
+		t.Fatalf("live tail must tally: %q", live1)
+	}
+	circRuns["a"].beat++ // the belt dots march with the beat
+	if live2 := circRender(h, n); live2 == live1 {
+		t.Fatal("live belts must march between beats")
 	}
 	// the builder cursor shows only while the lane is focused and stopped
 	circStopRun(circRuns["a"])
 	circFocus, circCursors["a"] = "a", 2
 	if body := circRender(h, n); !strings.Contains(body, "245;245;245") {
-		t.Fatalf("focused body must show the cursor tile: %q", body)
+		t.Fatalf("focused body must show the cursor: %q", body)
 	}
 }

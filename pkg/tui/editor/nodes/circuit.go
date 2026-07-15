@@ -12,16 +12,17 @@ import (
 	"github.com/lflow/lflow/pkg/tui/editor"
 )
 
-// The circuit node ▚ — a factory LANE drawn into the row itself, the image
-// node's inline look: the body IS a one-line half-block tile strip (a
-// checkered navy floor, each tile 2×2 pixels), nothing hangs beneath and
-// nothing expands. Resting the cursor on the node focuses the lane like the
-// Code node (no alt+e): ←/→ walk the white cursor tile, space lays a CONVEYOR
-// BELT flowing the way you last moved, r spins it (> v < ^), d places a
-// DRILL, o a CORE, x erases. alt+r brings the lane to life: drills emit
-// yellow items, items ride the belts one tile per beat with real
-// backpressure, cores collect them and the tail chip tallies the count;
-// alt+r again stops and restores the drawing.
+// The circuit node ⠿ — a factory LANE drawn into the row itself, the image
+// node's inline look taken minimal: the body IS a one-line BRAILLE strip —
+// a faint dotted floor with machines as dot clusters, foreground color only,
+// no filled blocks — nothing hangs beneath and nothing expands. Resting the
+// cursor on the node focuses the lane like the Code node (no alt+e): ←/→
+// walk the white cursor, space lays a CONVEYOR BELT flowing the way you last
+// moved, r spins it (> v < ^), d places a DRILL, o a CORE, x erases. alt+r
+// brings the lane to life: drills emit yellow items, items ride the belts
+// one tile per beat with real backpressure while the belt dots march along
+// the flow, cores collect and the tail chip tallies; alt+r again stops and
+// restores the drawing.
 //
 // Machines COMPOSE vertically: contiguous circuit-typed SIBLINGS fuse their
 // lanes into ONE board, one lane per row — a v belt hands its item to the
@@ -32,8 +33,8 @@ import (
 //
 // WARNING (invariant): the simulation never runs on its own — alt+r only.
 
-// The lane: tileW tiles, each 2 chars wide × 1 text row tall (2×2 half-block
-// pixels). Every lane is tileW wide so stacked nodes seam cleanly.
+// The lane: tileW tiles, one braille character each. Every lane is tileW
+// wide so stacked nodes seam cleanly.
 const tileW = 20
 
 const (
@@ -66,16 +67,35 @@ func circIsBelt(t byte) bool { _, ok := circDirs[t]; return ok }
 // circRotate spins a belt clockwise (the r key).
 var circRotate = map[byte]byte{tileBeltR: tileBeltD, tileBeltD: tileBeltL, tileBeltL: tileBeltU, tileBeltU: tileBeltR}
 
-// The lane palette — dark blue metal + yellow items.
+// The lane is drawn in BRAILLE dots — foreground color only, never a filled
+// background, so a machine reads as a faint dotted schematic sitting directly
+// on the page: a dim dotted floor, two-dot belts whose lit side is the flow
+// direction (and whose dots MARCH while live), a dense ⣿ drill, a ⣶ core,
+// a bright ⠶ item. Dark blue chrome + yellow items throughout.
+const (
+	fgFloor  = "\x1b[38;2;44;56;82m"    // the dotted floor line
+	fgBelt   = "\x1b[38;2;92;126;184m"  // idle belt dots
+	fgBeltHi = "\x1b[38;2;130;164;220m" // live, marching belt dots
+	fgDrill  = "\x1b[38;2;150;175;225m" // drill cluster
+	fgCore   = "\x1b[38;2;216;166;64m"  // core cluster
+	fgItem   = "\x1b[38;2;255;215;95m"  // an item riding a belt
+	fgCursor = "\x1b[38;2;245;245;245m" // the builder cursor
+)
+
+// Tile glyphs. Idle belts light the side they flow toward; live belts run a
+// dot along the flow instead (marching frames below, phased by the beat and
+// the tile so the whole lane ripples).
 var (
-	pxFloorA = [3]int{13, 19, 33} // the checkered floor
-	pxFloorB = [3]int{17, 24, 41}
-	pxBelt   = [3]int{42, 60, 92}    // belt base
-	pxBeltHi = [3]int{96, 130, 190}  // belt leading edge (the direction cue)
-	pxDrill  = [3]int{140, 165, 215} // drill housing
-	pxCore   = [3]int{216, 166, 64}  // core block
-	pxItem   = [3]int{255, 215, 95}  // an item riding a belt
-	pxCursor = [3]int{245, 245, 245} // the builder cursor tile
+	beltIdle   = map[byte]rune{tileBeltR: '⠘', tileBeltL: '⠃', tileBeltU: '⠉', tileBeltD: '⠤'}
+	marchRight = []rune("⠂⠒⠐") // a dot sweeping the mid row →
+	marchLeft  = []rune("⠐⠒⠂")
+	marchDown  = []rune("⠁⠂⠄⡀") // a dot falling the left column ↓
+	marchUp    = []rune("⡀⠄⠂⠁")
+	floorDots  = []rune("⠄⠂") // the faint alternating floor texture
+	glyphDrill = '⣿'
+	glyphCore  = '⣶'
+	glyphItem  = '⠶'
+	glyphPad   = '⣀' // the cursor resting on empty floor
 )
 
 func init() {
@@ -83,7 +103,7 @@ func init() {
 		Key: database.TypeCircuit, Label: "Circuit",
 		InlineEditable: false, // the body is the lane strip, not text
 		AutoFocus:      true,  // rest the cursor on the row to build, like Code
-		Glyph:          func() (string, string) { return "▚", facBlue },
+		Glyph:          func() (string, string) { return "⠿", facBlue },
 		Render:         circRender,
 		Run:            circToggle,
 		View:           circView{},
@@ -348,59 +368,53 @@ func circStepBoard(board [][]byte, items [][]bool, beat int) map[int]int {
 
 // ── the inline look ─────────────────────────────────────────────────────────
 
-// circTilePx returns a tile's four pixels ([col][row], 2×2) — chunky blocks:
-// checkered floor, belts with a bright leading edge, steel drills, amber
-// cores, items as full yellow squares.
-func circTilePx(t byte, item bool, tx int) [2][2][3]int {
-	var px [2][2][3]int
-	floor := pxFloorA
-	if tx%2 == 1 {
-		floor = pxFloorB
+// circTileGlyph picks one tile's braille glyph and color. live belts march
+// their dot along the flow, phased by beat and tile so the lane ripples.
+func circTileGlyph(t byte, item, live bool, beat, tx int) (rune, string) {
+	if item {
+		return glyphItem, fgItem
 	}
-	fill := func(c [3]int) {
-		px[0][0], px[0][1], px[1][0], px[1][1] = c, c, c, c
+	switch t {
+	case tileDrill:
+		return glyphDrill, fgDrill
+	case tileCore:
+		return glyphCore, fgCore
 	}
-	switch {
-	case item:
-		fill(pxItem)
-	case t == tileDrill:
-		fill(pxDrill)
-		px[1][1] = pxBelt // a darker notch so drills read as machines, not blobs
-	case t == tileCore:
-		fill(pxCore)
-	case circIsBelt(t):
-		fill(pxBelt)
+	if circIsBelt(t) {
+		if !live {
+			return beltIdle[t], fgBelt
+		}
 		switch t {
 		case tileBeltR:
-			px[1][0], px[1][1] = pxBeltHi, pxBeltHi
+			return marchRight[((beat-tx)%3+3)%3], fgBeltHi
 		case tileBeltL:
-			px[0][0], px[0][1] = pxBeltHi, pxBeltHi
-		case tileBeltU:
-			px[0][0], px[1][0] = pxBeltHi, pxBeltHi
+			return marchLeft[((beat-tx)%3+3)%3], fgBeltHi
 		case tileBeltD:
-			px[0][1], px[1][1] = pxBeltHi, pxBeltHi
+			return marchDown[beat%4], fgBeltHi
+		default: // tileBeltU
+			return marchUp[beat%4], fgBeltHi
 		}
-	default:
-		fill(floor)
 	}
-	return px
+	return floorDots[tx%2], fgFloor
 }
 
-// circStrip renders the lane as one run of half-block characters; cursor ≥ 0
-// paints the builder's tile white.
-func circStrip(g []byte, items []bool, cursor int) string {
+// circStrip renders the lane as one run of braille characters; cursor ≥ 0
+// paints the builder's tile white (its own glyph, a ⣀ pad on bare floor).
+func circStrip(g []byte, items []bool, cursor int, live bool, beat int) string {
+	th := editor.NodeTheme()
 	var b strings.Builder
 	for tx := 0; tx < len(g); tx++ {
-		px := circTilePx(g[tx], items != nil && items[tx], tx)
+		ch, sgr := circTileGlyph(g[tx], items != nil && items[tx], live, beat, tx)
 		if tx == cursor {
-			px[0][0], px[0][1], px[1][0], px[1][1] = pxCursor, pxCursor, pxCursor, pxCursor
+			sgr = fgCursor
+			if g[tx] == tileEmpty {
+				ch = glyphPad
+			}
 		}
-		for col := 0; col < 2; col++ {
-			up, lo := px[col][0], px[col][1]
-			fmt.Fprintf(&b, "\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm▀",
-				up[0], up[1], up[2], lo[0], lo[1], lo[2])
-		}
+		b.WriteString(sgr)
+		b.WriteRune(ch)
 	}
+	b.WriteString(th.Reset)
 	return b.String()
 }
 
@@ -413,7 +427,11 @@ func circRender(h editor.NodeHost, n editor.NodeRef) string {
 	if circFocus == u && circRuns[u] == nil {
 		cursor = circCursors[u]
 	}
-	line := circStrip(circGridOf(h, u), circItemsOf(u), cursor) + th.Reset
+	live, beat := false, 0
+	if r := circRuns[u]; r != nil {
+		live, beat = true, r.beat
+	}
+	line := circStrip(circGridOf(h, u), circItemsOf(u), cursor, live, beat)
 	switch {
 	case circRuns[u] != nil:
 		line += " " + th.Yellow + fmt.Sprintf("live %d", circScores[u]) + th.Reset

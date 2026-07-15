@@ -95,20 +95,22 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
-The **circuit node** (`circuit` ▚ — `editor/nodes/circuit.go`) is a factory
-LANE drawn INTO the row itself — the image node's inline look: the body is a
-one-line half-block tile strip (checkered navy floor, 2×2 pixels per tile),
-nothing hangs beneath and nothing expands. Resting the cursor on the row
-focuses the lane like the Code node (AutoFocus, a zero-line view — the row
-IS the surface): ←/→ walk the white cursor tile, space lays a CONVEYOR BELT
-flowing the way the cursor last moved, r spins it (> v < ^), d places a
-DRILL, o a CORE, x erases; ↑/↓/esc stay with the outline. alt+r brings the
-lane to life: drills emit yellow items, items ride one tile per beat with
-real backpressure, cores collect and the dim tail chip tallies (`live N`);
-alt+r again stops and restores the drawing. Machines COMPOSE vertically:
+The **circuit node** (`circuit` ⠿ — `editor/nodes/circuit.go`) is a factory
+LANE drawn INTO the row itself, minimal and abstract: the body is a one-line
+BRAILLE strip — a faint dotted floor with machines as dot clusters (⣿ drill,
+⣶ core, two-dot belts whose lit side is the flow direction), foreground
+color only, never a filled background — nothing hangs beneath and nothing
+expands. Resting the cursor on the row focuses the lane like the Code node
+(AutoFocus, a zero-line view — the row IS the surface): ←/→ walk the white
+cursor, space lays a CONVEYOR BELT flowing the way the cursor last moved,
+r spins it (> v < ^), d places a DRILL, o a CORE, x erases; ↑/↓/esc stay
+with the outline. alt+r brings the lane to life: the belt dots MARCH along
+the flow, drills emit yellow ⠶ items that ride one tile per beat with real
+backpressure, cores collect and the tail chip tallies (`live N`); alt+r
+again stops and restores the drawing. Machines COMPOSE vertically:
 contiguous circuit-typed SIBLINGS fuse their lanes into ONE board, a v/^
 belt handing items to the sibling lane below/above — a stack of one-line
-nodes is a little Mindustry floor. The lane persists in `node_output`
+nodes is one quiet little factory. The lane persists in `node_output`
 (local, never synced); items/timers/tallies are ephemeral package state,
 alt+r only. The node name is a dim caption tail, like an image caption.
 
