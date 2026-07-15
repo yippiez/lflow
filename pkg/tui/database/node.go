@@ -32,11 +32,10 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
-	// TypeFormalSystem is a theoretical-CS sandbox: a one-line spec that runs a
-	// deterministic formal system — an elementary cellular automaton, Conway's
-	// Game of Life, an L-system, or a propositional-logic truth table — and
-	// renders it in the alt+e view (see editor/nodes/formalsystem.go).
-	TypeFormalSystem = "formalsystem"
+	// TypeLogic is a boolean-logic node: its text is a propositional expression
+	// (and/or/not/xor/nand/nor/xnor/->/<->) that parses into an AST; the alt+e
+	// view shows the AST tree and the full truth table (see editor/nodes/logic.go).
+	TypeLogic = "logic"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -68,7 +67,7 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
-	TypeFormalSystem,
+	TypeLogic,
 	TypeAgent,
 	TypeWF,
 }
