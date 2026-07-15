@@ -95,16 +95,18 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
-The **factory family** (`miner` ▼, `assembler` ▣, `combinator` ◇, `chest` ▤ —
-`editor/nodes/factory.go` holds the shared belt machinery, one file per
-machine) are Factorio-style automation nodes: contiguous factory-typed
-SIBLINGS form a belt line; alt+r runs the line top-down, each machine's stdout
-feeding the next's stdin (miner sources, assembler transforms, combinator's
-nonzero predicate exit blocks the line, chest holds the arriving payload —
-alt+e views it). Dark-blue chrome + yellow flow chips via the `Prefix` plugin
-hook, so the command text stays caret-editable inline. Payloads/status are
-ephemeral package state (`facStats`), never the DB; alt+r on a running line
-stops it.
+The **circuit node** (`circuit` ▚ — `editor/nodes/circuit.go`) is a DRAWN
+machine: the node hangs a half-block pixel canvas beneath its row (the image
+node's pixelated-preview look — always on), you paint the machine on it in
+alt+e's crosshair painter (space = dark-blue conductor, f = yellow electron,
+x = erase), and alt+r sets the electrons flowing live under Wireworld rules
+(head → tail → conductor; a conductor fires on exactly 1–2 neighboring
+heads); alt+r again stops and restores the drawing. Contiguous circuit-typed
+SIBLINGS fuse their canvases top-to-bottom into ONE board, so electrons cross
+node seams and a stack of nodes is one live system. The drawing persists in
+`node_output` (local, never synced); the simulation is ephemeral package
+state, alt+r only. The row text is a free label, caret-editable via the
+`Prefix` plugin hook.
 
 ## Node priority
 

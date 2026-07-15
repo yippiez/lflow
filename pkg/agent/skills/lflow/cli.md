@@ -15,11 +15,10 @@ d3f532    retry only transient failures                0  bullets
 
 Flags: `--all` includes completed nodes; `--type <t>` filters by node type
 (bullets, todo, log, h1..h3, code, quote, json, bash, query, voice, image,
-miner, assembler, combinator, chest, agent, wf, or any installed mod key).
-The factory types compose: contiguous factory-typed siblings form a belt line
-the user runs with alt+r — miner sources stdout, assembler pipes it through
-its command, combinator gates on its predicate's exit code, chest holds the
-result. Build automations by adding factory siblings in belt order.
+circuit, agent, wf, or any installed mod key). A circuit node is a drawn
+pixel machine the user paints in the editor and runs live (Wireworld);
+contiguous circuit siblings fuse into one board. Its cells are not editable
+from the CLI — treat circuit nodes as visual content with a text label.
 
 ## Read a subtree — `lflow node list [node]`
 

@@ -217,9 +217,9 @@ var nodeTypes = []nodeType{
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
-	// The pluggable node types — nlpcompute and the factory family (miner,
-	// assembler, combinator, chest — Factorio-style automation belt lines) —
-	// live in editor/nodes (one Go file per node) and register themselves via
+	// The pluggable node types — nlpcompute and circuit (a drawn half-block
+	// machine whose electrons run live under Wireworld rules) — live in
+	// editor/nodes (one Go file per node) and register themselves via
 	// RegisterNodePlugin at init; see nodeplugin.go.
 }
 
