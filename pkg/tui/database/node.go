@@ -32,10 +32,14 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
-	// TypeMLModel is an ML model definition — ONE type carrying a FAMILY of
-	// architectures (rnn, transformer, gan, sam, dlgn, …); the alt+e definition
-	// card and the per-family fields live in editor/nodes/mlmodel.go.
+	// TypeMLModel is an ML model root: the subtree of mlop primitive nodes
+	// beneath it IS the architecture; alt+e compiles it (shapes + weight
+	// counts). See editor/nodes/mlmodel.go.
 	TypeMLModel = "mlmodel"
+	// TypeMLOp is one ML primitive (linear, attend, repeat, recur, branch, …)
+	// inside an mlmodel subtree — the node text is the primitive expression.
+	// See editor/nodes/mlop.go; the compiler lives with the root.
+	TypeMLOp = "mlop"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -68,6 +72,7 @@ var TypeOrder = []string{
 	TypeImage,
 	TypeNLPCompute,
 	TypeMLModel,
+	TypeMLOp,
 	TypeAgent,
 	TypeWF,
 }
