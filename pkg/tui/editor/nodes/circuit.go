@@ -12,39 +12,37 @@ import (
 	"github.com/lflow/lflow/pkg/tui/editor"
 )
 
-// The circuit node ▚ — a drawn factory floor, the Mindustry look. The node
-// hangs a chunky tile canvas beneath its row (the image node's pixelated
-// preview, always on): a checkered navy floor you build machines on in
-// alt+e's painter — directional CONVEYOR BELTS laid along the direction you
-// drag (space paints a belt pointing the way the cursor last moved), steel
-// DRILLS that produce items, amber CORES that collect them. alt+r brings the
-// floor to life: drills emit yellow items onto neighboring belts, items ride
-// the belts one tile per beat, queue up when the line jams (belt
-// backpressure), and vanish into cores — the row chip counts what the node's
-// cores have collected. alt+r again stops and restores the drawing.
+// The circuit node ▚ — a factory LANE drawn into the row itself, the image
+// node's inline look: the body IS a one-line half-block tile strip (a
+// checkered navy floor, each tile 2×2 pixels), nothing hangs beneath and
+// nothing expands. Resting the cursor on the node focuses the lane like the
+// Code node (no alt+e): ←/→ walk the white cursor tile, space lays a CONVEYOR
+// BELT flowing the way you last moved, r spins it (> v < ^), d places a
+// DRILL, o a CORE, x erases. alt+r brings the lane to life: drills emit
+// yellow items, items ride the belts one tile per beat with real
+// backpressure, cores collect them and the tail chip tallies the count;
+// alt+r again stops and restores the drawing.
 //
-// Machines COMPOSE: contiguous circuit-typed SIBLINGS fuse their floors
-// top-to-bottom into ONE board, so belts carry items across node seams and a
-// stack of nodes is a single live factory. The drawing persists in
-// node_output (local, never synced — like image pixels); items, drill timers
-// and core tallies are ephemeral package state, gone on restart.
+// Machines COMPOSE vertically: contiguous circuit-typed SIBLINGS fuse their
+// lanes into ONE board, one lane per row — a v belt hands its item to the
+// sibling lane below, ^ to the one above, so a stack of one-line nodes is a
+// little Mindustry floor. The drawing persists in node_output (local, never
+// synced — like image pixels); items, drill timers and tallies are ephemeral
+// package state, gone on restart.
 //
 // WARNING (invariant): the simulation never runs on its own — alt+r only.
 
-// The floor: tiles, each drawn 2×2 half-block pixels (one text character is
-// 1 tile wide, one text row is 1 tile tall). Every canvas is tileW wide so
-// stacked nodes seam cleanly.
-const (
-	tileW = 22
-	tileH = 5
-)
+// The lane: tileW tiles, each 2 chars wide × 1 text row tall (2×2 half-block
+// pixels). Every lane is tileW wide so stacked nodes seam cleanly.
+const tileW = 20
 
 const (
 	circTickEvery  = 110 * time.Millisecond
 	circDrillEvery = 5 // beats between drill emissions
 )
 
-// tile values (also the persisted row runes). Belts carry their direction.
+// tile values (also the persisted row runes). Belts carry their direction:
+// > < flow along the lane, v ^ hand off to the sibling lane below/above.
 const (
 	tileEmpty = '.'
 	tileBeltR = '>'
@@ -56,7 +54,7 @@ const (
 )
 
 // circDirs maps a belt tile to its flow direction.
-var circDirs = map[byte][2]int{ // {dy, dx}
+var circDirs = map[byte][2]int{ // {dlane, dx}
 	tileBeltR: {0, 1},
 	tileBeltL: {0, -1},
 	tileBeltU: {-1, 0},
@@ -65,10 +63,10 @@ var circDirs = map[byte][2]int{ // {dy, dx}
 
 func circIsBelt(t byte) bool { _, ok := circDirs[t]; return ok }
 
-// circRotate spins a belt clockwise (the painter's r key).
+// circRotate spins a belt clockwise (the r key).
 var circRotate = map[byte]byte{tileBeltR: tileBeltD, tileBeltD: tileBeltL, tileBeltL: tileBeltU, tileBeltU: tileBeltR}
 
-// The floor palette — dark blue metal + yellow items.
+// The lane palette — dark blue metal + yellow items.
 var (
 	pxFloorA = [3]int{13, 19, 33} // the checkered floor
 	pxFloorB = [3]int{17, 24, 41}
@@ -77,43 +75,43 @@ var (
 	pxDrill  = [3]int{140, 165, 215} // drill housing
 	pxCore   = [3]int{216, 166, 64}  // core block
 	pxItem   = [3]int{255, 215, 95}  // an item riding a belt
-	pxCursor = [3]int{245, 245, 245} // the painter crosshair
+	pxCursor = [3]int{245, 245, 245} // the builder cursor tile
 )
 
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
 		Key: database.TypeCircuit, Label: "Circuit",
-		InlineEditable: true, // the row text is the machine's label
+		InlineEditable: false, // the body is the lane strip, not text
+		AutoFocus:      true,  // rest the cursor on the row to build, like Code
 		Glyph:          func() (string, string) { return "▚", facBlue },
-		BaseColor:      func() string { return facBlue },
-		Prefix:         circPrefix,
+		Render:         circRender,
 		Run:            circToggle,
 		View:           circView{},
-		Preview:        circPreview,
 		ToContext:      circContext,
 		OnRemove:       circOnRemove,
 	})
 }
 
-// The family palette (the row chrome): dark blue + yellow.
+// The family chrome: dark blue + yellow.
 const (
-	facBlue = "\x1b[38;2;100;148;220m" // steel blue — glyph + label
+	facBlue = "\x1b[38;2;100;148;220m" // steel blue — glyph + caption
 	facDeep = "\x1b[38;2;58;92;150m"   // dark blue — chrome
 )
 
-// ── floor state ─────────────────────────────────────────────────────────────
+// ── lane state ──────────────────────────────────────────────────────────────
 
-// circGrids holds each node's LIVE floor (edits and simulation both act on
-// it); circItems the items riding its belts; circScores what its cores have
-// collected this run; circCursors/circLastDir the painter's crosshair and its
-// last movement (belts are laid along it). All package state keyed by uuid —
-// ephemeral, event-loop only.
+// circGrids holds each node's LIVE lane (edits and simulation both act on
+// it); circItems the items riding it; circScores what its cores collected
+// this run; circCursors/circLastDir the builder cursor and its last
+// horizontal move (belts lay along it); circFocus the lane being built on.
+// All package state keyed by uuid — ephemeral, event-loop only.
 var (
-	circGrids   = map[string][][]byte{}
-	circItems   = map[string][][]bool{}
+	circGrids   = map[string][]byte{}
+	circItems   = map[string][]bool{}
 	circScores  = map[string]int{}
-	circCursors = map[string][2]int{}
+	circCursors = map[string]int{}
 	circLastDir = map[string]byte{}
+	circFocus   = ""
 	circRuns    = map[string]*circRun{}
 )
 
@@ -124,26 +122,11 @@ type circData struct {
 	Rows []string `json:"rows"`
 }
 
-func circBlank() [][]byte {
-	g := make([][]byte, tileH)
-	for y := range g {
-		g[y] = []byte(strings.Repeat(string(rune(tileEmpty)), tileW))
-	}
-	return g
-}
+func circBlank() []byte { return []byte(strings.Repeat(string(rune(tileEmpty)), tileW)) }
 
-func circNoItems() [][]bool {
-	it := make([][]bool, tileH)
-	for y := range it {
-		it[y] = make([]bool, tileW)
-	}
-	return it
-}
-
-// circGridOf returns the node's live floor, loading the persisted drawing on
-// first touch (blank floor when none). Rows normalize to tileW×tileH so
-// stacked floors always seam.
-func circGridOf(h editor.NodeHost, uuid string) [][]byte {
+// circGridOf returns the node's live lane, loading the persisted drawing on
+// first touch (blank lane when none). Normalized to tileW so stacks seam.
+func circGridOf(h editor.NodeHost, uuid string) []byte {
 	if g, ok := circGrids[uuid]; ok {
 		return g
 	}
@@ -151,14 +134,12 @@ func circGridOf(h editor.NodeHost, uuid string) [][]byte {
 	if db := h.NodeDB(); db != nil {
 		if raw, err := database.LoadNodeOutput(db, uuid); err == nil && raw != "" {
 			var d circData
-			if json.Unmarshal([]byte(raw), &d) == nil {
-				for y := 0; y < tileH && y < len(d.Rows); y++ {
-					row := []byte(d.Rows[y])
-					for x := 0; x < tileW && x < len(row); x++ {
-						switch row[x] {
-						case tileBeltR, tileBeltL, tileBeltU, tileBeltD, tileDrill, tileCore:
-							g[y][x] = row[x]
-						}
+			if json.Unmarshal([]byte(raw), &d) == nil && len(d.Rows) > 0 {
+				row := []byte(d.Rows[0])
+				for x := 0; x < tileW && x < len(row); x++ {
+					switch row[x] {
+					case tileBeltR, tileBeltL, tileBeltU, tileBeltD, tileDrill, tileCore:
+						g[x] = row[x]
 					}
 				}
 			}
@@ -168,42 +149,29 @@ func circGridOf(h editor.NodeHost, uuid string) [][]byte {
 	return g
 }
 
-func circItemsOf(uuid string) [][]bool {
+func circItemsOf(uuid string) []bool {
 	if it, ok := circItems[uuid]; ok {
 		return it
 	}
-	it := circNoItems()
+	it := make([]bool, tileW)
 	circItems[uuid] = it
 	return it
 }
 
-// circSave persists the node's live floor as its drawing.
+// circSave persists the node's live lane as its drawing.
 func circSave(h editor.NodeHost, uuid string) {
 	db := h.NodeDB()
 	if db == nil {
 		return
 	}
-	g := circGridOf(h, uuid)
-	rows := make([]string, len(g))
-	for y := range g {
-		rows[y] = string(g[y])
-	}
-	if raw, err := json.Marshal(circData{W: tileW, H: tileH, Rows: rows}); err == nil {
+	if raw, err := json.Marshal(circData{W: tileW, H: 1, Rows: []string{string(circGridOf(h, uuid))}}); err == nil {
 		_ = database.SaveNodeOutput(db, uuid, string(raw))
 	}
 }
 
-func circCopy(g [][]byte) [][]byte {
-	out := make([][]byte, len(g))
-	for y := range g {
-		out[y] = append([]byte(nil), g[y]...)
-	}
-	return out
-}
-
 // ── the live factory ────────────────────────────────────────────────────────
 
-// circStack returns the fused board's members: the maximal run of contiguous
+// circStack returns the fused board's lanes: the maximal run of contiguous
 // circuit-typed siblings around n, top-down.
 func circStack(n editor.NodeRef) []editor.NodeRef {
 	sibs := n.Siblings()
@@ -227,15 +195,15 @@ func circStack(n editor.NodeRef) []editor.NodeRef {
 	return sibs[lo : hi+1]
 }
 
-// circRun is one live factory over a fused board.
+// circRun is one live factory over a fused board (one lane per member).
 type circRun struct {
-	uuids []string            // stack members, top-down
-	snaps map[string][][]byte // the drawing as it was — restored on stop
+	uuids []string          // stack members, top-down
+	snaps map[string][]byte // the drawing as it was — restored on stop
 	beat  int
 	stop  bool
 }
 
-// circToggle (alt+r) brings the stack's floor to life, or stops it and
+// circToggle (alt+r) brings the stack's lanes to life, or stops them and
 // restores the drawing.
 func circToggle(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 	if r := circRuns[n.UUID()]; r != nil {
@@ -244,13 +212,13 @@ func circToggle(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 		return nil
 	}
 	stack := circStack(n)
-	r := &circRun{snaps: map[string][][]byte{}}
+	r := &circRun{snaps: map[string][]byte{}}
 	for _, m := range stack {
 		u := m.UUID()
-		circSave(h, u) // running is committing: the floor you see is the drawing you keep
+		circSave(h, u) // running is committing: the lane you see is the drawing you keep
 		r.uuids = append(r.uuids, u)
-		r.snaps[u] = circCopy(circGridOf(h, u))
-		circItems[u] = circNoItems()
+		r.snaps[u] = append([]byte(nil), circGridOf(h, u)...)
+		circItems[u] = make([]bool, tileW)
 		circScores[u] = 0
 		circRuns[u] = r
 	}
@@ -267,13 +235,13 @@ func circStopRun(r *circRun) {
 		if snap, ok := r.snaps[u]; ok {
 			circGrids[u] = snap
 		}
-		circItems[u] = circNoItems()
+		circItems[u] = make([]bool, tileW)
 		delete(circRuns, u)
 	}
 }
 
 // circOnRemove stops the factory a removed node belongs to and drops its
-// floor state.
+// lane state.
 func circOnRemove(h editor.NodeHost, uuid string) {
 	if r := circRuns[uuid]; r != nil {
 		circStopRun(r)
@@ -283,6 +251,9 @@ func circOnRemove(h editor.NodeHost, uuid string) {
 	delete(circScores, uuid)
 	delete(circCursors, uuid)
 	delete(circLastDir, uuid)
+	if circFocus == uuid {
+		circFocus = ""
+	}
 }
 
 // circTickMsg is one factory beat (editor.NodePluginMsg).
@@ -293,88 +264,80 @@ func circTickCmd(r *circRun) tea.Cmd {
 }
 
 // HandleNodePlugin advances the fused board one beat and re-arms while the
-// run lives: items ride belts (backpressure included), cores collect, drills
-// emit.
+// run lives.
 func (msg circTickMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 	r := msg.run
 	if r.stop {
 		return nil
 	}
-	// fuse member floors and item layers top-to-bottom — belts carry across
-	// the node seams because the board steps as one grid
-	var board [][]byte
-	var items [][]bool
-	for _, u := range r.uuids {
-		board = append(board, circGridOf(h, u)...)
-		items = append(items, circItemsOf(u)...)
+	board := make([][]byte, len(r.uuids))
+	items := make([][]bool, len(r.uuids))
+	for i, u := range r.uuids {
+		board[i] = circGridOf(h, u)
+		items[i] = circItemsOf(u)
 	}
-	scored := circStepBoard(board, items, r.beat)
-	for at, count := range scored {
-		u := r.uuids[at/tileH]
-		circScores[u] += count
+	for lane, count := range circStepBoard(board, items, r.beat) {
+		circScores[r.uuids[lane]] += count
 	}
 	r.beat++
-	for i, u := range r.uuids {
-		circItems[u] = items[i*tileH : (i+1)*tileH]
-	}
 	return circTickCmd(r)
 }
 
-// circStepBoard is one beat over a fused board: items advance along their
-// belt's direction when the next tile is free (multi-pass, so a convoy moves
-// as one), a core consumes what reaches it, and every circDrillEvery-th beat
-// each drill emits onto its free neighboring belts. Returns items collected
-// per core row (keyed by the core's board row, for score attribution).
+// circStepBoard is one beat over a fused board (lane per row): items advance
+// along their belt's direction when the next tile is free (multi-pass, so a
+// convoy moves as one), a core consumes what reaches it, and every
+// circDrillEvery-th beat each drill emits onto its free neighboring belts.
+// Returns items collected per lane. Mutates board's item layers in place.
 func circStepBoard(board [][]byte, items [][]bool, beat int) map[int]int {
-	hh := len(board)
-	if hh == 0 {
+	lanes := len(board)
+	if lanes == 0 {
 		return nil
 	}
 	ww := len(board[0])
 	scored := map[int]int{}
-	settled := make([][]bool, hh) // an item moves at most one tile per beat
-	for y := range settled {
-		settled[y] = make([]bool, ww)
+	settled := make([][]bool, lanes) // an item moves at most one tile per beat
+	for l := range settled {
+		settled[l] = make([]bool, ww)
 	}
 	for pass, moved := 0, true; moved && pass < 8; pass++ {
 		moved = false
-		for y := 0; y < hh; y++ {
+		for l := 0; l < lanes; l++ {
 			for x := 0; x < ww; x++ {
-				if !items[y][x] || settled[y][x] {
+				if !items[l][x] || settled[l][x] {
 					continue
 				}
-				d, ok := circDirs[board[y][x]]
+				d, ok := circDirs[board[l][x]]
 				if !ok {
 					continue // an item stranded off-belt just sits
 				}
-				ny, nx := y+d[0], x+d[1]
-				if ny < 0 || ny >= hh || nx < 0 || nx >= ww {
+				nl, nx := l+d[0], x+d[1]
+				if nl < 0 || nl >= lanes || nx < 0 || nx >= ww {
 					continue // belts never dump items off the board — the line backs up
 				}
 				switch {
-				case board[ny][nx] == tileCore:
-					items[y][x] = false
-					scored[ny]++
+				case board[nl][nx] == tileCore:
+					items[l][x] = false
+					scored[nl]++
 					moved = true
-				case circIsBelt(board[ny][nx]) && !items[ny][nx]:
-					items[y][x] = false
-					items[ny][nx] = true
-					settled[ny][nx] = true
+				case circIsBelt(board[nl][nx]) && !items[nl][nx]:
+					items[l][x] = false
+					items[nl][nx] = true
+					settled[nl][nx] = true
 					moved = true
 				}
 			}
 		}
 	}
 	if beat%circDrillEvery == 0 {
-		for y := 0; y < hh; y++ {
+		for l := 0; l < lanes; l++ {
 			for x := 0; x < ww; x++ {
-				if board[y][x] != tileDrill {
+				if board[l][x] != tileDrill {
 					continue
 				}
 				for _, d := range [][2]int{{-1, 0}, {0, 1}, {1, 0}, {0, -1}} {
-					ny, nx := y+d[0], x+d[1]
-					if ny >= 0 && ny < hh && nx >= 0 && nx < ww && circIsBelt(board[ny][nx]) && !items[ny][nx] {
-						items[ny][nx] = true
+					nl, nx := l+d[0], x+d[1]
+					if nl >= 0 && nl < lanes && nx >= 0 && nx < ww && circIsBelt(board[nl][nx]) && !items[nl][nx] {
+						items[nl][nx] = true
 					}
 				}
 			}
@@ -383,29 +346,15 @@ func circStepBoard(board [][]byte, items [][]bool, beat int) map[int]int {
 	return scored
 }
 
-// ── the look ────────────────────────────────────────────────────────────────
+// ── the inline look ─────────────────────────────────────────────────────────
 
-// circPrefix chips the row while the factory is live — with the tally its
-// cores have collected.
-func circPrefix(uuid string) string {
-	if circRuns[uuid] == nil {
-		return ""
-	}
-	th := editor.NodeTheme()
-	chip := "live"
-	if s := circScores[uuid]; s > 0 {
-		chip = fmt.Sprintf("live %d", s)
-	}
-	return th.Yellow + chip + " " + th.Reset
-}
-
-// circTilePx returns a tile's four pixels ([col][row], 2×2) — the chunky
-// block look: checkered floor, belts with a bright leading edge pointing
-// their direction, steel drills, amber cores, items as full yellow squares.
-func circTilePx(t byte, item bool, tx, ty int) [2][2][3]int {
+// circTilePx returns a tile's four pixels ([col][row], 2×2) — chunky blocks:
+// checkered floor, belts with a bright leading edge, steel drills, amber
+// cores, items as full yellow squares.
+func circTilePx(t byte, item bool, tx int) [2][2][3]int {
 	var px [2][2][3]int
 	floor := pxFloorA
-	if (tx+ty)%2 == 1 {
+	if tx%2 == 1 {
 		floor = pxFloorB
 	}
 	fill := func(c [3]int) {
@@ -437,54 +386,49 @@ func circTilePx(t byte, item bool, tx, ty int) [2][2][3]int {
 	return px
 }
 
-// circBandLines renders a floor as half-block tile rows (one text row per
-// tile row, two pixels per cell); cursor ≥ 0 tile coordinates paint the
-// painter's crosshair tile white.
-func circBandLines(g [][]byte, items [][]bool, rail string, cx, cy int) []string {
-	th := editor.NodeTheme()
-	out := make([]string, 0, len(g))
-	for ty := range g {
-		var b strings.Builder
-		b.WriteString(rail + th.Reset + "  ")
-		for tx := range g[ty] {
-			item := items != nil && items[ty][tx]
-			px := circTilePx(g[ty][tx], item, tx, ty)
-			if tx == cx && ty == cy {
-				px[0][0], px[0][1], px[1][0], px[1][1] = pxCursor, pxCursor, pxCursor, pxCursor
-			}
-			for col := 0; col < 2; col++ {
-				up, lo := px[col][0], px[col][1]
-				fmt.Fprintf(&b, "\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm▀",
-					up[0], up[1], up[2], lo[0], lo[1], lo[2])
-			}
+// circStrip renders the lane as one run of half-block characters; cursor ≥ 0
+// paints the builder's tile white.
+func circStrip(g []byte, items []bool, cursor int) string {
+	var b strings.Builder
+	for tx := 0; tx < len(g); tx++ {
+		px := circTilePx(g[tx], items != nil && items[tx], tx)
+		if tx == cursor {
+			px[0][0], px[0][1], px[1][0], px[1][1] = pxCursor, pxCursor, pxCursor, pxCursor
 		}
-		b.WriteString(th.Reset)
-		out = append(out, b.String())
+		for col := 0; col < 2; col++ {
+			up, lo := px[col][0], px[col][1]
+			fmt.Fprintf(&b, "\x1b[38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm▀",
+				up[0], up[1], up[2], lo[0], lo[1], lo[2])
+		}
 	}
-	return out
+	return b.String()
 }
 
-// circPreview is the always-on pixelated preview beneath the closed row (the
-// image-node look); the painter's bands take over while the view is focused.
-func circPreview(h editor.NodeHost, n editor.NodeRef, rail string, maxLine int, focused bool) []string {
-	if focused {
-		return nil
+// circRender is the whole inline body — the lane strip plus an image-style
+// dim tail: the live tally or the run hint, then the caption (the node name).
+func circRender(h editor.NodeHost, n editor.NodeRef) string {
+	th := editor.NodeTheme()
+	u := n.UUID()
+	cursor := -1
+	if circFocus == u && circRuns[u] == nil {
+		cursor = circCursors[u]
 	}
-	lines := circBandLines(circGridOf(h, n.UUID()), circItemsOf(n.UUID()), rail, -1, -1)
-	for i := range lines {
-		lines[i] = editor.NodeClip(lines[i], maxLine)
+	line := circStrip(circGridOf(h, u), circItemsOf(u), cursor) + th.Reset
+	switch {
+	case circRuns[u] != nil:
+		line += " " + th.Yellow + fmt.Sprintf("live %d", circScores[u]) + th.Reset
+	default:
+		line += " " + th.Dim + "⌥r run" + th.Reset
 	}
-	return lines
+	if caption := strings.TrimSpace(n.Text()); caption != "" {
+		line += th.Dim + " · " + th.Reset + facBlue + caption + th.Reset
+	}
+	return line
 }
 
-// circContext hands an agent the floor as its tile rows (> < ^ v belts,
+// circContext hands an agent the lane as its tile row (> < ^ v belts,
 // D drill, O core, . floor).
 func circContext(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
-	g := circGridOf(h, n.UUID())
-	rows := make([]string, len(g))
-	for y := range g {
-		rows[y] = string(g[y])
-	}
 	live := ""
 	if circRuns[n.UUID()] != nil {
 		live = fmt.Sprintf(` live="true" collected="%d"`, circScores[n.UUID()])
@@ -493,36 +437,42 @@ func circContext(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
 	if body != "" {
 		body += "\n"
 	}
-	return "circuit", fmt.Sprintf(`w="%d" h="%d"%s`, tileW, tileH, live), body + strings.Join(rows, "\n")
+	return "circuit", fmt.Sprintf(`w="%d"%s`, tileW, live), body + string(circGridOf(h, n.UUID()))
 }
 
-// ── the painter (alt+e) ─────────────────────────────────────────────────────
+// ── building, inline (no expansion) ─────────────────────────────────────────
 
-// circView is the builder: the same tile bands with a white cursor tile.
-// Belts are laid the Mindustry way — space paints one pointing the direction
-// the cursor last moved, so dragging a path and tapping space leaves a
-// flowing line. Stateless; cursor and floor in package state, persisted on
-// leave.
+// circView is the inline builder: it renders NOTHING (Lines 0 — the row's own
+// strip is the surface, the white cursor tile the only cue) and only captures
+// keys while the cursor rests on the node (AutoFocus). ←/→ walk the lane,
+// space lays a belt along the last move, r spins, d drill, o core, x erases;
+// ↑/↓/esc fall through to the outline.
 type circView struct{}
 
 func (circView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
-	circGridOf(h, n.UUID()) // make sure the floor is loaded
-	if _, ok := circCursors[n.UUID()]; !ok {
-		circCursors[n.UUID()] = [2]int{tileW / 2, tileH / 2}
-		circLastDir[n.UUID()] = tileBeltR
+	u := n.UUID()
+	circGridOf(h, u) // make sure the lane is loaded
+	if _, ok := circCursors[u]; !ok {
+		circCursors[u] = tileW / 2
+		circLastDir[u] = tileBeltR
 	}
+	circFocus = u
 	return true
 }
 
-// Leave persists the drawing.
 func (circView) Leave(h editor.NodeHost, n editor.NodeRef) {
-	if circRuns[n.UUID()] == nil { // a live floor is transient — don't save items mid-flight
+	if circFocus == n.UUID() {
+		circFocus = ""
+	}
+	if circRuns[n.UUID()] == nil { // a live lane is transient — don't save items mid-flight
 		circSave(h, n.UUID())
 	}
 }
 
-func (circView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
-	return 1 + tileH
+func (circView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int { return 0 }
+
+func (circView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
+	return nil
 }
 
 func (circView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
@@ -533,27 +483,21 @@ func (circView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd,
 			h.NodeFlash("factory is live · ⌥r stops it first")
 			return
 		}
-		circGridOf(h, u)[cur[1]][cur[0]] = v
+		circGridOf(h, u)[cur] = v
 	}
 	switch k.String() {
 	case "alt+r":
 		return circToggle(h, n), true
 	case "left":
-		cur[0]--
+		cur--
 		circLastDir[u] = tileBeltL
 	case "right":
-		cur[0]++
+		cur++
 		circLastDir[u] = tileBeltR
-	case "up":
-		cur[1]--
-		circLastDir[u] = tileBeltU
-	case "down":
-		cur[1]++
-		circLastDir[u] = tileBeltD
-	case " ", "b", "enter":
-		place(circLastDir[u]) // a belt flowing the way you're dragging
-	case "r": // spin the belt under the cursor
-		if t := circGridOf(h, u)[cur[1]][cur[0]]; circIsBelt(t) {
+	case " ", "b":
+		place(circLastDir[u]) // a belt flowing the way you're moving
+	case "r": // spin the belt under the cursor: > v < ^
+		if t := circGridOf(h, u)[cur]; circIsBelt(t) {
 			place(circRotate[t])
 		}
 	case "d":
@@ -567,39 +511,14 @@ func (circView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd,
 			place(circLastDir[u])
 			return nil, true
 		}
-		return nil, false // esc, ctrl+c … → central
+		return nil, false // up/down/esc/enter … → the outline keeps them
 	}
-	if cur[0] < 0 {
-		cur[0] = 0
+	if cur < 0 {
+		cur = 0
 	}
-	if cur[0] >= tileW {
-		cur[0] = tileW - 1
-	}
-	if cur[1] < 0 {
-		cur[1] = 0
-	}
-	if cur[1] >= tileH {
-		cur[1] = tileH - 1
+	if cur >= tileW {
+		cur = tileW - 1
 	}
 	circCursors[u] = cur
 	return nil, true
-}
-
-func (circView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
-	th := editor.NodeTheme()
-	u := n.UUID()
-	hdr := "  factory · space belt (flows with your drag) · d drill · o core · r spin · x erase · ⌥r run"
-	if circRuns[u] != nil {
-		hdr = "  factory · live · ⌥r stops · esc close"
-	}
-	cx, cy := -1, -1
-	if focused && circRuns[u] == nil {
-		c := circCursors[u]
-		cx, cy = c[0], c[1]
-	}
-	content := []string{editor.NodeClip(rail+th.Reset+th.Dim+hdr+th.Reset, width)}
-	for _, l := range circBandLines(circGridOf(h, u), circItemsOf(u), rail, cx, cy) {
-		content = append(content, editor.NodeClip(l, width))
-	}
-	return editor.NodeWindowBands(content, 0, winH)
 }
