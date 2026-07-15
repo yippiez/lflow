@@ -134,7 +134,11 @@ type NodePlugin struct {
 	// face is handled by AutoFocus. The face lives in the node store under the key
 	// NodeBlockFace reads. Pair with AutoFocus + BlockCode.
 	BlockFaces bool
-	CLIDeps    []string
+	// ContinueOnEnter makes Enter from this type open another node of the same
+	// type — the todo-list continuation (a pipeline of mlop primitives stays
+	// mlop line after line).
+	ContinueOnEnter bool
+	CLIDeps         []string
 
 	Glyph     func() (string, string) // static glyph + SGR (per-node glyphs stay core for now)
 	BaseColor func() string           // body SGR; nil/"" default
@@ -179,13 +183,14 @@ var nodePluginRemovals []func(h NodeHost, uuid string)
 // context all pick it up like a built-in.
 func RegisterNodePlugin(p NodePlugin) {
 	nt := nodeType{
-		key:            p.Key,
-		label:          p.Label,
-		sign:           p.Sign,
-		inlineEditable: p.InlineEditable,
-		autoFocus:      p.AutoFocus,
-		blockFaces:     p.BlockFaces,
-		cliDeps:        p.CLIDeps,
+		key:             p.Key,
+		label:           p.Label,
+		sign:            p.Sign,
+		inlineEditable:  p.InlineEditable,
+		autoFocus:       p.AutoFocus,
+		blockFaces:      p.BlockFaces,
+		continueOnEnter: p.ContinueOnEnter,
+		cliDeps:         p.CLIDeps,
 	}
 	if p.Glyph != nil {
 		g := p.Glyph
