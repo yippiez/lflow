@@ -151,6 +151,79 @@ func TestMathToLatexShapes(t *testing.T) {
 	}
 }
 
+func TestMathToLatexOperators(t *testing.T) {
+	cases := []struct {
+		name string
+		it   *item
+		want string
+	}{
+		{"logical and node", mop("and", mleaf("a"), mleaf("b")), `a \land b`},
+		{"logical or node", mop("or", mleaf("p"), mleaf("q")), `p \lor q`},
+		{"xor node", mop("xor", mleaf("a"), mleaf("b")), `a \oplus b`},
+		{"mod node", mop("mod", mleaf("a"), mleaf("n")), `a \bmod n`},
+		{"right shift node", mop(">>", mleaf("a"), mleaf("n")), `a \gg n`},
+		{"left shift node", mop("<<", mleaf("a"), mleaf("n")), `a \ll n`},
+		{"symbolic and node", mop("&&", mleaf("x"), mleaf("y")), `x \land y`},
+		{"not equal node", mop("!=", mleaf("a"), mleaf("b")), `a \neq b`},
+		{"assign node", mop(":=", mleaf("x"), mop("+", mleaf("x"), mleaf("1"))), `x \coloneqq x + 1`},
+		{"implies node", mop("=>", mleaf("a"), mleaf("b")), `a \Rightarrow b`},
+		{"einsum function", mop("einsum", mleaf("ij,jk->ik"), mleaf("A"), mleaf("B")),
+			`\operatorname{einsum}(ij,jk\to ik, A, B)`},
+		{"softmax function", mop("softmax", mleaf("z")), `\operatorname{softmax}(z)`},
+		// atom-level operator conversion
+		{"atom right shift", mleaf("a >> n"), `a \gg n`},
+		{"atom logical words", mleaf("not(a and b)"), `\lnot(a \land b)`},
+		{"atom not equal", mleaf("a != b"), `a \neq b`},
+		{"atom einstein sum", mleaf("cᵢₖ = aᵢⱼ bⱼₖ"), `c_{ik} = a_{ij} b_{jk}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := mathToLatex(c.it); got != c.want {
+				t.Errorf("mathToLatex()\n  got  %q\n  want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestMathNonsensical pins the "nonsensical AST does not work" contract: a
+// malformed tree must never crash and must never fake a valid structure. A
+// fraction/power with the wrong number of operands degrades to a neutral
+// fallback (no \frac / no ^{}), and a garbage operator is passed through literally.
+func TestMathNonsensical(t *testing.T) {
+	cases := []struct {
+		name        string
+		it          *item
+		wantLatex   string // exact fallback
+		mustNotHave string // structure it must NOT fabricate ("" = skip)
+	}{
+		{"fraction one operand", mop("÷", mleaf("a")), `\div a`, `\frac`},
+		{"fraction three operands", mop("÷", mleaf("a"), mleaf("b"), mleaf("c")), `\div a b c`, `\frac`},
+		{"power one operand", mop("^", mleaf("a")), `^ a`, `^{`},
+		{"subscript zero operands is leaf", mleaf("_"), `_`, `_{`},
+		{"radical no operand is leaf", mleaf("√"), `\sqrt`, `\sqrt{`},
+		{"relation one operand drops operator", mop("=", mleaf("a")), `a`, `=`},
+		{"garbage operator passes through", mop("@@@", mleaf("a"), mleaf("b")), `@@@ a b`, `\frac`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := mathToLatex(c.it) // must not panic
+			if got != c.wantLatex {
+				t.Errorf("mathToLatex()\n  got  %q\n  want %q", got, c.wantLatex)
+			}
+			if c.mustNotHave != "" && strings.Contains(got, c.mustNotHave) {
+				t.Errorf("nonsensical tree fabricated %q in %q", c.mustNotHave, got)
+			}
+			// preview and body tail must also survive without panicking
+			_ = mathPreview(c.it)
+			_ = mathBodyTail(c.it)
+		})
+	}
+	// an empty-name operator with children must not panic and must not fake a frac.
+	if got := mathToLatex(mop("", mleaf("a"), mleaf("b"))); strings.Contains(got, `\frac`) {
+		t.Errorf("empty operator fabricated a fraction: %q", got)
+	}
+}
+
 func TestMathToContext(t *testing.T) {
 	cx := mathToContext(mop("=", mleaf("E"), mop("×", mleaf("m"), mleaf("c²"))))
 	if cx.tag != "math" {

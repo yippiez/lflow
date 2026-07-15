@@ -81,7 +81,10 @@ per-feature column — and no scattered `switch typ`:
    composed AS an outline: a node's text is an operator (colored yellow via the
    `spanColor` hook) with operands as children or a plain atom leaf; simple
    expressions stay inline, complex ones fan into a child tree and the operator
-   row shows a dim linear preview of its subtree via the `bodyTail` hook;
+   row shows a dim linear preview of its subtree via the `bodyTail` hook; alt+r
+   exports any subtree as LaTeX (mathToLatex) into the run band, and one symbol
+   table (mathSym) drives both operator coloring and LaTeX — arithmetic, Greek,
+   relations, calculus, set/logic, plus programming/bitwise/tensor operators;
    `bash.go` holds the shared
    shell-run machinery, `code.go` the shared multi-line **code block** —
    `codeBlockLines`: a borderless gray block (no rule box, no header) whose every

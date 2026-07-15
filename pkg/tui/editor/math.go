@@ -146,6 +146,10 @@ func buildMathSym() map[rune]mathSymInfo {
 	op("⋁", `\bigvee`)
 	op("⋃", `\bigcup`)
 	op("⋂", `\bigcap`)
+	op("~", `\sim`)
+	op("⊻", `\veebar`)
+	op("⊼", `\barwedge`)
+	op("⊽", `\barvee`)
 
 	// lowercase Greek
 	sym('α', `\alpha`)
@@ -253,17 +257,88 @@ var mathSub = map[rune]string{
 
 var mathBrackets = map[rune]bool{'(': true, ')': true, '[': true, ']': true, '{': true, '}': true}
 
-// mathWords are multi-letter functions/operators tinted whole; the value is the
-// LaTeX command they export to (\sin, \lim, …).
+// mathWords are multi-letter FUNCTIONS tinted whole; the value is the LaTeX
+// command they export to (\sin, \lim, einsum, …). A function operator node wraps
+// its operands in parens: sin(θ), einsum(ij,jk->ik, A, B).
 var mathWords = map[string]string{
 	"lim": `\lim`, "sin": `\sin`, "cos": `\cos`, "tan": `\tan`, "cot": `\cot`,
 	"sec": `\sec`, "csc": `\csc`, "sinh": `\sinh`, "cosh": `\cosh`, "tanh": `\tanh`,
 	"arcsin": `\arcsin`, "arccos": `\arccos`, "arctan": `\arctan`,
 	"log": `\log`, "ln": `\ln`, "exp": `\exp`, "det": `\det`, "gcd": `\gcd`,
 	"min": `\min`, "max": `\max`, "sup": `\sup`, "inf": `\inf`, "arg": `\arg`,
-	"deg": `\deg`, "dim": `\dim`, "ker": `\ker`, "mod": `\bmod`, "Pr": `\Pr`,
+	"deg": `\deg`, "dim": `\dim`, "ker": `\ker`, "Pr": `\Pr`,
 	"tr": `\operatorname{tr}`, "sgn": `\operatorname{sgn}`, "sqrt": `\sqrt`,
 	"abs": `\operatorname{abs}`,
+	// tensor / ML / numerical
+	"einsum": `\operatorname{einsum}`, "argmax": `\operatorname{argmax}`,
+	"argmin": `\operatorname{argmin}`, "softmax": `\operatorname{softmax}`,
+	"diag": `\operatorname{diag}`, "rank": `\operatorname{rank}`,
+	"span": `\operatorname{span}`, "vec": `\operatorname{vec}`,
+}
+
+// mathKeywordOp are alphabetic INFIX/logical operators (a and b, x mod n) —
+// tinted yellow, each with its own LaTeX. Kept apart from mathWords because they
+// compose their operands infix, not as a function call.
+var mathKeywordOp = map[string]string{
+	"and": `\land`, "or": `\lor`, "not": `\lnot`, "xor": `\oplus`,
+	"nand": `\barwedge`, "nor": `\barvee`, "mod": `\bmod`, "div": `\operatorname{div}`,
+	"iff": `\iff`, "implies": `\implies`,
+}
+
+// mathMultiOp are multi-character SYMBOLIC operators — programming/logic tokens
+// (>> << && || -> => != <= >= := |=). Matched longest-first so "<=>" wins over
+// "<=". Used for atom coloring/LaTeX and as operator-node text.
+var mathMultiOp = map[string]string{
+	"<=>": `\Leftrightarrow`, "<->": `\leftrightarrow`,
+	"==": "=", "!=": `\neq`, "<=": `\leq`, ">=": `\geq`, ":=": `\coloneqq`,
+	"&&": `\land`, "||": `\lor`, "->": `\to`, "<-": `\leftarrow`, "=>": `\Rightarrow`,
+	">>": `\gg`, "<<": `\ll`, "|=": `\models`,
+}
+
+// mathSymOpTokens is mathMultiOp's keys sorted longest-first for greedy matching.
+var mathSymOpTokens = func() []string {
+	ks := make([]string, 0, len(mathMultiOp))
+	for k := range mathMultiOp {
+		ks = append(ks, k)
+	}
+	for i := 1; i < len(ks); i++ { // insertion sort by rune length desc (small set)
+		for j := i; j > 0 && len([]rune(ks[j])) > len([]rune(ks[j-1])); j-- {
+			ks[j], ks[j-1] = ks[j-1], ks[j]
+		}
+	}
+	return ks
+}()
+
+// mathWordLatex returns the LaTeX for a function word or alphabetic keyword op.
+func mathWordLatex(w string) (string, bool) {
+	if l, ok := mathWords[w]; ok {
+		return l, true
+	}
+	if l, ok := mathKeywordOp[w]; ok {
+		return l, true
+	}
+	return "", false
+}
+
+// matchSymOp reports the longest multi-char symbolic operator starting at rs[i].
+func matchSymOp(rs []rune, i int) (latex string, n int, ok bool) {
+	for _, tok := range mathSymOpTokens {
+		tr := []rune(tok)
+		if i+len(tr) <= len(rs) && string(rs[i:i+len(tr)]) == tok {
+			return mathMultiOp[tok], len(tr), true
+		}
+	}
+	return "", 0, false
+}
+
+// endsWithLetterCmd reports whether a LaTeX fragment is a command ending in a
+// letter (\sin, \land), so a following letter needs a separating space.
+func endsWithLetterCmd(lx string) bool {
+	if len(lx) == 0 || lx[0] != '\\' {
+		return false
+	}
+	r := []rune(lx)
+	return isMathLetter(r[len(r)-1])
 }
 
 func mathIsOpRune(r rune) bool { return mathSym[r].op }
@@ -278,24 +353,35 @@ func mathSpanColor(it *item, runes []rune) map[int]string {
 		return nil
 	}
 	out := make(map[int]string)
-	s := string(runes)
-	for kw := range mathWords {
-		for _, idx := range wordRuneIndices(s, kw) {
-			for k := idx; k < idx+len([]rune(kw)) && k < len(runes); k++ {
+	for i := 0; i < len(runes); {
+		// a multi-char symbolic operator (>>, &&, !=) tints as a whole token.
+		if _, n, ok := matchSymOp(runes, i); ok {
+			for k := i; k < i+n; k++ {
 				out[k] = cYellow
 			}
-		}
-	}
-	for i, r := range runes {
-		if _, taken := out[i]; taken {
+			i += n
 			continue
 		}
-		switch {
-		case mathIsOpRune(r):
+		// an alphabetic run: a function/keyword word (sin, einsum, and) tints whole.
+		if isMathLetter(runes[i]) {
+			j := i
+			for j < len(runes) && isMathLetter(runes[j]) {
+				j++
+			}
+			if _, ok := mathWordLatex(string(runes[i:j])); ok {
+				for k := i; k < j; k++ {
+					out[k] = cYellow
+				}
+			}
+			i = j
+			continue
+		}
+		if mathIsOpRune(runes[i]) {
 			out[i] = cYellow
-		case mathBrackets[r]:
+		} else if mathBrackets[runes[i]] {
 			out[i] = cDim
 		}
+		i++
 	}
 	return out
 }
@@ -360,12 +446,12 @@ func mathPreview(it *item) string {
 	}
 	switch op := name; {
 	case op == "÷" || op == "/":
-		if len(kids) >= 2 {
-			return mathWrap(kids[0]) + "/" + mathWrap(strings.Join(kids[1:], " "))
+		if len(kids) == 2 {
+			return mathWrap(kids[0]) + "/" + mathWrap(kids[1])
 		}
 	case op == "^" || op == "_":
-		if len(kids) >= 2 {
-			return mathWrap(kids[0]) + op + mathWrap(strings.Join(kids[1:], " "))
+		if len(kids) == 2 {
+			return mathWrap(kids[0]) + op + mathWrap(kids[1])
 		}
 	case mathIsRadical(op):
 		return "√(" + strings.Join(kids, ", ") + ")"
@@ -430,16 +516,18 @@ func mathToLatex(it *item) string {
 	}
 	switch op := name; {
 	case op == "÷" || op == "/":
-		if len(kids) >= 2 {
-			return `\frac{` + kids[0] + `}{` + strings.Join(kids[1:], " ") + `}`
+		// a fraction is strictly binary; wrong arity is a nonsensical tree and
+		// falls through to the neutral fallback rather than faking a \frac.
+		if len(kids) == 2 {
+			return `\frac{` + kids[0] + `}{` + kids[1] + `}`
 		}
 	case op == "^":
-		if len(kids) >= 2 {
-			return latexBase(kids[0]) + "^{" + strings.Join(kids[1:], " ") + "}"
+		if len(kids) == 2 {
+			return latexBase(kids[0]) + "^{" + kids[1] + "}"
 		}
 	case op == "_":
-		if len(kids) >= 2 {
-			return latexBase(kids[0]) + "_{" + strings.Join(kids[1:], " ") + "}"
+		if len(kids) == 2 {
+			return latexBase(kids[0]) + "_{" + kids[1] + "}"
 		}
 	case mathIsRadical(op):
 		root := `\sqrt`
@@ -463,12 +551,21 @@ func mathToLatex(it *item) string {
 	return latexAtom(name) + " " + strings.Join(kids, " ")
 }
 
-// latexAtom converts an atom's unicode to LaTeX: runs of super/subscripts fold
-// into ^{…}/_{…}, mapped symbols become their command, ASCII passes through.
+// latexAtom converts an atom's unicode to LaTeX: multi-char operators (!=, >>,
+// and) become their command, runs of super/subscripts fold into ^{…}/_{…},
+// mapped symbols become their command, ASCII passes through.
 func latexAtom(s string) string {
 	rs := []rune(s)
 	var b strings.Builder
 	for i := 0; i < len(rs); {
+		if lx, n, ok := matchSymOp(rs, i); ok {
+			b.WriteString(lx)
+			if endsWithLetterCmd(lx) && i+n < len(rs) && isMathLetter(rs[i+n]) {
+				b.WriteByte(' ')
+			}
+			i += n
+			continue
+		}
 		if inner, ok := mathSuper[rs[i]]; ok {
 			b.WriteString("^{")
 			b.WriteString(inner)
@@ -493,6 +590,25 @@ func latexAtom(s string) string {
 				b.WriteString(g)
 			}
 			b.WriteString("}")
+			continue
+		}
+		// an alphabetic run: a known function/keyword word becomes its command,
+		// anything else (a variable name) passes through verbatim.
+		if isMathLetter(rs[i]) {
+			j := i
+			for j < len(rs) && isMathLetter(rs[j]) {
+				j++
+			}
+			word := string(rs[i:j])
+			if lx, ok := mathWordLatex(word); ok {
+				b.WriteString(lx)
+				if endsWithLetterCmd(lx) && j < len(rs) && isMathLetter(rs[j]) {
+					b.WriteByte(' ')
+				}
+			} else {
+				b.WriteString(word)
+			}
+			i = j
 			continue
 		}
 		if info, ok := mathSym[rs[i]]; ok {
@@ -551,14 +667,19 @@ func latexNeedsParen(s string) bool {
 }
 
 func latexOp(op string) string {
+	if l, ok := mathMultiOp[op]; ok {
+		return l
+	}
+	if l, ok := mathKeywordOp[op]; ok {
+		return l
+	}
 	var b strings.Builder
-	for i, r := range []rune(op) {
+	for _, r := range []rune(op) {
 		if info, ok := mathSym[r]; ok {
 			b.WriteString(info.latex)
 		} else {
 			b.WriteRune(r)
 		}
-		_ = i
 	}
 	return b.String()
 }
@@ -596,11 +717,18 @@ func mathIsFunc(op string) bool {
 
 func mathIsBigOrFunc(op string) bool { return mathIsBigOp(op) || mathIsFunc(op) }
 
-// mathIsInfix reports an operator made only of operator runes and not one of the
-// special-cased shapes above — so it composes its children with an infix join.
+// mathIsInfix reports an operator that composes its children with an infix join:
+// a symbolic/alphabetic keyword operator (&&, ->, and, mod) or a run made only of
+// operator runes, excluding the special-cased shapes (÷ ^ _ √).
 func mathIsInfix(op string) bool {
 	if op == "" {
 		return false
+	}
+	if _, ok := mathMultiOp[op]; ok {
+		return true
+	}
+	if _, ok := mathKeywordOp[op]; ok {
+		return true
 	}
 	for _, r := range op {
 		if !mathIsOpRune(r) {
