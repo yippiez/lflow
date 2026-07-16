@@ -27,7 +27,7 @@ func TestCwdShort(t *testing.T) {
 }
 
 // TestBottomBarShowsCwd: the status bar paints process Getwd as the last two
-// path segments (cwd …/parent/leaf), not a stored path.
+// path segments (…/parent/leaf), without a redundant "cwd" label.
 func TestBottomBarShowsCwd(t *testing.T) {
 	m := newTestModel(120, "alpha")
 	lines := m.bottomBar(120)
@@ -39,9 +39,12 @@ func TestBottomBarShowsCwd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "cwd " + cwdShort(pwd)
-	if !strings.Contains(bar, want) {
-		t.Fatalf("status bar missing %q:\n%s", want, bar)
+	want := cwdShort(pwd)
+	if !strings.Contains(bar, " · "+want) {
+		t.Fatalf("status bar missing path %q:\n%s", want, bar)
+	}
+	if strings.Contains(bar, "cwd ") {
+		t.Fatalf("status bar should show only the path, not a cwd label:\n%s", bar)
 	}
 	// must not dump the full path when deeper than two segments
 	if segs := strings.Split(filepath.Clean(pwd), string(filepath.Separator)); len(segs) > 3 {

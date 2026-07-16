@@ -697,11 +697,11 @@ func (m *Model) bottomBar(maxLine int) []string {
 		title = "untitled"
 	}
 	bar := fmt.Sprintf(" %s · %d/%d", title, pos, total)
-	// process cwd, last two path segments — pure os.Getwd, never stored. $ and
+	// process path, last two segments — pure os.Getwd, never stored. $ and
 	// @ runs inherit this same directory at alt+r (see startBash / CLIClient).
 	if pwd, err := os.Getwd(); err == nil {
 		if short := cwdShort(pwd); short != "" {
-			bar += " · cwd " + short
+			bar += " · " + short
 		}
 	}
 	bar += state
