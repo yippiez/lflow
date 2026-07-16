@@ -9,6 +9,16 @@ when any other client (CLI, agents) writes. Everything is a node with a
 free-string `type`, and node types are an extensible registry — one descriptor
 per type in `pkg/tui/editor/registry.go`.
 
+## Working preferences
+
+- **One command, one entry per feature.** When the user asks for a new feature,
+  surface it behind a SINGLE command / single menu entry unless they say
+  otherwise. Variations (providers, modes, formats) are options WITHIN that one
+  entry — a sub-pick or an editor field — never extra top-level commands or
+  picker rows. Example: the coding-agent session chip is one `/insert` entry
+  ("agent") whose editor switches the agent variation (Claude Code, Pi); it is
+  NOT a per-agent entry each.
+
 ## Build / test / run
 
 - Always build with the fts5 tag (required by SQLite FTS5 node triggers):
@@ -173,6 +183,15 @@ binary), and the status bar being the last rendered line.
 Remaining doc-level rules:
 
 - Never auto-run runnable nodes (alt+r only).
+- Coding-agent **session chips** (`pkg/tui/editor/sessionchip.go`): a single chip
+  kind (`coding_session`) inserted via `/insert` → "agent"; the provider (Claude
+  Code, Pi) is a VARIATION stored in the chip Value and switched with ←/→ in its
+  alt+e editor (provider / name / session id / cwd). It renders as an "inset box"
+  pill — bold provider badge (CC/PI) + name on a mid-tint body, size in a recessed
+  box — painted by `renderSessionChip` while `sessionChipDisplay` (plain, same
+  width) drives CLI/search. alt+g re-enters the live session (suspend TUI → exec
+  `<bin> --resume <sid>` in the saved cwd → restore). Distinct from the red
+  @mention `agent` chip (`chipKindAgent`, an agent-name token).
 - Secrets live in local config — Pi in `~/.pi/agent/settings.json`, service keys
   in `~/.config/lflow/credentials.json` (e.g. `{"workflowy":{"api_key":"…"}}`).
   Never synced, never written into the DB.
