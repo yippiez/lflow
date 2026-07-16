@@ -35,6 +35,8 @@ func (m *Model) View() string {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)
+	} else if m.mode == modeSessionEdit {
+		lines = m.viewSessionEdit(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}

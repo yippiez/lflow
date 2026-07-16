@@ -637,6 +637,14 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				i = sp.end
 				continue
 			}
+			// a coding-agent session chip paints its own multi-shade "inset box"
+			// segments; its visible width still equals dispByID's.
+			if c, ok := chips[sp.id]; ok && isSessionChipKind(c.Kind) {
+				b.WriteString(renderSessionChip(c, caret == sp.start))
+				cur = ""
+				i = sp.end
+				continue
+			}
 			col := cCyan
 			osc8 := "" // URL link target for an OSC 8 hyperlink, "" = none
 			if c, ok := chips[sp.id]; ok {

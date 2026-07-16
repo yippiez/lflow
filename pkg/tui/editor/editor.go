@@ -33,17 +33,18 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm  // inline delete confirmation for nodes with children
-	modeType     // the /type picker: choose one of the node types
-	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme    // the /theme picker: choose a color palette
-	modeSettings // the /settings picker: global preferences (theme, image preview, …)
-	modeComplete // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
-	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
-	modeTagColor // the alt+e tag color picker: assign a pill color to a tag
-	modePaint    // the painter: a window over the node's text places a /style choice (p inside /style)
-	modeInsert   // the /insert picker: choose a chip kind (cmd, date, link, path, tag) to splice at the caret
+	modeConfirm     // inline delete confirmation for nodes with children
+	modeType        // the /type picker: choose one of the node types
+	modeStyle       // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme       // the /theme picker: choose a color palette
+	modeSettings    // the /settings picker: global preferences (theme, image preview, …)
+	modeComplete    // the inline completer: "#" tags, ":" query commands
+	modeLinkEdit    // the alt+e link-chip editor: edit a link's name and target
+	modeFlash       // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeTagColor    // the alt+e tag color picker: assign a pill color to a tag
+	modePaint       // the painter: a window over the node's text places a /style choice (p inside /style)
+	modeInsert      // the /insert picker: choose a chip kind (cmd, date, link, path, tag) to splice at the caret
+	modeSessionEdit // the alt+e coding-agent session-chip editor: name / session id / cwd
 )
 
 type finderAction int
@@ -170,6 +171,15 @@ type Model struct {
 	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
 	linkEditField  int    // 0 = name field, 1 = target field
 	linkEditCaret  int    // caret inside the active field — same movement keys as the outline
+
+	// alt+e coding-agent session-chip editor (modeSessionEdit)
+	sessionEditID    string // chip id being edited
+	sessionEditKind  string // provider chip kind (claude_session / pi_session)
+	sessionEditName  string // working copy of the session name
+	sessionEditSid   string // working copy of the resumable session id
+	sessionEditCwd   string // working copy of the session working dir
+	sessionEditField int    // 0 = name, 1 = session id, 2 = cwd
+	sessionEditCaret int    // caret inside the active field
 
 	// the focused cmd chip (alt+e): its output renders as an inline band beneath
 	// the node — the same surface as a focused bash node — keyed by this chip id.

@@ -48,6 +48,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
 	case modeLinkEdit:
 		return m.handleLinkEditKey(k)
+	case modeSessionEdit:
+		return m.handleSessionEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modePaint:
@@ -514,6 +516,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// on a link chip, alt+g follows it (a node jumps, a URL opens in the
 		// browser); off a chip it opens the /goto finder to jump to any node
 		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.sessionChipAtCaret(cur); ok {
+				return m.launchSessionChip(c) // ⌥g on a session chip re-enters it
+			}
 			if c, ok := m.linkChipAtCaret(cur); ok {
 				return m.followLink(c)
 			}
@@ -536,6 +541,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			} else if c, ok := m.cmdChipAtCaret(cur); ok {
 				m.focusCmdChip(c) // ⌥e on a cmd chip: its run output as an inline band
+				return m, nil
+			} else if c, ok := m.sessionChipAtCaret(cur); ok {
+				m.openSessionEdit(c) // ⌥e on a session chip edits name/session/cwd
 				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
