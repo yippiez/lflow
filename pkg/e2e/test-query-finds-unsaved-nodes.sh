@@ -17,8 +17,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   4. Press M-r (alt+r) to run.
 #
 # Expected (correct, post-fix) behavior:
-#   - The query node shows "⌕ freshunsaved" with "· 1 hits" in the suffix.
-#   - A mirror child "◆ freshunsaved · mirror" appears under it.
+#   - The query node shows "⌕ G freshunsaved" with "· 1 hits" in the suffix.
+#   - A fixed mirror child "○ freshunsaved · mirror · fixed" appears under it.
 #   - The assertion WOULD HAVE FAILED on the original code (0 hits, no mirror).
 
 setup; launch
@@ -47,8 +47,8 @@ wait_for "⌕"
 # --- step 3: type the query text ---
 type "freshunsaved"
 
-# The node should render as "⌕ freshunsaved".
-wait_for "⌕ freshunsaved"
+# The node should render as "⌕ G freshunsaved".
+wait_for "⌕ G freshunsaved"
 
 # --- step 4: run the query ---
 send M-r
@@ -61,8 +61,8 @@ wait_for "hits" 5
 # The query node must show exactly 1 hit (the unsaved "freshunsaved" node).
 assert_contains "1 hits"
 
-# A mirror child "◆ freshunsaved" must appear — this is the in-memory match.
-assert_contains "◆ freshunsaved"
+# A fixed mirror child must appear — this is the in-memory match.
+assert_contains "○ freshunsaved · mirror · fixed"
 
 # The word "mirror" must appear in the suffix of that child row.
 assert_contains "mirror"

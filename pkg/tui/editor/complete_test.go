@@ -45,6 +45,26 @@ func TestApplyCompletionQueryCmd(t *testing.T) {
 	}
 }
 
+func TestQueryTypeCompletionChainsToValues(t *testing.T) {
+	it := &item{uuid: "n", typ: database.TypeQuery, name: ":ty"}
+	m := &Model{tree: &tree{byUUID: map[string]*item{"n": it}}, caret: 3,
+		compl: complState{kind: complQueryCmd, start: 0}}
+	if !m.applyCompletion(it, pickerItem{value: ":type:"}) {
+		t.Fatal("selecting :type: must keep completion open for its value")
+	}
+	if m.compl.kind != complQueryType || m.compl.start != len([]rune(":type:")) {
+		t.Fatalf("type value completion state = %+v", m.compl)
+	}
+	items := m.complItems("to")
+	if len(items) == 0 || items[0].value != database.TypeTodo {
+		t.Fatalf("type values for 'to' = %v", items)
+	}
+	m.applyCompletion(it, pickerItem{value: database.TypeTodo})
+	if it.name != ":type:todo" {
+		t.Fatalf("completed query = %q", it.name)
+	}
+}
+
 func TestApplyCompletionTagInsertsChip(t *testing.T) {
 	it := &item{uuid: "n", typ: database.TypeBullets, name: "note #lo"}
 	tr := &tree{byUUID: map[string]*item{"n": it}}

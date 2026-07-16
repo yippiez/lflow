@@ -10,37 +10,68 @@ import (
 
 // item is an in-memory outline node.
 type item struct {
-	uuid        string
-	name        string
-	note        string
-	typ         string
-	style       string // comma-separated style tokens, e.g. "bold,color:blue"
-	mirrorOf    string
-	completedAt int64
-	children    []*item
-	parent      *item
-	collapsed   bool
-	readonly    bool   // node lock: inline edits are no-ops (see canEdit)
-	starred     bool   // /star: pinned to the top of pickers and search hits
-	priority    string // /priority: incoming nodes land on top ("up") or at the bottom ("down"/"")
-	addedOn     int64  // creation time (UnixNano); shown by the log node's time chip
-	isNew       bool
+	uuid            string
+	name            string
+	note            string
+	typ             string
+	style           string // comma-separated style tokens, e.g. "bold,color:blue"
+	mirrorOf        string
+	completedAt     int64
+	children        []*item
+	parent          *item
+	collapsed       bool
+	readonly        bool   // LOCK_READ_WRITE: inline/content edits are no-ops
+	structureLocked bool   // LOCK_INDENT_UNINDENT: hierarchy/order cannot change
+	queryLocal      bool   // session-local query scope; alt+e toggles it
+	starred         bool   // /star: pinned to the top of pickers and search hits
+	priority        string // /priority: incoming nodes land on top ("up") or at the bottom ("down"/"")
+	addedOn         int64  // creation time (UnixNano); shown by the log node's time chip
+	isNew           bool
+}
+
+// lockMode joins the independent in-memory lock flags for persistence in the
+// legacy readonly integer column.
+func (it *item) lockMode() database.LockMode {
+	var l database.LockMode
+	if it.readonly {
+		l |= database.LockReadWrite
+	}
+	if it.structureLocked {
+		l |= database.LockIndentOutdent
+	}
+	return l
+}
+
+// queryGenerated reports a materialized query-view row. Query results and their
+// breadcrumb scaffolding are mirrors with a structural lock; ordinary mirrors
+// keep their normal through-edit behavior.
+func (it *item) queryGenerated() bool {
+	if it == nil || it.mirrorOf == "" || !it.structureLocked {
+		return false
+	}
+	for p := it.parent; p != nil; p = p.parent {
+		if p.typ == database.TypeQuery {
+			return true
+		}
+	}
+	return false
 }
 
 // snapshot captures a node's persisted state for change detection on save.
 type snapshot struct {
-	parentUUID  string
-	rank        int
-	name        string
-	note        string
-	typ         string
-	style       string
-	mirrorOf    string
-	completedAt int64
-	collapsed   bool
-	readonly    bool
-	starred     bool
-	priority    string
+	parentUUID      string
+	rank            int
+	name            string
+	note            string
+	typ             string
+	style           string
+	mirrorOf        string
+	completedAt     int64
+	collapsed       bool
+	readonly        bool
+	structureLocked bool
+	starred         bool
+	priority        string
 }
 
 // tree is the in-memory model of the subtree being edited.
@@ -71,20 +102,22 @@ func cloneItem(src, parent *item) *item {
 		return nil
 	}
 	c := &item{
-		uuid:        src.uuid,
-		name:        src.name,
-		note:        src.note,
-		typ:         src.typ,
-		style:       src.style,
-		mirrorOf:    src.mirrorOf,
-		completedAt: src.completedAt,
-		collapsed:   src.collapsed,
-		readonly:    src.readonly,
-		starred:     src.starred,
-		priority:    src.priority,
-		addedOn:     src.addedOn,
-		isNew:       src.isNew,
-		parent:      parent,
+		uuid:            src.uuid,
+		name:            src.name,
+		note:            src.note,
+		typ:             src.typ,
+		style:           src.style,
+		mirrorOf:        src.mirrorOf,
+		completedAt:     src.completedAt,
+		collapsed:       src.collapsed,
+		readonly:        src.readonly,
+		structureLocked: src.structureLocked,
+		queryLocal:      src.queryLocal,
+		starred:         src.starred,
+		priority:        src.priority,
+		addedOn:         src.addedOn,
+		isNew:           src.isNew,
+		parent:          parent,
 	}
 	for _, ch := range src.children {
 		c.children = append(c.children, cloneItem(ch, c))
@@ -115,18 +148,19 @@ func (t *tree) rebuildByUUID() {
 // itemFromNode builds an in-memory item from a DB row; the caller links parent.
 func itemFromNode(n database.Node) *item {
 	return &item{
-		uuid:        n.UUID,
-		name:        n.Name,
-		note:        n.Note,
-		typ:         n.Type,
-		style:       n.Style,
-		mirrorOf:    n.MirrorOf,
-		completedAt: n.CompletedAt,
-		collapsed:   n.Collapsed,
-		readonly:    n.Readonly,
-		starred:     n.Starred,
-		priority:    n.Priority,
-		addedOn:     n.AddedOn,
+		uuid:            n.UUID,
+		name:            n.Name,
+		note:            n.Note,
+		typ:             n.Type,
+		style:           n.Style,
+		mirrorOf:        n.MirrorOf,
+		completedAt:     n.CompletedAt,
+		collapsed:       n.Collapsed,
+		readonly:        n.LockValue().Has(database.LockReadWrite),
+		structureLocked: n.LockValue().Has(database.LockIndentOutdent),
+		starred:         n.Starred,
+		priority:        n.Priority,
+		addedOn:         n.AddedOn,
 	}
 }
 
@@ -350,7 +384,7 @@ type row struct {
 // either spot act on the one real node; a normal node shows its own. A mirror
 // whose source could not be grafted (see graftExternal) shows nothing through.
 func (t *tree) childItems(it *item) []*item {
-	if it.mirrorOf == "" {
+	if it.mirrorOf == "" || it.queryGenerated() {
 		return it.children
 	}
 	if src, ok := t.byUUID[it.mirrorOf]; ok {
@@ -555,6 +589,9 @@ func (t *tree) insertSiblingBefore(before *item) (*item, error) {
 
 // insertFirstChild inserts a new empty node as the first child of parent.
 func (t *tree) insertFirstChild(parent *item) (*item, error) {
+	if parent != nil && parent.structureLocked {
+		return nil, errors.New("node structure is locked")
+	}
 	it, err := t.newItem()
 	if err != nil {
 		return nil, err
@@ -568,6 +605,9 @@ func (t *tree) insertFirstChild(parent *item) (*item, error) {
 // copy as its next sibling — a duplicate "next to it". Mirrors and links keep
 // pointing at their originals. The view root (no parent) cannot be duplicated.
 func (t *tree) duplicate(it *item) (*item, error) {
+	if it.structureLocked {
+		return nil, errors.New("node structure is locked")
+	}
 	if it.parent == nil {
 		return nil, errors.New("cannot duplicate the root node")
 	}
@@ -637,6 +677,9 @@ func (t *tree) remove(it *item) {
 
 // indent makes the item a child of its previous sibling.
 func (t *tree) indent(it *item) bool {
+	if it == nil || it.structureLocked {
+		return false
+	}
 	idx := indexOf(it)
 	if idx <= 0 {
 		return false
@@ -644,6 +687,9 @@ func (t *tree) indent(it *item) bool {
 	// indenting under a mirror attaches to the one real node, the source, so
 	// the child belongs to the original and shows through every mirror of it
 	prev := t.resolve(it.parent.children[idx-1])
+	if prev == nil || prev.structureLocked {
+		return false
+	}
 	it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
 	it.parent = prev
 	// the landing slot honors the target's priority: up keeps the node adjacent
@@ -667,12 +713,15 @@ func (t *tree) indent(it *item) bool {
 // of escape — so shift+tab on a through-child exits the mirrored subtree, and
 // both the original and every mirror of it stop showing the child.
 func (t *tree) outdent(it *item, viewRoot *item, escape *item) bool {
+	if it == nil || it.structureLocked {
+		return false
+	}
 	parent := it.parent
-	if parent == nil {
+	if parent == nil || parent.structureLocked {
 		return false
 	}
 	if parent == viewRoot {
-		if escape == nil || escape.parent == nil {
+		if escape == nil || escape.parent == nil || escape.parent.structureLocked {
 			return false
 		}
 		// refuse a cycle: escape must not sit inside the node being moved
@@ -691,7 +740,7 @@ func (t *tree) outdent(it *item, viewRoot *item, escape *item) bool {
 		return true
 	}
 	grandparent := parent.parent
-	if grandparent == nil {
+	if grandparent == nil || grandparent.structureLocked {
 		return false
 	}
 	idx := indexOf(it)
@@ -710,6 +759,9 @@ func (t *tree) outdent(it *item, viewRoot *item, escape *item) bool {
 // appends it as the last child of its parent's previous sibling. viewRoot bounds
 // the crossing so a zoomed-in view never spills items out of itself.
 func (t *tree) move(it *item, delta int, viewRoot *item) bool {
+	if it == nil || it.structureLocked {
+		return false
+	}
 	idx := indexOf(it)
 	if idx < 0 {
 		return false
@@ -731,6 +783,9 @@ func (t *tree) move(it *item, delta int, viewRoot *item) bool {
 	}
 	// resolve, like indent, so a mirror target attaches the child to the source
 	dest := t.resolve(uncles[nIdx])
+	if dest == nil || dest.structureLocked {
+		return false
+	}
 	parent.children = append(parent.children[:idx], parent.children[idx+1:]...)
 	it.parent = dest
 	if delta > 0 {
@@ -748,6 +803,9 @@ func (t *tree) move(it *item, delta int, viewRoot *item) bool {
 // reparent moves the item under a new parent, landing where the target's
 // priority points: up → top of its children, down → bottom.
 func (t *tree) reparent(it *item, newParent *item) bool {
+	if it == nil || newParent == nil || it.structureLocked || newParent.structureLocked {
+		return false
+	}
 	// cycle check: newParent must not be inside it's subtree
 	for p := newParent; p != nil; p = p.parent {
 		if p == it {
@@ -823,7 +881,8 @@ func (t *tree) changed(it *item) bool {
 	}
 	return s.name != it.name || s.note != it.note || s.typ != it.typ ||
 		s.style != it.style || s.mirrorOf != it.mirrorOf ||
-		s.completedAt != it.completedAt || s.readonly != it.readonly
+		s.completedAt != it.completedAt || s.readonly != it.readonly ||
+		s.structureLocked != it.structureLocked
 }
 
 // save writes the in-memory tree back to the database in one transaction.
@@ -863,6 +922,7 @@ func (t *tree) save() (int, error) {
 				EditedOn:    now,
 				Collapsed:   it.collapsed,
 				Readonly:    it.readonly,
+				Lock:        it.lockMode(),
 				Starred:     it.starred,
 				Priority:    it.priority,
 			}
@@ -873,7 +933,7 @@ func (t *tree) save() (int, error) {
 		} else if t.changed(it) || structChanged {
 			if _, err := tx.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
 				style = ?, mirror_of = ?, readonly = ?, completed_at = ?, edited_on = ? WHERE uuid = ?`,
-				parentUUID, rank, it.name, it.note, it.typ, it.style, it.mirrorOf, it.readonly, it.completedAt, now, it.uuid); err != nil {
+				parentUUID, rank, it.name, it.note, it.typ, it.style, it.mirrorOf, it.lockMode(), it.completedAt, now, it.uuid); err != nil {
 				return errors.Wrapf(err, "updating node %s", it.uuid)
 			}
 			written++
@@ -962,18 +1022,19 @@ func (t *tree) refreshSnapshots() {
 	walk = func(it *item, parentUUID string, rank int) {
 		it.isNew = false
 		t.snapshots[it.uuid] = snapshot{
-			parentUUID:  parentUUID,
-			rank:        rank,
-			name:        it.name,
-			note:        it.note,
-			typ:         it.typ,
-			style:       it.style,
-			mirrorOf:    it.mirrorOf,
-			completedAt: it.completedAt,
-			collapsed:   it.collapsed,
-			readonly:    it.readonly,
-			starred:     it.starred,
-			priority:    it.priority,
+			parentUUID:      parentUUID,
+			rank:            rank,
+			name:            it.name,
+			note:            it.note,
+			typ:             it.typ,
+			style:           it.style,
+			mirrorOf:        it.mirrorOf,
+			completedAt:     it.completedAt,
+			collapsed:       it.collapsed,
+			readonly:        it.readonly,
+			structureLocked: it.structureLocked,
+			starred:         it.starred,
+			priority:        it.priority,
 		}
 		for i, c := range it.children {
 			walk(c, it.uuid, i)

@@ -247,6 +247,9 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		if len(targets) > 0 {
 			m.pushUndo("")
 			for _, t := range targets {
+				if t.readonly || t.mirrorOf != "" {
+					continue
+				}
 				// re-picking Todo on a Todo toggles back to Bullet (the default)
 				if it.value == database.TypeTodo && t.typ == database.TypeTodo {
 					t.typ = database.TypeBullets
@@ -344,6 +347,9 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 				continue
 			}
 			for _, t := range targets {
+				if t.readonly || t.mirrorOf != "" {
+					continue
+				}
 				if sp.kind == "toggle" {
 					t.style = styleToggle(t.style, sp.value)
 				} else {
@@ -448,7 +454,10 @@ func (completerSource) header(*Model, *listPicker) string { return "" }
 func (completerSource) initialSel(*Model) int             { return 0 }
 
 func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
-	m.applyCompletion(m.cursorItem(), it)
+	if m.applyCompletion(m.cursorItem(), it) {
+		m.mode = modeComplete // :type: immediately offers its values
+		return m, nil
+	}
 	m.mode = modeOutline
 	return m, nil
 }
@@ -463,6 +472,13 @@ func (completerSource) onRune(m *Model, p *listPicker, r []rune) bool {
 		cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
 		m.caret += len(ins)
 		m.unsaved = true
+	}
+	// Typing the command rather than picking it reaches the same chained value
+	// picker as Enter on :type:; the caret is already immediately after the colon.
+	if m.compl.kind == complQueryCmd && strings.EqualFold(p.query, "type:") {
+		m.compl = complState{kind: complQueryType, start: m.caret}
+		p.query = ""
+		p.sel = 0
 	}
 	return false // the completer never auto-closes on typing (allows a brand-new tag)
 }

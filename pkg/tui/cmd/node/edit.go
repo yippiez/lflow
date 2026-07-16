@@ -114,8 +114,13 @@ func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command
 			vals = append(vals, opts.typ)
 		}
 		if flags.Changed("readonly") {
-			sets = append(sets, "readonly = ?")
-			vals = append(vals, opts.readonly)
+			// readonly is now a lock bitset: CLI content locking must preserve the
+			// independent structural lock used by generated query views.
+			if opts.readonly {
+				sets = append(sets, "readonly = readonly | 1")
+			} else {
+				sets = append(sets, "readonly = readonly & ~1")
+			}
 		}
 		if styleChange.Any() {
 			newStyle, err := styleChange.Apply(r.Node.Style)

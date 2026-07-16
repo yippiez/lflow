@@ -28,7 +28,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   4. press M-r to run
 #
 # Expected (correct, post-fix) behavior to assert:
-#   - The ⌕ query node is still visible (editor did not crash/vanish)
+#   - The ⌕ G query node is still visible (editor did not crash/vanish)
 #   - The suffix shows "N hits" (query executed, even if it found nothing)
 #   - The old silent-failure placeholder "no matches" does NOT appear
 #   - assert_no_crash confirms no Go panic / runtime error / goroutine dump
@@ -53,7 +53,7 @@ wait_for "⌕"
 type "(unclosed"
 
 # Confirm the query text is rendered in the node name.
-wait_for "⌕ (unclosed"
+wait_for "⌕ G (unclosed"
 
 # Press M-r (alt+r) to run the query. In the fixed code this searches the DB
 # with LIKE / FTS5 — no regex involved, no syntax error possible. The query
@@ -73,7 +73,7 @@ wait_for "updated" 5
 assert_contains "⌕"
 
 # The query text must still be intact under the glyph (node not corrupted).
-assert_contains "⌕ (unclosed"
+assert_contains "⌕ G (unclosed"
 
 # The suffix must contain "hits" — the query engine ran and produced a count,
 # not the old "no matches" placeholder that hid the error.

@@ -5,20 +5,22 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// An inline completer is the popup behind "#" (tags) and ":" (query commands).
-// Like the slash menu it types its trigger + query into the node text and shows
-// a filtered list above the status bar; Enter completes, Esc leaves the typed
-// text literal. The two kinds differ only in their item source and what Enter
-// inserts — a tag chip, or a query-command token — so they share this one mode.
+// An inline completer is the popup behind "#" (tags), ":" (query commands),
+// and "@" (agents). Like the slash menu it types into the node text and shows a
+// filtered list above the status bar. Query commands may chain into a value
+// picker — currently :type: immediately offers every queryable node type.
 
 type complKind int
 
 const (
-	complTag      complKind = iota // "#": pick an existing tag
-	complQueryCmd                  // ":": pick a query time command (query nodes only)
-	complAgent                     // "@": pick a configured agent to mention (see agent.go)
+	complTag       complKind = iota // "#": pick an existing tag
+	complQueryCmd                   // ":": pick a query command (query nodes only)
+	complQueryType                  // value picker immediately after :type:
+	complAgent                      // "@": pick a configured agent to mention (see agent.go)
 )
 
 // complState is the completer's anchor: which trigger opened it and where that
@@ -29,8 +31,8 @@ type complState struct {
 	start int // rune index of the trigger char in cur.name
 }
 
-// complItem is one row: label is shown, value is what completion inserts (the
-// tag word, or the full ":after:" token), desc is an optional dim hint.
+// complItem is one row: label is shown, value is what completion inserts (a
+// tag/type word or a full ":after:" token), desc is an optional dim hint.
 type complItem struct {
 	label, value, desc string
 }
@@ -43,7 +45,7 @@ var queryCmdItems = []complItem{
 	{label: ":since:", value: ":since:", desc: "alias of :after:"},
 	{label: ":until:", value: ":until:", desc: "alias of :before:"},
 	{label: ":type:", value: ":type:", desc: "node type (todo, log, …)"},
-	{label: ":breadcrumb:", value: ":breadcrumb:", desc: "group hits under path crumbs"},
+	{label: ":breadcrumb:", value: ":breadcrumb:", desc: "nest hits in a locked ancestor tree"},
 	{label: ":list:", value: ":list:", desc: "flat hit list (default)"},
 }
 
@@ -84,6 +86,12 @@ func (m *Model) complItems(query string) []complItem {
 	switch m.compl.kind {
 	case complQueryCmd:
 		src = queryCmdItems
+	case complQueryType:
+		// Queryable types include internal stored types such as agent replies even
+		// though /type never offers those for conversion.
+		for _, key := range database.TypeOrder {
+			src = append(src, complItem{label: key, value: key, desc: typeLabel(key)})
+		}
 	case complAgent:
 		// just the name — no descriptions in the mention picker
 		for _, a := range m.agents {
@@ -119,13 +127,11 @@ func (m *Model) openCompleter(cur *item, kind complKind, trigger string) (tea.Mo
 	return m, nil
 }
 
-// applyCompletion replaces the typed "trigger+query" with the chosen result: a
-// tag chip, or a query-command token. chosen is the highlighted row (a zero
-// pickerItem when nothing is highlighted): a tag then falls back to the typed
-// word (so a brand-new tag still commits) and a query command no-ops.
-func (m *Model) applyCompletion(cur *item, chosen pickerItem) {
+// applyCompletion replaces the active token. It returns true when selecting
+// :type: chained directly into its value picker, keeping modeComplete open.
+func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 	if cur == nil {
-		return
+		return false
 	}
 	runes := []rune(cur.name)
 	end := m.caret
@@ -134,52 +140,62 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) {
 	}
 	if m.compl.kind == complQueryCmd {
 		if chosen.value == "" {
-			return // leave the typed text as-is
+			return false
 		}
 		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(chosen.value))
 		m.unsaved = true
-		return
+		if strings.EqualFold(chosen.value, ":type:") {
+			m.compl = complState{kind: complQueryType, start: m.caret}
+			m.list = listPicker{searchable: true}
+			return true
+		}
+		return false
+	}
+	if m.compl.kind == complQueryType {
+		if chosen.value == "" {
+			return false
+		}
+		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
+		m.caret = m.compl.start + len([]rune(chosen.value))
+		m.unsaved = true
+		return false
 	}
 	if m.compl.kind == complAgent {
 		if chosen.value == "" {
-			return // leave the typed text as-is
+			return false
 		}
-		// a dep-missing agent refuses the mention with the run-time error
 		if a, ok := m.agentByName(chosen.value); ok {
 			if bin, missing := m.agentDepMissing(a); missing {
 				m.flash = "Missing dependency: " + bin
-				return
+				return false
 			}
 		}
-		// a mention lands as an agent chip — the structured red @Name token that
-		// binds the node to its agent; alt+r later starts the thread (agent.go)
 		anchor := m.createChip(chipKindAgent, chosen.value)
 		if anchor == "" {
-			return
+			return false
 		}
 		cur.name = string(runes[:m.compl.start]) + anchor + " " + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(anchor)) + 1
-		// an agent-chipped node reads top-down chronological — forced down
 		m.forceThreadPriorityDown(cur)
 		m.unsaved = true
-		return
+		return false
 	}
-	// tag: the highlighted tag, else the typed word (new tag)
 	tag := strings.TrimSpace(m.list.query)
 	if chosen.value != "" {
 		tag = chosen.value
 	}
 	if tag == "" {
-		return
+		return false
 	}
 	anchor := m.createChip(chipKindTag, tag)
 	if anchor == "" {
-		return
+		return false
 	}
 	cur.name = string(runes[:m.compl.start]) + anchor + string(runes[end:])
 	m.caret = m.compl.start + len([]rune(anchor))
 	m.unsaved = true
+	return false
 }
 
 // delCharBeforeCaret removes one rune left of the caret (the completer's

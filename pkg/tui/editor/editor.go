@@ -269,8 +269,8 @@ type Model struct {
 	wfBusy   map[string]bool
 	wfClient *wf.Client
 
-	// :breadcrumb: query crumbs, memoized per source uuid (see query.go rowCrumb);
-	// cleared whenever a query re-runs
+	// Ancestor path strings used to sort :breadcrumb: query hits before their
+	// nested result tree is reconciled; cleared whenever a query re-runs.
 	qCrumbs map[string]string
 
 	tagColorWord string // the tag word the alt+e color picker is assigning
@@ -395,9 +395,9 @@ func (m *Model) reopenAt(rootUUID, focusUUID string) {
 
 // undoState is a snapshot of the editable tree and cursor taken before an action.
 type undoState struct {
-	root    *item
+	root     *item
 	deleted  []string
-	external []*item // grafted subtree roots, cloned like root
+	external []*item  // grafted subtree roots, cloned like root
 	view     []string // viewStack uuids
 	cursor   int
 	caret    int
@@ -1127,6 +1127,10 @@ func (m *Model) toggleComplete(it *item) {
 
 // deleteNode removes the node and its subtree from the tree.
 func (m *Model) deleteNode(it *item) {
+	if it == nil || it.structureLocked {
+		m.flash = "node structure is locked"
+		return
+	}
 	// kill any agent still running on a thread root inside this subtree —
 	// otherwise the CLI process outlives the mention that owned it
 	m.stopAgentsUnder(it)
@@ -1250,7 +1254,6 @@ func (m *Model) selectedVisualRows() []int {
 	}
 	return visualRows(name, maxLine, firstCol, hang)
 }
-
 
 // caretColumn returns the caret's display column within its visual line: the
 // width of the runes between the line's start offset and the caret.
@@ -1548,8 +1551,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeSettings
 		m.settingsSel = 0
 	case "/lock":
-		// toggle the read-only lock: locked nodes ignore inline text edits (a file
-		// node locks itself on Enter); unlock to edit, Enter re-locks a file node.
+		// Toggle only LOCK_READ_WRITE. The independent structural lock bit remains
+		// intact, so generated query rows can be content+structure locked or only
+		// structure locked without /lock collapsing the union.
 		m.pushUndo("")
 		cur.readonly = !cur.readonly
 		m.unsaved = true
@@ -1762,9 +1766,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		live:      ctx.Live, // daemon connection: live sync (nil in direct runs)
 	}
 	m.hydrateCmdPreviews() // rebuild → chrome from local node_output (chip label is never stored)
-	m.startFeed() // subscribe to external changes; Init retries if it failed
-	m.loadSettings() // apply persisted preferences (theme, …) before the first render
-	m.loadDeps()     // NodeCLIDeps: which CLI backends the daemon can exec
+	m.startFeed()          // subscribe to external changes; Init retries if it failed
+	m.loadSettings()       // apply persisted preferences (theme, …) before the first render
+	m.loadDeps()           // NodeCLIDeps: which CLI backends the daemon can exec
 	m.refreshAncestors()
 	m.refreshRows()
 	m.ensureTempTree()    // the panel is always visible, so it must always have >=1 node

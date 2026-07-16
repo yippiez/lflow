@@ -209,9 +209,14 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		if rm := typeOf(it.typ).renderM; rm != nil {
 			body = rm(m, it) // Model-aware override (voice waveform)
 		}
-		// a :breadcrumb: query hit leads its group with a muted ancestor path
-		if crumb := m.rowCrumb(rows, i); crumb != "" {
-			body = cDim + crumb + cReset + body
+		if it.queryGenerated() {
+			if it.readonly {
+				// Breadcrumb scaffolding is a real nested tree, but deliberately
+				// gray and content-locked because it is context, not a result.
+				body = cDim + stripSGR(body) + cReset
+			} else {
+				body = m.highlightQueryHit(it, name, body)
+			}
 		}
 
 		suffix := m.typeSuffix(r)

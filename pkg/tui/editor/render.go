@@ -44,6 +44,7 @@ var (
 	bgCode   = "\x1b[48;2;31;31;31m"    // #1f1f1f block behind code rows
 	bgTerm   = "\x1b[48;2;30;34;48m"    // #1e2230 terminal block behind bash rows
 	bgPill   = "\x1b[48;2;38;79;120m"   // #264f78 behind date pills
+	bgHit    = "\x1b[48;2;92;72;12m"    // yellow-brown query match highlight
 	// bgPage paints the MAIN region's page background ("" = the terminal's own,
 	// i.e. transparent). Scope: the rows above the status bar only — the bar
 	// (divider) and the Temporary Domain panel below it always stay transparent.
@@ -804,6 +805,9 @@ func (m *Model) typeSuffix(r row) string {
 	}
 	if it.readonly {
 		parts = append(parts, "locked")
+	}
+	if it.structureLocked && !it.readonly {
+		parts = append(parts, "fixed")
 	}
 	if it.typ == database.TypeQuery {
 		parts = append(parts, fmt.Sprintf("%d hits", queryHitCount(it)))

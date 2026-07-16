@@ -170,7 +170,8 @@ var nodeTypes = []nodeType{
 	// chip ("$cmd" + double space, see cmdchip.go) — legacy "bash"-typed nodes
 	// fall back to bullets like any unknown type, text intact.
 	{
-		key: database.TypeQuery, label: "Query", sign: "⌕ ", inlineEditable: true,
+		key: database.TypeQuery, label: "Query", inlineEditable: true,
+		prefix:    queryPrefix,
 		run:       runQuery,
 		toContext: xmlTag("query"),
 	},

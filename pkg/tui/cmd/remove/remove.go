@@ -60,6 +60,10 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			os.Exit(1)
 		}
 
+		if r.Node.LockValue().Has(database.LockIndentOutdent) {
+			return errors.New("node structure is locked")
+		}
+
 		count, err := database.CountSubtree(db, r.Node.UUID)
 		if err != nil {
 			return errors.Wrap(err, "counting subtree")

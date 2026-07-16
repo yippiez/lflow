@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lflow/lflow/pkg/tui/database"
@@ -56,6 +57,56 @@ func TestQueryMatchesStarredRanksFirst(t *testing.T) {
 	// unstarred tail keeps name order: apples, carrots
 	if got[1].UUID != "a" || got[2].UUID != "c" {
 		t.Fatalf("unstarred tail must stay name-ordered: %s, %s", got[1].UUID, got[2].UUID)
+	}
+}
+
+func TestQueryLocalScopeUsesParentSubtree(t *testing.T) {
+	root := &item{uuid: "root"}
+	scope := &item{uuid: "scope", name: "scope", parent: root}
+	q := &item{uuid: "q", typ: database.TypeQuery, name: "needle", parent: scope}
+	local := &item{uuid: "local", name: "needle local", parent: scope}
+	branch := &item{uuid: "branch", name: "branch", parent: scope}
+	deep := &item{uuid: "deep", name: "needle deep", parent: branch}
+	outside := &item{uuid: "outside", name: "needle outside", parent: root}
+	branch.children = []*item{deep}
+	scope.children = []*item{q, local, branch}
+	root.children = []*item{scope, outside}
+	tr := &tree{root: root, snapshots: map[string]snapshot{}, externalNames: map[string]string{},
+		byUUID: map[string]*item{"root": root, "scope": scope, "q": q, "local": local,
+			"branch": branch, "deep": deep, "outside": outside}}
+	m := &Model{tree: tr}
+	if got := len(m.queryMatches(q)); got != 3 {
+		t.Fatalf("global matches = %d, want 3", got)
+	}
+	m.toggleQueryScope(q)
+	got := m.queryMatches(q)
+	if len(got) != 2 || got[0].UUID != "deep" || got[1].UUID != "local" {
+		t.Fatalf("local matches = %+v, want parent-subtree hits only", got)
+	}
+	if !strings.Contains(stripSGR(queryPrefix(q)), "L") {
+		t.Fatal("local query prefix must show L")
+	}
+	m.toggleQueryScope(q)
+	if !strings.Contains(stripSGR(queryPrefix(q)), "G") {
+		t.Fatal("global query prefix must show G")
+	}
+}
+
+func TestQueryHitHighlightAndStructuralLock(t *testing.T) {
+	m, q := newQueryTree()
+	q.name = "milk"
+	m.reconcileQueryMirrors(q, []database.Node{{UUID: "a", Name: "buy milk"}})
+	hit := q.children[0]
+	body := renderBody(hit, "buy milk", -1, false, nil, false)
+	body = m.highlightQueryHit(hit, "buy milk", body)
+	if !strings.Contains(body, bgHit) {
+		t.Fatal("matching text must carry the yellow query-hit background")
+	}
+	if !hit.structureLocked || hit.readonly {
+		t.Fatalf("hit locks = structure:%v content:%v", hit.structureLocked, hit.readonly)
+	}
+	if m.tree.indent(hit) {
+		t.Fatal("query results must not indent")
 	}
 }
 

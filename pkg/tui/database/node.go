@@ -22,8 +22,8 @@ const (
 	// TypeBash is LEGACY: the bash node type was removed 2026-07-09 in favor of
 	// inline cmd chips ("$cmd" + double space). Old rows keep the value and
 	// render as bullets; it is no longer in TypeOrder/ValidTypes.
-	TypeBash  = "bash"
-	TypeQuery = "query"
+	TypeBash    = "bash"
+	TypeQuery   = "query"
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
@@ -88,6 +88,17 @@ func TypeList() string {
 	return strings.Join(TypeOrder[:len(TypeOrder)-1], ", ") + " or " + TypeOrder[len(TypeOrder)-1]
 }
 
+// LockMode is a bitset persisted in nodes.readonly. The old boolean values stay
+// storage compatible: 0 is unlocked and 1 is the original content lock.
+type LockMode uint8
+
+const (
+	LockReadWrite     LockMode = 1 << iota // text/note/type edits
+	LockIndentOutdent                      // hierarchy and ordering changes
+)
+
+func (l LockMode) Has(flag LockMode) bool { return l&flag != 0 }
+
 // Node is the single content model: every bullet, heading, todo and mirror
 // instance is a node. ParentUUID == "" means a root in the local forest.
 //
@@ -109,25 +120,41 @@ type Node struct {
 	EditedOn    int64  `json:"edited_on"`
 	Deleted     bool   `json:"deleted"`
 	Collapsed   bool   `json:"collapsed"` // local view-state
-	Readonly    bool   `json:"readonly"`  // node lock; persisted (like style)
-	Starred     bool   `json:"starred"`   // /star: pinned to the top of pickers and search hits
-	Priority    string `json:"priority"`  // /priority: where incoming nodes land — "up" = top, "down"/"" = bottom
+	// Readonly is the compatibility view of LockReadWrite. Lock carries the full
+	// union so either lock, or both, can be active independently.
+	Readonly bool     `json:"readonly"`
+	Lock     LockMode `json:"lock,omitempty"`
+	Starred  bool     `json:"starred"`  // /star: pinned to the top of pickers and search hits
+	Priority string   `json:"priority"` // /priority: where incoming nodes land — "up" = top, "down"/"" = bottom
 }
 
 const nodeColumns = "uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, readonly, starred, priority"
 
 func scanNode(row interface{ Scan(...interface{}) error }) (Node, error) {
 	var n Node
+	var lock int64
 	err := row.Scan(&n.UUID, &n.ParentUUID, &n.Rank, &n.Name, &n.Note, &n.Type,
-		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.Deleted, &n.Collapsed, &n.Readonly, &n.Starred, &n.Priority)
+		&n.Style, &n.MirrorOf, &n.CompletedAt, &n.AddedOn, &n.EditedOn, &n.Deleted, &n.Collapsed, &lock, &n.Starred, &n.Priority)
+	n.Lock = LockMode(lock)
+	n.Readonly = n.Lock.Has(LockReadWrite)
 	return n, err
+}
+
+// LockValue returns the union stored in the legacy readonly integer column.
+// Older callers often set only Readonly, so fold that compatibility field in.
+func (n Node) LockValue() LockMode {
+	l := n.Lock
+	if n.Readonly {
+		l |= LockReadWrite
+	}
+	return l
 }
 
 // Insert inserts the node.
 func (n Node) Insert(db *DB) error {
 	_, err := db.Exec("INSERT INTO nodes ("+nodeColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly, n.Starred, n.Priority)
+		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.LockValue(), n.Starred, n.Priority)
 	if err != nil {
 		return errors.Wrapf(err, "inserting node %s", n.UUID)
 	}
@@ -150,7 +177,7 @@ func (n Node) Upsert(db *DB) error {
 			readonly = excluded.readonly, starred = excluded.starred,
 			priority = excluded.priority, deleted = 0`,
 		n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.Readonly, n.Starred, n.Priority)
+		n.AddedOn, n.EditedOn, n.Deleted, n.Collapsed, n.LockValue(), n.Starred, n.Priority)
 	if err != nil {
 		return errors.Wrapf(err, "upserting node %s", n.UUID)
 	}
@@ -189,7 +216,7 @@ func (n Node) Update(db *DB) error {
 	_, err := db.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
 		style = ?, mirror_of = ?, completed_at = ?, edited_on = ?, deleted = ?, readonly = ? WHERE uuid = ?`,
 		n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.CompletedAt,
-		n.EditedOn, n.Deleted, n.Readonly, n.UUID)
+		n.EditedOn, n.Deleted, n.LockValue(), n.UUID)
 	if err != nil {
 		return errors.Wrapf(err, "updating node %s", n.UUID)
 	}

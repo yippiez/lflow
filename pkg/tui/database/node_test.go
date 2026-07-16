@@ -58,6 +58,34 @@ func TestPlaceRank(t *testing.T) {
 	assert.Equal(t, rank, 2, "no parent row should append after the roots")
 }
 
+func TestNodeLockModeUnionPersistsInReadonlyColumn(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	defer db.Close()
+
+	mustInsert(t, db, Node{UUID: "locked", Name: "generated",
+		Lock: LockReadWrite | LockIndentOutdent})
+	got, err := GetNode(db, "locked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Lock.Has(LockReadWrite) || !got.Lock.Has(LockIndentOutdent) || !got.Readonly {
+		t.Fatalf("lock union did not round-trip: lock=%d readonly=%v", got.Lock, got.Readonly)
+	}
+
+	got.Lock = LockIndentOutdent
+	got.Readonly = false
+	if err := got.Update(db); err != nil {
+		t.Fatal(err)
+	}
+	got, err = GetNode(db, "locked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Readonly || !got.Lock.Has(LockIndentOutdent) {
+		t.Fatalf("independent structural lock did not round-trip: lock=%d readonly=%v", got.Lock, got.Readonly)
+	}
+}
+
 func TestNodeCRUD(t *testing.T) {
 	db := InitTestMemoryDB(t)
 	defer db.Close()

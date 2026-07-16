@@ -166,6 +166,10 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			parentName = r.Node.Name
 		}
 
+		if p, perr := database.GetNode(db, parentUUID); perr == nil && p.LockValue().Has(database.LockIndentOutdent) {
+			return errors.New("parent structure is locked")
+		}
+
 		lines, err := readLines(args)
 		if err != nil {
 			return err

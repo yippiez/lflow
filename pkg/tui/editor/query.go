@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -17,6 +18,28 @@ import (
 // place (add new matches, drop stale ones) to minimize churn.
 
 const queryMaxHits = 50
+
+// queryPrefix makes scope visible without spending query-language syntax on it.
+// Global is the default; alt+e flips the session-local scope bit.
+func queryPrefix(it *item) string {
+	scope := "G"
+	if it != nil && it.queryLocal {
+		scope = "L"
+	}
+	return cDim + "⌕" + cReset + " " + cYellow + scope + cReset + " "
+}
+
+func (m *Model) toggleQueryScope(it *item) {
+	if it == nil || it.typ != database.TypeQuery {
+		return
+	}
+	it.queryLocal = !it.queryLocal
+	if it.queryLocal {
+		m.flash = "query · local (parent subtree)"
+	} else {
+		m.flash = "query · global"
+	}
+}
 
 func runQuery(m *Model, it *item) tea.Cmd {
 	matches := m.queryMatches(it)
@@ -53,10 +76,12 @@ func (m *Model) queryMatches(q *item) []database.Node {
 	}
 
 	ctx := m.buildQueryCtx(q, now)
+	ctx.restrictToQueryScope(q)
 	if len(ctx.cands) == 0 {
 		return nil
 	}
 	hitSet := pq.expr.eval(ctx)
+
 	// search-hidden types (agent replies) only surface when the expression
 	// names them via :type:
 	for u := range hitSet {
@@ -160,6 +185,33 @@ func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
 	return ctx
 }
 
+// restrictToQueryScope narrows the candidate universe before expression
+// evaluation, so every stage of &&/||/> obeys local scope. It also excludes the
+// query's own materialized/user subtree in both modes.
+func (ctx *qCtx) restrictToQueryScope(q *item) {
+	if q == nil {
+		return
+	}
+	qRoot := map[string]bool{q.uuid: true}
+	var localRoot map[string]bool
+	if q.queryLocal && q.parent != nil {
+		localRoot = map[string]bool{q.parent.uuid: true}
+	}
+	kept := ctx.cands[:0]
+	for _, c := range ctx.cands {
+		if ctx.underAny(c.uuid, qRoot) {
+			delete(ctx.byUUID, c.uuid)
+			continue
+		}
+		if localRoot != nil && !ctx.underAny(c.uuid, localRoot) {
+			delete(ctx.byUUID, c.uuid)
+			continue
+		}
+		kept = append(kept, c)
+	}
+	ctx.cands = kept
+}
+
 // exprNamesType reports whether e mentions :type:<typ> (case-insensitive).
 func exprNamesType(e qExpr, typ string) bool {
 	if e == nil {
@@ -232,92 +284,149 @@ func (m *Model) crumbOf(uuid string) string {
 	return crumb
 }
 
-// rowCrumb is the breadcrumb a row displays: only mirror children of a
-// :breadcrumb: query show one, and only the first hit of each same-path group
-// — the crumb is the group header, never repeated per node.
-func (m *Model) rowCrumb(rows []row, i int) string {
-	it := rows[i].it
-	if it.mirrorOf == "" || it.parent == nil || it.parent.typ != database.TypeQuery {
-		return ""
-	}
-	raw := strings.ToLower(database.ExpandAnchors(it.parent.name, m.chips))
-	if !strings.Contains(raw, ":breadcrumb:") && !strings.HasSuffix(raw, ":breadcrumb") {
-		return ""
-	}
-	crumb := m.crumbOf(m.tree.sourceUUID(it))
-	if crumb == "" {
-		return ""
-	}
-	if i > 0 && rows[i-1].it.parent == it.parent && rows[i-1].it.mirrorOf != "" {
-		if m.crumbOf(m.tree.sourceUUID(rows[i-1].it)) == crumb {
-			return "" // same group as the hit above — the header is already shown
-		}
-	}
-	return crumb
+// queryWant is one row in the materialized result view. Breadcrumb mode merges
+// shared ancestors into this tree; hit distinguishes real results from the gray
+// path-only scaffolding around them.
+type queryWant struct {
+	node     database.Node
+	hit      bool
+	children []*queryWant
+	bySource map[string]*queryWant
 }
 
-// reconcileQueryMirrors brings the query node's mirror children in line with the
-// current matches: existing mirrors that still match are kept in place, new
-// matches get a fresh mirror, and mirrors whose source no longer matches are
-// tombstoned. Non-mirror (user-added) children are preserved untouched.
+// reconcileQueryMirrors materializes either a flat result list or a real
+// breadcrumb tree. Every generated row is structurally locked. Path-only rows
+// additionally carry the content lock and render gray; hits remain visually live
+// but cannot be moved/indented out of the generated view.
 func (m *Model) reconcileQueryMirrors(q *item, matches []database.Node) {
-	want := map[string]database.Node{}
-	var order []string
+	raw := strings.TrimSpace(database.ExpandAnchors(q.name, m.chips))
+	pq := parseQuery(raw, time.Now())
+	root := &queryWant{bySource: map[string]*queryWant{}}
+	seenHits := map[string]bool{}
 	for _, mn := range matches {
-		if mn.UUID == q.uuid {
+		if mn.UUID == q.uuid || seenHits[mn.UUID] || len(seenHits) >= queryMaxHits {
 			continue
 		}
-		if _, dup := want[mn.UUID]; dup {
-			continue
+		seenHits[mn.UUID] = true
+		path := []database.Node{mn}
+		if pq.breadcrumb {
+			path = append(m.queryAncestorPath(q, mn), mn)
 		}
-		want[mn.UUID] = mn
-		order = append(order, mn.UUID)
-		if len(order) >= queryMaxHits {
-			break
+		at := root
+		for i, pn := range path {
+			w := at.bySource[pn.UUID]
+			if w == nil {
+				w = &queryWant{node: pn, bySource: map[string]*queryWant{}}
+				at.bySource[pn.UUID] = w
+				at.children = append(at.children, w)
+			}
+			if i == len(path)-1 {
+				w.hit = true
+			}
+			at = w
 		}
 	}
+	m.reconcileQueryLevel(q, root.children)
+}
 
-	// index the query node's existing mirror children by their source uuid;
-	// collect user (non-mirror) children to preserve as-is.
+// queryAncestorPath returns root-to-parent ancestors for a hit, excluding the
+// forest root. In local mode the parent subtree is the scope boundary rather
+// than another breadcrumb row.
+func (m *Model) queryAncestorPath(q *item, hit database.Node) []database.Node {
+	var rev []database.Node
+	parent := hit.ParentUUID
+	for hops := 0; parent != "" && hops < 64; hops++ {
+		var n database.Node
+		if src := m.tree.byUUID[parent]; src != nil {
+			n = database.Node{UUID: src.uuid, ParentUUID: parentUUID(src), Name: src.name, Note: src.note,
+				Type: src.typ, CompletedAt: src.completedAt, AddedOn: src.addedOn, Starred: src.starred}
+		} else if m.db != nil {
+			var err error
+			n, err = database.GetNode(m.db, parent)
+			if err != nil {
+				break
+			}
+		} else {
+			break
+		}
+		if n.UUID == q.uuid {
+			return nil // a query never materializes its own descendants
+		}
+		if n.ParentUUID == "" { // forest root is chrome, not a breadcrumb
+			break
+		}
+		if q.queryLocal && q.parent != nil && n.UUID == q.parent.uuid {
+			break
+		}
+		rev = append(rev, n)
+		parent = n.ParentUUID
+	}
+	for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
+		rev[i], rev[j] = rev[j], rev[i]
+	}
+	return rev
+}
+
+func parentUUID(it *item) string {
+	if it == nil || it.parent == nil {
+		return ""
+	}
+	return it.parent.uuid
+}
+
+// reconcileQueryLevel preserves generated item identities where possible and
+// leaves user-created non-mirror children untouched after the generated view.
+func (m *Model) reconcileQueryLevel(parent *item, wanted []*queryWant) {
 	existing := map[string]*item{}
 	var others []*item
-	for _, c := range q.children {
+	for _, c := range parent.children {
 		if c.mirrorOf == "" {
 			others = append(others, c)
 			continue
 		}
 		src := m.tree.sourceUUID(c)
-		if _, kept := existing[src]; kept || want[src].UUID == "" {
-			m.tombstoneItem(c) // a stale or duplicate query mirror
+		if existing[src] != nil {
+			m.tombstoneQueryItem(c)
 			continue
 		}
 		existing[src] = c
 	}
 
-	var kids []*item
-	for _, src := range order {
-		mn := want[src]
-		if !m.tree.graftExternal(src) && mn.Name != "" {
-			m.tree.externalNames[src] = mn.Name // ungraftable: at least the name resolves
+	var generated []*item
+	for _, w := range wanted {
+		c := existing[w.node.UUID]
+		delete(existing, w.node.UUID)
+		if c == nil {
+			var err error
+			c, err = m.tree.newItem()
+			if err != nil {
+				break
+			}
 		}
-		if c, ok := existing[src]; ok {
-			kids = append(kids, c)
-			continue
+		c.parent = parent
+		c.mirrorOf = w.node.UUID
+		c.typ = w.node.Type
+		if c.typ == "" {
+			c.typ = database.TypeBullets
 		}
-		child, err := m.tree.newItem()
-		if err != nil {
-			break
+		c.completedAt = w.node.CompletedAt
+		c.structureLocked = true
+		c.readonly = !w.hit
+		c.collapsed = false
+		if !m.tree.graftExternal(w.node.UUID) && w.node.Name != "" {
+			m.tree.externalNames[w.node.UUID] = w.node.Name
 		}
-		child.mirrorOf = src
-		child.collapsed = true // show the hit as one line, not its whole subtree
-		child.parent = q
-		kids = append(kids, child)
+		m.reconcileQueryLevel(c, w.children)
+		generated = append(generated, c)
 	}
-	q.children = append(kids, others...)
+	for _, stale := range existing {
+		m.tombstoneQueryItem(stale)
+	}
+	parent.children = append(generated, others...)
 }
 
-// tombstoneItem detaches a (mirror) node from the tree, recording it for deletion
-// on the next save if it was already persisted.
+// tombstoneItem records one already-detached generated node for deletion. WF
+// reconciliation also uses this primitive after walking its own subtree.
 func (m *Model) tombstoneItem(it *item) {
 	if !it.isNew {
 		m.tree.deleted = append(m.tree.deleted, it.uuid)
@@ -325,13 +434,170 @@ func (m *Model) tombstoneItem(it *item) {
 	delete(m.tree.byUUID, it.uuid)
 }
 
-// queryHitCount counts a query node's mirror children (its results).
-func queryHitCount(q *item) int {
-	n := 0
-	for _, c := range q.children {
-		if c.mirrorOf != "" {
-			n++
+func (m *Model) tombstoneQueryItem(it *item) {
+	for _, c := range it.children {
+		m.tombstoneQueryItem(c)
+	}
+	if !it.isNew {
+		m.tree.deleted = append(m.tree.deleted, it.uuid)
+	}
+	delete(m.tree.byUUID, it.uuid)
+}
+
+type queryRange struct{ start, end int }
+
+// highlightQueryHit paints the visible name fragments that explain why this
+// generated result matched. Filters with no name fragment (note/type/date) paint
+// the whole name, so every hit still has an explicit yellow-background reason.
+func (m *Model) highlightQueryHit(it *item, name, body string) string {
+	if it == nil || !it.queryGenerated() || it.readonly || name == "" {
+		return body
+	}
+	var q *item
+	for p := it.parent; p != nil; p = p.parent {
+		if p.typ == database.TypeQuery {
+			q = p
+			break
 		}
 	}
+	if q == nil {
+		return body
+	}
+	pq := parseQuery(strings.TrimSpace(database.ExpandAnchors(q.name, m.chips)), time.Now())
+	var needles []string
+	var collect func(qExpr)
+	collect = func(e qExpr) {
+		switch v := e.(type) {
+		case *qText:
+			if v.isTag {
+				needles = append(needles, "#"+v.s)
+			} else {
+				needles = append(needles, v.s)
+			}
+		case *qAnd:
+			for _, k := range v.kids {
+				collect(k)
+			}
+		case *qOr:
+			for _, k := range v.kids {
+				collect(k)
+			}
+		case *qPipe:
+			// Only the final stage describes the returned row; earlier stages
+			// explain ancestry, not text on this hit.
+			if len(v.stages) > 0 {
+				collect(v.stages[len(v.stages)-1])
+			}
+		}
+	}
+	collect(pq.expr)
+
+	runes := []rune(name)
+	lower := []rune(strings.ToLower(name))
+	var ranges []queryRange
+	for _, needle := range needles {
+		nr := []rune(strings.ToLower(needle))
+		if len(nr) == 0 || len(nr) > len(lower) {
+			continue
+		}
+		for i := 0; i+len(nr) <= len(lower); i++ {
+			if string(lower[i:i+len(nr)]) == string(nr) {
+				ranges = append(ranges, queryRange{i, i + len(nr)})
+				i += len(nr) - 1
+			}
+		}
+	}
+	if len(ranges) == 0 {
+		ranges = []queryRange{{0, len(runes)}}
+	} else {
+		sort.Slice(ranges, func(i, j int) bool { return ranges[i].start < ranges[j].start })
+		merged := ranges[:0]
+		for _, r := range ranges {
+			if len(merged) > 0 && r.start <= merged[len(merged)-1].end {
+				if r.end > merged[len(merged)-1].end {
+					merged[len(merged)-1].end = r.end
+				}
+				continue
+			}
+			merged = append(merged, r)
+		}
+		ranges = merged
+	}
+	plain := stripSGR(body)
+	byteAt := strings.Index(plain, name)
+	if byteAt < 0 {
+		return body
+	}
+	offset := utf8.RuneCountInString(plain[:byteAt])
+	for i := range ranges {
+		ranges[i].start += offset
+		ranges[i].end += offset
+	}
+	return paintVisibleRanges(body, ranges)
+}
+
+func paintVisibleRanges(s string, ranges []queryRange) string {
+	starts, ends := map[int]bool{}, map[int]bool{}
+	for _, r := range ranges {
+		if r.end > r.start {
+			starts[r.start], ends[r.end] = true, true
+		}
+	}
+	restoreBG := "\x1b[49m"
+	if bgPage != "" {
+		restoreBG = bgPage
+	}
+	var b strings.Builder
+	visible, active := 0, false
+	for i := 0; i < len(s); {
+		if starts[visible] && !active {
+			b.WriteString(bgHit)
+			active = true
+		}
+		if s[i] == '\x1b' {
+			j := i + 1
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) {
+				j++
+			}
+			seq := s[i:j]
+			b.WriteString(seq)
+			if active && seq == cReset {
+				b.WriteString(bgHit)
+			}
+			i = j
+			continue
+		}
+		_, n := utf8.DecodeRuneInString(s[i:])
+		b.WriteString(s[i : i+n])
+		i += n
+		visible++
+		if ends[visible] && active {
+			b.WriteString(restoreBG)
+			active = false
+		}
+	}
+	if active {
+		b.WriteString(restoreBG)
+	}
+	return b.String()
+}
+
+// queryHitCount counts only actual hits, recursively; gray breadcrumb rows do
+// not inflate the suffix. Old flat mirrors (before lock bits) still count.
+func queryHitCount(q *item) int {
+	n := 0
+	var walk func(*item)
+	walk = func(it *item) {
+		for _, c := range it.children {
+			if c.mirrorOf != "" && (!c.structureLocked || !c.readonly) {
+				n++
+			}
+			walk(c)
+		}
+	}
+	walk(q)
 	return n
 }

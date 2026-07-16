@@ -255,18 +255,19 @@ func (m *Model) applyNode(n database.Node) (applied, mutated bool) {
 // local edits against what is actually persisted.
 func snapFromNode(n database.Node) snapshot {
 	return snapshot{
-		parentUUID:  n.ParentUUID,
-		rank:        n.Rank,
-		name:        n.Name,
-		note:        n.Note,
-		typ:         n.Type,
-		style:       n.Style,
-		mirrorOf:    n.MirrorOf,
-		completedAt: n.CompletedAt,
-		collapsed:   n.Collapsed,
-		readonly:    n.Readonly,
-		starred:     n.Starred,
-		priority:    n.Priority,
+		parentUUID:      n.ParentUUID,
+		rank:            n.Rank,
+		name:            n.Name,
+		note:            n.Note,
+		typ:             n.Type,
+		style:           n.Style,
+		mirrorOf:        n.MirrorOf,
+		completedAt:     n.CompletedAt,
+		collapsed:       n.Collapsed,
+		readonly:        n.LockValue().Has(database.LockReadWrite),
+		structureLocked: n.LockValue().Has(database.LockIndentOutdent),
+		starred:         n.Starred,
+		priority:        n.Priority,
 	}
 }
 
@@ -290,19 +291,20 @@ func (t *tree) applyExternal(n database.Node) bool {
 			return false
 		}
 		it = &item{
-			uuid:        n.UUID,
-			name:        n.Name,
-			note:        n.Note,
-			typ:         n.Type,
-			style:       n.Style,
-			mirrorOf:    n.MirrorOf,
-			completedAt: n.CompletedAt,
-			collapsed:   n.Collapsed,
-			readonly:    n.Readonly,
-			starred:     n.Starred,
-			priority:    n.Priority,
-			addedOn:     n.AddedOn,
-			parent:      parent,
+			uuid:            n.UUID,
+			name:            n.Name,
+			note:            n.Note,
+			typ:             n.Type,
+			style:           n.Style,
+			mirrorOf:        n.MirrorOf,
+			completedAt:     n.CompletedAt,
+			collapsed:       n.Collapsed,
+			readonly:        n.LockValue().Has(database.LockReadWrite),
+			structureLocked: n.LockValue().Has(database.LockIndentOutdent),
+			starred:         n.Starred,
+			priority:        n.Priority,
+			addedOn:         n.AddedOn,
+			parent:          parent,
 		}
 		t.byUUID[n.UUID] = it
 		t.insertChildAt(parent, clampIdx(n.Rank, len(parent.children)), it)
@@ -316,15 +318,18 @@ func (t *tree) applyExternal(n database.Node) bool {
 	// content: adopt unless the user has local unsaved edits on this node —
 	// the dirty shield; the local flush lands within a second and wins
 	if !t.changed(it) {
+		nRead := n.LockValue().Has(database.LockReadWrite)
+		nStruct := n.LockValue().Has(database.LockIndentOutdent)
 		if it.name != n.Name || it.note != n.Note || it.typ != n.Type ||
 			it.style != n.Style || it.mirrorOf != n.MirrorOf ||
-			it.completedAt != n.CompletedAt || it.readonly != n.Readonly ||
-			it.starred != n.Starred {
+			it.completedAt != n.CompletedAt || it.readonly != nRead ||
+			it.structureLocked != nStruct || it.starred != n.Starred {
 			mutated = true
 		}
 		it.name, it.note, it.typ = n.Name, n.Note, n.Type
 		it.style, it.mirrorOf = n.Style, n.MirrorOf
-		it.completedAt, it.readonly, it.starred = n.CompletedAt, n.Readonly, n.Starred
+		it.completedAt, it.readonly = n.CompletedAt, nRead
+		it.structureLocked, it.starred = nStruct, n.Starred
 		it.priority = n.Priority // placement preference only — never visible, so not a mutation
 	}
 

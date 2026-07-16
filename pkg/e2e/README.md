@@ -57,7 +57,7 @@ pass
 ├─ / ╰─                  child tree prefixes
 ◌                        a Temporary Domain node
 $ cmd                    bash node
-⌕ q · N hits             query node
+⌕ G q · N hits             query node
  <breadcrumb> · pos/total[ · state]   status bar (also the divider above ◌)
 ```
 

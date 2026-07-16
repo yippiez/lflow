@@ -81,6 +81,12 @@ func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
 			os.Exit(1)
 		}
 
+		if nodeRes.Node.LockValue().Has(database.LockIndentOutdent) {
+			return errors.New("node structure is locked")
+		}
+		if parentRes.Node.LockValue().Has(database.LockIndentOutdent) {
+			return errors.New("new parent structure is locked")
+		}
 		if nodeRes.Node.UUID == parentRes.Node.UUID {
 			return errors.New("cannot move a node into itself")
 		}

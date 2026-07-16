@@ -233,46 +233,35 @@ func TestQueryBreadcrumbs(t *testing.T) {
 
 	runQuery(m, q)
 
-	// hits grouped by parent: home's hit and work's two hits are contiguous
-	var srcs []string
-	for _, c := range q.children {
-		if c.mirrorOf != "" {
-			srcs = append(srcs, c.mirrorOf)
+	// Breadcrumbs are real nested generated rows, not text prepended to hits:
+	// query → home → h1 and query → work → w1,w2.
+	if len(q.children) != 2 || q.children[0].mirrorOf != "home" || q.children[1].mirrorOf != "work" {
+		t.Fatalf("top breadcrumb rows = %v, want home/work", mirrorSources(q))
+	}
+	homeCrumb, workCrumb := q.children[0], q.children[1]
+	if !homeCrumb.readonly || !homeCrumb.structureLocked || !workCrumb.readonly || !workCrumb.structureLocked {
+		t.Fatal("breadcrumb rows must carry content + structural locks")
+	}
+	if got := mirrorSources(homeCrumb); len(got) != 1 || got[0] != "h1" {
+		t.Fatalf("home children = %v", got)
+	}
+	if got := mirrorSources(workCrumb); len(got) != 2 || got[0] != "w1" || got[1] != "w2" {
+		t.Fatalf("work children = %v", got)
+	}
+	for _, hit := range append(homeCrumb.children, workCrumb.children...) {
+		if hit.readonly || !hit.structureLocked {
+			t.Fatal("hits must be movable-locked without wearing the gray content lock")
 		}
 	}
-	if len(srcs) != 3 {
-		t.Fatalf("want 3 hits, got %v", srcs)
-	}
-	if !(srcs[0] == "h1" && srcs[1] == "w1" && srcs[2] == "w2") {
-		t.Fatalf("hits not grouped by path: %v", srcs)
+	if queryHitCount(q) != 3 {
+		t.Fatalf("hit count includes breadcrumbs: %d", queryHitCount(q))
 	}
 
-	// crumbs: first of each group shows one, the second work hit shows none
-	m.refreshRows()
-	crumbs := map[string]string{}
-	for i, r := range m.rows {
-		if r.it.mirrorOf != "" {
-			crumbs[r.it.mirrorOf] = m.rowCrumb(m.rows, i)
-		}
-	}
-	if crumbs["h1"] != "home › " {
-		t.Errorf("h1 crumb = %q, want 'home › '", crumbs["h1"])
-	}
-	if crumbs["w1"] != "work › " {
-		t.Errorf("w1 crumb = %q, want 'work › '", crumbs["w1"])
-	}
-	if crumbs["w2"] != "" {
-		t.Errorf("w2 crumb = %q, want suppressed (same group)", crumbs["w2"])
-	}
-
-	// without :breadcrumb: no crumbs render at all
+	// Without :breadcrumb:, hits return to one flat level.
 	q.name = "fix"
 	runQuery(m, q)
-	m.refreshRows()
-	for i, r := range m.rows {
-		if r.it.mirrorOf != "" && m.rowCrumb(m.rows, i) != "" {
-			t.Fatal("flat query must not render crumbs")
-		}
+	if got := mirrorSources(q); len(got) != 3 {
+		t.Fatalf("flat query mirrors = %v", got)
 	}
 }
 

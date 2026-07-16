@@ -13,7 +13,7 @@ import (
 //	        :type:<key>, :after:/:since:<date>, :before:/:until:<date>
 //	ops:    ||  or   ·  &&  and (also implicit between adjacent atoms)  ·  >  under
 //	parens: ( … ) for grouping
-//	flags:  :breadcrumb: group hits under muted ancestor crumbs (default :list:)
+//	flags:  :breadcrumb: nest hits in a locked gray ancestor tree (default :list:)
 //
 // "A > B" keeps nodes matching B that sit under a node matching A (strict
 // descendants). Time bounds that share an AND combine into one window so a
