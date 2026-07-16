@@ -22,7 +22,6 @@ type item struct {
 	collapsed       bool
 	readonly        bool   // LOCK_READ_WRITE: inline/content edits are no-ops
 	structureLocked bool   // LOCK_INDENT_UNINDENT: hierarchy/order cannot change
-	queryLocal      bool   // session-local query scope; alt+e toggles it
 	starred         bool   // /star: pinned to the top of pickers and search hits
 	priority        string // /priority: incoming nodes land on top ("up") or at the bottom ("down"/"")
 	addedOn         int64  // creation time (UnixNano); shown by the log node's time chip
@@ -112,7 +111,6 @@ func cloneItem(src, parent *item) *item {
 		collapsed:       src.collapsed,
 		readonly:        src.readonly,
 		structureLocked: src.structureLocked,
-		queryLocal:      src.queryLocal,
 		starred:         src.starred,
 		priority:        src.priority,
 		addedOn:         src.addedOn,

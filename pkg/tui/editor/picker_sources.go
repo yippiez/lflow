@@ -458,6 +458,10 @@ func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		m.mode = modeComplete // :type: immediately offers its values
 		return m, nil
 	}
+	// :in: replaces the inline completer with the node finder.
+	if m.mode == modeFinder {
+		return m, nil
+	}
 	m.mode = modeOutline
 	return m, nil
 }

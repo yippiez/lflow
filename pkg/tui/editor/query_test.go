@@ -60,8 +60,8 @@ func TestQueryMatchesStarredRanksFirst(t *testing.T) {
 	}
 }
 
-func TestQueryLocalScopeUsesParentSubtree(t *testing.T) {
-	root := &item{uuid: "root"}
+func TestQueryScopeDefaultsToRootAndUsesSelectedNode(t *testing.T) {
+	root := &item{uuid: database.RootUUID, name: "Root"}
 	scope := &item{uuid: "scope", name: "scope", parent: root}
 	q := &item{uuid: "q", typ: database.TypeQuery, name: "needle", parent: scope}
 	local := &item{uuid: "local", name: "needle local", parent: scope}
@@ -74,21 +74,40 @@ func TestQueryLocalScopeUsesParentSubtree(t *testing.T) {
 	tr := &tree{root: root, snapshots: map[string]snapshot{}, externalNames: map[string]string{},
 		byUUID: map[string]*item{"root": root, "scope": scope, "q": q, "local": local,
 			"branch": branch, "deep": deep, "outside": outside}}
-	m := &Model{tree: tr}
+	m := &Model{tree: tr, chips: map[string]database.Chip{
+		"scope-link": {ID: "scope-link", Kind: chipKindLink, Value: nodeLinkURI(scope.uuid), Label: scope.name},
+	}}
+
 	if got := len(m.queryMatches(q)); got != 3 {
-		t.Fatalf("global matches = %d, want 3", got)
+		t.Fatalf("default-root matches = %d, want 3", got)
 	}
-	m.toggleQueryScope(q)
+	q.name = "needle :in:" + database.ChipAnchor("scope-link")
 	got := m.queryMatches(q)
 	if len(got) != 2 || got[0].UUID != "deep" || got[1].UUID != "local" {
-		t.Fatalf("local matches = %+v, want parent-subtree hits only", got)
+		t.Fatalf(":in: matches = %+v, want selected-subtree hits only", got)
 	}
-	if !strings.Contains(stripSGR(queryPrefix(q)), "L") {
-		t.Fatal("local query prefix must show L")
+	if got := stripSGR(queryPrefix(q)); strings.Contains(got, "G") || strings.Contains(got, "L") {
+		t.Fatalf("query prefix must not expose obsolete global/local scope: %q", got)
 	}
-	m.toggleQueryScope(q)
-	if !strings.Contains(stripSGR(queryPrefix(q)), "G") {
-		t.Fatal("global query prefix must show G")
+}
+
+func TestQueryScopePickerStoresNodeLink(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "query", Name: ":in:", Type: database.TypeQuery},
+		database.Node{UUID: "scope", Name: "selected subtree"},
+	)
+	q := m.tree.byUUID["query"]
+	m.cursor = m.rowIndexOf(q)
+	m.caret = len([]rune(q.name))
+	m.finder.act = actQueryScope
+	m.runFinder(database.Node{UUID: "scope", Name: "selected subtree"})
+
+	raw, scope := m.queryTextAndScope(q)
+	if raw != "" || scope != "scope" {
+		t.Fatalf("picked scope parsed as raw=%q scope=%q, want empty expression in scope", raw, scope)
+	}
+	if !hasAnchor(q.name) {
+		t.Fatalf("picked scope must be stored as a link chip, got %q", q.name)
 	}
 }
 

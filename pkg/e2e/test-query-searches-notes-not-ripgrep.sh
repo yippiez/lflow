@@ -20,7 +20,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   5. Press M-r (alt+r) to run the query.
 #
 # Expected (correct, post-fix) behavior:
-#   - The query node shows "⌕ G alpha" with "· 1 hits" in the suffix.
+#   - The query node shows "⌕ alpha" with "· 1 hits" in the suffix.
 #   - A fixed mirror child "○ alpha note · mirror · fixed" appears under it.
 #   - No file paths or ripgrep-style output (e.g., ".go:" or ".sh:") appear.
 
@@ -55,8 +55,8 @@ wait_for "⌕"
 # --- step 3: type the query text ---
 type "alpha"
 
-# The query node should now read "⌕ G alpha".
-wait_for "⌕ G alpha"
+# The query node should now read "⌕ alpha".
+wait_for "⌕ alpha"
 
 # --- step 4: run the query (alt+r) ---
 send M-r
@@ -68,7 +68,7 @@ wait_for "hits"
 # --- assertions: correct (post-fix) behavior ---
 
 # The query node must show the hit count suffix.
-assert_contains "⌕ G alpha"
+assert_contains "⌕ alpha"
 assert_contains "hits"
 
 # The mirror child for "alpha note" must appear — this is the DB-search result.

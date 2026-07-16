@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,26 +20,62 @@ import (
 
 const queryMaxHits = 50
 
-// queryPrefix makes scope visible without spending query-language syntax on it.
-// Global is the default; alt+e flips the session-local scope bit.
-func queryPrefix(it *item) string {
-	scope := "G"
-	if it != nil && it.queryLocal {
-		scope = "L"
-	}
-	return cDim + "⌕" + cReset + " " + cYellow + scope + cReset + " "
-}
+// queryPrefix is deliberately scope-neutral: query scope is expressed by the
+// persisted :in: parameter, whose omitted value is the outline root.
+func queryPrefix(*item) string { return cDim + "⌕" + cReset + " " }
 
-func (m *Model) toggleQueryScope(it *item) {
-	if it == nil || it.typ != database.TypeQuery {
-		return
+// queryTextAndScope removes :in: selectors from q's searchable expression and
+// returns their selected subtree root. An omitted selector means the permanent
+// outline root. The picker stores a selected node as a link chip, preserving its
+// UUID even when the node is renamed; :in:<uuid> and :in:root also work in plain
+// text for scripts and old hand-written queries.
+func (m *Model) queryTextAndScope(q *item) (string, string) {
+	if q == nil {
+		return "", database.RootUUID
 	}
-	it.queryLocal = !it.queryLocal
-	if it.queryLocal {
-		m.flash = "query · local (parent subtree)"
-	} else {
-		m.flash = "query · global"
+	runes := []rune(q.name)
+	spans := database.AnchorSpans(runes)
+	spanAt := make(map[int]database.AnchorSpan, len(spans))
+	for _, sp := range spans {
+		spanAt[sp.Start] = sp
 	}
+
+	scope := database.RootUUID
+	var out []rune
+	for i := 0; i < len(runes); {
+		if !strings.HasPrefix(strings.ToLower(string(runes[i:])), ":in:") ||
+			(i > 0 && !unicode.IsSpace(runes[i-1])) {
+			out = append(out, runes[i])
+			i++
+			continue
+		}
+		j := i + len(":in:")
+		for j < len(runes) && unicode.IsSpace(runes[j]) {
+			j++
+		}
+		if sp, ok := spanAt[j]; ok {
+			if c, exists := m.chips[sp.ID]; exists && c.Kind == chipKindLink {
+				if uuid, linked := nodeLinkUUID(c.Value); linked && uuid != "" {
+					scope = uuid
+				}
+			}
+			i = sp.End
+			continue
+		}
+		end := j
+		for end < len(runes) && !unicode.IsSpace(runes[end]) {
+			end++
+		}
+		value := string(runes[j:end])
+		switch strings.ToLower(value) {
+		case "", "root":
+			scope = database.RootUUID
+		default:
+			scope = value
+		}
+		i = end
+	}
+	return strings.TrimSpace(database.ExpandAnchors(string(out), m.chips)), scope
 }
 
 func runQuery(m *Model, it *item) tea.Cmd {
@@ -66,7 +103,7 @@ func (m *Model) queryMatches(q *item) []database.Node {
 	now := time.Now()
 	// resolve the query node's own chips/dates to plain text before parsing, so a
 	// ":before:2026-06-01" the editor chipified still reads as text here.
-	raw := strings.TrimSpace(database.ExpandAnchors(q.name, m.chips))
+	raw, scope := m.queryTextAndScope(q)
 	if raw == "" {
 		return nil
 	}
@@ -76,7 +113,7 @@ func (m *Model) queryMatches(q *item) []database.Node {
 	}
 
 	ctx := m.buildQueryCtx(q, now)
-	ctx.restrictToQueryScope(q)
+	ctx.restrictToQueryScope(q, scope)
 	if len(ctx.cands) == 0 {
 		return nil
 	}
@@ -140,16 +177,21 @@ func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
 	seen := map[string]bool{}
 
 	add := func(c qCand) {
-		if c.uuid == "" || c.uuid == q.uuid || c.name == "" || seen[c.uuid] {
+		if c.uuid == "" || c.uuid == q.uuid || seen[c.uuid] {
 			return
 		}
 		seen[c.uuid] = true
-		ctx.cands = append(ctx.cands, c)
-		cp := c
-		ctx.byUUID[c.uuid] = &cp
+		// Keep ancestry for structural/empty nodes too: :in: may select one,
+		// and its named descendants still need to prove they are in scope.
 		if c.parent != "" {
 			ctx.parent[c.uuid] = c.parent
 		}
+		if c.name == "" {
+			return
+		}
+		ctx.cands = append(ctx.cands, c)
+		cp := c
+		ctx.byUUID[c.uuid] = &cp
 	}
 
 	if m.tree != nil {
@@ -186,24 +228,20 @@ func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
 }
 
 // restrictToQueryScope narrows the candidate universe before expression
-// evaluation, so every stage of &&/||/> obeys local scope. It also excludes the
-// query's own materialized/user subtree in both modes.
-func (ctx *qCtx) restrictToQueryScope(q *item) {
+// evaluation, so every stage of &&/||/> obeys :in:. It excludes the query's
+// own materialized/user subtree regardless of the selected scope.
+func (ctx *qCtx) restrictToQueryScope(q *item, scope string) {
 	if q == nil {
 		return
 	}
-	qRoot := map[string]bool{q.uuid: true}
-	var localRoot map[string]bool
-	if q.queryLocal && q.parent != nil {
-		localRoot = map[string]bool{q.parent.uuid: true}
+	if scope == "" {
+		scope = database.RootUUID
 	}
+	qRoot := map[string]bool{q.uuid: true}
+	scopeRoot := map[string]bool{scope: true}
 	kept := ctx.cands[:0]
 	for _, c := range ctx.cands {
-		if ctx.underAny(c.uuid, qRoot) {
-			delete(ctx.byUUID, c.uuid)
-			continue
-		}
-		if localRoot != nil && !ctx.underAny(c.uuid, localRoot) {
+		if ctx.underAny(c.uuid, qRoot) || !ctx.atOrUnderAny(c.uuid, scopeRoot) {
 			delete(ctx.byUUID, c.uuid)
 			continue
 		}
@@ -299,7 +337,7 @@ type queryWant struct {
 // additionally carry the content lock and render gray; hits remain visually live
 // but cannot be moved/indented out of the generated view.
 func (m *Model) reconcileQueryMirrors(q *item, matches []database.Node) {
-	raw := strings.TrimSpace(database.ExpandAnchors(q.name, m.chips))
+	raw, _ := m.queryTextAndScope(q)
 	pq := parseQuery(raw, time.Now())
 	root := &queryWant{bySource: map[string]*queryWant{}}
 	seenHits := map[string]bool{}
@@ -330,9 +368,9 @@ func (m *Model) reconcileQueryMirrors(q *item, matches []database.Node) {
 }
 
 // queryAncestorPath returns root-to-parent ancestors for a hit, excluding the
-// forest root. In local mode the parent subtree is the scope boundary rather
-// than another breadcrumb row.
+// forest root and the selected :in: boundary.
 func (m *Model) queryAncestorPath(q *item, hit database.Node) []database.Node {
+	_, scope := m.queryTextAndScope(q)
 	var rev []database.Node
 	parent := hit.ParentUUID
 	for hops := 0; parent != "" && hops < 64; hops++ {
@@ -355,7 +393,7 @@ func (m *Model) queryAncestorPath(q *item, hit database.Node) []database.Node {
 		if n.ParentUUID == "" { // forest root is chrome, not a breadcrumb
 			break
 		}
-		if q.queryLocal && q.parent != nil && n.UUID == q.parent.uuid {
+		if n.UUID == scope {
 			break
 		}
 		rev = append(rev, n)
@@ -463,7 +501,8 @@ func (m *Model) highlightQueryHit(it *item, name, body string) string {
 	if q == nil {
 		return body
 	}
-	pq := parseQuery(strings.TrimSpace(database.ExpandAnchors(q.name, m.chips)), time.Now())
+	raw, _ := m.queryTextAndScope(q)
+	pq := parseQuery(raw, time.Now())
 	var needles []string
 	var collect func(qExpr)
 	collect = func(e qExpr) {

@@ -56,6 +56,7 @@ const (
 	actBringHere  // /move:here — the picked node moves to the cursor
 	actLinkInsert // [[ — insert an inline link chip at the caret (node or URL)
 	actBacklinks  // /backlinks — nodes that mirror or [[-link to the cursor node
+	actQueryScope // :in: — select the query's subtree boundary
 )
 
 type slashCommand struct {

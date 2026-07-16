@@ -12,6 +12,14 @@ func TestComplItemsQueryCmdFilter(t *testing.T) {
 	if len(items) != 1 || items[0].value != ":after:" {
 		t.Fatalf("query-cmd filter 'aft' = %v, want [:after:]", items)
 	}
+	items = m.complItems("in")
+	foundIn := false
+	for _, it := range items {
+		foundIn = foundIn || it.value == ":in:"
+	}
+	if !foundIn {
+		t.Fatalf("query-cmd filter 'in' = %v, want it to include [:in:]", items)
+	}
 }
 
 func TestComplItemsTagsFromChips(t *testing.T) {

@@ -21,7 +21,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   7. Reopen.
 #
 # Expected (post-fix):
-#   After reopen the query node shows "⌕ G target · 1 hits" and its mirror child
+#   After reopen the query node shows "⌕ target · 1 hits" and its mirror child
 #   "○ target note · mirror · fixed" — proving the result was persisted to the DB and
 #   loaded back on restart.
 
@@ -51,7 +51,7 @@ wait_for "⌕"
 
 # --- step 3: type the query text ---
 type "target"
-wait_for "⌕ G target"
+wait_for "⌕ target"
 
 # --- step 4: run the query ---
 send M-r
@@ -68,7 +68,7 @@ assert_contains "hits"
 # --- step 5: save so results are persisted to the file DB ---
 # Save is confirmed by the "unsaved" marker disappearing from the status bar.
 send C-s
-wait_for "⌕ G target" 5
+wait_for "⌕ target" 5
 # After save the status bar drops "· unsaved"; poll until it is gone.
 DEADLINE=$(( $(date +%s) + 5 ))
 while :; do
@@ -86,7 +86,7 @@ done
 reopen
 
 # The editor must load cleanly with the query node visible.
-wait_for "⌕ G target" 8
+wait_for "⌕ target" 8
 
 # Core assertion: the fixed mirror child survived the relaunch.
 # Before the fix (9d4b002) derived mirrors were not saved, so this would be

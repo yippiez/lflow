@@ -17,7 +17,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   4. Press M-r (alt+r) to run.
 #
 # Expected (correct, post-fix) behavior:
-#   - The query node shows "⌕ G freshunsaved" with "· 1 hits" in the suffix.
+#   - The query node shows "⌕ freshunsaved" with "· 1 hits" in the suffix.
 #   - A fixed mirror child "○ freshunsaved · mirror · fixed" appears under it.
 #   - The assertion WOULD HAVE FAILED on the original code (0 hits, no mirror).
 
@@ -47,8 +47,8 @@ wait_for "⌕"
 # --- step 3: type the query text ---
 type "freshunsaved"
 
-# The node should render as "⌕ G freshunsaved".
-wait_for "⌕ G freshunsaved"
+# The node should render as "⌕ freshunsaved".
+wait_for "⌕ freshunsaved"
 
 # --- step 4: run the query ---
 send M-r

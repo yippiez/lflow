@@ -14,6 +14,7 @@ import (
 //	ops:    ||  or   ·  &&  and (also implicit between adjacent atoms)  ·  >  under
 //	parens: ( … ) for grouping
 //	flags:  :breadcrumb: nest hits in a locked gray ancestor tree (default :list:)
+//	scope:  :in: followed by a picked node link limits results to its subtree
 //
 // "A > B" keeps nodes matching B that sit under a node matching A (strict
 // descendants). Time bounds that share an AND combine into one window so a
@@ -220,6 +221,12 @@ func (ctx *qCtx) underAny(uuid string, roots map[string]bool) bool {
 		cur = p
 	}
 	return false
+}
+
+// atOrUnderAny is the inclusive subtree test used by :in:. Unlike `>` the
+// selected node itself belongs to its query scope.
+func (ctx *qCtx) atOrUnderAny(uuid string, roots map[string]bool) bool {
+	return roots[uuid] || ctx.underAny(uuid, roots)
 }
 
 // --- tokenizer / parser ------------------------------------------------------

@@ -60,15 +60,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFlashKey(k)
 	}
 
-	// Query nodes spend alt+e on scope: global (G, default) ⇄ the parent subtree
-	// (L). Scope is UI state, not duplicated :global:/:local: query syntax.
-	if key == "alt+e" && m.mode == modeOutline {
-		if cur := m.cursorItem(); cur != nil && cur.typ == database.TypeQuery {
-			m.toggleQueryScope(cur)
-			return m, nil
-		}
-	}
-
 	// alt+e on a block-faced node (nlpcompute) flips its code ⇄ prose face rather
 	// than entering an editor — the code face auto-focuses for editing on its own.
 	// Handled before the focused-view capture below so it fires even while the code

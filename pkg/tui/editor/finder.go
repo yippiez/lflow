@@ -44,8 +44,14 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 		}
 	} else if strings.TrimSpace(query) == "" {
 		// an empty query matches everything, recent first: the picker starts full and
-		// narrows as you type
+		// narrows as you type. :in: additionally offers the otherwise-hidden Root,
+		// because it is the explicit spelling of the default query scope.
 		hits, err = database.RecentNodes(m.db)
+		if m.finder.act == actQueryScope && m.db != nil {
+			if root, rootErr := database.GetNode(m.db, database.RootUUID); rootErr == nil {
+				hits = append([]database.Node{root}, hits...)
+			}
+		}
 	} else {
 		hits, err = database.SearchNodes(m.db, query, true)
 	}
@@ -146,6 +152,8 @@ func (nodeFinderBackend) label(m *Model) string {
 		return "[[ link"
 	case actBacklinks:
 		return "/backlinks"
+	case actQueryScope:
+		return ":in:"
 	}
 	return ""
 }
@@ -166,6 +174,8 @@ func (nodeFinderBackend) hint(m *Model) string {
 		return "enter · Link to node, or type a URL"
 	case actBacklinks:
 		return "enter · Open · mirrors and [[ links to this node"
+	case actQueryScope:
+		return "enter · Search this node and its subtree"
 	}
 	return ""
 }
@@ -315,6 +325,21 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.caret = 0
 		m.unsaved = false
+	case actQueryScope:
+		// Persist the selected node identity as a regular node-link chip. Query
+		// parsing consumes this chip after :in:, so a rename cannot change scope.
+		dst := m.resolveSourceNode(target)
+		label := displayAnchors(dst.Name, m.chips)
+		anchor := m.createLabeledChip(chipKindLink, nodeLinkURI(dst.UUID), label)
+		if anchor != "" {
+			m.pushUndo("")
+			runes := []rune(cur.name)
+			m.boundCaret(len(runes))
+			cur.name = string(runes[:m.caret]) + anchor + " " + string(runes[m.caret:])
+			m.caret += len([]rune(anchor)) + 1
+			m.unsaved = true
+			m.flash = "query in → " + clipStr(label, 24)
+		}
 	case actLinkInsert:
 		// insert an inline link chip pointing at the picked node (the original,
 		// never a mirror), its name defaulting to the node's name. Resolve the

@@ -12,7 +12,7 @@ import (
 // An inline completer is the popup behind "#" (tags), ":" (query commands),
 // and "@" (agents). Like the slash menu it types into the node text and shows a
 // filtered list above the status bar. Query commands may chain into a value
-// picker — currently :type: immediately offers every queryable node type.
+// picker — :type: offers types, while :in: opens the node finder.
 
 type complKind int
 
@@ -45,6 +45,7 @@ var queryCmdItems = []complItem{
 	{label: ":since:", value: ":since:", desc: "alias of :after:"},
 	{label: ":until:", value: ":until:", desc: "alias of :before:"},
 	{label: ":type:", value: ":type:", desc: "node type (todo, log, …)"},
+	{label: ":in:", value: ":in:", desc: "select subtree to search (root by default)"},
 	{label: ":breadcrumb:", value: ":breadcrumb:", desc: "nest hits in a locked ancestor tree"},
 	{label: ":list:", value: ":list:", desc: "flat hit list (default)"},
 }
@@ -128,7 +129,8 @@ func (m *Model) openCompleter(cur *item, kind complKind, trigger string) (tea.Mo
 }
 
 // applyCompletion replaces the active token. It returns true when selecting
-// :type: chained directly into its value picker, keeping modeComplete open.
+// :type: chained directly into its value picker, keeping modeComplete open;
+// :in: instead moves directly into the node finder.
 func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 	if cur == nil {
 		return false
@@ -149,6 +151,9 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 			m.compl = complState{kind: complQueryType, start: m.caret}
 			m.list = listPicker{searchable: true}
 			return true
+		}
+		if strings.EqualFold(chosen.value, ":in:") {
+			m.openFinder(actQueryScope)
 		}
 		return false
 	}
