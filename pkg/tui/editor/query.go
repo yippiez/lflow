@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 )
@@ -81,7 +82,13 @@ func (m *Model) queryTextAndScope(q *item) (string, string) {
 func runQuery(m *Model, it *item) tea.Cmd {
 	matches := m.queryMatches(it)
 	m.reconcileQueryMirrors(it, matches)
-	m.nodeStore(it.uuid)["queryRunAt"] = time.Now().Unix()
+	d := m.nodeStore(it.uuid)
+	d["queryRunAt"] = time.Now().Unix()
+	// Results do not update until alt+r, so their highlights must describe the
+	// last run too. Holding the run text prevents old result rows from repainting
+	// under a partially edited query.
+	raw, _ := m.queryTextAndScope(it)
+	d["queryRunText"] = raw
 	m.qCrumbs = nil // ancestor names may have changed — recompute breadcrumbs
 	m.unsaved = true
 	m.refreshRows()
@@ -181,6 +188,10 @@ func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
 			return
 		}
 		seen[c.uuid] = true
+		// Chips are opaque anchors in storage. Every search atom, especially a
+		// strict #tag atom, must see the same expanded text a user sees.
+		c.searchName = database.ExpandAnchors(c.name, m.chips)
+		c.searchNote = database.ExpandAnchors(c.note, m.chips)
 		// Keep ancestry for structural/empty nodes too: :in: may select one,
 		// and its named descendants still need to prove they are in scope.
 		if c.parent != "" {
@@ -484,6 +495,19 @@ func (m *Model) tombstoneQueryItem(it *item) {
 
 type queryRange struct{ start, end int }
 
+// queryRunText returns the expression that produced q's current materialized
+// children. Existing results loaded from disk predate this ephemeral cache, so
+// their current query text becomes the baseline on first render.
+func (m *Model) queryRunText(q *item) string {
+	d := m.nodeStore(q.uuid)
+	if raw, ok := d["queryRunText"].(string); ok {
+		return raw
+	}
+	raw, _ := m.queryTextAndScope(q)
+	d["queryRunText"] = raw
+	return raw
+}
+
 // highlightQueryHit paints the visible name fragments that explain why this
 // generated result matched. Filters with no name fragment (note/type/date) paint
 // the whole name, so every hit still has an explicit yellow-background reason.
@@ -501,8 +525,7 @@ func (m *Model) highlightQueryHit(it *item, name, body string) string {
 	if q == nil {
 		return body
 	}
-	raw, _ := m.queryTextAndScope(q)
-	pq := parseQuery(raw, time.Now())
+	pq := parseQuery(m.queryRunText(q), time.Now())
 	var needles []string
 	var collect func(qExpr)
 	collect = func(e qExpr) {
@@ -531,8 +554,12 @@ func (m *Model) highlightQueryHit(it *item, name, body string) string {
 	}
 	collect(pq.expr)
 
-	runes := []rune(name)
-	lower := []rune(strings.ToLower(name))
+	// Search works on expanded chip values, while rows render compact chip
+	// displays. Highlight the visible form; when the reason only exists in a
+	// note/filter/hidden chip value, the whole visible name is the marker.
+	visibleName := stripControlBytes(displayAnchors(name, m.chips))
+	runes := []rune(visibleName)
+	lower := []rune(strings.ToLower(visibleName))
 	var ranges []queryRange
 	for _, needle := range needles {
 		nr := []rune(strings.ToLower(needle))
@@ -562,10 +589,12 @@ func (m *Model) highlightQueryHit(it *item, name, body string) string {
 		}
 		ranges = merged
 	}
-	plain := stripSGR(body)
-	byteAt := strings.Index(plain, name)
+	plain := ansi.Strip(body)
+	byteAt := strings.Index(plain, visibleName)
 	if byteAt < 0 {
-		return body
+		// A type-specific renderer may show a transformed/truncated preview rather
+		// than its literal name. It is still a hit, so mark the complete entry.
+		return paintVisibleRanges(body, []queryRange{{0, utf8.RuneCountInString(plain)}})
 	}
 	offset := utf8.RuneCountInString(plain[:byteAt])
 	for i := range ranges {
@@ -594,13 +623,7 @@ func paintVisibleRanges(s string, ranges []queryRange) string {
 			active = true
 		}
 		if s[i] == '\x1b' {
-			j := i + 1
-			for j < len(s) && s[j] != 'm' {
-				j++
-			}
-			if j < len(s) {
-				j++
-			}
+			j := ansiEscapeEnd(s, i)
 			seq := s[i:j]
 			b.WriteString(seq)
 			if active && seq == cReset {
@@ -622,6 +645,36 @@ func paintVisibleRanges(s string, ranges []queryRange) string {
 		b.WriteString(restoreBG)
 	}
 	return b.String()
+}
+
+// ansiEscapeEnd returns the byte just after one CSI/OSC escape. Query rows may
+// contain OSC 8 hyperlinks as well as SGR colors; neither occupies a visible
+// rune in paintVisibleRanges' coordinate space.
+func ansiEscapeEnd(s string, i int) int {
+	if i+1 >= len(s) {
+		return len(s)
+	}
+	switch s[i+1] {
+	case '[': // CSI: final byte is in 0x40..0x7e
+		for j := i + 2; j < len(s); j++ {
+			if s[j] >= 0x40 && s[j] <= 0x7e {
+				return j + 1
+			}
+		}
+		return len(s)
+	case ']': // OSC: BEL or ST (ESC \\) terminates the payload
+		for j := i + 2; j < len(s); j++ {
+			if s[j] == '\a' {
+				return j + 1
+			}
+			if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
+				return j + 2
+			}
+		}
+		return len(s)
+	default:
+		return i + 2
+	}
 }
 
 // queryHitCount counts only actual hits, recursively; gray breadcrumb rows do

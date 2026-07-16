@@ -60,6 +60,27 @@ func TestQueryMatchesStarredRanksFirst(t *testing.T) {
 	}
 }
 
+func TestQueryMatchesCommittedTagChips(t *testing.T) {
+	root := &item{uuid: database.RootUUID, name: "Root"}
+	q := &item{uuid: "q", typ: database.TypeQuery, name: database.ChipAnchor("query-tag"), parent: root}
+	hit := &item{uuid: "hit", name: "ship " + database.ChipAnchor("hit-tag"), parent: root}
+	miss := &item{uuid: "miss", name: "ship #urgently", parent: root}
+	root.children = []*item{q, hit, miss}
+	m := &Model{
+		tree: &tree{root: root, snapshots: map[string]snapshot{}, externalNames: map[string]string{},
+			byUUID: map[string]*item{database.RootUUID: root, "q": q, "hit": hit, "miss": miss}},
+		chips: map[string]database.Chip{
+			"query-tag": {ID: "query-tag", Kind: chipKindTag, Value: "urgent"},
+			"hit-tag":   {ID: "hit-tag", Kind: chipKindTag, Value: "urgent"},
+		},
+	}
+
+	got := m.queryMatches(q)
+	if len(got) != 1 || got[0].UUID != "hit" {
+		t.Fatalf("committed #tag query matches = %+v, want the exact tag-chip node", got)
+	}
+}
+
 func TestQueryScopeDefaultsToRootAndUsesSelectedNode(t *testing.T) {
 	root := &item{uuid: database.RootUUID, name: "Root"}
 	scope := &item{uuid: "scope", name: "scope", parent: root}
@@ -114,18 +135,49 @@ func TestQueryScopePickerStoresNodeLink(t *testing.T) {
 func TestQueryHitHighlightAndStructuralLock(t *testing.T) {
 	m, q := newQueryTree()
 	q.name = "milk"
-	m.reconcileQueryMirrors(q, []database.Node{{UUID: "a", Name: "buy milk"}})
+	source := &item{uuid: "a", name: "buy milk", parent: m.tree.root}
+	m.tree.root.children = append(m.tree.root.children, source)
+	m.tree.byUUID[source.uuid] = source
+	m.viewStack = []*item{m.tree.root}
+	m.width, m.height = 80, 24
+	runQuery(m, q)
+
 	hit := q.children[0]
-	body := renderBody(hit, "buy milk", -1, false, nil, false)
-	body = m.highlightQueryHit(hit, "buy milk", body)
-	if !strings.Contains(body, bgHit) {
+	rendered := renderBody(hit, source.name, -1, false, nil, false)
+	rendered = m.highlightQueryHit(hit, source.name, rendered)
+	if !strings.Contains(rendered, bgHit) {
 		t.Fatal("matching text must carry the yellow query-hit background")
+	}
+	// Editing the query does not update its materialized results until alt+r;
+	// their explanation highlight must remain tied to that same last run.
+	q.name = "buy"
+	afterEdit := renderBody(hit, source.name, -1, false, nil, false)
+	afterEdit = m.highlightQueryHit(hit, source.name, afterEdit)
+	if afterEdit != rendered {
+		t.Fatal("query hit highlight changed before the query was rerun")
 	}
 	if !hit.structureLocked || hit.readonly {
 		t.Fatalf("hit locks = structure:%v content:%v", hit.structureLocked, hit.readonly)
 	}
 	if m.tree.indent(hit) {
 		t.Fatal("query results must not indent")
+	}
+}
+
+func TestQueryHitHighlightsVisibleTagChip(t *testing.T) {
+	m, q := newQueryTree()
+	m.chips = map[string]database.Chip{
+		"query-tag": {ID: "query-tag", Kind: chipKindTag, Value: "urgent"},
+		"hit-tag":   {ID: "hit-tag", Kind: chipKindTag, Value: "urgent"},
+	}
+	q.name = database.ChipAnchor("query-tag")
+	name := "ship " + database.ChipAnchor("hit-tag")
+	m.reconcileQueryMirrors(q, []database.Node{{UUID: "a", Name: name}})
+	hit := q.children[0]
+	body := renderBody(hit, name, -1, false, m.chips, false)
+	body = m.highlightQueryHit(hit, name, body)
+	if !strings.Contains(body, bgHit) {
+		t.Fatal("a visible tag chip in every matching row must be highlighted")
 	}
 }
 

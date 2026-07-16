@@ -136,7 +136,7 @@ func (e *qText) eval(ctx *qCtx) map[string]bool {
 	out := map[string]bool{}
 	if e.isTag {
 		for _, c := range ctx.cands {
-			if nodeHasTag(c.name, e.s) || nodeHasTag(c.note, e.s) {
+			if nodeHasTag(c.searchName, e.s) || nodeHasTag(c.searchNote, e.s) {
 				out[c.uuid] = true
 			}
 		}
@@ -144,7 +144,7 @@ func (e *qText) eval(ctx *qCtx) map[string]bool {
 	}
 	lc := strings.ToLower(e.s)
 	for _, c := range ctx.cands {
-		if strings.Contains(strings.ToLower(c.name), lc) || strings.Contains(strings.ToLower(c.note), lc) {
+		if strings.Contains(strings.ToLower(c.searchName), lc) || strings.Contains(strings.ToLower(c.searchNote), lc) {
 			out[c.uuid] = true
 		}
 	}
@@ -192,8 +192,11 @@ func matchDateWindow(dates []time.Time, after, before *time.Time) bool {
 // qCand is one searchable node (in-memory or from the DB).
 type qCand struct {
 	uuid, name, note, typ, parent string
-	addedOn                       int64
-	starred                       bool
+	// searchName/searchNote are anchor-expanded. Keep name/note raw so a
+	// materialized mirror still renders the source's real chips.
+	searchName, searchNote string
+	addedOn                int64
+	starred                bool
 }
 
 // qCtx holds the candidate universe for one query run.
