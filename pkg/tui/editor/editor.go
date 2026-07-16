@@ -173,13 +173,13 @@ type Model struct {
 	linkEditCaret  int    // caret inside the active field — same movement keys as the outline
 
 	// alt+e coding-agent session-chip editor (modeSessionEdit)
-	sessionEditID    string // chip id being edited
-	sessionEditKind  string // provider chip kind (claude_session / pi_session)
-	sessionEditName  string // working copy of the session name
-	sessionEditSid   string // working copy of the resumable session id
-	sessionEditCwd   string // working copy of the session working dir
-	sessionEditField int    // 0 = name, 1 = session id, 2 = cwd
-	sessionEditCaret int    // caret inside the active field
+	sessionEditID       string // chip id being edited
+	sessionEditProvider string // provider variation ("claude" / "pi")
+	sessionEditName     string // working copy of the session name
+	sessionEditSid      string // working copy of the resumable session id
+	sessionEditCwd      string // working copy of the session working dir
+	sessionEditField    int    // sessField* — 0 provider, 1 name, 2 session id, 3 cwd
+	sessionEditCaret    int    // caret inside the active text field
 
 	// the focused cmd chip (alt+e): its output renders as an inline band beneath
 	// the node — the same surface as a focused bash node — keyed by this chip id.

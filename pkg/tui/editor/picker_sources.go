@@ -114,12 +114,11 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // insertKinds lists the chip kinds the /insert picker offers; value is the bare
 // kind handed to insertChip.
 var insertKinds = []struct{ value, label, desc string }{
+	{"agent", "agent", "a coding-agent session chip (Claude Code, Pi)"},
 	{"cmd", "bash", "a runnable $ command chip"},
-	{"claude", "claude", "a Claude Code session chip"},
 	{"date", "date", "today as a date chip"},
 	{"link", "link", "a link chip"},
 	{"path", "file", "a file path chip"},
-	{"pi", "pi", "a Pi session chip"},
 	{"tag", "tag", "a #tag chip"},
 }
 
@@ -187,12 +186,10 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 		m.insertLiteralAt(cur, m.caret, "$")
 		m.markCmdDraft(cur)
 		m.flash = "type the command · double space lands the $ chip"
-	default:
-		// coding-agent session chips: "claude" / "pi" splice a session chip and
-		// open its editor to fill in the name / session id.
-		if k, ok := insertSessionKind[kind]; ok {
-			m.insertSessionChip(k)
-		}
+	case "agent":
+		// a single coding-agent session chip — the provider (Claude Code, Pi) is
+		// a variation set in its editor, not a separate entry.
+		m.insertSessionChip()
 	}
 	return m, nil
 }

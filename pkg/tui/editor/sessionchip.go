@@ -11,31 +11,31 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// Coding-agent session chips — an inline chip (like a link or cmd chip) that
-// points at a saved CLI session for a coding agent (Claude Code, Pi …). Each
-// provider is its own chip kind. The chip renders as a compact "inset box" pill
-// — a bold provider badge (CC/PI) and the session name on a mid-tint body, then
-// the size in a recessed darker box — and alt+g re-enters the live session
-// (suspends the TUI, execs the agent in the saved cwd, restores on exit); alt+e
-// edits it. Insert via the /insert picker ("claude" / "pi").
+// Coding-agent session chip — a single inline chip kind (like a link or cmd
+// chip) that points at a saved CLI session for a coding agent. The agent is a
+// VARIATION stored in the chip, not a separate kind: one /insert entry ("agent")
+// makes the chip, and its editor switches the provider (Claude Code, Pi, …).
+//
+// It renders as a compact "inset box" pill — a bold provider badge (CC/PI) and
+// the session name on a mid-tint body, then the size in a recessed darker box.
+// alt+g re-enters the live session (suspends the TUI, execs the agent in the
+// saved cwd, restores on exit); alt+e edits it.
 //
 // The chip record carries everything in its Value (newline "key=value" pairs:
-// name, session id, cwd, byte size); its Label is unused. Adding another agent
-// is a new kind constant + sessionProviders entry — no schema change.
+// provider, name, session id, cwd, byte size); its Label is unused. Adding
+// another agent is one sessionProviders entry — no new kind, no schema change.
 //
 // NB: distinct from the @mention `agent` chip (chipKindAgent, see agent.go),
-// which is an agent NAME token worn red; these are saved coding-agent SESSIONS.
+// which is an agent NAME token worn red; this is a saved coding-agent SESSION.
 
-const (
-	chipKindClaudeSession = "claude_session"
-	chipKindPiSession     = "pi_session"
-)
+const chipKindCodingSession = "coding_session"
 
-// sessionProvider is the per-agent descriptor: the 2-letter chip code, the CLI
-// binary, and the "inset box" palette (mid-tint pill body + recessed size box).
+// sessionProvider is one agent variation: its 2-letter chip code, the CLI binary
+// to launch, and the "inset box" palette (mid-tint pill body + recessed box).
 type sessionProvider struct {
+	id     string // stable variation key stored in the chip ("claude" / "pi")
 	code   string // "CC" / "PI"
-	label  string // "claude code" (edit-panel heading + /insert desc)
+	label  string // "claude code" (edit-panel provider row)
 	bin    string // CLI binary to exec on launch
 	accent string // bright fg for the code badge
 	nameFg string // softer fg for the session name
@@ -44,62 +44,66 @@ type sessionProvider struct {
 	boxBg  string // recessed size-box background (dark)
 }
 
+// sessionProviderOrder is the variation cycle order; the first is the default.
+var sessionProviderOrder = []string{"claude", "pi"}
+
 var sessionProviders = map[string]sessionProvider{
-	chipKindClaudeSession: {
-		code: "CC", label: "claude code", bin: "claude",
+	"claude": {
+		id: "claude", code: "CC", label: "claude code", bin: "claude",
 		accent: fg(230, 168, 132), nameFg: fg(220, 193, 177), sizeFg: fg(232, 169, 136),
 		pillBg: bg(70, 51, 42), boxBg: bg(34, 21, 14),
 	},
-	chipKindPiSession: {
-		code: "PI", label: "pi", bin: "pi",
+	"pi": {
+		id: "pi", code: "PI", label: "pi", bin: "pi",
 		accent: fg(143, 220, 200), nameFg: fg(194, 230, 220), sizeFg: fg(134, 216, 195),
 		pillBg: bg(33, 75, 68), boxBg: bg(12, 31, 27),
 	},
 }
 
-// insertSessionKind maps the /insert picker value ("claude"/"pi") to a chip kind.
-var insertSessionKind = map[string]string{
-	"claude": chipKindClaudeSession,
-	"pi":     chipKindPiSession,
+// sessionProviderByID resolves a variation, defaulting to the first when the id
+// is empty or unknown (a legacy or hand-written chip).
+func sessionProviderByID(id string) sessionProvider {
+	if p, ok := sessionProviders[id]; ok {
+		return p
+	}
+	return sessionProviders[sessionProviderOrder[0]]
 }
 
-func sessionProviderOf(kind string) (sessionProvider, bool) {
-	p, ok := sessionProviders[kind]
-	return p, ok
-}
-
-// isSessionChipKind reports whether a chip kind is a coding-agent session chip.
-func isSessionChipKind(kind string) bool {
-	_, ok := sessionProviders[kind]
-	return ok
-}
-
-// registerSessionChips wires the providers into the shared chip-kind registry so
-// the standard display/expand paths pick them up — one kind per provider, each
-// with a plain display closure (the editor paints the colored segments in
-// renderSessionChip).
-func init() {
-	for kind, p := range sessionProviders {
-		p := p
-		k := kind
-		chipKinds[k] = chipKind{
-			key: k,
-			// fallback single color for non-editor surfaces; the editor paints the
-			// multi-shade segments (renderSessionChip).
-			color:   p.pillBg + p.accent,
-			display: func(v string) string { return sessionChipDisplay(p, v) },
-			expand:  func(v string) string { return sessionChipExpand(p, v) },
+// cycleProvider steps the variation id by dir (+1/-1) around the order.
+func cycleProvider(id string, dir int) string {
+	idx := 0
+	for i, p := range sessionProviderOrder {
+		if p == id {
+			idx = i
 		}
+	}
+	n := len(sessionProviderOrder)
+	return sessionProviderOrder[(idx+dir+n)%n]
+}
+
+// isSessionChipKind reports whether a chip kind is the coding-agent session chip.
+func isSessionChipKind(kind string) bool { return kind == chipKindCodingSession }
+
+// registerSessionChip wires the single kind into the shared chip-kind registry so
+// the standard display/expand paths pick it up; the editor paints the colored
+// segments in renderSessionChip.
+func init() {
+	chipKinds[chipKindCodingSession] = chipKind{
+		key:     chipKindCodingSession,
+		color:   sessionProviders["claude"].pillBg + sessionProviders["claude"].accent, // non-editor fallback
+		display: sessionChipDisplay,
+		expand:  sessionChipExpand,
 	}
 }
 
 // ── session metadata (stored in the chip Value) ─────────────────────────────
 
 type sessionMeta struct {
-	name  string
-	sid   string
-	cwd   string
-	bytes int64
+	provider string
+	name     string
+	sid      string
+	cwd      string
+	bytes    int64
 }
 
 func parseSessionMeta(value string) sessionMeta {
@@ -110,6 +114,8 @@ func parseSessionMeta(value string) sessionMeta {
 			continue
 		}
 		switch strings.TrimSpace(k) {
+		case "provider":
+			a.provider = strings.TrimSpace(v)
 		case "name":
 			a.name = strings.TrimSpace(v)
 		case "sid":
@@ -124,7 +130,7 @@ func parseSessionMeta(value string) sessionMeta {
 }
 
 func formatSessionMeta(a sessionMeta) string {
-	return fmt.Sprintf("name=%s\nsid=%s\ncwd=%s\nbytes=%d", a.name, a.sid, a.cwd, a.bytes)
+	return fmt.Sprintf("provider=%s\nname=%s\nsid=%s\ncwd=%s\nbytes=%d", a.provider, a.name, a.sid, a.cwd, a.bytes)
 }
 
 // sizeLabel is the human-readable size shown in the chip's box, or "" when the
@@ -148,8 +154,9 @@ type sessionSeg struct {
 	bold bool
 }
 
-func sessionChipSegs(p sessionProvider, value string) []sessionSeg {
+func sessionChipSegs(value string) []sessionSeg {
 	a := parseSessionMeta(value)
+	p := sessionProviderByID(a.provider)
 	name := a.name
 	if name == "" {
 		if a.sid != "" {
@@ -172,17 +179,18 @@ func sessionChipSegs(p sessionProvider, value string) []sessionSeg {
 // used for width math and machine-readable surfaces (CLI list/grep). The editor
 // paints the colored segments via renderSessionChip; both derive from the same
 // segments, so their visible width is identical.
-func sessionChipDisplay(p sessionProvider, value string) string {
+func sessionChipDisplay(value string) string {
 	var b strings.Builder
-	for _, s := range sessionChipSegs(p, value) {
+	for _, s := range sessionChipSegs(value) {
 		b.WriteString(s.text)
 	}
 	return b.String()
 }
 
 // sessionChipExpand is the machine-readable form for cmd/search/export.
-func sessionChipExpand(p sessionProvider, value string) string {
+func sessionChipExpand(value string) string {
 	a := parseSessionMeta(value)
+	p := sessionProviderByID(a.provider)
 	cmd := p.bin
 	if a.sid != "" {
 		cmd += " --resume " + a.sid
@@ -199,12 +207,8 @@ func sessionChipExpand(p sessionProvider, value string) string {
 // selected (caret-on-chip) currently just paints normally — the tinted pill is
 // already distinct and the node's cursor cue carries the selection.
 func renderSessionChip(c database.Chip, selected bool) string {
-	p, ok := sessionProviders[c.Kind]
-	if !ok {
-		return ""
-	}
 	var b strings.Builder
-	for _, s := range sessionChipSegs(p, c.Value) {
+	for _, s := range sessionChipSegs(c.Value) {
 		b.WriteString(cReset + s.bg + s.fg)
 		if s.bold {
 			b.WriteString(cBold)
@@ -239,15 +243,12 @@ func (m *Model) sessionChipAtCaret(cur *item) (database.Chip, bool) {
 // provider CLI (--resume <sid> in the saved cwd) bound to the terminal, and
 // restores the editor when the agent exits. Mirrors the file node's $EDITOR.
 func (m *Model) launchSessionChip(c database.Chip) (tea.Model, tea.Cmd) {
-	p, ok := sessionProviders[c.Kind]
-	if !ok {
-		return m, nil
-	}
+	a := parseSessionMeta(c.Value)
+	p := sessionProviderByID(a.provider)
 	if _, err := exec.LookPath(p.bin); err != nil {
 		m.flash = p.bin + " not found — install it to launch this session"
 		return m, nil
 	}
-	a := parseSessionMeta(c.Value)
 	var args []string
 	if a.sid != "" {
 		args = append(args, "--resume", a.sid)
@@ -264,17 +265,17 @@ func (m *Model) launchSessionChip(c database.Chip) (tea.Model, tea.Cmd) {
 
 // ── creation (from the /insert picker) ──────────────────────────────────────
 
-// insertSessionChip splices a new session chip of the given kind at the caret
-// (cwd seeded from the process working dir) and opens its editor so the session
-// name / id can be filled in.
-func (m *Model) insertSessionChip(kind string) {
+// insertSessionChip splices a new session chip at the caret (default provider,
+// cwd seeded from the process working dir) and opens its editor so the provider
+// variation / session name / id can be set.
+func (m *Model) insertSessionChip() {
 	cur := m.cursorItem()
 	if cur == nil {
 		return
 	}
 	m.pushUndo("")
 	cwd, _ := os.Getwd()
-	anchor := m.createChip(kind, formatSessionMeta(sessionMeta{cwd: cwd}))
+	anchor := m.createChip(chipKindCodingSession, formatSessionMeta(sessionMeta{provider: sessionProviderOrder[0], cwd: cwd}))
 	if anchor == "" {
 		return
 	}
@@ -290,39 +291,53 @@ func (m *Model) insertSessionChip(kind string) {
 	}
 }
 
-// ── alt+e editor (modeSessionEdit): name / session id / working dir ─────────
+// ── alt+e editor (modeSessionEdit): provider / name / session id / cwd ───────
+
+// session-edit field indices.
+const (
+	sessFieldProvider = iota
+	sessFieldName
+	sessFieldSid
+	sessFieldCwd
+	sessFieldCount
+)
 
 func (m *Model) openSessionEdit(c database.Chip) {
 	a := parseSessionMeta(c.Value)
+	if _, ok := sessionProviders[a.provider]; !ok {
+		a.provider = sessionProviderOrder[0]
+	}
 	m.mode = modeSessionEdit
 	m.sessionEditID = c.ID
-	m.sessionEditKind = c.Kind
+	m.sessionEditProvider = a.provider
 	m.sessionEditName = a.name
 	m.sessionEditSid = a.sid
 	m.sessionEditCwd = a.cwd
-	m.sessionEditField = 0
+	m.sessionEditField = sessFieldName // start on the name; provider sits above
 	m.sessionEditCaret = len([]rune(a.name))
 }
 
-// sessionEditActive returns the active field's text; the setter writes it back.
+// sessionEditActive returns the active TEXT field's value (provider is a cycle,
+// not a text field, so it returns "").
 func (m *Model) sessionEditActive() string {
 	switch m.sessionEditField {
-	case 0:
+	case sessFieldName:
 		return m.sessionEditName
-	case 1:
+	case sessFieldSid:
 		return m.sessionEditSid
-	default:
+	case sessFieldCwd:
 		return m.sessionEditCwd
 	}
+	return ""
 }
 
 func (m *Model) setSessionEditActive(s string) {
 	switch m.sessionEditField {
-	case 0:
+	case sessFieldName:
 		m.sessionEditName = s
-	case 1:
+	case sessFieldSid:
 		m.sessionEditSid = s
-	default:
+	case sessFieldCwd:
 		m.sessionEditCwd = s
 	}
 }
@@ -334,10 +349,11 @@ func (m *Model) saveSessionEdit() {
 	}
 	old := parseSessionMeta(c.Value)
 	c.Value = formatSessionMeta(sessionMeta{
-		name:  strings.TrimSpace(m.sessionEditName),
-		sid:   strings.TrimSpace(m.sessionEditSid),
-		cwd:   strings.TrimSpace(m.sessionEditCwd),
-		bytes: old.bytes, // size is computed elsewhere, not user-edited
+		provider: m.sessionEditProvider,
+		name:     strings.TrimSpace(m.sessionEditName),
+		sid:      strings.TrimSpace(m.sessionEditSid),
+		cwd:      strings.TrimSpace(m.sessionEditCwd),
+		bytes:    old.bytes, // size is computed elsewhere, not user-edited
 	})
 	m.chips[c.ID] = c
 	if m.ctx.DB != nil {
@@ -352,17 +368,28 @@ func (m *Model) handleSessionEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeOutline
 		return m, nil
 	case "tab", "down":
-		m.sessionEditField = (m.sessionEditField + 1) % 3
+		m.sessionEditField = (m.sessionEditField + 1) % sessFieldCount
 		m.sessionEditCaret = len([]rune(m.sessionEditActive()))
 		return m, nil
 	case "shift+tab", "up":
-		m.sessionEditField = (m.sessionEditField + 2) % 3
+		m.sessionEditField = (m.sessionEditField + sessFieldCount - 1) % sessFieldCount
 		m.sessionEditCaret = len([]rune(m.sessionEditActive()))
 		return m, nil
 	case "enter":
 		m.saveSessionEdit()
 		m.mode = modeOutline
 		m.refreshRows()
+		return m, nil
+	}
+	// the provider field is a variation cycle, not a text field: ←/→ (or space)
+	// step through the agents; typing is ignored.
+	if m.sessionEditField == sessFieldProvider {
+		switch k.String() {
+		case "left":
+			m.sessionEditProvider = cycleProvider(m.sessionEditProvider, -1)
+		case "right", " ", "space":
+			m.sessionEditProvider = cycleProvider(m.sessionEditProvider, +1)
+		}
 		return m, nil
 	}
 	f := textField{value: m.sessionEditActive(), caret: m.sessionEditCaret}
@@ -374,18 +401,29 @@ func (m *Model) handleSessionEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) viewSessionEdit(maxLine int) []string {
-	p := sessionProviders[m.sessionEditKind]
+	prov := sessionProviderByID(m.sessionEditProvider)
+	lines := []string{clip(cDim+" edit coding-agent session"+cReset, maxLine)}
+
+	// provider row: a ‹ variation › cycle
+	provLbl := cDim
+	provVal := prov.accent + prov.label + cReset
+	if m.sessionEditField == sessFieldProvider {
+		provLbl = cAccent
+		provVal = cAccent + "‹ " + cReset + prov.accent + prov.label + cReset + cAccent + " ›" + cReset + cDim + "  ←/→ change" + cReset
+	}
+	lines = append(lines, clip(provLbl+" agent   "+cReset+provVal, maxLine))
+
 	rows := []struct {
+		field    int
 		lbl, val string
 	}{
-		{"name   ", m.sessionEditName},
-		{"session", m.sessionEditSid},
-		{"cwd    ", m.sessionEditCwd},
+		{sessFieldName, "name   ", m.sessionEditName},
+		{sessFieldSid, "session", m.sessionEditSid},
+		{sessFieldCwd, "cwd    ", m.sessionEditCwd},
 	}
-	lines := []string{clip(cDim+" edit "+p.label+" session"+cReset, maxLine)}
-	for i, r := range rows {
+	for _, r := range rows {
 		lblCol, val := cDim, r.val
-		if i == m.sessionEditField {
+		if m.sessionEditField == r.field {
 			lblCol = cAccent
 			val = withCaret(val, m.sessionEditCaret)
 		}
