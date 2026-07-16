@@ -21,6 +21,26 @@ import (
 
 const queryMaxHits = 50
 
+// queryLoad streams database candidates to the Bubble Tea event loop. The
+// worker owns only SQL iteration; all tree reconciliation remains on the UI
+// goroutine.
+type queryLoad struct {
+	generation int
+	uuid       string
+	raw, scope string
+	parsed     parsedQuery
+	ctx        *qCtx
+	ch         chan queryLoadMsg
+	done       chan struct{}
+}
+
+type queryLoadMsg struct {
+	generation int
+	nodes      []database.Node
+	done       bool
+	err        error
+}
+
 // queryPrefix is deliberately scope-neutral: query scope is expressed by the
 // persisted :in: parameter, whose omitted value is the outline root.
 func queryPrefix(*item) string { return cDim + "⌕" + cReset + " " }
@@ -80,7 +100,21 @@ func (m *Model) queryTextAndScope(q *item) (string, string) {
 }
 
 func runQuery(m *Model, it *item) tea.Cmd {
-	matches := m.queryMatches(it)
+	if it == nil {
+		return nil
+	}
+	// The in-memory path stays synchronous: it is tiny, deterministic for tests,
+	// and has no database scan to hide. A persisted outline streams below.
+	if m.db == nil {
+		m.finishQueryRun(it, m.queryMatches(it))
+		return nil
+	}
+	return m.startQueryLoad(it)
+}
+
+// finishQueryRun records a completed query run and reconciles its generated
+// mirrors. Keeping this on the model goroutine avoids concurrent tree mutation.
+func (m *Model) finishQueryRun(it *item, matches []database.Node) {
 	m.reconcileQueryMirrors(it, matches)
 	d := m.nodeStore(it.uuid)
 	d["queryRunAt"] = time.Now().Unix()
@@ -92,7 +126,101 @@ func runQuery(m *Model, it *item) tea.Cmd {
 	m.qCrumbs = nil // ancestor names may have changed — recompute breadcrumbs
 	m.unsaved = true
 	m.refreshRows()
-	return nil
+}
+
+// startQueryLoad starts a fresh, cancelable candidate scan. Batches are kept
+// deliberately small: each one can repaint the outline before the next batch
+// arrives, rather than holding the terminal hostage while SQLite is read.
+func (m *Model) startQueryLoad(it *item) tea.Cmd {
+	if m.queryLoad != nil {
+		close(m.queryLoad.done)
+	}
+	m.queryGeneration++
+	raw, scope := m.queryTextAndScope(it)
+	load := &queryLoad{
+		generation: m.queryGeneration,
+		uuid:       it.uuid,
+		raw:        raw,
+		scope:      scope,
+		parsed:     parseQuery(raw, time.Now()),
+		ctx:        m.buildQueryCtxMemory(it, time.Now()),
+		ch:         make(chan queryLoadMsg, 1),
+		done:       make(chan struct{}),
+	}
+	m.queryLoad = load
+	if load.parsed.empty() {
+		m.finishQueryRun(it, nil)
+		m.queryLoad = nil
+		return nil
+	}
+
+	go func() {
+		err := database.StreamLiveNodes(m.db, 24, func(nodes []database.Node) bool {
+			cpy := append([]database.Node(nil), nodes...)
+			select {
+			case load.ch <- queryLoadMsg{generation: load.generation, nodes: cpy}:
+				return true
+			case <-load.done:
+				return false
+			}
+		})
+		select {
+		case load.ch <- queryLoadMsg{generation: load.generation, done: true, err: err}:
+		case <-load.done:
+		}
+	}()
+	return m.waitQueryLoad(load)
+}
+
+// handleQueryLoad folds one streamed database batch into the live candidate
+// context and incrementally reconciles the visible result mirrors.
+func (m *Model) handleQueryLoad(msg queryLoadMsg) tea.Cmd {
+	load := m.queryLoad
+	if load == nil || msg.generation != load.generation {
+		return nil // a newer alt+r superseded this scan
+	}
+	q := m.tree.byUUID[load.uuid]
+	if q == nil || q.typ != database.TypeQuery {
+		close(load.done)
+		m.queryLoad = nil
+		return nil
+	}
+	for _, n := range msg.nodes {
+		// Mirrors are projections, never independent search targets. In
+		// particular this keeps a persisted query's own old result rows from
+		// feeding its next nested run.
+		if n.MirrorOf != "" {
+			continue
+		}
+		load.ctx.add(q, qCand{uuid: n.UUID, name: n.Name, note: n.Note, typ: n.Type,
+			parent: n.ParentUUID, addedOn: n.AddedOn, starred: n.Starred})
+	}
+	if len(msg.nodes) > 0 {
+		m.reconcileQueryMirrors(q, m.queryMatchesInCtx(q, load.parsed, load.scope, load.ctx))
+		m.refreshRows()
+	}
+	if msg.done {
+		if msg.err != nil {
+			m.flash = "query: " + msg.err.Error()
+		}
+		m.finishQueryRun(q, m.queryMatchesInCtx(q, load.parsed, load.scope, load.ctx))
+		m.queryLoad = nil
+		return m.scheduleSync()
+	}
+	return m.waitQueryLoad(load)
+}
+
+// waitQueryLoad waits for the next batch from the current scan without blocking
+// Bubble Tea's event loop.
+func (m *Model) waitQueryLoad(load *queryLoad) tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case msg := <-load.ch:
+			return msg
+		case <-load.done:
+			return nil
+		}
+	}
 }
 
 // queryUpdatedAt is the unix-seconds of a query node's last run (0 if never).
@@ -120,7 +248,14 @@ func (m *Model) queryMatches(q *item) []database.Node {
 	}
 
 	ctx := m.buildQueryCtx(q, now)
-	ctx.restrictToQueryScope(q, scope)
+	return m.queryMatchesInCtx(q, pq, scope, ctx)
+}
+
+// queryMatchesInCtx evaluates an already-populated candidate context. Streamed
+// query runs call it after each database batch; synchronous callers use the
+// complete context from buildQueryCtx.
+func (m *Model) queryMatchesInCtx(q *item, pq parsedQuery, scope string, ctx *qCtx) []database.Node {
+	ctx = ctx.scoped(q, scope)
 	if len(ctx.cands) == 0 {
 		return nil
 	}
@@ -175,90 +310,87 @@ func (m *Model) queryMatches(q *item) []database.Node {
 // buildQueryCtx gathers every searchable candidate (in-memory + DB) and the
 // parent map used by the `>` operator.
 func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
-	ctx := &qCtx{
-		m:      m,
-		now:    now,
-		parent: map[string]string{},
-		byUUID: map[string]*qCand{},
+	ctx := m.buildQueryCtxMemory(q, now)
+	if m.db == nil {
+		return ctx
 	}
-	seen := map[string]bool{}
-
-	add := func(c qCand) {
-		if c.uuid == "" || c.uuid == q.uuid || seen[c.uuid] {
-			return
-		}
-		seen[c.uuid] = true
-		// Chips are opaque anchors in storage. Every search atom, especially a
-		// strict #tag atom, must see the same expanded text a user sees.
-		c.searchName = database.ExpandAnchors(c.name, m.chips)
-		c.searchNote = database.ExpandAnchors(c.note, m.chips)
-		// Keep ancestry for structural/empty nodes too: :in: may select one,
-		// and its named descendants still need to prove they are in scope.
-		if c.parent != "" {
-			ctx.parent[c.uuid] = c.parent
-		}
-		if c.name == "" {
-			return
-		}
-		ctx.cands = append(ctx.cands, c)
-		cp := c
-		ctx.byUUID[c.uuid] = &cp
-	}
-
-	if m.tree != nil {
-		for uuid, it := range m.tree.byUUID {
-			if it == q || it.mirrorOf != "" {
-				continue
-			}
-			parent := ""
-			if it.parent != nil {
-				parent = it.parent.uuid
-			}
-			add(qCand{
-				uuid: uuid, name: it.name, note: it.note, typ: it.typ,
-				parent: parent, addedOn: it.addedOn, starred: it.starred,
-			})
-		}
-	}
-
-	if m.db != nil {
-		dbm, err := database.AllLiveNodes(m.db)
-		if err == nil {
-			for _, mn := range dbm {
-				if mn.Deleted || seen[mn.UUID] {
-					continue
-				}
-				add(qCand{
-					uuid: mn.UUID, name: mn.Name, note: mn.Note, typ: mn.Type,
-					parent: mn.ParentUUID, addedOn: mn.AddedOn, starred: mn.Starred,
-				})
+	if err := database.StreamLiveNodes(m.db, 500, func(nodes []database.Node) bool {
+		for _, n := range nodes {
+			if n.MirrorOf == "" {
+				ctx.add(q, qCand{uuid: n.UUID, name: n.Name, note: n.Note, typ: n.Type,
+					parent: n.ParentUUID, addedOn: n.AddedOn, starred: n.Starred})
 			}
 		}
+		return true
+	}); err != nil {
+		// In-memory candidates remain useful when the database scan fails.
 	}
 	return ctx
 }
 
-// restrictToQueryScope narrows the candidate universe before expression
-// evaluation, so every stage of &&/||/> obeys :in:. It excludes the query's
-// own materialized/user subtree regardless of the selected scope.
-func (ctx *qCtx) restrictToQueryScope(q *item, scope string) {
-	if q == nil {
+// buildQueryCtxMemory seeds a context from the open tree. The streaming path
+// adds persisted candidates later, without ever reading or mutating the tree
+// from its worker goroutine.
+func (m *Model) buildQueryCtxMemory(q *item, now time.Time) *qCtx {
+	ctx := &qCtx{m: m, now: now, parent: map[string]string{}, byUUID: map[string]*qCand{}, seen: map[string]bool{}}
+	if m.tree == nil {
+		return ctx
+	}
+	for uuid, it := range m.tree.byUUID {
+		if it == q || it.mirrorOf != "" {
+			continue
+		}
+		parent := ""
+		if it.parent != nil {
+			parent = it.parent.uuid
+		}
+		ctx.add(q, qCand{uuid: uuid, name: it.name, note: it.note, typ: it.typ,
+			parent: parent, addedOn: it.addedOn, starred: it.starred})
+	}
+	return ctx
+}
+
+// add merges one candidate while preserving parent links for empty structural
+// nodes. That parent map is what makes scoped nested (`>`) searches work.
+func (ctx *qCtx) add(q *item, c qCand) {
+	if c.uuid == "" || (q != nil && c.uuid == q.uuid) || ctx.seen[c.uuid] {
 		return
+	}
+	ctx.seen[c.uuid] = true
+	c.searchName = database.ExpandAnchors(c.name, ctx.m.chips)
+	c.searchNote = database.ExpandAnchors(c.note, ctx.m.chips)
+	if c.parent != "" {
+		ctx.parent[c.uuid] = c.parent
+	}
+	if c.name == "" {
+		return
+	}
+	ctx.cands = append(ctx.cands, c)
+	cp := c
+	ctx.byUUID[c.uuid] = &cp
+}
+
+// scoped returns a non-mutating view of ctx narrowed to the requested subtree.
+// A streamed scan must retain candidates outside the scope for a later batch:
+// they may supply an ancestor link needed to prove a descendant is in scope.
+func (ctx *qCtx) scoped(q *item, scope string) *qCtx {
+	if q == nil {
+		return ctx
 	}
 	if scope == "" {
 		scope = database.RootUUID
 	}
+	out := &qCtx{m: ctx.m, now: ctx.now, parent: ctx.parent, byUUID: map[string]*qCand{}, seen: ctx.seen}
 	qRoot := map[string]bool{q.uuid: true}
 	scopeRoot := map[string]bool{scope: true}
-	kept := ctx.cands[:0]
 	for _, c := range ctx.cands {
 		if ctx.underAny(c.uuid, qRoot) || !ctx.atOrUnderAny(c.uuid, scopeRoot) {
-			delete(ctx.byUUID, c.uuid)
 			continue
 		}
-		kept = append(kept, c)
+		out.cands = append(out.cands, c)
+		out.byUUID[c.uuid] = ctx.byUUID[c.uuid]
 	}
-	ctx.cands = kept
+	return out
 }
 
 // exprNamesType reports whether e mentions :type:<typ> (case-insensitive).

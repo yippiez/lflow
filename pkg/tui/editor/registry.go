@@ -29,6 +29,7 @@ type nodeType struct {
 	tempOnly       bool                               // only offered/allowed in the Temporary Domain
 	internal       bool                               // never offered in /type: only the app creates nodes of this type
 	searchHidden   bool                               // never surfaced by finders (/goto, /mirror, /move, [[) or live queries, unless ":type:" names it explicitly
+	disableChips   bool                               // structured chip gestures (#, >, [[, @, dates, $) remain literal in this type
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
@@ -170,7 +171,7 @@ var nodeTypes = []nodeType{
 	// chip ("$cmd" + double space, see cmdchip.go) — legacy "bash"-typed nodes
 	// fall back to bullets like any unknown type, text intact.
 	{
-		key: database.TypeQuery, label: "Query", inlineEditable: true,
+		key: database.TypeQuery, label: "Query", inlineEditable: true, disableChips: true,
 		prefix:    queryPrefix,
 		run:       runQuery,
 		toContext: xmlTag("query"),

@@ -97,11 +97,12 @@ func (m *Model) finalView(maxLine int) []string {
 			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 			continue
 		}
-		glyph, glyphColor := glyphFor(r.it)
+		shown := m.renderItem(r.it)
+		glyph, glyphColor := glyphFor(shown)
 		name := m.tree.displayName(r.it)
-		body := renderBody(r.it, name, -1, false, m.chips, false)
-		if rm := typeOf(r.it.typ).renderM; rm != nil {
-			body = rm(m, r.it)
+		body := renderBody(shown, name, -1, false, m.chips, false)
+		if rm := typeOf(shown.typ).renderM; rm != nil {
+			body = rm(m, shown)
 		}
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r)
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
@@ -192,7 +193,8 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			}
 		}
 
-		glyph, glyphColor := glyphFor(it)
+		shown := m.renderItem(it)
+		glyph, glyphColor := glyphFor(shown)
 		if m.tempActive && !r.mirrored {
 			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
 		}
@@ -205,9 +207,9 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
 			caret = m.caret
 		}
-		body := renderBody(it, name, caret, selected, m.chips, m.cmdDraftLive(it))
-		if rm := typeOf(it.typ).renderM; rm != nil {
-			body = rm(m, it) // Model-aware override (voice waveform)
+		body := renderBody(shown, name, caret, selected, m.chips, m.cmdDraftLive(shown))
+		if rm := typeOf(shown.typ).renderM; rm != nil {
+			body = rm(m, shown) // Model-aware override (voice waveform)
 		}
 		if it.queryGenerated() {
 			if it.readonly {
@@ -644,6 +646,10 @@ func (m *Model) bottomBar(maxLine int) []string {
 		} else {
 			state = " · unsaved"
 		}
+	}
+	if m.queryLoad != nil {
+		spinner := []string{"◜", "◠", "◝", "◞", "◡", "◟"}[animFrame%6]
+		state += " · " + cYellow + spinner + " loading query" + cDim
 	}
 	if m.selOn {
 		lo, hi := m.selectionBounds()

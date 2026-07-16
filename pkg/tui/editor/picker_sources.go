@@ -163,6 +163,10 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 		m.flash = "node is not editable"
 		return m, nil
 	}
+	if !chipsEnabled(cur) {
+		m.flash = "chips are disabled for this node type"
+		return m, nil
+	}
 	switch kind {
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")

@@ -206,6 +206,7 @@ type qCtx struct {
 	cands  []qCand
 	byUUID map[string]*qCand
 	parent map[string]string // uuid → parent uuid
+	seen   map[string]bool   // merged candidate UUIDs, including empty structural nodes
 }
 
 // underAny reports whether uuid is a strict descendant of any node in roots.
@@ -213,7 +214,14 @@ func (ctx *qCtx) underAny(uuid string, roots map[string]bool) bool {
 	if roots[uuid] {
 		return false // strict: self is not under self
 	}
+	// Bad legacy mirror/parent data must not turn a nested query into a long
+	// loop. The seen guard makes this O(depth), even when a cycle appears.
+	seen := map[string]bool{}
 	for hops, cur := 0, uuid; hops < 64; hops++ {
+		if seen[cur] {
+			return false
+		}
+		seen[cur] = true
 		p, ok := ctx.parent[cur]
 		if !ok || p == "" {
 			return false

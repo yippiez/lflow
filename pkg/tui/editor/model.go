@@ -344,6 +344,17 @@ func (t *tree) resolve(it *item) *item {
 	return it
 }
 
+// renderItem is the source identity for a projected row. Mirrors deliberately
+// keep their placement/locks, but their glyph, type face and style are the one
+// real node's live appearance — a query result must not lose the source's
+// /color merely because it is materialized under a query.
+func (m *Model) renderItem(it *item) *item {
+	if m == nil || m.tree == nil {
+		return it
+	}
+	return m.tree.resolve(it)
+}
+
 // displayNote resolves the visible note of an item: a mirror shows its
 // original's live note, so an unsaved edit on the source shows through at once.
 // When the source is outside the loaded subtree we query the DB for its current

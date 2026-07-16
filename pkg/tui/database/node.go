@@ -564,31 +564,60 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 	return ret, nil
 }
 
-// AllLiveNodes returns every non-deleted node outside the Temporary Domain — the
-// candidate set for a pure time-filtered query, which carries no text for the
-// FTS/LIKE passes to use. Bounded so a huge forest can't stall the editor.
-func AllLiveNodes(db *DB) ([]Node, error) {
+// StreamLiveNodes visits every non-deleted node outside the Temporary Domain in
+// small batches. Returning false from yield stops the scan. Query views use this
+// rather than first assembling a giant candidate slice, so opening a query stays
+// responsive while its result set arrives.
+func StreamLiveNodes(db *DB, batchSize int, yield func([]Node) bool) error {
+	if batchSize < 1 {
+		batchSize = 1
+	}
 	tempUUIDs, err := TempSubtreeUUIDs(db)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	rows, err := db.Query("SELECT " + nodeColumns + " FROM nodes WHERE deleted = 0 ORDER BY added_on DESC LIMIT 500")
 	if err != nil {
-		return nil, errors.Wrap(err, "listing live nodes")
+		return errors.Wrap(err, "listing live nodes")
 	}
 	defer rows.Close()
-	var ret []Node
+
+	batch := make([]Node, 0, batchSize)
 	for rows.Next() {
 		n, err := scanNode(rows)
 		if err != nil {
-			return nil, errors.Wrap(err, "scanning node")
+			return errors.Wrap(err, "scanning node")
 		}
 		if tempUUIDs[n.UUID] || n.Name == "" {
 			continue
 		}
-		ret = append(ret, n)
+		batch = append(batch, n)
+		if len(batch) == batchSize {
+			if !yield(batch) {
+				return nil
+			}
+			batch = make([]Node, 0, batchSize)
+		}
 	}
-	return ret, nil
+	if err := rows.Err(); err != nil {
+		return errors.Wrap(err, "iterating live nodes")
+	}
+	if len(batch) > 0 {
+		yield(batch)
+	}
+	return nil
+}
+
+// AllLiveNodes returns every non-deleted node outside the Temporary Domain — the
+// candidate set for a pure time-filtered query, which carries no text for the
+// FTS/LIKE passes to use. Bounded so a huge forest can't stall the editor.
+func AllLiveNodes(db *DB) ([]Node, error) {
+	var ret []Node
+	err := StreamLiveNodes(db, 500, func(batch []Node) bool {
+		ret = append(ret, batch...)
+		return true
+	})
+	return ret, err
 }
 
 // buildFTSQuery turns free text into a safe FTS5 prefix query.

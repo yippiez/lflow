@@ -112,6 +112,30 @@ func TestQueryScopeDefaultsToRootAndUsesSelectedNode(t *testing.T) {
 	}
 }
 
+// TestQueryScopedNestedTags proves :in: constrains every stage of `>` rather
+// than filtering only its final results. This was the #tag :in:node > #other
+// freeze regression: the scope root is itself a possible left-hand match and
+// the descendant must still be found.
+func TestQueryScopedNestedTags(t *testing.T) {
+	root := &item{uuid: database.RootUUID}
+	scope := &item{uuid: "scope", name: "#parent", parent: root}
+	hit := &item{uuid: "hit", name: "#other", parent: scope}
+	outsideParent := &item{uuid: "outside-parent", name: "#parent", parent: root}
+	outsideHit := &item{uuid: "outside-hit", name: "#other", parent: outsideParent}
+	q := &item{uuid: "q", typ: database.TypeQuery, name: "#parent :in:scope > #other", parent: scope}
+	root.children = []*item{scope, outsideParent}
+	scope.children = []*item{hit, q}
+	outsideParent.children = []*item{outsideHit}
+	m := &Model{tree: &tree{root: root, snapshots: map[string]snapshot{}, externalNames: map[string]string{},
+		byUUID: map[string]*item{database.RootUUID: root, "scope": scope, "hit": hit, "q": q,
+			"outside-parent": outsideParent, "outside-hit": outsideHit}}}
+
+	got := m.queryMatches(q)
+	if len(got) != 1 || got[0].UUID != "hit" {
+		t.Fatalf("scoped nested tag hits = %+v, want only hit", got)
+	}
+}
+
 func TestQueryScopePickerStoresNodeLink(t *testing.T) {
 	m, _ := dbModel(t,
 		database.Node{UUID: "query", Name: ":in:", Type: database.TypeQuery},
@@ -161,6 +185,49 @@ func TestQueryHitHighlightAndStructuralLock(t *testing.T) {
 	}
 	if m.tree.indent(hit) {
 		t.Fatal("query results must not indent")
+	}
+}
+
+func TestQueryStreamsPersistedCandidates(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "query", Name: "needle", Type: database.TypeQuery},
+		database.Node{UUID: "hit", Name: "needle in the database"},
+	)
+	q := m.tree.byUUID["query"]
+	cmd := runQuery(m, q)
+	if m.queryLoad == nil || cmd == nil {
+		t.Fatal("persisted query must start a streamed load")
+	}
+	if bar := stripSGR(strings.Join(m.bottomBar(120), "\n")); !strings.Contains(bar, "loading query") {
+		t.Fatalf("loading query state missing from bar: %q", bar)
+	}
+	for steps := 0; m.queryLoad != nil && steps < 100; steps++ {
+		msg := cmd()
+		loadMsg, ok := msg.(queryLoadMsg)
+		if !ok {
+			t.Fatalf("stream command returned %T, want queryLoadMsg", msg)
+		}
+		cmd = m.handleQueryLoad(loadMsg)
+	}
+	if m.queryLoad != nil {
+		t.Fatal("query stream did not finish")
+	}
+	if got := mirrorSources(q); len(got) != 1 || got[0] != "hit" {
+		t.Fatalf("streamed results = %v, want hit", got)
+	}
+}
+
+func TestQueryMirrorsUseSourceStyle(t *testing.T) {
+	m, q := newQueryTree()
+	source := &item{uuid: "source", name: "colored", style: "color:red", parent: m.tree.root}
+	m.tree.root.children = append(m.tree.root.children, source)
+	m.tree.byUUID[source.uuid] = source
+	m.reconcileQueryMirrors(q, []database.Node{{UUID: source.uuid, Name: source.name}})
+
+	hit := q.children[0]
+	body := renderBody(m.renderItem(hit), m.tree.displayName(hit), -1, false, nil, false)
+	if !strings.Contains(body, cRed) {
+		t.Fatalf("query mirror lost source color: %q", body)
 	}
 }
 

@@ -273,6 +273,10 @@ type Model struct {
 	// Ancestor path strings used to sort :breadcrumb: query hits before their
 	// nested result tree is reconciled; cleared whenever a query re-runs.
 	qCrumbs map[string]string
+	// queryLoad streams one persisted query's candidates in small batches. It is
+	// ephemeral and cancelable: a newer alt+r supersedes the previous scan.
+	queryLoad       *queryLoad
+	queryGeneration int
 
 	tagColorWord string // the tag word the alt+e color picker is assigning
 
@@ -783,6 +787,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, feedRetryTick()
 	case syncFlushMsg:
 		return m, m.flushSync()
+	case queryLoadMsg:
+		return m, m.startAnim(m.handleQueryLoad(msg))
 	case animTickMsg:
 		animFrame++
 		if m.animActive() {
@@ -933,13 +939,17 @@ func (m *Model) mirrorContext() mirrorContext {
 // syntax — because the picker is cancelable and dismissing it types a literal ">"
 // instead, so file chips work in any node without losing the literal character.
 func pathChipTrigger(typ string) bool {
-	return typeOf(typ).inlineEditable
+	nt := typeOf(typ)
+	return nt.inlineEditable && !nt.disableChips
 }
 
 // linkChipTrigger reports whether "[[" should open the link picker on this type.
 // Unlike the file picker it has no cancel-to-literal path, so it stays off where
 // "[" is real syntax (bash test brackets, code, query, quote, json).
 func linkChipTrigger(typ string) bool {
+	if typeOf(typ).disableChips {
+		return false
+	}
 	switch typ {
 	case database.TypeCode, database.TypeQuery, database.TypeQuote, database.TypeJSON:
 		return false
@@ -968,6 +978,9 @@ func atWordStart(cur *item, caret int) bool {
 // type. Text-ish nodes (incl. query) get it; bash and code keep "#" literal
 // since it is a comment there.
 func tagPickerTrigger(typ string) bool {
+	if typeOf(typ).disableChips {
+		return false
+	}
 	switch typ {
 	case database.TypeCode:
 		return false
@@ -1689,6 +1702,10 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
+	if m.queryLoad != nil {
+		close(m.queryLoad.done)
+		m.queryLoad = nil
+	}
 	// stop any live run processes (bash/query/voice) still going
 	for _, r := range m.runs {
 		if r.cancel != nil {

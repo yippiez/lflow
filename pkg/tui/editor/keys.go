@@ -925,7 +925,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// #tag / date token before it into a chip. A leading "$" never converts
 		// the node's type — bash nodes are made via /type; "$" is chip territory.
 		if text == " " && !k.Paste {
-			if m.bashCmdBeforeCaret(cur) {
+			if chipsEnabled(cur) && m.bashCmdBeforeCaret(cur) {
 				return m, nil // a "$cmd" + double space committed a cmd chip
 			}
 			m.chipifyBeforeCaret(cur)

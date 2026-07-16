@@ -58,6 +58,13 @@ func hasAnchor(name string) bool {
 	return strings.ContainsRune(name, chipSentinel)
 }
 
+// chipsEnabled is a node-type capability, not a hard-coded exception in key
+// handling. Query expressions deliberately keep their operators and tokens
+// literal; other types can opt out for their own syntax too.
+func chipsEnabled(it *item) bool {
+	return it != nil && !typeOf(it.typ).disableChips
+}
+
 // Path chips are created by the ">" fuzzy picker (see file.go), not by typing a
 // marker — so "#" stays tags-only. The chip's display marker is "›" (see chipKinds).
 
@@ -237,7 +244,7 @@ func linkChipLabel(c database.Chip) string {
 // Enter). It reuses the same detection that renders legacy tags/dates, so there
 // are no new false positives. Returns true if it converted something.
 func (m *Model) chipifyBeforeCaret(cur *item) bool {
-	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly {
+	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly || !chipsEnabled(cur) {
 		return false
 	}
 	name := cur.name

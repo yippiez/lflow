@@ -96,7 +96,7 @@ func ShineText(s string) string {
 // magic keyword, an in-flight image paste (its spinner), or a plugin node marked
 // animating (nlpcompute while generating).
 func (m *Model) animActive() bool {
-	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating()
+	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating() || m.queryLoad != nil
 }
 
 // anyNodeAnimating reports whether any node set the generic "animating" flag in

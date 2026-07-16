@@ -9,23 +9,21 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// TestPathChipTriggerEveryInlineType: ">" opens the file picker in every
-// inline-editable type now — including code/query/quote where ">" is real
-// syntax — because the cancelable picker types a literal ">" on dismiss, so a
-// redirect still works. The link trigger ("[[") stays off in those same types.
-func TestPathChipTriggerEveryInlineType(t *testing.T) {
-	for _, typ := range []string{
-		database.TypeBullets,
-		database.TypeQuery, database.TypeQuote,
-	} {
-		if !pathChipTrigger(typ) {
-			t.Errorf("pathChipTrigger(%q) = false, want true", typ)
-		}
+// TestPathChipTriggerHonorsNodeChipCapability keeps query syntax literal while
+// leaving chip gestures available to normal text types. This is descriptor data,
+// so another syntax-heavy node can opt out without growing key-handler switches.
+func TestPathChipTriggerHonorsNodeChipCapability(t *testing.T) {
+	if !pathChipTrigger(database.TypeBullets) {
+		t.Error("bullet path chips should stay enabled")
 	}
-	for _, typ := range []string{database.TypeQuery, database.TypeQuote} {
-		if linkChipTrigger(typ) {
-			t.Errorf("linkChipTrigger(%q) = true, want false (\"[\" stays literal)", typ)
-		}
+	if pathChipTrigger(database.TypeQuery) {
+		t.Error("query > must stay a literal descendant operator")
+	}
+	if linkChipTrigger(database.TypeQuery) || tagPickerTrigger(database.TypeQuery) {
+		t.Error("all automatic chip gestures must be disabled in query syntax")
+	}
+	if !pathChipTrigger(database.TypeQuote) {
+		t.Error("quote path chips should stay enabled")
 	}
 }
 
