@@ -9,6 +9,8 @@ export const ROOT = 'root'
 
 type Listener = () => void
 
+type UndoEntry = { uuid: string; field: 'name' | 'note'; before: string; after: string }
+
 class OutlineStore {
   nodes = new Map<string, NodeData>()
   private childIndex = new Map<string, string[]>() // parent → child uuids sorted by rank
@@ -20,6 +22,12 @@ class OutlineStore {
   loaded = false
   loadError = ''
   version = 0 // bumped on every change; components subscribe via useSyncExternalStore
+
+  // text-edit undo: one entry per flushed name/note save. Structural changes
+  // (moves, deletes) are not undoable — matching the reference app's Undo,
+  // which covers typing.
+  private undoStack: UndoEntry[] = []
+  private redoStack: UndoEntry[] = []
 
   async start() {
     this.unsub?.()
@@ -164,6 +172,7 @@ class OutlineStore {
   }
 
   async setName(uuid: string, name: string) {
+    this.pushUndo(uuid, 'name', name)
     this.patchLocal(uuid, { name })
     const fresh = await api.patch(uuid, { name })
     this.clearDirty(uuid)
@@ -171,9 +180,72 @@ class OutlineStore {
   }
 
   async setNote(uuid: string, note: string) {
+    this.pushUndo(uuid, 'note', note)
     this.patchLocal(uuid, { note })
     await api.patch(uuid, { note })
     this.clearDirty(uuid)
+  }
+
+  private pushUndo(uuid: string, field: 'name' | 'note', after: string) {
+    const before = this.nodes.get(uuid)?.[field]
+    if (before === undefined || before === after) return
+    this.undoStack.push({ uuid, field, before, after })
+    if (this.undoStack.length > 200) this.undoStack.shift()
+    this.redoStack = []
+  }
+
+  canUndo() {
+    return this.undoStack.length > 0
+  }
+
+  canRedo() {
+    return this.redoStack.length > 0
+  }
+
+  async undo() {
+    const e = this.undoStack.pop()
+    if (!e) return
+    this.redoStack.push(e)
+    this.patchLocal(e.uuid, { [e.field]: e.before })
+    await api.patch(e.uuid, { [e.field]: e.before })
+  }
+
+  async redo() {
+    const e = this.redoStack.pop()
+    if (!e) return
+    this.undoStack.push(e)
+    this.patchLocal(e.uuid, { [e.field]: e.after })
+    await api.patch(e.uuid, { [e.field]: e.after })
+  }
+
+  // subtree walk for expand/collapse-all and export
+  walk(uuid: string, fn: (n: NodeData, depth: number) => void, depth = 0) {
+    for (const c of this.children(uuid)) {
+      fn(c, depth)
+      this.walk(c.uuid, fn, depth + 1)
+    }
+  }
+
+  async setAllCollapsed(rootUUID: string, collapsed: boolean) {
+    const targets: string[] = []
+    this.walk(rootUUID, (n) => {
+      if (this.hasChildren(n.uuid) && n.collapsed !== collapsed) targets.push(n.uuid)
+    })
+    for (const id of targets) this.patchLocal(id, { collapsed })
+    await Promise.all(targets.map((id) => api.patch(id, { collapsed })))
+  }
+
+  // exportText renders the subtree as indented plain text (Workflowy-style)
+  exportText(rootUUID: string): string {
+    const lines: string[] = []
+    const root = this.get(rootUUID)
+    if (root && rootUUID !== ROOT) lines.push(root.name)
+    this.walk(rootUUID, (n, depth) => {
+      const pad = '  '.repeat(depth + (rootUUID === ROOT ? 0 : 1))
+      lines.push(`${pad}- ${n.name.replace(/\n/g, '\n' + pad + '  ')}`)
+      if (n.note) lines.push(`${pad}  ${n.note.replace(/\n/g, '\n' + pad + '  ')}`)
+    })
+    return lines.join('\n') + '\n'
   }
 
   async setType(uuid: string, type: string) {

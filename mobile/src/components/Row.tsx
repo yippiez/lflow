@@ -8,6 +8,7 @@ import { HostMount } from './HostMount'
 export interface RowCallbacks {
   onZoom(uuid: string): void
   onTag(tag: string): void
+  showCompleted: boolean
   edit: EditController
 }
 
@@ -105,7 +106,9 @@ function TextEdit(props: {
 // children, indented under a guide line, Workflowy-style.
 export function Row({ node, depth, cb }: { node: NodeData; depth: number; cb: RowCallbacks }) {
   const ext = getExtension(node.type)
-  const children = store.children(node.uuid)
+  const children = store
+    .children(node.uuid)
+    .filter((c) => cb.showCompleted || c.completed_at === 0)
   const hasKids = children.length > 0
   const editing = cb.edit.editing === node.uuid
   const noteEditing = cb.edit.noteEditing === node.uuid
@@ -137,7 +140,7 @@ export function Row({ node, depth, cb }: { node: NodeData; depth: number; cb: Ro
           className={'bullet' + (node.collapsed && hasKids ? ' halo' : '')}
           onClick={() => cb.onZoom(node.uuid)}
         >
-          <span className="dot">{node.type === 'agent' ? '✦' : '●'}</span>
+          {node.type === 'agent' ? <span className="dot-agent">✦</span> : <span className="dot" />}
         </div>
         <div className="row-body">
           {ext?.control === 'todo' && (

@@ -2,9 +2,27 @@ import { useEffect, useRef, useState } from 'react'
 import { useOutline } from './hooks'
 import { ROOT, store } from './store'
 import { renderName } from './tags'
+import {
+  IcAt,
+  IcCalendar,
+  IcCheck,
+  IcChevronLeft,
+  IcCode,
+  IcHome,
+  IcIndent,
+  IcKebab,
+  IcKeyboardDown,
+  IcMenu,
+  IcOutdent,
+  IcPencil,
+  IcPlus,
+  IcRedo,
+  IcSearch,
+  IcUndo,
+} from './icons'
 import { Row, type EditController, type RowCallbacks } from './components/Row'
 import { Search } from './components/Search'
-import { Sheet, NodeMenu, Settings, TypePicker } from './components/Sheets'
+import { Sheet, KebabMenu, Settings, TypePicker } from './components/Sheets'
 import { Sidebar } from './components/Sidebar'
 
 type SheetKind = null | { kind: 'type' | 'menu' | 'settings' }
@@ -18,6 +36,9 @@ export default function App() {
   const [search, setSearch] = useState<{ open: boolean; q: string }>({ open: false, q: '' })
   const [sheet, setSheet] = useState<SheetKind>(null)
   const [titleEdit, setTitleEdit] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(
+    localStorage.getItem('lflow.showCompleted') !== '0',
+  )
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -80,7 +101,26 @@ export default function App() {
       scrollRef.current?.scrollTo(0, 0)
     },
     onTag: (tag) => setSearch({ open: true, q: tag }),
+    showCompleted,
     edit,
+  }
+
+  const toggleCompleted = () => {
+    const next = !showCompleted
+    setShowCompleted(next)
+    localStorage.setItem('lflow.showCompleted', next ? '1' : '0')
+  }
+
+  // the ⋮ menu operates on the node being edited, else the zoomed page node
+  const menuTarget = editing ?? (zoomID !== ROOT ? zoomID : '')
+
+  // @-button: insert at the caret of the active inline editor
+  const insertAtCaret = (text: string) => {
+    const el = document.activeElement
+    if (el instanceof HTMLTextAreaElement) {
+      el.focus()
+      document.execCommand('insertText', false, text)
+    }
   }
 
   const addNode = () => {
@@ -120,7 +160,7 @@ export default function App() {
     <div className="app">
       <div className="topbar">
         <span className="crumb-home" onClick={() => cb.onZoom(ROOT)}>
-          ⌂
+          <IcHome size={22} />
         </span>
         {crumbs
           .filter((c) => c.uuid !== ROOT || zoomID !== ROOT)
@@ -138,11 +178,8 @@ export default function App() {
         )}
         <span className="top-spacer" />
         <span className={'live-dot' + (store.live ? ' on' : '')} title="live sync" />
-        <span
-          className="icon-btn kebab"
-          onClick={() => (zoomID === ROOT ? setSheet({ kind: 'settings' }) : setSheet({ kind: 'menu' }))}
-        >
-          ⋮
+        <span className="icon-btn kebab" onClick={() => setSheet({ kind: 'menu' })}>
+          <IcKebab size={22} />
         </span>
       </div>
 
@@ -173,59 +210,81 @@ export default function App() {
         {zoomed?.note && zoomID !== ROOT && <div className="title-note">{zoomed.note}</div>}
 
         <div className="outline">
-          {children.map((c) => (
-            <Row key={c.uuid} node={c} depth={0} cb={cb} />
-          ))}
+          {children
+            .filter((c) => showCompleted || c.completed_at === 0)
+            .map((c) => (
+              <Row key={c.uuid} node={c} depth={0} cb={cb} />
+            ))}
           <div className="add-row" onClick={addNode}>
-            ＋
+            <IcPlus size={24} />
           </div>
         </div>
       </div>
 
       {editing ? (
-        <div className="toolbar">
-          <button className="tb" onClick={() => void store.outdent(editing)}>
-            ⇤
-          </button>
-          <button className="tb" onClick={() => void store.indent(editing)}>
-            ⇥
-          </button>
-          <button
-            className="tb"
-            onClick={() => {
-              const n = store.get(editing)
-              if (n) void store.setCompleted(editing, !(n.completed_at > 0))
-            }}
-          >
-            ✓
-          </button>
-          <button className="tb" onClick={() => edit.startNote(editing)}>
-            ✎
-          </button>
-          <button className="tb" onClick={() => setSheet({ kind: 'type' })}>
-            ≔
-          </button>
-          <button className="tb" onClick={() => setSheet({ kind: 'menu' })}>
-            ⋯
-          </button>
-          <span className="top-spacer" />
-          <button className="tb" onClick={stopEdit}>
-            ⌄
-          </button>
+        <div className="toolbar-wrap">
+          <div className="toolbar">
+            <button className="tb" onClick={() => void store.outdent(editing)}>
+              <IcOutdent size={23} />
+            </button>
+            <button className="tb" onClick={() => void store.indent(editing)}>
+              <IcIndent size={23} />
+            </button>
+            <button className="tb" disabled={!store.canUndo()} onClick={() => void store.undo()}>
+              <IcUndo size={23} />
+            </button>
+            <button className="tb" disabled={!store.canRedo()} onClick={() => void store.redo()}>
+              <IcRedo size={23} />
+            </button>
+            <button
+              className="tb"
+              onClick={() => {
+                const n = store.get(editing)
+                if (n) void store.setCompleted(editing, !(n.completed_at > 0))
+              }}
+            >
+              <IcCheck size={23} />
+            </button>
+            <button className="tb" onClick={() => edit.startNote(editing)}>
+              <IcPencil size={23} />
+            </button>
+            <button className="tb" onClick={() => insertAtCaret('@')}>
+              <IcAt size={23} />
+            </button>
+            <button
+              className="tb"
+              onClick={() => {
+                const n = store.get(editing)
+                if (n) void store.setType(editing, n.type === 'code' ? 'bullets' : 'code')
+              }}
+            >
+              <IcCode size={23} />
+            </button>
+            <span className="tb-gap" />
+            <button className="tb tb-kbd" onClick={stopEdit}>
+              <IcKeyboardDown size={25} />
+            </button>
+          </div>
         </div>
       ) : (
         <div className="bottombar">
           <button className="bb" onClick={() => setSidebar(true)}>
-            ☰
+            <IcMenu size={27} />
           </button>
           <button className="bb" disabled={zoomID === ROOT} onClick={back}>
-            ‹
+            <IcChevronLeft size={27} />
           </button>
           <button className="bb add" onClick={addNode}>
-            ＋
+            <IcPlus size={29} />
+          </button>
+          <button
+            className="bb"
+            onClick={() => setSearch({ open: true, q: new Date().toISOString().slice(0, 10) })}
+          >
+            <IcCalendar size={26} />
           </button>
           <button className="bb" onClick={() => setSearch({ open: true, q: '' })}>
-            ⌕
+            <IcSearch size={26} />
           </button>
         </div>
       )}
@@ -234,10 +293,7 @@ export default function App() {
         open={sidebar}
         onClose={() => setSidebar(false)}
         onZoom={cb.onZoom}
-        onSettings={() => {
-          setSidebar(false)
-          setSheet({ kind: 'settings' })
-        }}
+        onNewNode={addNode}
       />
       <Search
         open={search.open}
@@ -246,23 +302,19 @@ export default function App() {
         onZoom={cb.onZoom}
       />
       <Sheet open={sheet !== null} onClose={() => setSheet(null)}>
-        {sheet?.kind === 'type' && (editing || zoomID !== ROOT) && (
-          <TypePicker uuid={editing ?? zoomID} onClose={() => setSheet(null)} />
+        {sheet?.kind === 'type' && menuTarget && (
+          <TypePicker uuid={menuTarget} onClose={() => setSheet(null)} />
         )}
-        {sheet?.kind === 'menu' && (editing || zoomID !== ROOT) && (
-          <NodeMenu
-            uuid={editing ?? zoomID}
+        {sheet?.kind === 'menu' && (
+          <KebabMenu
+            target={menuTarget}
+            zoom={zoomID}
+            showCompleted={showCompleted}
+            live={store.live}
             onClose={() => setSheet(null)}
-            onZoom={(u) => {
-              setSheet(null)
-              cb.onZoom(u)
-            }}
             onType={() => setSheet({ kind: 'type' })}
-            onNote={() => {
-              const target = editing ?? zoomID
-              setSheet(null)
-              edit.startNote(target)
-            }}
+            onSettings={() => setSheet({ kind: 'settings' })}
+            onToggleCompleted={toggleCompleted}
           />
         )}
         {sheet?.kind === 'settings' && <Settings onClose={() => setSheet(null)} />}

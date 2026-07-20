@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { NodeData } from '../api'
 import { api } from '../api'
+import { IcX } from '../icons'
 import { store } from '../store'
 import { renderName } from '../tags'
 
@@ -52,7 +53,7 @@ export function Search(props: {
           onChange={(e) => setQ(e.target.value)}
         />
         <button className="icon-btn" onClick={props.onClose}>
-          ✕
+          <IcX size={22} />
         </button>
       </div>
       <div className="search-hits">

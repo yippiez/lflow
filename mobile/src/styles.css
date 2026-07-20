@@ -52,8 +52,8 @@ button {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 10px 14px;
-  padding-top: calc(10px + env(safe-area-inset-top));
+  padding: 12px 14px;
+  padding-top: calc(12px + env(safe-area-inset-top));
   color: var(--dim);
   font-style: italic;
   font-size: 15px;
@@ -63,9 +63,10 @@ button {
 
 .crumb-home {
   font-style: normal;
-  font-size: 18px;
   cursor: pointer;
   padding: 0 4px;
+  display: flex;
+  align-items: center;
 }
 
 .crumb {
@@ -73,15 +74,20 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 34vw;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .crumb-sep {
   margin: 0 6px;
   color: var(--dimmer);
+  display: inline-block;
+  text-decoration: none;
 }
 
 .crumb.current {
   color: var(--dim);
+  text-decoration: none;
 }
 
 .top-spacer {
@@ -109,9 +115,15 @@ button {
   background: none;
   border: none;
   color: var(--dim);
-  font-size: 18px;
   cursor: pointer;
   padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kebab {
+  cursor: pointer;
 }
 
 /* ---- title ---- */
@@ -152,24 +164,26 @@ button {
 /* ---- outline rows ---- */
 
 .row-tree.indented {
-  margin-left: 22px;
+  margin-left: 33px;
   border-left: 1px solid var(--guide);
-  padding-left: 8px;
+  padding-left: 2px;
 }
 
 .row {
   display: flex;
   align-items: flex-start;
-  padding: 7px 0;
+  padding: 8px 0;
   position: relative;
 }
 
 .chevron {
   width: 22px;
+  height: 26px;
   color: var(--dimmer);
-  font-size: 12px;
-  line-height: 24px;
-  text-align: center;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   flex: none;
   user-select: none;
@@ -181,37 +195,44 @@ button {
 
 .bullet {
   width: 24px;
+  height: 26px;
   flex: none;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  line-height: 24px;
   user-select: none;
 }
 
 .bullet .dot {
-  color: var(--dim);
-  font-size: 11px;
-  vertical-align: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
 }
 
 .bullet.halo .dot {
-  text-shadow: 0 0 0 var(--dim);
-  outline: 4px solid var(--panel-2);
-  border-radius: 50%;
+  box-shadow: 0 0 0 4px var(--panel-2);
+}
+
+.dot-agent {
+  color: var(--red);
+  font-size: 13px;
 }
 
 .row-body {
   flex: 1;
   min-width: 0;
-  padding-left: 6px;
+  padding-left: 7px;
 }
 
 .row-name {
-  line-height: 24px;
+  line-height: 26px;
   word-break: break-word;
   white-space: pre-wrap;
   cursor: text;
-  min-height: 24px;
+  min-height: 26px;
+  font-size: 16.5px;
 }
 
 .row-name .placeholder {
@@ -275,12 +296,12 @@ button {
 
 .row-note {
   color: var(--dim);
-  font-size: 13.5px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
   cursor: text;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 textarea.row-name.edit,
@@ -310,10 +331,10 @@ textarea.row-note.edit {
 
 .add-row {
   color: var(--dimmer);
-  font-size: 22px;
-  padding: 10px 0 10px 46px;
+  padding: 12px 0 12px 46px;
   cursor: pointer;
   user-select: none;
+  display: flex;
 }
 
 /* ---- code block: dim line number, rule to its right, code ---- */
@@ -353,16 +374,12 @@ textarea.row-note.edit {
 
 /* ---- bottom bar / toolbar ---- */
 
-.bottombar,
-.toolbar {
+.bottombar {
   display: flex;
   align-items: center;
   border-top: 1px solid var(--guide);
   background: var(--bg);
   padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
-}
-
-.bottombar {
   justify-content: space-around;
 }
 
@@ -370,31 +387,63 @@ textarea.row-note.edit {
   background: none;
   border: none;
   color: var(--dim);
-  font-size: 24px;
-  padding: 8px 18px;
+  padding: 9px 14px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .bb:disabled {
   color: var(--guide);
 }
 
-.bb.add {
-  font-size: 26px;
+/* the edit toolbar: a floating pill of bordered segments, horizontally
+   scrollable, keyboard-dismiss pinned as its own segment on the right */
+.toolbar-wrap {
+  background: var(--bg);
+  padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
 }
 
 .toolbar {
-  gap: 2px;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--dimmer);
+  border-radius: 26px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg);
+}
+
+.toolbar::-webkit-scrollbar {
+  display: none;
 }
 
 .tb {
   background: none;
-  border: 1px solid var(--guide);
-  border-radius: 8px;
-  color: var(--dim);
-  font-size: 17px;
-  padding: 7px 12px;
+  border: none;
+  border-right: 1px solid var(--guide);
+  color: var(--text);
+  padding: 13px 0;
+  min-width: 58px;
+  flex: 1 0 auto;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tb:disabled {
+  color: var(--dimmer);
+}
+
+.tb-gap {
+  flex: 0 0 4px;
+  border-right: 1px solid var(--dimmer);
+}
+
+.tb.tb-kbd {
+  border-right: none;
 }
 
 /* ---- sidebar ---- */
@@ -424,12 +473,59 @@ textarea.row-note.edit {
   transform: translateX(-102%);
   transition: transform 0.22s ease;
   z-index: 21;
-  overflow-y: auto;
-  padding: calc(14px + env(safe-area-inset-top)) 14px 20px;
+  display: flex;
+  flex-direction: column;
+  padding: calc(14px + env(safe-area-inset-top)) 14px 0;
 }
 
 .sidebar.open {
   transform: none;
+}
+
+.side-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.side-back {
+  font-size: 24px;
+}
+
+.side-chev {
+  color: var(--dimmer);
+  flex: none;
+  width: 22px;
+  text-align: center;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.side-chev.hidden {
+  visibility: hidden;
+}
+
+.side-name.agent {
+  color: var(--red);
+}
+
+.side-bottom {
+  padding: 12px 4px calc(16px + env(safe-area-inset-bottom));
+}
+
+.new-node-pill {
+  width: 100%;
+  background: var(--panel-2);
+  border: none;
+  border-radius: 24px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 17px;
+  padding: 13px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
 }
 
 .side-top {
@@ -465,9 +561,10 @@ textarea.row-note.edit {
 .side-item {
   display: flex;
   gap: 10px;
-  padding: 9px 4px;
+  padding: 11px 4px;
   cursor: pointer;
-  align-items: baseline;
+  align-items: center;
+  font-size: 16px;
 }
 
 .side-glyph {
@@ -578,19 +675,95 @@ textarea.row-note.edit {
 }
 
 .menu-list .menu-item {
-  padding: 13px 6px;
+  padding: 15px 6px;
   cursor: pointer;
   display: flex;
-  gap: 10px;
+  gap: 14px;
   align-items: center;
+  border-top: 1px solid var(--guide);
+  font-size: 17px;
 }
 
-.menu-item.danger {
-  color: var(--red);
+.menu-item.disabled {
+  color: var(--dimmer);
+  pointer-events: none;
 }
 
-.menu-item.danger .type-glyph {
-  color: var(--red);
+.menu-glyph {
+  color: var(--dim);
+  width: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-split {
+  display: flex;
+  gap: 0;
+  margin-bottom: 4px;
+}
+
+.menu-half {
+  flex: 1;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--guide);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 17px;
+  padding: 12px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.menu-half:last-child {
+  border-right: none;
+}
+
+.menu-half:disabled {
+  color: var(--dimmer);
+}
+
+.menu-foot {
+  color: var(--dimmer);
+  text-align: center;
+  font-size: 13.5px;
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--guide);
+}
+
+.toggle {
+  margin-left: auto;
+  width: 46px;
+  height: 27px;
+  border-radius: 14px;
+  background: var(--panel-2);
+  position: relative;
+  transition: background 0.15s;
+  flex: none;
+}
+
+.toggle.on {
+  background: #3f7fb5;
+}
+
+.toggle .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.15s;
+}
+
+.toggle.on .knob {
+  left: 21px;
 }
 
 /* ---- settings ---- */
