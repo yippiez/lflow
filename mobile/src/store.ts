@@ -1,0 +1,251 @@
+// The outline store: one flat map of nodes plus a children index, fed by the
+// initial /api/outline fetch and folded-into by SSE change events — the same
+// model the TUI's live sync keeps. Local edits apply optimistically and a
+// dirty shield keeps a node being edited here from adopting a remote version
+// (the pending write lands within a second and wins — last writer wins).
+import { api, subscribe, type ChangeEvent, type NodeData, instanceId } from './api'
+
+export const ROOT = 'root'
+
+type Listener = () => void
+
+class OutlineStore {
+  nodes = new Map<string, NodeData>()
+  private childIndex = new Map<string, string[]>() // parent → child uuids sorted by rank
+  private listeners = new Set<Listener>()
+  private dirty = new Set<string>() // uuids with local edits not yet acked
+  private unsub: (() => void) | null = null
+
+  live = false
+  loaded = false
+  loadError = ''
+  version = 0 // bumped on every change; components subscribe via useSyncExternalStore
+
+  async start() {
+    this.unsub?.()
+    this.unsub = subscribe(
+      (ev) => this.applyEvent(ev),
+      (live) => {
+        const wasLive = this.live
+        this.live = live
+        if (live && !wasLive && this.loaded) this.refetch() // gap: resync wholesale
+        this.bump()
+      },
+    )
+    await this.refetch()
+  }
+
+  stop() {
+    this.unsub?.()
+    this.unsub = null
+  }
+
+  async refetch() {
+    try {
+      const { nodes } = await api.outline()
+      this.nodes.clear()
+      for (const n of nodes) this.nodes.set(n.uuid, n)
+      this.reindex()
+      this.loaded = true
+      this.loadError = ''
+    } catch (e) {
+      this.loadError = e instanceof Error ? e.message : String(e)
+    }
+    this.bump()
+  }
+
+  private applyEvent(ev: ChangeEvent) {
+    if (!ev.nodes?.length) return
+    for (const n of ev.nodes) {
+      // dirty shield: never let a remote row clobber a node mid-edit here,
+      // unless the event is our own write echoing back
+      if (this.dirty.has(n.uuid) && ev.instance !== instanceId) continue
+      if (n.deleted) this.nodes.delete(n.uuid)
+      else this.nodes.set(n.uuid, n)
+    }
+    this.reindex()
+    this.bump()
+  }
+
+  private reindex() {
+    this.childIndex.clear()
+    for (const n of this.nodes.values()) {
+      const list = this.childIndex.get(n.parent_uuid)
+      if (list) list.push(n.uuid)
+      else this.childIndex.set(n.parent_uuid, [n.uuid])
+    }
+    for (const list of this.childIndex.values()) {
+      list.sort((a, b) => {
+        const na = this.nodes.get(a)!
+        const nb = this.nodes.get(b)!
+        return na.rank - nb.rank || na.added_on - nb.added_on
+      })
+    }
+  }
+
+  // --- reads ---
+
+  get(uuid: string): NodeData | undefined {
+    return this.nodes.get(uuid)
+  }
+
+  children(uuid: string): NodeData[] {
+    return (this.childIndex.get(uuid) ?? []).map((id) => this.nodes.get(id)!)
+  }
+
+  hasChildren(uuid: string): boolean {
+    return (this.childIndex.get(uuid)?.length ?? 0) > 0
+  }
+
+  ancestors(uuid: string): NodeData[] {
+    const path: NodeData[] = []
+    let cur = this.nodes.get(uuid)
+    while (cur && cur.parent_uuid && cur.parent_uuid !== cur.uuid) {
+      const p = this.nodes.get(cur.parent_uuid)
+      if (!p) break
+      path.unshift(p)
+      cur = p
+    }
+    return path
+  }
+
+  starred(): NodeData[] {
+    return [...this.nodes.values()]
+      .filter((n) => n.starred)
+      .sort((a, b) => b.edited_on - a.edited_on)
+  }
+
+  recent(limit = 30): NodeData[] {
+    return [...this.nodes.values()]
+      .filter((n) => n.uuid !== ROOT && n.name !== '')
+      .sort((a, b) => b.edited_on - a.edited_on)
+      .slice(0, limit)
+  }
+
+  // --- writes (optimistic; server echo confirms) ---
+
+  private patchLocal(uuid: string, fields: Partial<NodeData>) {
+    const n = this.nodes.get(uuid)
+    if (!n) return
+    this.nodes.set(uuid, { ...n, ...fields })
+    this.reindex()
+    this.bump()
+  }
+
+  markDirty(uuid: string) {
+    this.dirty.add(uuid)
+  }
+
+  clearDirty(uuid: string) {
+    this.dirty.delete(uuid)
+  }
+
+  async create(parent: string, opts: { after?: string; position?: 'top' | 'bottom' | ''; name?: string; type?: string } = {}) {
+    const n = await api.create({
+      parent_uuid: parent,
+      name: opts.name ?? '',
+      type: opts.type ?? 'bullets',
+      after: opts.after,
+      position: opts.position ?? '',
+    })
+    this.nodes.set(n.uuid, n)
+    // an insert after a sibling shifted later ranks server-side; refetch is
+    // overkill, nudge local ranks the same way instead
+    if (opts.after) {
+      for (const sib of this.children(parent)) {
+        if (sib.uuid !== n.uuid && sib.rank >= n.rank) {
+          this.nodes.set(sib.uuid, { ...sib, rank: sib.rank + 1 })
+        }
+      }
+    }
+    this.reindex()
+    this.bump()
+    return n
+  }
+
+  async setName(uuid: string, name: string) {
+    this.patchLocal(uuid, { name })
+    const fresh = await api.patch(uuid, { name })
+    this.clearDirty(uuid)
+    this.patchLocal(uuid, fresh)
+  }
+
+  async setNote(uuid: string, note: string) {
+    this.patchLocal(uuid, { note })
+    await api.patch(uuid, { note })
+    this.clearDirty(uuid)
+  }
+
+  async setType(uuid: string, type: string) {
+    this.patchLocal(uuid, { type })
+    await api.patch(uuid, { type })
+  }
+
+  async setCollapsed(uuid: string, collapsed: boolean) {
+    this.patchLocal(uuid, { collapsed })
+    await api.patch(uuid, { collapsed })
+  }
+
+  async setStarred(uuid: string, starred: boolean) {
+    this.patchLocal(uuid, { starred })
+    await api.patch(uuid, { starred })
+  }
+
+  async setCompleted(uuid: string, done: boolean) {
+    this.patchLocal(uuid, { completed_at: done ? Date.now() * 1e6 : 0 })
+    await api.patch(uuid, { completed: done })
+  }
+
+  async move(uuid: string, parent: string, opts: { after?: string; position?: string } = {}) {
+    const fresh = await api.move(uuid, { parent_uuid: parent, ...opts })
+    this.patchLocal(uuid, fresh)
+  }
+
+  async remove(uuid: string) {
+    const drop = (id: string) => {
+      for (const c of this.children(id)) drop(c.uuid)
+      this.nodes.delete(id)
+    }
+    drop(uuid)
+    this.reindex()
+    this.bump()
+    await api.remove(uuid)
+  }
+
+  // indent: node becomes last child of its previous sibling
+  async indent(uuid: string) {
+    const n = this.nodes.get(uuid)
+    if (!n) return
+    const sibs = this.children(n.parent_uuid)
+    const i = sibs.findIndex((s) => s.uuid === uuid)
+    if (i <= 0) return
+    const newParent = sibs[i - 1]
+    this.patchLocal(uuid, { parent_uuid: newParent.uuid })
+    if (newParent.collapsed) this.setCollapsed(newParent.uuid, false)
+    await this.move(uuid, newParent.uuid, { position: 'bottom' })
+  }
+
+  // outdent: node becomes the sibling right after its parent
+  async outdent(uuid: string) {
+    const n = this.nodes.get(uuid)
+    if (!n) return
+    const parent = this.nodes.get(n.parent_uuid)
+    if (!parent || parent.uuid === ROOT || !parent.parent_uuid) return
+    this.patchLocal(uuid, { parent_uuid: parent.parent_uuid })
+    await this.move(uuid, parent.parent_uuid, { after: parent.uuid })
+  }
+
+  // --- subscription plumbing ---
+
+  private bump() {
+    this.version++
+    for (const l of this.listeners) l()
+  }
+
+  onChange(l: Listener): () => void {
+    this.listeners.add(l)
+    return () => this.listeners.delete(l)
+  }
+}
+
+export const store = new OutlineStore()

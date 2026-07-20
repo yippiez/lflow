@@ -162,6 +162,27 @@ regardless of display order — the pi prompt tells the agent so.
   offline **mock only serves an agent that sets `"mock": true`** in agents.json
   (a test agent). Wire protocol: JSON over websocket, see `pkg/tui/tag/ws.go`.
 
+## HTTP API + mobile app
+
+`lflow serve --http <addr>` (optional `--http-token`) opens the daemon's HTTP
+face (`pkg/tui/daemon/http.go`): JSON REST (`/api/outline`, `/api/nodes` CRUD +
+`/move`, `/api/search`) plus `/api/events`, an SSE stream of the same committed
+change events socket subscribers get — writes go through `Store.Exec`, so every
+client (TUI, CLI, mobile) live-updates from every other. Writers identify via
+`X-Lflow-Instance`. The API accepts any `[a-z0-9_-]{1,32}` node type (free-string
+types by design; unknown types render as bullets everywhere). The outline
+endpoint excludes the Temporary Domain.
+
+`mobile/` is the Workflowy-style client (React + TS + Vite; see mobile/README.md).
+`npm run build` emits into `pkg/tui/daemon/webui/dist` (a committed build
+artifact) which `go:embed` ships in the binary, so `--http` serves app + API from
+one port; Capacitor wraps the same build for Android. Client node types mirror
+the TUI registry idea: one descriptor per type in `mobile/src/extensions/`
+(builtins + runtime-loaded custom ES-module extensions). After changing mobile/,
+rebuild it AND the Go binary to re-embed. Careful with `database.*` helpers
+called on the daemon's own store: its pool is one connection, so never start a
+query while another's rows are open (see the buffered chip pass in SearchNodes).
+
 ## Key invariants
 
 The structural invariants now live as `// WARNING (invariant):` comments next to the
