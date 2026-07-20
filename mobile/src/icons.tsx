@@ -33,6 +33,9 @@ export const IcPlus = (p: P) => base({ ...p, children: <><path d="M12 5v14" /><p
 export const IcCalendar = (p: P) =>
   base({ ...p, children: <><rect x="4" y="5.5" width="16" height="15" rx="2.5" /><path d="M4 10h16" /><path d="M8.5 3.5v4" /><path d="M15.5 3.5v4" /></> })
 
+export const IcRun = (p: P) =>
+  base({ ...p, children: <path d="M8 5.5v13l10-6.5-10-6.5Z" /> })
+
 export const IcSearch = (p: P) =>
   base({ ...p, children: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></> })
 

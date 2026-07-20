@@ -4,7 +4,6 @@ import { ROOT, store } from './store'
 import { renderName } from './tags'
 import {
   IcAt,
-  IcCalendar,
   IcCheck,
   IcChevronLeft,
   IcCode,
@@ -17,6 +16,7 @@ import {
   IcPencil,
   IcPlus,
   IcRedo,
+  IcRun,
   IcSearch,
   IcUndo,
 } from './icons'
@@ -277,11 +277,9 @@ export default function App() {
           <button className="bb add" onClick={addNode}>
             <IcPlus size={29} />
           </button>
-          <button
-            className="bb"
-            onClick={() => setSearch({ open: true, q: new Date().toISOString().slice(0, 10) })}
-          >
-            <IcCalendar size={26} />
+          {/* Run: reserved for a coming feature — present but disabled */}
+          <button className="bb" disabled>
+            <IcRun size={26} />
           </button>
           <button className="bb" onClick={() => setSearch({ open: true, q: '' })}>
             <IcSearch size={26} />
