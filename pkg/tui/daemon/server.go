@@ -21,10 +21,12 @@ var ErrAlreadyServing = errors.New("a daemon is already serving this database")
 
 // Options configures Serve.
 type Options struct {
-	Sock    string
-	Version string
-	Idle    time.Duration // exit after this long with no clients; 0 = never
-	Log     io.Writer     // event log sink (`lflow serve`); nil = quiet
+	Sock      string
+	Version   string
+	Idle      time.Duration // exit after this long with no clients; 0 = never
+	Log       io.Writer     // event log sink (`lflow serve`); nil = quiet
+	HTTP      string        // tcp addr for the HTTP API + web app; "" = no HTTP
+	HTTPToken string        // optional bearer token guarding the HTTP API
 }
 
 // session is one connected client.
@@ -44,6 +46,9 @@ type server struct {
 	lastEmpty time.Time
 	closing   atomic.Bool
 	nextSess  atomic.Int64
+
+	httpBusy atomic.Int64  // in-flight HTTP requests (SSE streams count whole)
+	httpDone chan struct{} // closed on stop; shuts the HTTP server down
 }
 
 // mirror the CLI palette (see editor/render.go): muted gray prose, yellow names
@@ -67,11 +72,21 @@ func Serve(store *Store, opts Options) error {
 		ln:        ln,
 		conns:     map[net.Conn]bool{},
 		lastEmpty: time.Now(),
+		httpDone:  make(chan struct{}),
 	}
 	if opts.Log != nil {
 		store.onEvent = sv.logEvent
 	}
 	sv.logServing()
+
+	if opts.HTTP != "" {
+		addr, err := sv.serveHTTP(opts.HTTP, opts.HTTPToken)
+		if err != nil {
+			sv.stop()
+			return errors.Wrap(err, "binding http")
+		}
+		sv.logf("→ http on %s%s%s · api + web app", logYellow, addr, logDim)
+	}
 
 	if opts.Idle > 0 {
 		go sv.idleWatch()
@@ -132,7 +147,8 @@ func (sv *server) idleWatch() {
 			return
 		}
 		sv.mu.Lock()
-		idle := len(sv.conns) == 0 && time.Since(sv.lastEmpty) > sv.opts.Idle
+		idle := len(sv.conns) == 0 && sv.httpBusy.Load() == 0 &&
+			time.Since(sv.lastEmpty) > sv.opts.Idle
 		sv.mu.Unlock()
 		if idle {
 			sv.logf("→ idle exit · no clients for %s", sv.opts.Idle)
@@ -147,6 +163,7 @@ func (sv *server) stop() {
 	if !sv.closing.CompareAndSwap(false, true) {
 		return
 	}
+	close(sv.httpDone)
 	sv.ln.Close()
 	sv.mu.Lock()
 	for c := range sv.conns {

@@ -24,10 +24,12 @@ const idleExit = 10 * time.Minute
 // must never route through a daemon, so it resolves the database itself.
 func NewCmd(versionTag string) *cobra.Command {
 	var (
-		quiet  bool
-		idle   bool
-		dbPath string
-		sock   string
+		quiet     bool
+		idle      bool
+		dbPath    string
+		sock      string
+		httpAddr  string
+		httpToken string
 	)
 
 	cmd := &cobra.Command{
@@ -61,7 +63,7 @@ func NewCmd(versionTag string) *cobra.Command {
 				return errors.Wrap(err, "preparing database")
 			}
 
-			opts := daemon.Options{Sock: sock, Version: versionTag}
+			opts := daemon.Options{Sock: sock, Version: versionTag, HTTP: httpAddr, HTTPToken: httpToken}
 			if idle {
 				opts.Idle = idleExit
 			}
@@ -76,6 +78,8 @@ func NewCmd(versionTag string) *cobra.Command {
 	cmd.Flags().BoolVar(&idle, "idle", false, "exit after 10m with no clients")
 	cmd.Flags().StringVar(&dbPath, "db", "", "database file (default: the configured database)")
 	cmd.Flags().StringVar(&sock, "sock", "", "socket path (default: daemon.sock next to the database)")
+	cmd.Flags().StringVar(&httpAddr, "http", "", "also serve the HTTP API + mobile web app on this address (e.g. :7420)")
+	cmd.Flags().StringVar(&httpToken, "http-token", "", "bearer token required by the HTTP API (default: open)")
 
 	return cmd
 }
