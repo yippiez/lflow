@@ -220,6 +220,28 @@ button {
   font-size: 13px;
 }
 
+/* a mirror instance wears a diamond where originals wear a dot */
+.dot-mirror {
+  width: 8px;
+  height: 8px;
+  background: var(--dim);
+  transform: rotate(45deg);
+}
+
+.bullet.halo .dot-mirror {
+  box-shadow: 0 0 0 4px var(--panel-2);
+}
+
+.row-name.mirrored {
+  cursor: pointer;
+}
+
+.mirror-loop {
+  color: var(--dimmer);
+  font-size: 13px;
+  font-style: italic;
+}
+
 .row-body {
   flex: 1;
   min-width: 0;
@@ -282,16 +304,25 @@ button {
   font-size: 12px;
 }
 
+/* todo control: a SQUARE checkbox beside the bullet — the square toggles
+   done, the bullet (like every bullet) zooms */
 .todo-box {
   float: left;
-  margin-right: 8px;
-  color: var(--dim);
+  margin: 4px 9px 0 0;
+  width: 17px;
+  height: 17px;
+  border: 1.5px solid var(--dim);
+  border-radius: 3px;
   cursor: pointer;
-  line-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bg);
 }
 
 .todo-box.done {
-  color: #98c379;
+  background: #98c379;
+  border-color: #98c379;
 }
 
 .row-note {
@@ -324,9 +355,10 @@ textarea.row-note.edit {
 }
 
 .tag {
-  text-decoration: underline;
-  text-underline-offset: 3px;
   cursor: pointer;
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin: 0 1px;
 }
 
 .add-row {
@@ -734,6 +766,52 @@ textarea.row-note.edit {
   font-size: 13.5px;
   padding: 14px 0 4px;
   border-top: 1px solid var(--guide);
+}
+
+.swatch-row {
+  margin-left: auto;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex: none;
+}
+
+.swatch-none {
+  border: 1.5px solid var(--dimmer);
+  position: relative;
+}
+
+.swatch-none::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 50%;
+  border-top: 1.5px solid var(--dimmer);
+  transform: rotate(-45deg);
+}
+
+.color-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dim);
+  display: inline-block;
+}
+
+.glyph-diamond {
+  width: 9px;
+  height: 9px;
+  background: var(--dim);
+  transform: rotate(45deg);
+  display: inline-block;
 }
 
 .toggle {

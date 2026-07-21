@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NodeData } from '../api'
 import { getExtension } from '../extensions/registry'
 import { store } from '../store'
-import { renderName } from '../tags'
+import { nodeColor, renderName } from '../tags'
 import { HostMount } from './HostMount'
 
 export interface RowCallbacks {
@@ -103,25 +103,56 @@ function TextEdit(props: {
 }
 
 // Row renders one node: chevron, bullet, typed content, note — then its
-// children, indented under a guide line, Workflowy-style.
-export function Row({ node, depth, cb }: { node: NodeData; depth: number; cb: RowCallbacks }) {
-  const ext = getExtension(node.type)
-  const children = store
-    .children(node.uuid)
-    .filter((c) => cb.showCompleted || c.completed_at === 0)
+// children, indented under a guide line, Workflowy-style. A mirror node
+// (mirror_of set) renders its original's content and children live, wearing a
+// diamond bullet; `trail` carries the mirror targets already open above so a
+// mirror inside its own subtree cannot loop the render.
+export function Row({
+  node,
+  depth,
+  cb,
+  trail,
+}: {
+  node: NodeData
+  depth: number
+  cb: RowCallbacks
+  trail?: ReadonlySet<string>
+}) {
+  const mirrorTarget = node.mirror_of ? store.get(node.mirror_of) : undefined
+  const isMirror = node.mirror_of !== ''
+  const shown = mirrorTarget ?? node // the content-bearing node
+  const looped = isMirror && (trail?.has(shown.uuid) ?? false)
+
+  const ext = getExtension(shown.type)
+  const children = looped
+    ? []
+    : store.children(shown.uuid).filter((c) => cb.showCompleted || c.completed_at === 0)
   const hasKids = children.length > 0
   const editing = cb.edit.editing === node.uuid
   const noteEditing = cb.edit.noteEditing === node.uuid
-  const done = node.completed_at > 0
-  const locked = node.readonly
+  const done = shown.completed_at > 0
+  const locked = node.readonly || isMirror // mirrors reshape at the original
+
+  const childTrail = isMirror ? new Set([...(trail ?? []), shown.uuid]) : trail
 
   const startEdit = () => {
+    if (isMirror) {
+      cb.onZoom(shown.uuid) // tap a mirror → go edit the original
+      return
+    }
     if (locked || ext?.inlineEditable === false) return
     store.markDirty(node.uuid)
     cb.edit.start(node.uuid)
   }
 
-  const nameClass = ['row-name', ext?.textClass ?? '', done ? 'done' : '', node.type === 'agent' ? 'agent' : '']
+  const color = nodeColor(shown.style)
+  const nameClass = [
+    'row-name',
+    ext?.textClass ?? '',
+    done ? 'done' : '',
+    shown.type === 'agent' ? 'agent' : '',
+    isMirror ? 'mirrored' : '',
+  ]
     .filter(Boolean)
     .join(' ')
 
@@ -138,22 +169,32 @@ export function Row({ node, depth, cb }: { node: NodeData; depth: number; cb: Ro
         </div>
         <div
           className={'bullet' + (node.collapsed && hasKids ? ' halo' : '')}
-          onClick={() => cb.onZoom(node.uuid)}
+          onClick={() => cb.onZoom(shown.uuid)}
         >
-          {node.type === 'agent' ? <span className="dot-agent">✦</span> : <span className="dot" />}
+          {shown.type === 'agent' ? (
+            <span className="dot-agent">✦</span>
+          ) : isMirror ? (
+            <span className="dot-mirror" />
+          ) : (
+            <span className="dot" />
+          )}
         </div>
         <div className="row-body">
           {ext?.control === 'todo' && (
             <span
               className={'todo-box' + (done ? ' done' : '')}
-              onClick={() => store.setCompleted(node.uuid, !done)}
+              onClick={() => store.setCompleted(shown.uuid, !done)}
             >
-              {done ? '●' : '○'}
+              {done && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m5 13 4.5 4.5L19 7" />
+                </svg>
+              )}
             </span>
           )}
           {blockContent ? (
             <div onClick={startEdit}>
-              <HostMount ext={ext!} node={node} />
+              <HostMount ext={ext!} node={shown} />
             </div>
           ) : editing ? (
             <TextEdit
@@ -165,13 +206,14 @@ export function Row({ node, depth, cb }: { node: NodeData; depth: number; cb: Ro
               onDeleteEmpty={() => cb.edit.deleteEmpty(node.uuid)}
             />
           ) : (
-            <div className={nameClass} onClick={startEdit}>
-              {node.name === '' ? (
+            <div className={nameClass} style={color ? { color } : undefined} onClick={startEdit}>
+              {shown.name === '' ? (
                 <span className="placeholder"> </span>
               ) : (
-                renderName(node.name, cb.onTag)
+                renderName(shown.name, cb.onTag)
               )}
-              {node.starred && <span className="star-mark"> ◆</span>}
+              {shown.starred && <span className="star-mark"> ◆</span>}
+              {looped && <span className="mirror-loop"> ↩ mirror of an ancestor</span>}
             </div>
           )}
           {noteEditing ? (
@@ -184,15 +226,16 @@ export function Row({ node, depth, cb }: { node: NodeData; depth: number; cb: Ro
               onBlur={() => cb.edit.stop()}
             />
           ) : (
-            node.note !== '' && (
+            shown.note !== '' && (
               <div
                 className="row-note"
                 onClick={() => {
+                  if (isMirror) return
                   store.markDirty(node.uuid)
                   cb.edit.startNote(node.uuid)
                 }}
               >
-                {node.note}
+                {shown.note}
               </div>
             )
           )}
@@ -201,7 +244,7 @@ export function Row({ node, depth, cb }: { node: NodeData; depth: number; cb: Ro
       {hasKids && !node.collapsed && (
         <div className="children">
           {children.map((c) => (
-            <Row key={c.uuid} node={c} depth={depth + 1} cb={cb} />
+            <Row key={c.uuid} node={c} depth={depth + 1} cb={cb} trail={childTrail} />
           ))}
         </div>
       )}

@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { serverBase, setServer } from '../api'
+import { useEffect, useState } from 'react'
+import type { NodeData } from '../api'
+import { api, serverBase, setServer } from '../api'
+import { NODE_COLORS, nodeColor, renderName } from '../tags'
 import {
   IcCheck,
   IcCollapse,
@@ -67,6 +69,7 @@ export function KebabMenu(props: {
   live: boolean
   onClose(): void
   onType(): void
+  onMirror(): void
   onSettings(): void
   onToggleCompleted(): void
 }) {
@@ -105,6 +108,26 @@ export function KebabMenu(props: {
           <span className="menu-glyph">{n?.starred ? <IcStarFilled size={21} /> : <IcStar size={21} />}</span>
           {n?.starred ? 'Remove from Starred' : 'Add to Starred'}
         </div>
+        <div className={'menu-item' + (n ? '' : ' disabled')}>
+          <span className="menu-glyph">
+            <span className="color-dot" style={{ background: (n && nodeColor(n.style)) || 'transparent', borderColor: n && nodeColor(n.style) ? 'transparent' : undefined }} />
+          </span>
+          Color
+          <span className="swatch-row">
+            {Object.entries(NODE_COLORS).map(([name, hex]) => (
+              <span
+                key={name}
+                className="swatch"
+                style={{ background: hex }}
+                onClick={n ? act(() => void store.setColor(n.uuid, name)) : undefined}
+              />
+            ))}
+            <span className="swatch swatch-none" onClick={n ? act(() => void store.setColor(n.uuid, '')) : undefined} />
+          </span>
+        </div>
+        <div className={'menu-item' + (n ? '' : ' disabled')} onClick={n ? props.onMirror : undefined}>
+          <span className="menu-glyph"><span className="glyph-diamond" /></span> Mirror into…
+        </div>
         <div className="menu-item" onClick={act(exportText)}>
           <span className="menu-glyph"><IcExport size={21} /></span> Export
         </div>
@@ -131,6 +154,63 @@ export function KebabMenu(props: {
         </div>
       </div>
       <div className="menu-foot">{props.live ? 'Autosaved · live sync on' : 'Autosaved · reconnecting …'}</div>
+    </div>
+  )
+}
+
+// MirrorPicker: choose where a live mirror of `target` lands. The mirror
+// node carries mirror_of=<target>; it renders the original's content and
+// children wherever it sits, updating live like any other row.
+export function MirrorPicker(props: { target: string; onClose(): void; onZoom(uuid: string): void }) {
+  const [q, setQ] = useState('')
+  const [hits, setHits] = useState<NodeData[]>([])
+  const target = store.get(props.target)
+
+  useEffect(() => {
+    if (q.trim() === '') {
+      setHits(store.recent(12).filter((n) => n.uuid !== props.target && n.mirror_of === ''))
+      return
+    }
+    const t = window.setTimeout(async () => {
+      try {
+        const { nodes } = await api.search(q)
+        setHits(nodes.filter((n) => n.uuid !== props.target && n.mirror_of === '').slice(0, 12))
+      } catch {
+        setHits([])
+      }
+    }, 200)
+    return () => window.clearTimeout(t)
+  }, [q, props.target])
+
+  if (!target) return null
+  return (
+    <div>
+      <div className="sheet-head">Mirror “{target.name || 'untitled'}” into …</div>
+      <input
+        className="jump"
+        autoFocus
+        placeholder="Search for a destination …"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      <div className="menu-list">
+        {hits.map((n) => (
+          <div
+            key={n.uuid}
+            className="menu-item"
+            onClick={() =>
+              void store.create(n.uuid, { mirrorOf: props.target }).then(() => {
+                props.onClose()
+                props.onZoom(n.uuid)
+              })
+            }
+          >
+            <span className="menu-glyph">•</span>
+            <span className="side-name">{renderName(n.name || 'untitled')}</span>
+          </div>
+        ))}
+        {hits.length === 0 && <div className="side-empty">no matches</div>}
+      </div>
     </div>
   )
 }

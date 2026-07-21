@@ -87,6 +87,7 @@ export const api = {
     name?: string
     note?: string
     type?: string
+    mirror_of?: string
     after?: string
     position?: 'top' | 'bottom' | ''
   }) => call<NodeData>('POST', '/api/nodes', req),

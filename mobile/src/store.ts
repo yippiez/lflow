@@ -148,11 +148,15 @@ class OutlineStore {
     this.dirty.delete(uuid)
   }
 
-  async create(parent: string, opts: { after?: string; position?: 'top' | 'bottom' | ''; name?: string; type?: string } = {}) {
+  async create(
+    parent: string,
+    opts: { after?: string; position?: 'top' | 'bottom' | ''; name?: string; type?: string; mirrorOf?: string } = {},
+  ) {
     const n = await api.create({
       parent_uuid: parent,
       name: opts.name ?? '',
       type: opts.type ?? 'bullets',
+      mirror_of: opts.mirrorOf,
       after: opts.after,
       position: opts.position ?? '',
     })
@@ -251,6 +255,19 @@ class OutlineStore {
   async setType(uuid: string, type: string) {
     this.patchLocal(uuid, { type })
     await api.patch(uuid, { type })
+  }
+
+  // setColor rewrites the color:<name> token in the node's style string
+  // (other style tokens survive); '' clears it. Color is a per-node attribute,
+  // never markup in the text — the no-markup invariant.
+  async setColor(uuid: string, color: string) {
+    const n = this.nodes.get(uuid)
+    if (!n) return
+    const tokens = n.style.split(',').filter((t) => t !== '' && !t.startsWith('color:'))
+    if (color) tokens.push('color:' + color)
+    const style = tokens.join(',')
+    this.patchLocal(uuid, { style })
+    await api.patch(uuid, { style })
   }
 
   async setCollapsed(uuid: string, collapsed: boolean) {
