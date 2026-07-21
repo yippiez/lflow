@@ -12,7 +12,7 @@ func AgentProviderDefault(p AgentProvider) (Model, string) {
 	case AgentProviderGrok:
 		return Model{CLI: AgentProviderGrok, Name: "grok-4.5"}, ""
 	default: // pi
-		m := Model{CLI: AgentProviderPi, Upstream: "opencode-go", Name: "deepseek-v4-flash"}
+		m := Model{CLI: AgentProviderPi, Upstream: "openai-codex", Name: "gpt-5.6-terra"}
 		thinking := ""
 		if v := os.Getenv("LFLOW_PI_MODEL"); v != "" {
 			m = AgentModelParse(v)
