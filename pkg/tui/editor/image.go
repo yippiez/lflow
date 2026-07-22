@@ -138,12 +138,15 @@ func (m *Model) imageRender(it *item) string {
 		}
 		return cDim + "▦ empty · ⌥r paste" + cReset
 	}
+	// both hints on the row: ⌥e is the inline (unicode) look, ⌥o leaves the
+	// terminal for the host viewer — the only way to see real pixels, so it has
+	// to advertise itself where the picture is rather than only in flash.
 	meta := fmt.Sprintf("%d×%d · %s", info.w, info.h, humanSize(info.size))
 	if m.setting("image.preview") == "true" {
-		return cDim + "▦ " + cReset + cDim + meta + " · ⌥e larger" + cReset + tail
+		return cDim + "▦ " + cReset + cDim + meta + " · ⌥e larger · ⌥o open" + cReset + tail
 	}
 	strip := strings.Join(halfBlockRender(info.img, imageStripCols, 1), "")
-	return cDim + "▦ " + cReset + strip + cReset + "  " + cDim + meta + " · ⌥e view" + cReset + tail
+	return cDim + "▦ " + cReset + strip + cReset + "  " + cDim + meta + " · ⌥e view · ⌥o open" + cReset + tail
 }
 
 // imageBandLines renders the aspect-correct half-block thumbnail as bands beneath
@@ -416,13 +419,14 @@ func imageViewLines(m *Model, it *item, width int) int {
 
 func (imageView) Lines(m *Model, it *item, width int) int { return imageViewLines(m, it, width) }
 
-// Key: enter opens the full-resolution picture in the host's image viewer (the
-// same thing alt+o does from the outline); up/down (and pgup/pgdn) scroll the
-// view so a tall image whose bottom is off-screen can be read — the render loop
-// clamps the offset to the content height. esc (defocus) is handled centrally.
+// Key: enter — and alt+o, so the outline's open key keeps working once the view
+// has focus rather than being swallowed by it — open the full-resolution picture
+// in the host's image viewer; up/down (and pgup/pgdn) scroll the view so a tall
+// image whose bottom is off-screen can be read — the render loop clamps the
+// offset to the content height. esc (defocus) is handled centrally.
 func (imageView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
-	case "enter":
+	case "enter", "alt+o":
 		return imageOpenHost(m, it), true
 	case "up", "k":
 		if m.focusScroll > 0 {
