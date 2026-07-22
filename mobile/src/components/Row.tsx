@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { NodeData } from '../api'
 import { getExtension } from '../extensions/registry'
 import { store } from '../store'
@@ -24,20 +24,18 @@ export interface EditController {
   deleteEmpty(uuid: string): void
 }
 
-function autosize(el: HTMLTextAreaElement | null) {
-  if (!el) return
-  el.style.height = '0'
-  el.style.height = el.scrollHeight + 'px'
-}
-
-// TextEdit is the inline editor for a node's name (or note): a debounced
-// auto-flushing textarea — there is no unsaved state, matching the TUI's
-// livesync (~1s flush after typing pauses).
+// TextEdit is the inline editor — WYSIWYG. A transparent-text textarea sits
+// exactly on top of a backdrop div rendering the text the same way the
+// display row does (tag pills included), so nothing shifts when editing
+// starts or while typing; only the caret gives the edit away. Saves
+// auto-flush on a debounce, matching the TUI's livesync (no unsaved state).
 function TextEdit(props: {
   value: string
   className: string
+  style?: CSSProperties
   placeholder?: string
   multilineEnter?: boolean // true for notes/code: Enter inserts a newline
+  renderBackdrop?: (text: string) => ReactNode
   onSave(text: string): void
   onEnter?(): void
   onDeleteEmpty?(): void
@@ -48,10 +46,6 @@ function TextEdit(props: {
   const timer = useRef<number>()
   const latest = useRef(text)
   latest.current = text
-
-  useLayoutEffect(() => {
-    autosize(ref.current)
-  }, [text])
 
   useEffect(() => {
     const el = ref.current
@@ -73,32 +67,42 @@ function TextEdit(props: {
   }
 
   return (
-    <textarea
-      ref={ref}
-      className={props.className}
-      value={text}
-      rows={1}
-      placeholder={props.placeholder}
-      onChange={(e) => queueSave(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' && !props.multilineEnter) {
-          e.preventDefault()
+    <div className="edit-wrap">
+      <div className={props.className + ' edit-backdrop'} style={props.style} aria-hidden>
+        {text === '' ? (
+          <span className="placeholder">{props.placeholder ?? ' '}</span>
+        ) : props.renderBackdrop ? (
+          props.renderBackdrop(text)
+        ) : (
+          text
+        )}
+        {text.endsWith('\n') && ' '}
+      </div>
+      <textarea
+        ref={ref}
+        className={props.className + ' edit-overlay'}
+        value={text}
+        onChange={(e) => queueSave(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !props.multilineEnter) {
+            e.preventDefault()
+            window.clearTimeout(timer.current)
+            props.onSave(latest.current)
+            props.onEnter?.()
+          } else if (e.key === 'Backspace' && latest.current === '' && props.onDeleteEmpty) {
+            e.preventDefault()
+            props.onDeleteEmpty()
+          } else if (e.key === 'Escape') {
+            ;(e.target as HTMLTextAreaElement).blur()
+          }
+        }}
+        onBlur={() => {
           window.clearTimeout(timer.current)
-          props.onSave(latest.current)
-          props.onEnter?.()
-        } else if (e.key === 'Backspace' && latest.current === '' && props.onDeleteEmpty) {
-          e.preventDefault()
-          props.onDeleteEmpty()
-        } else if (e.key === 'Escape') {
-          ;(e.target as HTMLTextAreaElement).blur()
-        }
-      }}
-      onBlur={() => {
-        window.clearTimeout(timer.current)
-        if (latest.current !== props.value) props.onSave(latest.current)
-        props.onBlur?.()
-      }}
-    />
+          if (latest.current !== props.value) props.onSave(latest.current)
+          props.onBlur?.()
+        }}
+      />
+    </div>
   )
 }
 
@@ -199,8 +203,10 @@ export function Row({
           ) : editing ? (
             <TextEdit
               value={node.name}
-              className={nameClass + ' edit'}
+              className={nameClass}
+              style={color ? { color } : undefined}
               multilineEnter={node.type === 'code' || node.type === 'json'}
+              renderBackdrop={(t) => renderName(t)}
               onSave={(t) => void store.setName(node.uuid, t)}
               onEnter={() => cb.edit.enterAfter(node.uuid)}
               onDeleteEmpty={() => cb.edit.deleteEmpty(node.uuid)}
@@ -212,14 +218,14 @@ export function Row({
               ) : (
                 renderName(shown.name, cb.onTag)
               )}
-              {shown.starred && <span className="star-mark"> ◆</span>}
+              {shown.starred && <span className="star-mark"> ★</span>}
               {looped && <span className="mirror-loop"> ↩ mirror of an ancestor</span>}
             </div>
           )}
           {noteEditing ? (
             <TextEdit
               value={node.note}
-              className="row-note edit"
+              className="row-note"
               placeholder="Add a note…"
               multilineEnter
               onSave={(t) => void store.setNote(node.uuid, t)}

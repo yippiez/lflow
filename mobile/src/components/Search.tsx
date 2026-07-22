@@ -72,7 +72,7 @@ export function Search(props: {
                 props.onClose()
               }}
             >
-              <span className="side-glyph">{n.starred ? '◆' : '•'}</span>
+              <span className="side-glyph">{n.starred ? '★' : '•'}</span>
               <span className="side-name">
                 {renderName(n.name || 'untitled')}
                 {path && <span className="side-path"> — {path}</span>}

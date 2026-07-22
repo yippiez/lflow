@@ -117,7 +117,7 @@ export function Sidebar(props: {
               ) : (
                 hits.map((n) => (
                   <div key={n.uuid} className="side-item" onClick={() => jump(n.uuid)}>
-                    <span className="side-chev">{n.starred ? '◆' : '•'}</span>
+                    <span className="side-chev">{n.starred ? '★' : '•'}</span>
                     <span className="side-name">{renderName(n.name || 'untitled')}</span>
                   </div>
                 ))

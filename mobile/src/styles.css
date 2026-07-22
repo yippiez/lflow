@@ -220,11 +220,11 @@ button {
   font-size: 13px;
 }
 
-/* a mirror instance wears a diamond where originals wear a dot */
+/* a mirror instance wears a yellow diamond where originals wear a dot */
 .dot-mirror {
   width: 8px;
   height: 8px;
-  background: var(--dim);
+  background: var(--yellow);
   transform: rotate(45deg);
 }
 
@@ -299,9 +299,11 @@ button {
   color: var(--dim);
 }
 
+/* /star mark: dim ★ like the TUI — never a yellow diamond (diamonds mean
+   mirrors, and they live on the bullet, not the text) */
 .star-mark {
-  color: var(--yellow);
-  font-size: 12px;
+  color: var(--dimmer);
+  font-size: 13px;
 }
 
 /* todo control: a SQUARE checkbox beside the bullet — the square toggles
@@ -335,30 +337,59 @@ button {
   margin-top: 2px;
 }
 
-textarea.row-name.edit,
-textarea.row-note.edit {
+/* WYSIWYG editing: the backdrop div carries the real rendering; the textarea
+   overlays it with transparent text so only the caret shows. Both wear the
+   same base class — identical fonts, wrapping, and height, zero shift. */
+.edit-wrap {
+  position: relative;
+}
+
+.edit-backdrop {
+  pointer-events: none;
+}
+
+textarea.edit-overlay {
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
   background: none;
   border: none;
   outline: none;
   resize: none;
-  color: inherit;
+  color: transparent;
+  caret-color: var(--accent);
   font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
   padding: 0;
   margin: 0;
+  border-left: none;
   overflow: hidden;
-  caret-color: var(--accent);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  min-height: 0;
 }
 
-textarea.row-note.edit {
-  color: var(--dim);
+textarea.edit-overlay::selection {
+  background: rgba(74, 158, 255, 0.35);
 }
 
+/* quote rows pad the text via border-left; the overlay must inherit the same
+   inset without painting its own rule twice */
+.row-name.quote.edit-overlay {
+  border-left: 3px solid transparent;
+}
+
+/* tags are metric-neutral pills: background only, no extra width — the pill
+   in the edit backdrop aligns 1:1 with the invisible text in the textarea */
 .tag {
   cursor: pointer;
-  border-radius: 5px;
-  padding: 1px 6px;
-  margin: 0 1px;
+  border-radius: 4px;
+  padding: 2px 0;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .add-row {
