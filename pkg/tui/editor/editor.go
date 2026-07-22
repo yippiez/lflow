@@ -856,6 +856,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case imageOpenedMsg:
+		if msg.err != nil {
+			m.flash = "image: " + msg.err.Error()
+		} else {
+			m.flash = "opened in " + msg.via
+		}
+		return m, nil
 	}
 	return m, nil
 }

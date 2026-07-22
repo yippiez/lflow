@@ -33,6 +33,11 @@ type nodeType struct {
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
+	// openHost is the alt+o action: hand the node's content to the HOST — the
+	// desktop's own viewer/app, outside the terminal entirely (image → the
+	// system image previewer). The terminal keeps drawing inline unicode; this
+	// is the escape hatch for pixels a text cell cannot carry. nil → none.
+	openHost func(m *Model, it *item) tea.Cmd
 	// flashActions lets a type declare its own flash (alt+s) actions — each a verb,
 	// a chip color, and a handler — so flash surfaces named, colored actions with no
 	// switch in flash.go. nil → the actions are inferred from run/view/expand (a
@@ -217,12 +222,14 @@ var nodeTypes = []nodeType{
 	},
 	{
 		// an image: alt+r pastes from the host clipboard, alt+e opens the half-block
-		// preview. The pixels live as a local PNG (~/.local/share/lflow/images/
-		// <uuid>.png), never in the DB/sync; the name holds an optional caption.
+		// preview, alt+o hands the PNG to the desktop's own image viewer. The
+		// pixels are a PNG blob in node_blobs keyed by node uuid — so the outline
+		// stays one portable SQLite file; the name holds an optional caption.
 		key: database.TypeImage, label: "Image", inlineEditable: false,
 		renderM:      func(m *Model, it *item) string { return m.imageRender(it) },
 		run:          runImagePaste,
-		view:         imageView{}, // alt+e: scrollable half-block render
+		view:         imageView{},   // alt+e: scrollable half-block render
+		openHost:     imageOpenHost, // alt+o: the host's image viewer
 		flashActions: imageFlashActions,
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context

@@ -17,14 +17,18 @@ import (
 )
 
 // An image node: alt+r pastes the host clipboard image, alt+e opens a scrollable
-// half-block preview. The pixels are a PNG BLOB in the node_blobs table keyed by
+// half-block preview, alt+o hands the picture to the desktop's own image viewer
+// (see imageopen.go). The pixels are a PNG BLOB in the node_blobs table keyed by
 // node uuid — so the whole outline stays a single portable SQLite file (copy the
-// .db and the images travel with it). The display degrades gracefully: inline it
-// is a one-line color strip + dimensions, and the alt+e view is a larger
-// half-block render, both built from SGR-colored cells so they are safe for the
-// inline (no-alt-screen) renderer and survive over SSH and in the scrollback
-// dump. A true, protocol-native image (kitty/sixel/iTerm2) is a later tier that
-// blits out-of-band.
+// .db and the images travel with it).
+//
+// There are exactly two tiers, and the terminal only ever draws the first:
+// INLINE is always unicode — a one-line color strip + dimensions, and the alt+e
+// view's larger half-block render, both built from SGR-colored cells so they are
+// safe for the inline (no-alt-screen) renderer and survive over SSH and in the
+// scrollback dump. For real pixels, alt+o leaves the terminal entirely. A
+// kitty/sixel/iTerm2 blit was tried and removed in 2026-07: it suspended the
+// editor, worked on a minority of terminals, and could not be screenshotted.
 
 // halfBlock is the upper-half-block glyph: its foreground paints the top pixel of
 // a cell and its background the bottom, so one text row shows two pixel rows.
@@ -168,7 +172,8 @@ func (m *Model) imageBandLines(r row, subtreeBelow bool, maxLine int) []string {
 }
 
 // imageFlashActions names an image node's flash actions: alt+r pastes (re-pastes
-// if an image is already present), alt+e views the half-block preview.
+// if an image is already present), alt+e views the half-block preview, alt+o
+// opens it in the host's image viewer.
 func imageFlashActions(m *Model, it *item) []flashAction {
 	paste := "paste"
 	if _, ok := m.imageLoad(it.uuid); ok {
@@ -178,7 +183,7 @@ func imageFlashActions(m *Model, it *item) []flashAction {
 	if _, ok := m.imageLoad(it.uuid); ok {
 		acts = append(acts,
 			flashAction{verb: "view", color: cCyan, do: imageExpandDo},
-			flashAction{verb: "show", color: cMagenta, do: imageShowDo}, // full-res via graphics protocol
+			flashAction{verb: "open", color: cMagenta, do: imageOpenHost}, // the host's viewer
 		)
 	}
 	return acts
@@ -411,14 +416,14 @@ func imageViewLines(m *Model, it *item, width int) int {
 
 func (imageView) Lines(m *Model, it *item, width int) int { return imageViewLines(m, it, width) }
 
-// Key: enter blits the full-resolution image via the terminal graphics protocol
-// (out-of-band suspend); up/down (and pgup/pgdn) scroll the view so a tall image
-// whose bottom is off-screen can be read — the render loop clamps the offset to
-// the content height. esc (defocus) is handled centrally.
+// Key: enter opens the full-resolution picture in the host's image viewer (the
+// same thing alt+o does from the outline); up/down (and pgup/pgdn) scroll the
+// view so a tall image whose bottom is off-screen can be read — the render loop
+// clamps the offset to the content height. esc (defocus) is handled centrally.
 func (imageView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "enter":
-		return m.showImageProtocol(it), true
+		return imageOpenHost(m, it), true
 	case "up", "k":
 		if m.focusScroll > 0 {
 			m.focusScroll--
@@ -456,11 +461,8 @@ func (imageView) Bands(m *Model, it *item, rail string, width, scroll, winH int,
 	}
 	rows := halfBlockFit(info.img, cols)
 	var content []string
-	action := "esc close"
-	if detectGraphicsProto() != protoNone {
-		action = "enter: full-res · esc close"
-	}
-	header := fmt.Sprintf("  image · %d×%d · %s · %s", info.w, info.h, humanSize(info.size), action)
+	header := fmt.Sprintf("  image · %d×%d · %s · enter: open · esc close",
+		info.w, info.h, humanSize(info.size))
 	content = append(content, clip(rail+cReset+cDim+header+cReset, width))
 	for _, line := range halfBlockRender(info.img, cols, rows) {
 		content = append(content, clip(rail+cReset+"  "+line, width))

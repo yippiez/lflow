@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -78,123 +79,69 @@ func TestHalfBlockFit(t *testing.T) {
 	}
 }
 
-// clearGraphicsEnv blanks every var detectGraphicsProto reads, so a test starts
-// from a known "no protocol" baseline regardless of the host terminal.
-func clearGraphicsEnv(t *testing.T) {
-	for _, k := range []string{"TERM", "TERM_PROGRAM", "KITTY_WINDOW_ID",
-		"GHOSTTY_RESOURCES_DIR", "WEZTERM_PANE", "KONSOLE_VERSION", "LC_TERMINAL"} {
-		t.Setenv(k, "")
+// TestIsWSLFromEnv: the interop env vars WSL sets are enough on their own, so a
+// scrubbed /proc/version cannot hide a WSL host from alt+o.
+func TestIsWSLFromEnv(t *testing.T) {
+	t.Setenv("WSL_DISTRO_NAME", "")
+	t.Setenv("WSL_INTEROP", "")
+	baseline := isWSL() // whatever /proc/version says on this machine
+
+	t.Setenv("WSL_DISTRO_NAME", "Ubuntu")
+	if !isWSL() {
+		t.Error("WSL_DISTRO_NAME set: isWSL() = false, want true")
+	}
+	t.Setenv("WSL_DISTRO_NAME", "")
+	t.Setenv("WSL_INTEROP", "/run/WSL/8_interop")
+	if !isWSL() {
+		t.Error("WSL_INTEROP set: isWSL() = false, want true")
+	}
+	t.Setenv("WSL_INTEROP", "")
+	if isWSL() != baseline {
+		t.Error("clearing the env changed the /proc/version verdict")
 	}
 }
 
-func TestDetectGraphicsProto(t *testing.T) {
-	cases := []struct {
-		name, key, val string
-		want           graphicsProto
-	}{
-		{"kitty", "KITTY_WINDOW_ID", "1", protoKitty},
-		{"kitty-term", "TERM", "xterm-kitty", protoKitty},
-		{"ghostty", "TERM", "xterm-ghostty", protoKitty},
-		{"wezterm", "TERM_PROGRAM", "WezTerm", protoKitty},
-		{"konsole", "KONSOLE_VERSION", "220400", protoKitty},
-		{"iterm", "TERM_PROGRAM", "iTerm.app", protoITerm},
-		{"lc-iterm", "LC_TERMINAL", "iTerm2", protoITerm},
-		{"foot", "TERM", "foot", protoSixel},
-		{"mlterm", "TERM", "mlterm", protoSixel},
-		{"none", "TERM", "xterm-256color", protoNone},
+// TestHostOpenerPicksAnOpener: on a machine with a desktop opener on PATH the
+// command is built with the file path as its last argument (never shell-quoted,
+// never a string), so a path with spaces survives.
+func TestHostOpenerPicksAnOpener(t *testing.T) {
+	cmd, via, ok := hostOpener("/tmp/a b/pic.png")
+	if !ok {
+		t.Skip("no host opener on PATH — nothing to assert")
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			clearGraphicsEnv(t)
-			t.Setenv(c.key, c.val)
-			if got := detectGraphicsProto(); got != c.want {
-				t.Errorf("detectGraphicsProto() = %d, want %d", got, c.want)
-			}
-		})
+	if via == "" {
+		t.Error("opener name empty")
+	}
+	args := cmd.Args
+	if len(args) < 2 {
+		t.Fatalf("opener args = %v, want the path", args)
+	}
+	last := args[len(args)-1]
+	if !strings.Contains(last, "pic.png") {
+		t.Errorf("opener last arg = %q, want the image path", last)
 	}
 }
 
-// TestGraphicsProtoOverride: LFLOW_IMAGE_PROTO forces the protocol regardless of
-// the terminal (kitty here, which would otherwise be xterm→none).
-func TestGraphicsProtoOverride(t *testing.T) {
-	for val, want := range map[string]graphicsProto{
-		"kitty": protoKitty, "iterm": protoITerm, "sixel": protoSixel, "none": protoNone,
-	} {
-		clearGraphicsEnv(t)
-		t.Setenv("TERM", "xterm-256color")
-		t.Setenv("LFLOW_IMAGE_PROTO", val)
-		if got := detectGraphicsProto(); got != want {
-			t.Errorf("override %q = %d, want %d", val, got, want)
-		}
-	}
-}
-
-func TestBuildGraphicsSequence(t *testing.T) {
-	png := []byte{0x89, 'P', 'N', 'G', 1, 2, 3, 4}
-
-	// kitty: APC _G … ST, transmits the PNG by a temp file path we must clean up.
-	seq, paths, err := buildGraphicsSequence(protoKitty, png, 80)
+// TestImageCachePathIsStable: one file per node, under a real directory, so
+// repeated alt+o overwrites instead of littering.
+func TestImageCachePathIsStable(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	a, err := imageCachePath("abc-123")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(seq)
-	if !strings.HasPrefix(s, "\x1b_Ga=T,f=100,t=f,c=80;") || !strings.HasSuffix(s, "\x1b\\") {
-		t.Errorf("kitty sequence malformed: %q", s)
+	b, err := imageCachePath("abc-123")
+	if err != nil || a != b {
+		t.Errorf("cache path not stable: %q vs %q (%v)", a, b, err)
 	}
-	if len(paths) != 1 {
-		t.Fatalf("kitty temp paths = %v, want 1", paths)
+	if filepath.Ext(a) != ".png" || !strings.Contains(a, "abc-123") {
+		t.Errorf("cache path = %q, want <cache>/lflow/images/abc-123.png", a)
 	}
-	if got, err := os.ReadFile(paths[0]); err != nil || string(got) != string(png) {
-		t.Errorf("kitty temp file mismatch: %v %v", got, err)
+	if st, err := os.Stat(filepath.Dir(a)); err != nil || !st.IsDir() {
+		t.Errorf("cache dir not created: %v", err)
 	}
-	os.Remove(paths[0])
-
-	// iTerm2: OSC 1337 inline, base64 payload, BEL-terminated, no temp files.
-	seq, paths, err = buildGraphicsSequence(protoITerm, png, 80)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s = string(seq)
-	if !strings.HasPrefix(s, "\x1b]1337;File=inline=1;preserveAspectRatio=1;width=80;size=8:") || !strings.HasSuffix(s, "\a") {
-		t.Errorf("iterm sequence malformed: %q", s)
-	}
-	if len(paths) != 0 {
-		t.Errorf("iterm temp paths = %v, want none", paths)
-	}
-
-	// sixel: needs a real (decodable) PNG, so encode a small gradient first.
-	pngBytes := encodeTestPNG(t, solidImage(12, 12, color.RGBA{R: 200, G: 40, B: 90, A: 255}))
-	seq, paths, err = buildGraphicsSequence(protoSixel, pngBytes, 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s = string(seq)
-	if !strings.HasPrefix(s, "\x1bPq") || !strings.HasSuffix(s, "\x1b\\") {
-		t.Errorf("sixel sequence malformed (prefix/suffix): %q…", s[:min(40, len(s))])
-	}
-	if !strings.Contains(s, `"1;1;`) {
-		t.Error("sixel sequence missing raster attributes")
-	}
-	if len(paths) != 0 {
-		t.Errorf("sixel temp paths = %v, want none", paths)
-	}
-}
-
-// TestSixelEncodeStructure checks the encoder frames the stream correctly and is
-// deterministic (sorted colors per band).
-func TestSixelEncodeStructure(t *testing.T) {
-	img := solidImage(18, 13, color.RGBA{R: 10, G: 220, B: 120, A: 255})
-	a := sixelEncode(img, 0) // 0 = no downscale
-	b := sixelEncode(img, 0)
-	if string(a) != string(b) {
-		t.Error("sixel encode not deterministic")
-	}
-	s := string(a)
-	if !strings.HasPrefix(s, "\x1bPq") || !strings.HasSuffix(s, "\x1b\\") {
-		t.Errorf("sixel framing wrong: %q…", s[:min(30, len(s))])
-	}
-	if !strings.Contains(s, "#") || !strings.ContainsRune(s, '-') {
-		t.Error("sixel missing color select or band newline")
+	if other, _ := imageCachePath("zzz-999"); other == a {
+		t.Error("two nodes share one cache file")
 	}
 }
 
