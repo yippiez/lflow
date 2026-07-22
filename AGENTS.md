@@ -162,6 +162,16 @@ regardless of display order — the pi prompt tells the agent so.
   offline **mock only serves an agent that sets `"mock": true`** in agents.json
   (a test agent). Wire protocol: JSON over websocket, see `pkg/tui/tag/ws.go`.
 
+## Demo videos
+
+A visible change ships with a short video. **`DEMO.md` in the repo root is the
+recipe** — tmux drives the editor against a throwaway DB, `scripts/ansishot.py`
+paints the captured frames, ffmpeg muxes them, and captions are burned along the
+top. There is no committed demo tooling on purpose: assemble it in a scratch
+directory, record, throw the scratch away. Follow DEMO.md exactly so every clip
+matches — its numbers (caption bar, colors, timings) are the house look, and its
+sandbox rule is what keeps a demo out of the real outline.
+
 ## Key invariants
 
 The structural invariants now live as `// WARNING (invariant):` comments next to the
