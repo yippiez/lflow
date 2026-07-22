@@ -165,6 +165,40 @@ func TestFlashTypeContributedActions(t *testing.T) {
 	}
 }
 
+// Every row offers a universal "zoom" action (alt+right), and firing it pushes
+// the row's node onto the view stack.
+func TestFlashZoomsIntoRow(t *testing.T) {
+	m := newTestModel(80, "alpha", "beta", "gamma")
+	m.cursor = 0
+	m.enterFlash()
+	zooms := 0
+	var label string
+	for _, tg := range m.flashTargets {
+		if tg.verb == "zoom" {
+			zooms++
+			if tg.row == 2 {
+				label = tg.label
+			}
+		}
+	}
+	if zooms != 3 {
+		t.Fatalf("zoom targets = %d, want 3 (one per row)", zooms)
+	}
+	if label == "" {
+		t.Fatal("no zoom target for row 2")
+	}
+	beta := m.rows[2].it
+	for _, r := range label {
+		m.handleFlashKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.mode != modeOutline {
+		t.Fatalf("mode = %d, want modeOutline after firing", m.mode)
+	}
+	if root := m.viewRoot(); root != beta {
+		t.Fatalf("view root = %q, want the zoomed row %q", root.name, beta.name)
+	}
+}
+
 // Esc cancels flash mode without moving the cursor.
 func TestFlashEscCancels(t *testing.T) {
 	m := newTestModel(80, "alpha", "beta")

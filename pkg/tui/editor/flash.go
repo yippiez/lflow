@@ -123,6 +123,26 @@ func flashExpandDo(m *Model, it *item) tea.Cmd {
 	return nil
 }
 
+// flashZoom zooms the view into a node — the alt+right action, mirror-aware.
+// fireFlash has already moved the cursor onto the row, so it is the current
+// node. A mirror carries no children in memory; zoom into its source so the
+// original's children render (see the alt+right handler in keys.go).
+func flashZoom(m *Model, it *item) tea.Cmd {
+	cur := it
+	if cur.mirrorOf != "" {
+		src, ok := m.tree.byUUID[m.tree.sourceUUID(cur)]
+		if !ok {
+			return nil
+		}
+		cur = src
+	}
+	m.viewStack = append(m.viewStack, cur)
+	m.cursor = 0
+	m.caret = 0
+	m.refreshRows()
+	return nil
+}
+
 // flashFold toggles a node's collapsed state, keeping the cursor on it.
 // fireFlash has already moved the cursor onto the row, so the same one-cycle-
 // level-at-a-time steps as alt+up/down apply. It is the universal fold handler.
@@ -198,6 +218,9 @@ func (m *Model) enterFlash() {
 		for _, a := range m.flashActionsFor(it) {
 			ts = append(ts, flashTarget{row: i, verb: a.verb, color: a.color, do: a.do})
 		}
+		// zoom into the row is universal (alt+right), offered on every row
+		// including the one under the cursor.
+		ts = append(ts, flashTarget{row: i, verb: "zoom", color: cYellow, do: flashZoom})
 		if len(m.tree.childItems(it)) > 0 {
 			verb := "fold"
 			if it.collapsed || r.cycled {
