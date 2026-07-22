@@ -165,11 +165,11 @@ export default function App() {
           <IcHome size={22} />
         </span>
         {crumbs
-          .filter((c) => c.uuid !== ROOT || zoomID !== ROOT)
+          .filter((c) => c.uuid !== ROOT)
           .map((c) => (
             <span key={c.uuid} className="crumb" onClick={() => cb.onZoom(c.uuid)}>
               <span className="crumb-sep">›</span>
-              {c.uuid === ROOT ? 'Home' : c.name || 'untitled'}
+              {c.name || 'untitled'}
             </span>
           ))}
         {zoomID !== ROOT && (
@@ -219,7 +219,7 @@ export default function App() {
               <Row key={c.uuid} node={c} depth={0} cb={cb} />
             ))}
           <div className="add-row" onClick={addNode}>
-            <IcPlus size={24} />
+            <IcPlus size={22} />
           </div>
         </div>
       </div>
@@ -290,20 +290,20 @@ export default function App() {
       ) : (
         <div className="bottombar">
           <button className="bb" onClick={() => setSidebar(true)}>
-            <IcMenu size={27} />
+            <IcMenu size={33} />
           </button>
           <button className="bb" disabled={zoomID === ROOT} onClick={back}>
-            <IcChevronLeft size={27} />
+            <IcChevronLeft size={31} />
           </button>
           <button className="bb add" onClick={addNode}>
-            <IcPlus size={29} />
+            <IcPlus size={33} />
           </button>
           {/* Run: reserved for a coming feature — present but disabled */}
           <button className="bb" disabled>
-            <IcRun size={26} />
+            <IcRun size={30} />
           </button>
           <button className="bb" onClick={() => setSearch({ open: true, q: '' })}>
-            <IcSearch size={26} />
+            <IcSearch size={30} />
           </button>
         </div>
       )}

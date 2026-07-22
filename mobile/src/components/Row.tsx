@@ -166,12 +166,6 @@ export function Row({
     <div className={'row-tree' + (depth > 0 ? ' indented' : '')}>
       <div className={'row' + (editing ? ' editing' : '')} data-uuid={node.uuid}>
         <div
-          className={'chevron' + (hasKids ? '' : ' hidden')}
-          onClick={() => store.setCollapsed(node.uuid, !node.collapsed)}
-        >
-          {node.collapsed ? '▸' : '▾'}
-        </div>
-        <div
           className={'bullet' + (node.collapsed && hasKids ? ' halo' : '')}
           onClick={() => cb.onZoom(shown.uuid)}
         >
@@ -246,6 +240,14 @@ export function Row({
             )
           )}
         </div>
+        {hasKids && (
+          <div
+            className="chevron-right"
+            onClick={() => store.setCollapsed(node.uuid, !node.collapsed)}
+          >
+            {node.collapsed ? '▸' : '▾'}
+          </div>
+        )}
       </div>
       {hasKids && !node.collapsed && (
         <div className="children">
