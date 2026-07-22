@@ -588,6 +588,15 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			}
 		}
 	}
+	if desc.spanColor != nil {
+		// a type may tint individual runes (math operators) — reuses the per-rune
+		// kwColor channel so the caret/selection path colors the cell correctly.
+		for k, c := range desc.spanColor(it, runes) {
+			if k >= 0 && k < len(flags) && c != "" {
+				flags[k].kwColor = c
+			}
+		}
+	}
 
 	sgr := func(f spanFlags) string {
 		fg := base
@@ -744,6 +753,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			b.WriteString(cReset + bgCode + cFG + cInvert + " ")
 		} else {
 			b.WriteString(cReset + cFG + cInvert + " ")
+		}
+	}
+	if bt := desc.bodyTail; bt != nil {
+		if tail := bt(it); tail != "" {
+			b.WriteString(cReset + " " + tail) // math's dim subtree preview
 		}
 	}
 	if it.starred {

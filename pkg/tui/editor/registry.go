@@ -63,6 +63,16 @@ type nodeType struct {
 	prefix    func(it *item) string // styled prefix before the body, e.g. the log time chip
 	baseColor func(it *item) string // body foreground SGR; "" keeps the default
 	muteFrom  func(name string) int // rune index the muted tail starts at; -1 = none
+	// spanColor tints individual runes of an EDITABLE node's body without taking
+	// over the whole render (unlike `render`): it returns index→SGR-color for the
+	// runes to recolor, applied through the same per-rune path as magic keywords,
+	// so the caret and selection still work. The Math type paints its operator
+	// glyphs yellow this way. nil → no per-rune tint. (index is a rune index.)
+	spanColor func(it *item, runes []rune) map[int]string
+	// bodyTail appends already-styled text after the node's body on the same row
+	// (before the ★ mark) — the Math type's dim linear preview of its subtree.
+	// Called for the resting/selected row alike. nil → nothing. "" → nothing.
+	bodyTail func(it *item) string
 
 	// toContext gives the type its own XML element in the agent context (see
 	// buildThread → tag.renderThread), so a typed node reads coherently to an
@@ -216,6 +226,18 @@ var nodeTypes = []nodeType{
 		flashActions: imageFlashActions,
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
+	},
+	// a math expression composed as an outline (see math.go): the node's text is
+	// an operator (colored yellow) with operands as children, or an atom leaf.
+	// Stays inline-editable; the operator row carries a dim linear preview of its
+	// whole subtree, and children fan out as the AST beneath it.
+	{
+		key: database.TypeMath, label: "Math", inlineEditable: true,
+		spanColor:    mathSpanColor,
+		bodyTail:     mathBodyTail,
+		run:          runMathLatex, // alt+r: export this subtree's LaTeX to the run band
+		flashActions: mathFlashActions,
+		toContext:    mathToContext,
 	},
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see
