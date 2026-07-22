@@ -97,5 +97,37 @@ export const IcCollapse = (p: P) =>
 export const IcTrash = (p: P) =>
   base({ ...p, children: <><path d="M4.5 7h15" /><path d="M9.5 7V4.8h5V7" /><path d="M6.5 7l1 13h9l1-13" /><path d="M10.2 10.5v6M13.8 10.5v6" /></> })
 
+export const IcChevronDown = (p: P) => base({ ...p, children: <path d="m6 9.5 6 6 6-6" /> })
+
+export const IcMoveTo = (p: P) =>
+  base({ ...p, children: <><path d="M4 12h15" /><path d="m13.5 6 6 6-6 6" /></> })
+
+export const IcDuplicate = (p: P) =>
+  base({ ...p, children: <><rect x="8.5" y="8.5" width="11" height="11" rx="2" /><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1" /></> })
+
+export const IcDiamond = (p: P) =>
+  base({ ...p, children: <path d="M12 3.5 20.5 12 12 20.5 3.5 12 12 3.5Z" /> })
+
+export const IcHash = (p: P) =>
+  base({ ...p, children: <><path d="M9.5 4 8 20" /><path d="M16 4l-1.5 16" /><path d="M4.5 9h16" /><path d="M3.5 15h16" /></> })
+
+export const IcBullets = (p: P) =>
+  base({ ...p, children: <><circle cx="5.5" cy="6" r="1.1" fill="currentColor" stroke="none" /><circle cx="5.5" cy="12" r="1.1" fill="currentColor" stroke="none" /><circle cx="5.5" cy="18" r="1.1" fill="currentColor" stroke="none" /><path d="M10 6h10M10 12h10M10 18h10" /></> })
+
+export const IcTodoList = (p: P) =>
+  base({ ...p, children: <><rect x="3.5" y="4" width="5" height="5" rx="1" /><path d="m4.8 6.5 1.1 1.1 2-2.2" /><rect x="3.5" y="14" width="5" height="5" rx="1" /><path d="M12 6.5h8.5M12 16.5h8.5" /></> })
+
+export const IcQuoteBlock = (p: P) =>
+  base({ ...p, children: <><path d="M4.5 5v14" /><path d="M9 7h11M9 12h11M9 17h7" /></> })
+
+export const IcCodeBlock = (p: P) =>
+  base({ ...p, children: <><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="m9.5 9.5-2.5 2.5 2.5 2.5" /><path d="m14.5 9.5 2.5 2.5-2.5 2.5" /></> })
+
+export const IcLogList = (p: P) =>
+  base({ ...p, children: <><path d="M4 6h16M4 12h16M4 18h11" /></> })
+
+export const IcNote = (p: P) =>
+  base({ ...p, children: <><path d="M5 4.5h14v10l-5 5H5v-15Z" /><path d="M14 19.5v-5h5" /></> })
+
 export const IcGear = (p: P) =>
   base({ ...p, children: <><circle cx="12" cy="12" r="3" /><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7" /></> })

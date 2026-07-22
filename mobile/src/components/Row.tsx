@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import type { NodeData } from '../api'
 import { getExtension } from '../extensions/registry'
 import { store } from '../store'
-import { nodeColor, renderName } from '../tags'
+import { renderName, styleCSS } from '../tags'
 import { HostMount } from './HostMount'
 
 export interface RowCallbacks {
@@ -149,7 +149,7 @@ export function Row({
     cb.edit.start(node.uuid)
   }
 
-  const color = nodeColor(shown.style)
+  const styled = styleCSS(shown.style)
   const nameClass = [
     'row-name',
     ext?.textClass ?? '',
@@ -204,7 +204,7 @@ export function Row({
             <TextEdit
               value={node.name}
               className={nameClass}
-              style={color ? { color } : undefined}
+              style={styled}
               multilineEnter={node.type === 'code' || node.type === 'json'}
               renderBackdrop={(t) => renderName(t)}
               onSave={(t) => void store.setName(node.uuid, t)}
@@ -212,7 +212,7 @@ export function Row({
               onDeleteEmpty={() => cb.edit.deleteEmpty(node.uuid)}
             />
           ) : (
-            <div className={nameClass} style={color ? { color } : undefined} onClick={startEdit}>
+            <div className={nameClass} style={styled} onClick={startEdit}>
               {shown.name === '' ? (
                 <span className="placeholder"> </span>
               ) : (

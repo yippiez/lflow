@@ -87,6 +87,7 @@ export const api = {
     name?: string
     note?: string
     type?: string
+    style?: string
     mirror_of?: string
     after?: string
     position?: 'top' | 'bottom' | ''

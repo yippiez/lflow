@@ -154,6 +154,7 @@ type createReq struct {
 	Name       string `json:"name"`
 	Note       string `json:"note"`
 	Type       string `json:"type"`
+	Style      string `json:"style"`     // comma-separated style tokens
 	MirrorOf   string `json:"mirror_of"` // uuid of an original: create a live mirror of it
 	After      string `json:"after"`     // sibling uuid to land after
 	Position   string `json:"position"`  // "top" | "bottom" | "" (parent priority)
@@ -201,14 +202,15 @@ func (hs *httpServer) nodes(w http.ResponseWriter, r *http.Request) {
 		Name:       req.Name,
 		Note:       req.Note,
 		Type:       typ,
+		Style:      req.Style,
 		MirrorOf:   req.MirrorOf,
 		AddedOn:    now,
 		EditedOn:   now,
 		Priority:   database.PriorityDown,
 	}
 	_, _, err = hs.sv.store.Exec(sess,
-		"INSERT INTO nodes (uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, readonly, starred, priority) VALUES (?, ?, ?, ?, ?, ?, '', ?, 0, ?, ?, 0, 0, 0, 0, ?)",
-		[]any{n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.MirrorOf, n.AddedOn, n.EditedOn, n.Priority})
+		"INSERT INTO nodes (uuid, parent_uuid, rank, name, note, type, style, mirror_of, completed_at, added_on, edited_on, deleted, collapsed, readonly, starred, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, 0, 0, 0, ?)",
+		[]any{n.UUID, n.ParentUUID, n.Rank, n.Name, n.Note, n.Type, n.Style, n.MirrorOf, n.AddedOn, n.EditedOn, n.Priority})
 	if err != nil {
 		httpErr(w, 500, err.Error())
 		return

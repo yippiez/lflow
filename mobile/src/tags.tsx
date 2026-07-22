@@ -1,17 +1,24 @@
 import type { CSSProperties, ReactNode } from 'react'
 
-// One small palette serves both faces of color in the app: #tags get a
-// tinted BACKGROUND pill (stable hash off the tag text), and whole nodes can
-// be colored via the style column's color:<name> token. The literal #word
-// stays in the stored name (no markup invariant); color is render-time only.
+// One palette serves both faces of color in the app: #tags get a tinted
+// BACKGROUND pill (stable hash off the tag text), and whole nodes carry the
+// style column's tokens — the TUI's exact vocabulary (pkg/tui/style):
+// bold/italic/underline/strike attributes, color:<name>, and the eight color
+// names. Highlight rides a bg:<name> token (mobile-only; the TUI ignores
+// tokens it does not know). The literal #word stays in the stored name
+// (no markup invariant); all color is render-time only.
 export const NODE_COLORS: Record<string, string> = {
   red: '#e06c75',
+  orange: '#d19a66',
   yellow: '#e5c07b',
   green: '#98c379',
+  cyan: '#56b6c2',
   blue: '#61afef',
   purple: '#c678dd',
-  cyan: '#56b6c2',
+  gray: '#8b9398',
 }
+
+export const STYLE_ATTRS = ['bold', 'italic', 'underline', 'strike'] as const
 
 const palette = Object.values(NODE_COLORS)
 
@@ -32,6 +39,38 @@ export function nodeColor(style: string): string | undefined {
     if (token.startsWith('color:')) return NODE_COLORS[token.slice(6)]
   }
   return undefined
+}
+
+// nodeBg resolves the bg:<name> highlight token to a hex color.
+export function nodeBg(style: string): string | undefined {
+  for (const token of style.split(',')) {
+    if (token.startsWith('bg:')) return NODE_COLORS[token.slice(3)]
+  }
+  return undefined
+}
+
+export function hasAttr(style: string, attr: string): boolean {
+  return style.split(',').includes(attr)
+}
+
+// styleCSS turns a node's style tokens into inline CSS for its text.
+export function styleCSS(style: string): CSSProperties | undefined {
+  if (!style) return undefined
+  const css: CSSProperties = {}
+  const color = nodeColor(style)
+  if (color) css.color = color
+  const bg = nodeBg(style)
+  if (bg) {
+    css.backgroundColor = bg + '55'
+    css.borderRadius = 4
+  }
+  if (hasAttr(style, 'bold')) css.fontWeight = 700
+  if (hasAttr(style, 'italic')) css.fontStyle = 'italic'
+  const deco: string[] = []
+  if (hasAttr(style, 'underline')) deco.push('underline')
+  if (hasAttr(style, 'strike')) deco.push('line-through')
+  if (deco.length) css.textDecoration = deco.join(' ')
+  return Object.keys(css).length ? css : undefined
 }
 
 const reTag = /(^|[\s(])#([\p{L}\p{N}_-]+)/gu

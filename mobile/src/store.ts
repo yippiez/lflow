@@ -257,17 +257,58 @@ class OutlineStore {
     await api.patch(uuid, { type })
   }
 
-  // setColor rewrites the color:<name> token in the node's style string
-  // (other style tokens survive); '' clears it. Color is a per-node attribute,
-  // never markup in the text — the no-markup invariant.
-  async setColor(uuid: string, color: string) {
+  // setStyle helpers rewrite tokens in the node's style string (other tokens
+  // survive). Style is a per-node attribute, never markup in the text — the
+  // no-markup invariant. Token vocabulary matches the TUI's pkg/tui/style.
+  private async rewriteStyle(uuid: string, drop: (t: string) => boolean, add?: string) {
     const n = this.nodes.get(uuid)
     if (!n) return
-    const tokens = n.style.split(',').filter((t) => t !== '' && !t.startsWith('color:'))
-    if (color) tokens.push('color:' + color)
+    const tokens = n.style.split(',').filter((t) => t !== '' && !drop(t))
+    if (add) tokens.push(add)
     const style = tokens.join(',')
     this.patchLocal(uuid, { style })
     await api.patch(uuid, { style })
+  }
+
+  async setColor(uuid: string, color: string) {
+    await this.rewriteStyle(uuid, (t) => t.startsWith('color:'), color ? 'color:' + color : undefined)
+  }
+
+  async setHighlight(uuid: string, color: string) {
+    await this.rewriteStyle(uuid, (t) => t.startsWith('bg:'), color ? 'bg:' + color : undefined)
+  }
+
+  async toggleAttr(uuid: string, attr: string) {
+    const has = this.nodes.get(uuid)?.style.split(',').includes(attr)
+    await this.rewriteStyle(uuid, (t) => t === attr, has ? undefined : attr)
+  }
+
+  // duplicate copies the node (name, note, type, style, mirror target) and its
+  // whole subtree, landing right after the original.
+  async duplicate(uuid: string): Promise<NodeData | undefined> {
+    const n = this.nodes.get(uuid)
+    if (!n) return
+    const copySubtree = async (src: NodeData, parent: string, after?: string) => {
+      const made = await api.create({
+        parent_uuid: parent,
+        name: src.name,
+        note: src.note,
+        type: src.type,
+        style: src.style,
+        mirror_of: src.mirror_of || undefined,
+        after,
+        position: after ? '' : 'bottom',
+      })
+      this.nodes.set(made.uuid, made)
+      for (const c of this.children(src.uuid)) {
+        await copySubtree(c, made.uuid)
+      }
+      return made
+    }
+    const made = await copySubtree(n, n.parent_uuid, n.uuid)
+    this.reindex()
+    this.bump()
+    return made
   }
 
   async setCollapsed(uuid: string, collapsed: boolean) {

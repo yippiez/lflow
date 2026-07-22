@@ -7,6 +7,7 @@ import {
   IcCheck,
   IcChevronLeft,
   IcCode,
+  IcHash,
   IcHome,
   IcIndent,
   IcKebab,
@@ -22,11 +23,11 @@ import {
 } from './icons'
 import { Row, type EditController, type RowCallbacks } from './components/Row'
 import { Search } from './components/Search'
-import { Sheet, KebabMenu, MirrorPicker, Settings, TypePicker } from './components/Sheets'
+import { Sheet, ColorSheet, KebabMenu, MirrorPicker, MovePicker, Settings, TypePicker } from './components/Sheets'
 import { Sidebar } from './components/Sidebar'
-import { nodeColor } from './tags'
+import { styleCSS } from './tags'
 
-type SheetKind = null | { kind: 'type' | 'menu' | 'settings' | 'mirror' }
+type SheetKind = null | { kind: 'type' | 'menu' | 'settings' | 'mirror' | 'move' | 'color' }
 
 export default function App() {
   useOutline()
@@ -201,7 +202,7 @@ export default function App() {
         ) : (
           <div
             className="title"
-            style={zoomed && nodeColor(zoomed.style) ? { color: nodeColor(zoomed.style) } : undefined}
+            style={zoomed ? styleCSS(zoomed.style) : undefined}
             onClick={() => {
               if (zoomID !== ROOT && !zoomed?.readonly) setTitleEdit(true)
             }}
@@ -225,6 +226,9 @@ export default function App() {
 
       {editing ? (
         <div className="toolbar-wrap">
+          <div className="toolbar-label">
+            <span className="toolbar-label-text">{store.get(editing)?.name || 'untitled'}</span>
+          </div>
           <div className="toolbar">
             <button className="tb" onClick={() => void store.outdent(editing)}>
               <IcOutdent size={23} />
@@ -252,6 +256,21 @@ export default function App() {
             </button>
             <button className="tb" onClick={() => insertAtCaret('@')}>
               <IcAt size={23} />
+            </button>
+            <button className="tb" onClick={() => insertAtCaret('#')}>
+              <IcHash size={22} />
+            </button>
+            <button className="tb tb-letter bold" onClick={() => void store.toggleAttr(editing, 'bold')}>
+              B
+            </button>
+            <button className="tb tb-letter italic" onClick={() => void store.toggleAttr(editing, 'italic')}>
+              I
+            </button>
+            <button className="tb tb-letter underline" onClick={() => void store.toggleAttr(editing, 'underline')}>
+              U
+            </button>
+            <button className="tb tb-letter strike" onClick={() => void store.toggleAttr(editing, 'strike')}>
+              S
             </button>
             <button
               className="tb"
@@ -313,7 +332,14 @@ export default function App() {
             live={store.live}
             onClose={() => setSheet(null)}
             onType={() => setSheet({ kind: 'type' })}
+            onColor={() => setSheet({ kind: 'color' })}
+            onMove={() => setSheet({ kind: 'move' })}
             onMirror={() => setSheet({ kind: 'mirror' })}
+            onAddNote={(uuid) => {
+              setSheet(null)
+              store.markDirty(uuid)
+              edit.startNote(uuid)
+            }}
             onSettings={() => setSheet({ kind: 'settings' })}
             onToggleCompleted={toggleCompleted}
           />
@@ -324,6 +350,16 @@ export default function App() {
             onClose={() => setSheet(null)}
             onZoom={cb.onZoom}
           />
+        )}
+        {sheet?.kind === 'move' && menuTarget && (
+          <MovePicker
+            target={menuTarget}
+            onClose={() => setSheet(null)}
+            onZoom={cb.onZoom}
+          />
+        )}
+        {sheet?.kind === 'color' && menuTarget && (
+          <ColorSheet uuid={menuTarget} onClose={() => setSheet(null)} />
         )}
         {sheet?.kind === 'settings' && <Settings onClose={() => setSheet(null)} />}
       </Sheet>
