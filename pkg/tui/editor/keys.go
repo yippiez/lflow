@@ -575,6 +575,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "alt+o":
+		// open the cursor node in the HOST's own app — outside the terminal
+		// (image → the desktop image viewer). Types without the hook ignore it.
+		if cur := m.cursorItem(); cur != nil {
+			if open := typeOf(cur.typ).openHost; open != nil {
+				return m, open(m, cur)
+			}
+		}
+		return m, nil
 	case "alt+enter":
 		// same as /complete: toggle done on the cursor node
 		if cur := m.cursorItem(); cur != nil {
