@@ -658,6 +658,12 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 						col = pill
 					}
 				}
+				// a painted icon chip wears its catalog brand color (label=shortcode)
+				if c.Kind == chipKindIcon {
+					if s := iconColorSGR(iconColorForChip(c)); s != "" {
+						col = s
+					}
+				}
 				// a URL link chip emits an OSC 8 hyperlink so terminals that support
 				// it make the chip Ctrl+clickable. Node links can't — the terminal
 				// can't jump inside the app — so they get no OSC 8.

@@ -37,6 +37,9 @@ func ChipDisplay(c Chip) string {
 		return linkLabel(c)
 	case "cmd":
 		return "$" + c.Value
+	case "icon":
+		// value is the glyph; label holds the shortcode (editor-only color key)
+		return c.Value
 	default:
 		return c.Value
 	}

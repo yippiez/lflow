@@ -5,19 +5,42 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// Icons are plain unicode spliced into a node's name — not chips. The ":"
-// completer (non-query nodes) and /insert → icon open the same shortcode
-// picker; picking replaces the typed ":query" with the glyph.
+// Icons insert via the ":" shortcode completer (non-query nodes) and
+// /insert → icon. White arrows/marks and emojis land as plain unicode; painted
+// service glyphs (trello, claude, …) land as icon chips so render can keep the
+// brand color — a bare "Z" in text must not turn red.
 
-// iconEntry is one selectable icon: the glyph that lands in the name, its
-// shortcode (picker shows :shortcode), and a palette color name used only in
-// the picker row ("white" → fg, "none" → uncolored emoji, else styleColorCode).
+// iconEntry is one selectable icon: the glyph, its shortcode (picker shows
+// :shortcode), and a palette color name ("white" → fg, "none" → uncolored
+// emoji, else a /color swatch applied in the picker and on icon chips).
 type iconEntry struct {
 	glyph     string
 	shortcode string
 	color     string
+}
+
+// iconIsPainted reports whether the entry keeps a brand color after insert
+// (via an icon chip). White and none stay plain text.
+func iconIsPainted(e iconEntry) bool {
+	return e.color != "" && e.color != "white" && e.color != "none"
+}
+
+// iconColorForChip resolves the paint color for an icon chip: label holds the
+// shortcode (preferred); value is the glyph fallback for older/hand-edited rows.
+func iconColorForChip(c database.Chip) string {
+	if e, ok := iconByShortcode(c.Label); ok {
+		return e.color
+	}
+	for _, e := range iconCatalog {
+		if e.glyph == c.Value {
+			return e.color
+		}
+	}
+	return "white"
 }
 
 // iconCatalog is the fixed shortcode table. Order is the empty-query list order.

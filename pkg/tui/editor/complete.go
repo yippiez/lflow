@@ -198,9 +198,28 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 		if chosen.value == "" {
 			return false
 		}
-		// chosen.value is the glyph; the replaced range is ":" + typed query.
-		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
-		m.caret = m.compl.start + len([]rune(chosen.value))
+		// resolve the catalog entry: label is :shortcode, value is the glyph.
+		e, ok := iconByShortcode(strings.TrimPrefix(chosen.label, ":"))
+		if !ok {
+			for _, ent := range iconCatalog {
+				if ent.glyph == chosen.value {
+					e, ok = ent, true
+					break
+				}
+			}
+		}
+		insert := chosen.value
+		// painted service icons become icon chips so the brand color survives
+		// render (and a bare "Z" in prose stays uncolored). White/emoji stay
+		// plain unicode. Query nodes disable chips — fall back to the glyph.
+		if ok && iconIsPainted(e) && chipsEnabled(cur) {
+			if anchor := m.createLabeledChip(chipKindIcon, e.glyph, e.shortcode); anchor != "" {
+				insert = anchor
+			}
+		}
+		// the replaced range is ":" + typed query.
+		cur.name = string(runes[:m.compl.start]) + insert + string(runes[end:])
+		m.caret = m.compl.start + len([]rune(insert))
 		m.unsaved = true
 		return false
 	}

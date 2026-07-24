@@ -99,6 +99,52 @@ func TestApplyCompletionIconInsertsGlyph(t *testing.T) {
 	}
 }
 
+// TestApplyCompletionPaintedIconInsertsChip: brand-colored icons land as icon
+// chips (value=glyph, label=shortcode) so render can keep the color — plain
+// unicode would leave a bare "Z" that can't be told from prose.
+func TestApplyCompletionPaintedIconInsertsChip(t *testing.T) {
+	it := &item{uuid: "n", typ: database.TypeBullets, name: ":claude"}
+	m := &Model{
+		tree:  &tree{byUUID: map[string]*item{"n": it}},
+		caret: len([]rune(":claude")),
+		compl: complState{kind: complIcon, start: 0},
+		chips: map[string]database.Chip{},
+	}
+	e, ok := iconByShortcode("claude")
+	if !ok {
+		t.Fatal("claude missing")
+	}
+	m.applyCompletion(it, pickerItem{value: e.glyph, label: ":" + e.shortcode})
+	if !hasAnchor(it.name) {
+		t.Fatalf("painted icon must be a chip anchor, name=%q", it.name)
+	}
+	var c database.Chip
+	for _, ch := range m.chips {
+		c = ch
+		break
+	}
+	if c.Kind != chipKindIcon || c.Value != e.glyph || c.Label != e.shortcode {
+		t.Fatalf("chip = %+v, want kind=icon value=%q label=%q", c, e.glyph, e.shortcode)
+	}
+	// render paints the brand color (red for claude)
+	body := renderBody(it, it.name, -1, false, m.chips, false)
+	if !strings.Contains(body, e.glyph) {
+		t.Fatalf("render missing glyph: %q", body)
+	}
+	if !strings.Contains(body, cRed) && !strings.Contains(body, styleColorCode["red"]) {
+		t.Fatalf("render missing red paint for claude: %q", body)
+	}
+	// white icons stay plain — no chip
+	it2 := &item{uuid: "n2", typ: database.TypeBullets, name: ":rarrow"}
+	m.compl = complState{kind: complIcon, start: 0}
+	m.caret = len([]rune(":rarrow"))
+	r, _ := iconByShortcode("rarrow")
+	m.applyCompletion(it2, pickerItem{value: r.glyph, label: ":" + r.shortcode})
+	if hasAnchor(it2.name) || it2.name != r.glyph {
+		t.Fatalf("white icon should be plain glyph, name=%q", it2.name)
+	}
+}
+
 func TestIconPickViaKeys(t *testing.T) {
 	m := newTestModel(80, "")
 	m.cursor = 0

@@ -117,6 +117,7 @@ const (
 	chipKindLink  = "link"
 	chipKindCmd   = "cmd"
 	chipKindAgent = "agent"
+	chipKindIcon  = "icon" // painted service glyph; value=glyph, label=shortcode
 )
 
 var chipKinds = map[string]chipKind{
@@ -174,6 +175,16 @@ var chipKinds = map[string]chipKind{
 		color:   cRed,
 		display: func(v string) string { return "@" + v },
 		expand:  func(v string) string { return "@" + v },
+	},
+	// an icon chip is a painted service glyph from the :shortcode picker.
+	// value is the glyph (CLI/export show it raw); label is the shortcode used
+	// to recover the brand color at render. Color is per-chip (see renderBody),
+	// not the static kind color below.
+	chipKindIcon: {
+		key:     chipKindIcon,
+		color:   cFG,
+		display: func(v string) string { return v },
+		expand:  func(v string) string { return v },
 	},
 }
 
