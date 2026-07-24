@@ -43,7 +43,7 @@ const (
 	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
 	modeTagColor // the alt+e tag color picker: assign a pill color to a tag
 	modePaint    // the painter: a window over the node's text places a /style choice (p inside /style)
-	modeInsert   // the /insert picker: choose a chip kind (cmd, date, link, path, tag) to splice at the caret
+	modeInsert   // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
 )
 
 type finderAction int
@@ -70,7 +70,7 @@ var slashCommands = []slashCommand{
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
 	{"/hide:complete", "Hide or show completed nodes"},
-	{"/insert", "Insert a chip: cmd, date, link, path, tag"},
+	{"/insert", "Insert at caret: cmd, date, icon, link, path, tag"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
 	{"/mirror:from", "Mirror another node here"},
@@ -1609,10 +1609,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 			m.flash = "unstarred"
 		}
 	case "/insert":
-		// open the chip-kind picker; a pick routes back through runSlash with the
-		// specific "/insert:<kind>" value (see insertSource)
+		// open the kind picker (chips + icon); searchable so "ic" reaches icon
 		m.mode = modeInsert
-		m.list.open(m, insertSource{}, false)
+		m.list.open(m, insertSource{}, true)
 	case "/priority:up", "/priority:down":
 		// where incoming nodes land among this node's children: new children,
 		// moved-in nodes and agent replies go on top (up) or to the bottom

@@ -9,10 +9,11 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// An inline completer is the popup behind "#" (tags), ":" (query commands),
-// and "@" (agents). Like the slash menu it types into the node text and shows a
-// filtered list above the status bar. Query commands may chain into a value
-// picker — :type: offers types, while :in: opens the node finder.
+// An inline completer is the popup behind "#" (tags), ":" (icons on normal
+// nodes / query commands on query nodes), and "@" (agents). Like the slash menu
+// it types into the node text and shows a filtered list above the status bar.
+// Query commands may chain into a value picker — :type: offers types, while
+// :in: opens the node finder. Icons land as plain unicode (see icon.go).
 
 type complKind int
 
@@ -21,6 +22,7 @@ const (
 	complQueryCmd                   // ":": pick a query command (query nodes only)
 	complQueryType                  // value picker immediately after :type:
 	complAgent                      // "@": pick a configured agent to mention (see agent.go)
+	complIcon                       // ":": pick an icon shortcode (non-query; also /insert)
 )
 
 // complState is the completer's anchor: which trigger opened it and where that
@@ -98,6 +100,12 @@ func (m *Model) complItems(query string) []complItem {
 		for _, a := range m.agents {
 			src = append(src, complItem{label: "@" + a.Name, value: a.Name})
 		}
+	case complIcon:
+		// filterIcons already applies the query; label is :shortcode, value is the glyph.
+		for _, e := range filterIcons(q) {
+			src = append(src, complItem{label: ":" + e.shortcode, value: e.glyph})
+		}
+		return src
 	default:
 		for _, t := range m.existingTags() {
 			src = append(src, complItem{label: "#" + t, value: t})
@@ -183,6 +191,16 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 		cur.name = string(runes[:m.compl.start]) + anchor + " " + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(anchor)) + 1
 		m.forceThreadPriorityDown(cur)
+		m.unsaved = true
+		return false
+	}
+	if m.compl.kind == complIcon {
+		if chosen.value == "" {
+			return false
+		}
+		// chosen.value is the glyph; the replaced range is ":" + typed query.
+		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
+		m.caret = m.compl.start + len([]rune(chosen.value))
 		m.unsaved = true
 		return false
 	}

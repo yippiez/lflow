@@ -891,15 +891,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command
-		// completer in a query node. Both stay literal mid-word so "C#"/"a:b" type
-		// normally; tags skip bash/code where "#" is a comment.
+		// completer in a query node, or the icon shortcode picker on every other
+		// inline-editable node. Both stay literal mid-word so "C#"/"a:b" type
+		// normally; tags skip bash/code where "#" is a comment. Query nodes reach
+		// icons via /insert → icon (see insertChip).
 		if string(k.Runes) == "#" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
 			return m.openCompleter(cur, complTag, "#")
 		}
 		if string(k.Runes) == ":" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			cur.typ == database.TypeQuery && atWordStart(cur, m.caret) {
-			return m.openCompleter(cur, complQueryCmd, ":")
+			atWordStart(cur, m.caret) {
+			if cur.typ == database.TypeQuery {
+				return m.openCompleter(cur, complQueryCmd, ":")
+			}
+			if typeOf(cur.typ).inlineEditable {
+				return m.openIconPicker(cur)
+			}
 		}
 		// "@" opens the agent picker at a word boundary — picking lands an
 		// agent chip; alt+r on the node later starts the thread (see agent.go)

@@ -111,11 +111,13 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 
 // --- /insert ---------------------------------------------------------------
 
-// insertKinds lists the chip kinds the /insert picker offers; value is the bare
-// kind handed to insertChip.
+// insertKinds lists the kinds the /insert picker offers; value is the bare
+// kind handed to insertChip. "icon" is plain unicode (not a chip) — offered so
+// query nodes (where ":" is the query-command completer) can still insert icons.
 var insertKinds = []struct{ value, label, desc string }{
 	{"cmd", "bash", "a runnable $ command chip"},
 	{"date", "date", "today as a date chip"},
+	{"icon", "icon", "an icon or emoji via shortcode"},
 	{"link", "link", "a link chip"},
 	{"path", "file", "a file path chip"},
 	{"tag", "tag", "a #tag chip"},
@@ -152,7 +154,8 @@ func (insertSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 // insertChip splices a chip of the given kind at the caret, reusing each kind's
 // native flow: the "#" completer, the "[[" finder, the fzf file picker; date
 // lands today directly, cmd opens a "$" draft that the double-space rule turns
-// into the runnable chip.
+// into the runnable chip. "icon" is plain unicode via the shortcode completer
+// and skips the chipsEnabled guard so query nodes can reach it.
 func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	cur := m.cursorItem()
 	if cur == nil {
@@ -162,6 +165,9 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	if !mc.editable || !typeOf(cur.typ).inlineEditable || cur.readonly {
 		m.flash = "node is not editable"
 		return m, nil
+	}
+	if kind == "icon" {
+		return m.openIconPicker(cur)
 	}
 	if !chipsEnabled(cur) {
 		m.flash = "chips are disabled for this node type"
@@ -447,6 +453,13 @@ func (completerSource) items(m *Model, q string) []pickerItem {
 						return cDim + label + " · missing " + bin + cReset
 					}
 				}
+			}
+		}
+		// icons: colored glyph + dim :shortcode (see iconRowRender)
+		if m.compl.kind == complIcon {
+			if e, ok := iconByShortcode(strings.TrimPrefix(it.label, ":")); ok {
+				e := e
+				pi.render = func(bool) string { return iconRowRender(e) }
 			}
 		}
 		out = append(out, pi)
