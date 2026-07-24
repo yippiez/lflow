@@ -27,8 +27,7 @@ const (
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
-	TypeAgent   = "agent" // an agent-authored reply: red ✦, text + chips; typed attachments as children
-	TypeWF      = "wf"    // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
+	TypeWF      = "wf" // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
@@ -52,8 +51,6 @@ const (
 // TypeOrder is the canonical ordering of node types — the single source of
 // truth for the accepted set. ValidTypes and the human-readable list in CLI
 // help/errors derive from it, so a new type added here needs no other edits.
-// TypeAgent is a valid stored type (agent-authored replies) but is not offered
-// in the /type picker — the editor's picker derives from the registry, not this.
 var TypeOrder = []string{
 	TypeBullets,
 	TypeTodo,
@@ -70,7 +67,6 @@ var TypeOrder = []string{
 	TypeImage,
 	TypeNLPCompute,
 	TypeMath,
-	TypeAgent,
 	TypeWF,
 }
 

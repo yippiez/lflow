@@ -21,7 +21,7 @@ func ChipAnchor(id string) string {
 // HasAnchor reports whether name contains any chip anchor.
 func HasAnchor(name string) bool { return strings.ContainsRune(name, ChipSentinel) }
 
-// ChipDisplay is a chip's compact form (e.g. "@readme.txt"). Keep in sync with
+// ChipDisplay is a chip's compact form (e.g. "›readme.txt"). Keep in sync with
 // the editor's chip-kind registry; this is the lower-level copy CLI surfaces use.
 func ChipDisplay(c Chip) string {
 	switch c.Kind {

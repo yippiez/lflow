@@ -52,14 +52,6 @@ CREATE TABLE node_blobs (
 			w integer NOT NULL DEFAULT 0,
 			h integer NOT NULL DEFAULT 0
 		);
-CREATE TABLE agent_sessions (
-			id text PRIMARY KEY,
-			node_uuid text NOT NULL DEFAULT '',
-			agent text NOT NULL DEFAULT '',
-			state text NOT NULL DEFAULT 'idle',
-			created_at integer NOT NULL DEFAULT 0,
-			updated_at integer NOT NULL DEFAULT 0
-		);
 CREATE TABLE wf_nodes (
 			node_uuid text PRIMARY KEY,
 			wf_id text NOT NULL DEFAULT '',
@@ -78,4 +70,4 @@ CREATE TABLE node_spans (
 		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 39);
+INSERT INTO system (key, value) VALUES ('schema', 40);

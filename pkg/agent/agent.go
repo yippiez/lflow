@@ -91,9 +91,8 @@ type AgentRunOptions struct {
 	SessionID  string
 	SessionDir string
 	// NoSession runs the turn launch-and-forget (pi --no-session): nothing is
-	// written to the backend's session storage and there is nothing to resume.
-	// Wins over SessionID. The @mention agent uses this — its thread is re-sent
-	// whole every turn, so the outline itself is the conversation memory.
+	// written to backend session storage and there is nothing to resume. It wins
+	// over SessionID.
 	NoSession bool
 }
 

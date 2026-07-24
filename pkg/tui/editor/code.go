@@ -387,7 +387,7 @@ func codeInlineRender(it *item, name string) string {
 
 // codeToContext ships the code as the element's multi-line body — a code node's
 // name IS its source, and flattening the newlines to one <code> line would
-// mangle it for the agent.
+// mangle it in structured context.
 func codeToContext(it *item) contextXML {
 	return contextXML{tag: "code", body: strings.TrimRight(it.name, "\n")}
 }

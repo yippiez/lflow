@@ -9,8 +9,8 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// An inline completer is the popup behind "#" (tags), ":" (icons on normal
-// nodes / query commands on query nodes), and "@" (agents). Like the slash menu
+// An inline completer is the popup behind "#" (tags) and ":" (icons on normal
+// nodes / query commands on query nodes). Like the slash menu
 // it types into the node text and shows a filtered list above the status bar.
 // Query commands may chain into a value picker — :type: offers types, while
 // :in: opens the node finder. Icons land as plain unicode (see icon.go).
@@ -21,7 +21,6 @@ const (
 	complTag       complKind = iota // "#": pick an existing tag
 	complQueryCmd                   // ":": pick a query command (query nodes only)
 	complQueryType                  // value picker immediately after :type:
-	complAgent                      // "@": pick a configured agent to mention (see agent.go)
 	complIcon                       // ":": pick an icon shortcode (non-query; also /insert)
 )
 
@@ -90,15 +89,8 @@ func (m *Model) complItems(query string) []complItem {
 	case complQueryCmd:
 		src = queryCmdItems
 	case complQueryType:
-		// Queryable types include internal stored types such as agent replies even
-		// though /type never offers those for conversion.
 		for _, key := range database.TypeOrder {
 			src = append(src, complItem{label: key, value: key, desc: typeLabel(key)})
-		}
-	case complAgent:
-		// just the name — no descriptions in the mention picker
-		for _, a := range m.agents {
-			src = append(src, complItem{label: "@" + a.Name, value: a.Name})
 		}
 	case complIcon:
 		// filterIcons already applies the query; label is :shortcode, value is the glyph.
@@ -171,26 +163,6 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 		}
 		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(chosen.value))
-		m.unsaved = true
-		return false
-	}
-	if m.compl.kind == complAgent {
-		if chosen.value == "" {
-			return false
-		}
-		if a, ok := m.agentByName(chosen.value); ok {
-			if bin, missing := m.agentDepMissing(a); missing {
-				m.flash = "Missing dependency: " + bin
-				return false
-			}
-		}
-		anchor := m.createChip(chipKindAgent, chosen.value)
-		if anchor == "" {
-			return false
-		}
-		cur.name = string(runes[:m.compl.start]) + anchor + " " + string(runes[end:])
-		m.caret = m.compl.start + len([]rune(anchor)) + 1
-		m.forceThreadPriorityDown(cur)
 		m.unsaved = true
 		return false
 	}

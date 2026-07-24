@@ -3,9 +3,8 @@ package agent
 import "os"
 
 // AgentProviderDefault is the baked-in default model + thinking level for a provider.
-// There is no in-app model picker — each backend ships one sensible default, so
-// a @mention turn just runs whichever CLI is available with that provider's
-// default. Pi honors the LFLOW_PI_MODEL / LFLOW_PI_THINKING env overrides (the
+// There is no in-app model picker — each backend ships one sensible default.
+// Pi honors the LFLOW_PI_MODEL / LFLOW_PI_THINKING env overrides (the
 // e2e harness pins echo/echo through them); grok uses its own default model.
 func AgentProviderDefault(p AgentProvider) (Model, string) {
 	switch p {

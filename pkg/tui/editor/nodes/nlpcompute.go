@@ -8,9 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/lflow/lflow/pkg/tui/compute"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/editor"
-	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
 // The nlpcompute node: natural language as code — a fully red → arrow AND red
@@ -34,14 +34,15 @@ func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
 		Key: database.TypeNLPCompute, Label: "NLPCompute",
 		InlineEditable: true, // the prose face: edit the instruction inline
-		AutoFocus:      true,  // the code face: rest the cursor on it to edit, like Code
-		BlockFaces:     true,  // alt+e toggles prose ⇄ code (never enters an editor)
+		AutoFocus:      true, // the code face: rest the cursor on it to edit, like Code
+		BlockFaces:     true, // alt+e toggles prose ⇄ code (never enters an editor)
 		Glyph:          func() (string, string) { return "→", editor.NodeTheme().Red },
 		BaseColor:      func() string { return editor.NodeTheme().Red },
 		Render:         ncRender,
 		Run:            runNLPCompute,
 		View:           ncView{},
 		BlockCode:      ncBlockCode,
+		CLIDeps:        []string{"pi"},
 		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
 			d := ncLoad(h, n.UUID())
 			attrs := ""
@@ -157,15 +158,15 @@ func ncPrompt(n editor.NodeRef) string {
 // ncEvMsg carries one generation-stream event back into the plugin.
 type ncEvMsg struct {
 	uuid string
-	ev   tag.Event
-	ch   <-chan tag.Event
+	ev   compute.Event
+	ch   <-chan compute.Event
 }
 
-func waitNCCmd(uuid string, ch <-chan tag.Event) tea.Cmd {
+func waitNCCmd(uuid string, ch <-chan compute.Event) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-ch
 		if !ok {
-			return ncEvMsg{uuid: uuid, ev: tag.Event{Op: "done"}}
+			return ncEvMsg{uuid: uuid, ev: compute.Event{Op: "done"}}
 		}
 		return ncEvMsg{uuid: uuid, ev: ev, ch: ch}
 	}
@@ -219,14 +220,13 @@ func runNLPCompute(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 		ncSave(h, n.UUID(), data)
 	}
 
-	agentName := h.NodeDefaultAgent()
-	if bin, missing := h.NodeAgentGate(agentName); missing {
-		h.NodeFlash("Missing dependency: " + bin)
+	if !h.NodeDepOK("pi") {
+		h.NodeFlash("Missing dependency: pi")
 		return nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := h.NodeComputeTurn(ctx, agentName, ncSystemPrompt(), ncPrompt(n), data.Cwd)
+	ch, err := h.NodeComputeTurn(ctx, ncSystemPrompt(), ncPrompt(n), data.Cwd)
 	if err != nil {
 		cancel()
 		h.NodeFlash(err.Error())

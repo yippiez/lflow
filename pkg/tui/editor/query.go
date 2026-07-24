@@ -261,19 +261,6 @@ func (m *Model) queryMatchesInCtx(q *item, pq parsedQuery, scope string, ctx *qC
 	}
 	hitSet := pq.expr.eval(ctx)
 
-	// search-hidden types (agent replies) only surface when the expression
-	// names them via :type:
-	for u := range hitSet {
-		c := ctx.byUUID[u]
-		if c == nil {
-			delete(hitSet, u)
-			continue
-		}
-		if typeOf(c.typ).searchHidden && !exprNamesType(pq.expr, c.typ) {
-			delete(hitSet, u)
-		}
-	}
-
 	var out []database.Node
 	for u := range hitSet {
 		c := ctx.byUUID[u]
@@ -391,37 +378,6 @@ func (ctx *qCtx) scoped(q *item, scope string) *qCtx {
 		out.byUUID[c.uuid] = ctx.byUUID[c.uuid]
 	}
 	return out
-}
-
-// exprNamesType reports whether e mentions :type:<typ> (case-insensitive).
-func exprNamesType(e qExpr, typ string) bool {
-	if e == nil {
-		return false
-	}
-	typ = strings.ToLower(typ)
-	switch v := e.(type) {
-	case *qType:
-		return strings.ToLower(v.key) == typ
-	case *qOr:
-		for _, k := range v.kids {
-			if exprNamesType(k, typ) {
-				return true
-			}
-		}
-	case *qAnd:
-		for _, k := range v.kids {
-			if exprNamesType(k, typ) {
-				return true
-			}
-		}
-	case *qPipe:
-		for _, k := range v.stages {
-			if exprNamesType(k, typ) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // crumbOf is a node's muted ancestor breadcrumb ("inbox › work › "), memoized

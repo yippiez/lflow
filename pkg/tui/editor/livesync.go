@@ -224,10 +224,10 @@ func (m *Model) applyNode(n database.Node) (applied, mutated bool) {
 			continue
 		}
 		// an external tombstone (CLI remove, another client) must stop any
-		// agent still bound to the disappearing subtree before dropSubtree
-		// forgets the items — same rule as local deleteNode
+		// plugin work must stop before dropSubtree forgets the items —
+		// same rule as local deleteNode
 		if n.Deleted {
-			m.stopAgentsUnder(it)
+			m.removeNodeStateUnder(it)
 		}
 		applied = true
 		if t.applyExternal(n) {

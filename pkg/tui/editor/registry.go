@@ -27,9 +27,7 @@ type nodeType struct {
 	autoFocus      bool                               // resting the cursor here auto-enters its view (thin caret, type directly) — no alt+e; see reconcileAutoFocus
 	blockFaces     bool                               // alt+e toggles the Render (prose) face ⇄ the BlockCode (code) face instead of entering an editor (nlpcompute); see toggleBlockFace
 	tempOnly       bool                               // only offered/allowed in the Temporary Domain
-	internal       bool                               // never offered in /type: only the app creates nodes of this type
-	searchHidden   bool                               // never surfaced by finders (/goto, /mirror, /move, [[) or live queries, unless ":type:" names it explicitly
-	disableChips   bool                               // structured chip gestures (#, >, [[, @, dates, $) remain literal in this type
+	disableChips   bool                               // structured chip gestures (#, >, [[, dates, $) remain literal in this type
 	expand         func(m *Model, it *item) tea.Cmd   // alt+e action (action-only types, e.g. voice play, file → $EDITOR)
 	run            func(m *Model, it *item) tea.Cmd   // alt+r action; nil → none
 	view           nodeView                           // alt+e inline expanded view; nil → none
@@ -79,12 +77,8 @@ type nodeType struct {
 	// Called for the resting/selected row alike. nil → nothing. "" → nothing.
 	bodyTail func(it *item) string
 
-	// toContext gives the type its own XML element in the agent context (see
-	// buildThread → tag.renderThread), so a typed node reads coherently to an
-	// agent instead of flattening to a bare <node> line: the element name, its
-	// attributes, and an optional multi-line body replacing the one-line name.
-	// Children still nest inside the element, and the role tags (asked/answer/
-	// parent) still win the element name so threading survives. nil → <node>.
+	// toContext reserves a structured XML representation for consumers that
+	// need typed outline context. nil means the generic node representation.
 	toContext func(it *item) contextXML
 	// toContextM is the Model-aware sibling (mirrors render/renderM) for types
 	// whose context body lives outside the item — e.g. a document loaded from
@@ -93,7 +87,7 @@ type nodeType struct {
 }
 
 // contextXML is what a toContext hook returns — the pieces of the node's XML
-// element in the agent context. Zero values keep the defaults.
+// element in structured context. Zero values keep the defaults.
 type contextXML struct {
 	tag   string // element name; "" keeps "node"
 	attrs string // inside the opening tag, e.g. `done="true"`
@@ -198,19 +192,6 @@ var nodeTypes = []nodeType{
 		run:       runWF,
 		toContext: xmlTag("workflowy"),
 	},
-	// an agent reply (see agent.go): red ✦, body red, plain text + chips.
-	// Typed attachments (code, image, bash-as-cmd, json, …) hang as locked
-	// children — spoken via {{attach:…}} tokens, not conversation bullets.
-	// Internal — the /type picker never offers it, only the agent creates one —
-	// and born locked so a reply can't change under the thread; /lock unlocks
-	// it for reshaping like any other node. Search-hidden: replies are answers
-	// in a thread, not navigation targets, so no finder or query lists them.
-	{
-		key: database.TypeAgent, label: "Agent", glyph: agentGlyph, inlineEditable: true,
-		internal:     true,
-		searchHidden: true,
-		baseColor:    func(it *item) string { return cRed },
-	},
 	{
 		key: database.TypeVoice, label: "Voice", inlineEditable: false,
 		renderM:      func(m *Model, it *item) string { return m.voiceRender(it) },
@@ -294,7 +275,7 @@ func todoGlyph(it *item) (string, string) {
 }
 
 // todoToContext carries the checkbox state — the one thing a todo's text
-// alone can't tell an agent.
+// alone cannot express.
 func todoToContext(it *item) contextXML {
 	done := "false"
 	if it.completedAt > 0 {

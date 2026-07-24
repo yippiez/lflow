@@ -15,8 +15,8 @@ import (
 //
 // It stays inside the outline: no alt-screen, no separate mode plumbing beyond
 // modeFlash. Two actions are universal (jump onto a row; fold a row with
-// children); inline affordances that normally run via alt+r (cmd chips,
-// @mentions, Workflowy handles) contribute actions from the row content; the rest
+// children); inline affordances that normally run via alt+r (cmd chips and
+// Workflowy handles) contribute actions from the row content; the rest
 // are contributed BY THE NODE TYPE via the registry's flashActions hook — so a
 // type declares its own labelled actions (verb, color, handler) in one place, and
 // flash surfaces them with no switch here to edit. A type that sets no hook falls
@@ -44,7 +44,7 @@ type flashTarget struct {
 
 // flashActionsFor returns content-driven alt+r actions plus node-type-contributed
 // actions for an item. A type with a flashActions hook controls only its
-// type-specific list; cmd chips / @mentions / Workflowy handles are cross-cutting
+// type-specific list; cmd chips and Workflowy handles are cross-cutting
 // row content and are still offered. Otherwise actions are inferred from run /
 // view / expand hooks, so existing types need no changes. (jump and fold are
 // added universally in enterFlash, not here.)
@@ -69,9 +69,8 @@ func (m *Model) flashActionsFor(it *item) []flashAction {
 	return out
 }
 
-// flashInlineRunActions mirrors the content-sensitive alt+r paths: runnable cmd
-// chips and @mention threads. These are not node types, so registry inference
-// cannot see them; flash still needs to expose them as row actions.
+// flashInlineRunActions mirrors the content-sensitive alt+r path for runnable
+// command chips, which registry inference cannot see.
 func (m *Model) flashInlineRunActions(it *item) []flashAction {
 	if it == nil {
 		return nil
@@ -86,23 +85,6 @@ func (m *Model) flashInlineRunActions(it *item) []flashAction {
 		out = append(out, flashAction{verb: "run $", color: cGreen, do: func(m *Model, it *item) tea.Cmd {
 			return m.runCmdChip(chip)
 		}})
-	}
-	if ag, ok := m.mentionedAgent(expandAnchors(it.name, m.chips)); ok {
-		ag := ag
-		// while a turn is running the mention offers "stop" (cancel the CLI)
-		// instead of "send"; both act on the thread root the mention binds to.
-		root := m.threadRootFor(it, ag)
-		if t := m.thread(root.uuid); t != nil && t.busy {
-			rootUUID, name := root.uuid, ag.Name
-			out = append(out, flashAction{verb: "stop", color: cRed, do: func(m *Model, it *item) tea.Cmd {
-				m.stopThread(rootUUID, name)
-				return nil
-			}})
-		} else {
-			out = append(out, flashAction{verb: "send", color: cRed, do: func(m *Model, it *item) tea.Cmd {
-				return m.sendThread(it, ag)
-			}})
-		}
 	}
 	return out
 }

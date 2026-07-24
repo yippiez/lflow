@@ -105,10 +105,8 @@ func (m *Model) anyNodeAnimating() bool {
 	return m.computingNodeCount() > 0
 }
 
-// computingNodeCount counts nodes mid-compute — the generic "animating" flag a
-// plugin raises while an agent turn runs for it (nlpcompute while generating).
-// These fold into the status bar's "N thinking" tally alongside the @mention
-// threads, so an NLPCompute cell reads as a thinking agent like a tag chip.
+// computingNodeCount counts nodes mid-compute through the generic "animating"
+// flag a plugin raises while NLPCompute is generating.
 func (m *Model) computingNodeCount() int {
 	n := 0
 	for _, d := range m.nodeData {

@@ -1,10 +1,8 @@
 package agent
 
-// The embedded lflow skills teach the @mention agent how to live inside lflow:
-// the CLI and chips. They are compiled into the binary and
-// materialized to the data dir at editor start, then handed to the CLI agent
-// via its skill mechanism (pi --skill) on every turn — deliberately NOT an
-// agent extension, and additive, so the user's own agent setup is untouched.
+// The embedded lflow skill teaches NLPCompute how to query the outline CLI. It
+// is compiled into the binary, materialized at editor start, and passed through
+// Pi's skill mechanism without changing the user's own setup.
 
 import (
 	"embed"

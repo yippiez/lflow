@@ -26,7 +26,7 @@ func logPrefix(it *item) string {
 	return cDim + "(" + t.Format("2006-01-02 15:04") + ") " + cReset
 }
 
-// logToContext carries the timestamp the prefix draws, so an agent reads the
+// logToContext carries the timestamp the prefix draws, so structured context reads the
 // log line with its time instead of a bare bullet.
 func logToContext(it *item) contextXML {
 	x := contextXML{tag: "log"}

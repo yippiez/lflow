@@ -2,11 +2,11 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 
-# The status bar is the SINGLE divider between the main notes and the Agent Domain
+# The status bar is the SINGLE divider between the main notes and the Temporary Domain
 # panel — there is no dashed '╌╌ temp ╌╌' rule. The empty compose line is hidden
 # while focus is in the notes (new behavior); it appears once you enter the panel.
 #
-# Layout once focused in the Agent Domain: notes (read-only) → status bar → ◌ panel.
+# Layout once focused in the Temporary Domain: notes (read-only) → status bar → ◌ panel.
 
 setup; launch
 
@@ -20,7 +20,7 @@ assert_contains "○ note one"
 assert_not_contains "◌"
 assert_not_contains "╌╌"
 
-# enter the Agent Domain — the compose line (◌) appears below the status bar
+# enter the Temporary Domain — the compose line (◌) appears below the status bar
 send Down
 wait_for "◌"
 assert_not_contains "╌╌" # the dashed rule must never appear

@@ -657,7 +657,7 @@ func (tq timeQuery) hasTimeFilter() bool { return tq.after != nil || tq.before !
 
 func (tq timeQuery) matchType(typ string) bool {
 	if len(tq.types) == 0 {
-		return !typeOf(typ).searchHidden
+		return true
 	}
 	typ = strings.ToLower(typ)
 	for _, t := range tq.types {

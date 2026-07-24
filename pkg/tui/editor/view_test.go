@@ -77,21 +77,3 @@ func TestBottomBarKeepsMainWhenInTemp(t *testing.T) {
 		t.Fatalf("bar must not show temp position 1/1:\n%s", after)
 	}
 }
-
-// TestReadonlyRegionShowsAgentToolBand: the unfocused region (main while in
-// temp, or temp while in main) must still hang the live tool-call band under a
-// busy @mention — same as the focused outline path.
-func TestReadonlyRegionShowsAgentToolBand(t *testing.T) {
-	m := newTestModel(80, "alpha")
-	mention := m.tree.root.children[0]
-	mention.uuid = "mention-1"
-	m.tree.byUUID[mention.uuid] = mention
-	m.ensureThread(mention.uuid).busy = true
-	m.ensureThread(mention.uuid).tool = agentToolLine{name: "Bash", detail: "ls"}
-
-	lines := m.readonlyRegionLines(m.tree, m.tree.root, 0, 10, 80, false)
-	joined := stripSGR(strings.Join(lines, "\n"))
-	if !strings.Contains(joined, "Bash") || !strings.Contains(joined, "ls") {
-		t.Fatalf("readonly region missing agent tool band:\n%s", joined)
-	}
-}

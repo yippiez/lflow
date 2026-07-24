@@ -16,10 +16,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/agent"
 	"github.com/lflow/lflow/pkg/tui/client"
+	"github.com/lflow/lflow/pkg/tui/compute"
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/tui/tag"
 	"github.com/lflow/lflow/pkg/tui/wf"
 	"github.com/lflow/lflow/pkg/tui/wire"
 	"github.com/mattn/go-runewidth"
@@ -177,7 +177,7 @@ type Model struct {
 
 	// live cmd-chip draft gate: where the last text edit left the caret.
 	// activeCmdDraftRange is purely positional, so without this gate merely
-	// walking the caret into pre-existing "$…" prose (e.g. an agent reply
+	// walking the caret into pre-existing "$…" prose
 	// quoting a command) would tint it as a draft; the tint shows only while
 	// the caret still sits where typing left it (see cmdDraftLive).
 	cmdDraftUUID  string
@@ -237,31 +237,10 @@ type Model struct {
 	// growing the Model with one named map per type.
 	nodeData map[string]map[string]any
 
-	// @mention agent sessions (see agent.go and pkg/tui/tag): configured agents
-	// and one client per agent (tagClients is keyed by agent NAME, a different
-	// keyspace). Per-thread turn state (busy flag, cancel, live tool band) lives
-	// in ONE agentThread per uuid so a lifecycle event drops it all at once —
-	// see thread/ensureThread. (alt+r starts/re-sends; descendant edits arm a
-	// debounced think — see noteAgentChange.)
-	agents     []tag.Agent
-	tagClients map[string]tag.Client
-	threads    map[string]*agentThread
 	// deps is the daemon-probed CLI availability map (NodeCLIDeps, see
 	// deps.go): bin → available. nil = never probed → everything counts
 	// available and failures surface at run time.
 	deps map[string]bool
-	// agentErr is the last agent failure (backend missing, unknown @name, or a
-	// turn error) — shown in the status bar as "Error: …" like the thinking
-	// indicator, cleared when the next turn is fired. Never lands in the outline.
-	agentErr string
-	// debounced auto-think (see noteAgentChange): agentTouched is set by edit
-	// sites this keystroke and drained in Update; agentChangeUUID is the latest
-	// descendant under a session-bound mention; agentThinkGen discards stale
-	// ticks; agentRethinkUUID holds an edit that landed while a turn was busy.
-	agentTouched     string
-	agentChangeUUID  string
-	agentThinkGen    int
-	agentRethinkUUID string
 
 	// Workflowy mirror (see wf.go and pkg/tui/wf): node uuid → workflowy id for
 	// every pulled node, busy flags per pull root, and the API client (lazy;
@@ -745,15 +724,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// track the cursor onto/off an auto-focus block (Code): enter it for
 		// direct typing, flush it on leave — so the next render shows the caret
 		m.reconcileAutoFocus()
-		// a local edit may have touched a descendant of a session-bound
-		// @mention — arm the debounced agent think (cursor-leave does not ship)
-		if m.agentTouched != "" {
-			it := m.tree.byUUID[m.agentTouched]
-			m.agentTouched = ""
-			if ac := m.noteAgentChange(it); ac != nil {
-				cmd = tea.Batch(cmd, ac)
-			}
-		}
 		// live sync: arm the debounced flush for fresh edits, and fold in any
 		// external events that queued while a modal surface was open
 		if sc := m.scheduleSync(); sc != nil {
@@ -767,12 +737,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a plugin's async work flowing back (e.g. nlpcompute generation) — keep the
 		// animation tick alive so a node's shine indicator keeps sliding
 		return m, m.startAnim(msg.HandleNodePlugin(m))
-	case agentThinkMsg:
-		// a newer edit supersedes older ticks — only the latest gen fires
-		if msg.gen != m.agentThinkGen {
-			return m, nil
-		}
-		return m, m.fireAgentThink()
 	case daemonEvMsg:
 		m.handleDaemonEv(msg.ev)
 		return m, waitDaemonEv(m.liveFeed)
@@ -809,17 +773,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitBashCmd(r.ch)
 	case bashDoneMsg:
 		m.finishRun(msg.uuid) // cache the finished band so it survives a restart
-		return m, nil
-	case agentEvMsg:
-		return m.handleAgentEvent(msg)
-	case agentStreamEndMsg:
-		if t := m.thread(msg.thread); t != nil {
-			t.busy = false
-			if t.cancel != nil {
-				t.cancel()
-				t.cancel = nil
-			}
-		}
 		return m, nil
 	case wfDoneMsg:
 		m.handleWFDone(msg)
@@ -1152,9 +1105,8 @@ func (m *Model) deleteNode(it *item) {
 		m.flash = "node structure is locked"
 		return
 	}
-	// kill any agent still running on a thread root inside this subtree —
-	// otherwise the CLI process outlives the mention that owned it
-	m.stopAgentsUnder(it)
+	// cancel plugin work still running inside this subtree
+	m.removeNodeStateUnder(it)
 	// drop each removed node's persisted run-output cache so it doesn't outlive it
 	var dropRunOut func(x *item)
 	dropRunOut = func(x *item) {
@@ -1482,9 +1434,6 @@ func (m *Model) filteredTypes(query string) []string {
 	q := strings.ToLower(query)
 	var ret []string
 	for _, t := range typeOrder() {
-		if typeOf(t).internal {
-			continue // internal types (agent replies) are app-created, never user-picked
-		}
 		if typeOf(t).tempOnly && !m.tempActive {
 			continue // temp-only types are not offered outside the Temporary Domain
 		}
@@ -1613,18 +1562,11 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeInsert
 		m.list.open(m, insertSource{}, true)
 	case "/priority:up", "/priority:down":
-		// where incoming nodes land among this node's children: new children,
-		// moved-in nodes and agent replies go on top (up) or to the bottom
-		// (down). A mirror sets its original — placement follows the source.
+		// where incoming and moved-in nodes land among this node's children:
+		// top (up) or bottom (down). A mirror sets its original.
 		// Like /star: toggled in place, immediate write, no edited_on churn.
 		cur = m.tree.resolve(cur)
 		if name == "/priority:up" {
-			// an agent-chipped node is forced down — its conversation always
-			// reads top-down chronological (see forceThreadPriorityDown)
-			if _, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
-				m.flash = "agent thread reads top-down · priority stays down"
-				return m, nil
-			}
 			cur.priority = database.PriorityUp
 			m.flash = "priority up · incoming nodes land on top"
 		} else {
@@ -1745,10 +1687,9 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
-	// materialize the embedded lflow skill (pkg/agent/skills) into the data
-	// dir; every agent turn passes it to the CLI agent (pi --skill)
+	// Materialize the lflow CLI skill used by NLPCompute's code generator.
 	if dir, err := agent.AgentMaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
-		tag.SetSkillDir(dir)
+		compute.SetSkillDir(dir)
 	}
 
 	t, err := loadTree(ctx.DB, nodeUUID)
@@ -1785,7 +1726,6 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		chips:     chips,
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
-		agents:    tag.LoadAgents(ctx.Paths.Config),
 		wfMap:     wfMap,
 		live:      ctx.Live, // daemon connection: live sync (nil in direct runs)
 	}
@@ -1815,9 +1755,6 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	if !ok {
 		fm = m
 	}
-	// the agent bridge dies with the editor: park in-flight sessions so their
-	// ids resume the remote context on the next mention
-	_ = database.PauseRunningSessions(ctx.DB)
 	if fm.err != nil {
 		return fm.err
 	}

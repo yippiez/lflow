@@ -1070,3 +1070,61 @@ func TestLocalMigration14(t *testing.T) {
 		}
 	}
 }
+
+func TestLM40RemovesConversationAssistants(t *testing.T) {
+	db := database.InitTestMemoryDBRaw(t, "")
+	ctx := context.InitTestCtxWithDB(t, db)
+	database.MustExec(t, "legacy sessions", db, `CREATE TABLE agent_sessions (
+		id text PRIMARY KEY, node_uuid text NOT NULL DEFAULT '', agent text NOT NULL DEFAULT '',
+		state text NOT NULL DEFAULT 'idle', created_at integer NOT NULL DEFAULT 0, updated_at integer NOT NULL DEFAULT 0)`)
+	database.MustExec(t, "legacy session row", db,
+		"INSERT INTO agent_sessions (id, node_uuid, agent) VALUES ('s1', 'host', 'Custom')")
+
+	database.MustExec(t, "assistant chip", db,
+		"INSERT INTO chips (id, kind, value, label) VALUES ('ask', 'agent', 'Custom', '')")
+	database.MustExec(t, "reply link", db,
+		"INSERT INTO chips (id, kind, value, label) VALUES ('reply-link', 'link', 'lflow://node/reply', 'reply')")
+	anchor := database.ChipAnchor("ask")
+	link := database.ChipAnchor("reply-link")
+	for _, n := range []database.Node{
+		{UUID: "host", Name: anchor + " fix it and @Pi check", Type: database.TypeBullets},
+		{UUID: "reply", ParentUUID: "host", Name: "generated answer", Type: "agent"},
+		{UUID: "attachment", ParentUUID: "reply", Name: "payload", Type: database.TypeCode},
+		{UUID: "mirror", Name: "", Type: database.TypeBullets, MirrorOf: "reply"},
+		{UUID: "plain-host", Name: "@Pi check this", Type: database.TypeBullets},
+		{UUID: "plain-child", ParentUUID: "plain-host", Name: "follow-up", Type: database.TypeBullets},
+		{UUID: "keeper", Name: "see " + link, Type: database.TypeBullets},
+	} {
+		if err := n.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	database.MustExec(t, "reply output", db, "INSERT INTO node_output (uuid, output) VALUES ('reply', 'x')")
+
+	if err := lm40.run(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, uuid := range []string{"host", "reply", "attachment", "mirror", "plain-host", "plain-child"} {
+		var count int
+		database.MustScan(t, "removed node", db.QueryRow("SELECT count(*) FROM nodes WHERE uuid = ?", uuid), &count)
+		if count != 0 {
+			t.Fatalf("node %s survived", uuid)
+		}
+	}
+	var keeper string
+	database.MustScan(t, "cleaned link", db.QueryRow("SELECT name FROM nodes WHERE uuid = 'keeper'"), &keeper)
+	if keeper != "see" {
+		t.Fatalf("cleaned link host = %q", keeper)
+	}
+	var chips int
+	database.MustScan(t, "removed chips", db.QueryRow("SELECT count(*) FROM chips WHERE id IN ('ask', 'reply-link')"), &chips)
+	if chips != 0 {
+		t.Fatalf("legacy chips survived: %d", chips)
+	}
+	var table int
+	database.MustScan(t, "session table", db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='agent_sessions'"), &table)
+	if table != 0 {
+		t.Fatal("legacy session table survived")
+	}
+}

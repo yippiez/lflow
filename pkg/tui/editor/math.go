@@ -401,7 +401,7 @@ func mathBodyTail(it *item) string {
 }
 
 // mathToContext gives the node its own <math> element carrying the flattened
-// expression, so an agent reads "x = (-b ± √(b²-4ac))/2a" instead of a bare
+// expression, so structured context reads "x = (-b ± √(b²-4ac))/2a" instead of a bare
 // operator glyph; the AST children still nest inside.
 func mathToContext(it *item) contextXML {
 	return contextXML{tag: "math", body: mathPreview(it)}
@@ -431,7 +431,7 @@ func mathFlashActions(m *Model, it *item) []flashAction {
 // mathPreview flattens a math node's subtree into a compact one-line form. A
 // leaf is its own text; an operator composes its children by shape (fraction,
 // power, radical, big operator, matrix, cases, or plain infix). Pure/recursive —
-// the same routine feeds the inline preview and the agent context.
+// the same routine feeds the inline preview and structured context.
 func mathPreview(it *item) string {
 	if it == nil {
 		return ""

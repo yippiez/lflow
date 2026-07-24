@@ -947,9 +947,8 @@ var lm31 = migration{
 	run:  func(ctx context.DnoteCtx, tx *database.DB) error { return nil },
 }
 
-// lm32 adds the agent_sessions table — one row per @mention thread, binding a
-// thread root node to a remote agent session id so a later mention in the same
-// thread resumes the conversation (see pkg/tui/tag).
+// lm32 is retained to preserve historical migration numbering. The table it
+// introduced is dropped by lm40.
 var lm32 = migration{
 	name: "add-agent-sessions-table",
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {
@@ -1078,6 +1077,221 @@ var lm39 = migration{
 	run: func(ctx context.DnoteCtx, tx *database.DB) error {
 		if _, err := tx.Exec("ALTER TABLE nodes ADD COLUMN priority text NOT NULL DEFAULT 'down'"); err != nil {
 			return errors.Wrap(err, "adding nodes.priority")
+		}
+		return nil
+	},
+}
+
+// lm40 removes the retired conversational assistant surface and its data. Both
+// mention hosts and reply nodes are hard-deleted with their descendants;
+// mirrors and node links that point into those subtrees are removed as well.
+var lm40 = migration{
+	name: "remove-conversation-assistants",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		type row struct{ uuid, parent, typ, mirror string }
+		var all []row
+		rows, err := tx.Query("SELECT uuid, parent_uuid, type, mirror_of FROM nodes")
+		if err != nil {
+			return errors.Wrap(err, "querying legacy assistant nodes")
+		}
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.uuid, &r.parent, &r.typ, &r.mirror); err != nil {
+				rows.Close()
+				return errors.Wrap(err, "scanning legacy assistant nodes")
+			}
+			all = append(all, r)
+		}
+		if err := rows.Close(); err != nil {
+			return errors.Wrap(err, "closing legacy assistant node query")
+		}
+
+		doomed := map[string]bool{}
+		for _, r := range all {
+			if r.typ == "agent" {
+				doomed[r.uuid] = true
+			}
+		}
+		for changed := true; changed; {
+			changed = false
+			for _, r := range all {
+				if !doomed[r.uuid] && (doomed[r.parent] || (r.mirror != "" && doomed[r.mirror])) {
+					doomed[r.uuid], changed = true, true
+				}
+			}
+		}
+
+		knownNames := map[string]bool{"Pi": true, "Grok": true}
+		if rows, err = tx.Query("SELECT agent FROM agent_sessions"); err == nil {
+			for rows.Next() {
+				var name string
+				if rows.Scan(&name) == nil && name != "" {
+					knownNames[name] = true
+				}
+			}
+			rows.Close()
+		}
+
+		removeChips := map[string]bool{}
+		assistantChips := map[string]bool{}
+		chips, err := tx.Query("SELECT id, kind, value FROM chips")
+		if err != nil {
+			return errors.Wrap(err, "querying legacy assistant chips")
+		}
+		for chips.Next() {
+			var id, kind, value string
+			if err := chips.Scan(&id, &kind, &value); err != nil {
+				chips.Close()
+				return errors.Wrap(err, "scanning legacy assistant chip")
+			}
+			if kind == "agent" {
+				removeChips[id] = true
+				assistantChips[id] = true
+				if value != "" {
+					knownNames[value] = true
+				}
+			}
+			const nodeLink = "lflow://node/"
+			if kind == "link" && strings.HasPrefix(value, nodeLink) && doomed[strings.TrimPrefix(value, nodeLink)] {
+				removeChips[id] = true
+			}
+		}
+		if err := chips.Close(); err != nil {
+			return errors.Wrap(err, "closing legacy assistant chip query")
+		}
+
+		mentions := make([]*regexp.Regexp, 0, len(knownNames))
+		for name := range knownNames {
+			mentions = append(mentions, regexp.MustCompile(`(^|[[:space:]])@`+regexp.QuoteMeta(name)+`\b[[:space:]]*`))
+		}
+
+		// A node carrying the old assistant chip (or a known legacy plain mention)
+		// was the conversation root, so full removal drops that node and its thread.
+		refs, err := tx.Query("SELECT uuid, name FROM nodes")
+		if err != nil {
+			return errors.Wrap(err, "querying assistant hosts")
+		}
+		for refs.Next() {
+			var uuid, name string
+			if err := refs.Scan(&uuid, &name); err != nil {
+				refs.Close()
+				return errors.Wrap(err, "scanning assistant host")
+			}
+			isHost := false
+			for id := range assistantChips {
+				if strings.Contains(name, database.ChipAnchor(id)) {
+					isHost = true
+					break
+				}
+			}
+			if !isHost {
+				for _, re := range mentions {
+					if re.MatchString(name) {
+						isHost = true
+						break
+					}
+				}
+			}
+			if isHost {
+				doomed[uuid] = true
+			}
+		}
+		if err := refs.Close(); err != nil {
+			return errors.Wrap(err, "closing assistant host query")
+		}
+		for changed := true; changed; {
+			changed = false
+			for _, r := range all {
+				if !doomed[r.uuid] && (doomed[r.parent] || (r.mirror != "" && doomed[r.mirror])) {
+					doomed[r.uuid], changed = true, true
+				}
+			}
+		}
+		// The expanded removal set includes mention hosts, so collect links to
+		// those roots too (the first chip pass only knew about reply subtrees).
+		links, err := tx.Query("SELECT id, value FROM chips WHERE kind = 'link'")
+		if err != nil {
+			return errors.Wrap(err, "querying assistant links")
+		}
+		for links.Next() {
+			var id, value string
+			if err := links.Scan(&id, &value); err != nil {
+				links.Close()
+				return errors.Wrap(err, "scanning assistant link")
+			}
+			const nodeLink = "lflow://node/"
+			if strings.HasPrefix(value, nodeLink) && doomed[strings.TrimPrefix(value, nodeLink)] {
+				removeChips[id] = true
+			}
+		}
+		if err := links.Close(); err != nil {
+			return errors.Wrap(err, "closing assistant link query")
+		}
+
+		names, err := tx.Query("SELECT uuid, name FROM nodes")
+		if err != nil {
+			return errors.Wrap(err, "querying assistant references")
+		}
+		type rename struct{ uuid, name string }
+		var changedNames []rename
+		for names.Next() {
+			var uuid, name string
+			if err := names.Scan(&uuid, &name); err != nil {
+				names.Close()
+				return errors.Wrap(err, "scanning assistant reference")
+			}
+			if doomed[uuid] {
+				continue
+			}
+			clean := name
+			for id := range removeChips {
+				clean = strings.ReplaceAll(clean, database.ChipAnchor(id), "")
+			}
+			for _, re := range mentions {
+				clean = re.ReplaceAllString(clean, "$1")
+			}
+			clean = strings.TrimSpace(clean)
+			if clean != name {
+				changedNames = append(changedNames, rename{uuid, clean})
+			}
+		}
+		if err := names.Close(); err != nil {
+			return errors.Wrap(err, "closing assistant reference query")
+		}
+		for _, n := range changedNames {
+			if _, err := tx.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", n.name, n.uuid); err != nil {
+				return errors.Wrap(err, "removing assistant reference")
+			}
+			if _, err := tx.Exec("DELETE FROM node_spans WHERE node_uuid = ?", n.uuid); err != nil {
+				return errors.Wrap(err, "dropping stale spans from assistant reference")
+			}
+		}
+
+		for uuid := range doomed {
+			for _, stmt := range []string{
+				"DELETE FROM node_output WHERE uuid = ?",
+				"DELETE FROM node_blobs WHERE uuid = ?",
+				"DELETE FROM node_spans WHERE node_uuid = ?",
+				"DELETE FROM wf_nodes WHERE node_uuid = ?",
+			} {
+				if _, err := tx.Exec(stmt, uuid); err != nil {
+					return errors.Wrap(err, "removing assistant node data")
+				}
+			}
+			if _, err := tx.Exec("DELETE FROM nodes WHERE uuid = ?", uuid); err != nil {
+				return errors.Wrap(err, "removing assistant node")
+			}
+		}
+		for id := range removeChips {
+			if _, err := tx.Exec("DELETE FROM chips WHERE id = ?", id); err != nil {
+				return errors.Wrap(err, "removing assistant chip")
+			}
+		}
+		if err := database.GCChips(tx); err != nil {
+			return errors.Wrap(err, "removing orphaned assistant content chips")
+		}
+		if _, err := tx.Exec("DROP TABLE IF EXISTS agent_sessions"); err != nil {
+			return errors.Wrap(err, "dropping assistant sessions")
 		}
 		return nil
 	},

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/mattn/go-runewidth"
@@ -224,69 +223,6 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥x stop"+cReset, maxLine))
 	}
 	return lines
-}
-
-// friendlyTool maps a CLI's raw tool name to a short display verb; anything
-// unmapped is shown with its first letter capitalized.
-var friendlyTool = map[string]string{
-	"read": "Read", "cat": "Read", "view": "Read",
-	"write": "Write", "create": "Write", "create_file": "Write",
-	"edit": "Edit", "str_replace": "Edit", "patch": "Edit", "update": "Edit", "apply_patch": "Edit",
-	"bash": "Bash", "exec": "Bash", "shell": "Bash", "run": "Run",
-	"grep": "Grep", "search": "Search", "glob": "Glob", "ls": "List", "list": "List",
-	"fetch": "Fetch", "webfetch": "Fetch",
-}
-
-// toolColor tints a tool verb by what it does: reads cyan, writes green, edits
-// yellow, shell magenta, everything else the accent color.
-func toolColor(verb string) string {
-	switch verb {
-	case "Read", "Grep", "Search", "Glob", "List", "Fetch":
-		return cCyan
-	case "Write":
-		return cGreen
-	case "Edit":
-		return cYellow
-	case "Bash", "Run":
-		return cMagenta
-	default:
-		return cAccent
-	}
-}
-
-// displayTool turns a raw tool name into its display verb.
-func displayTool(name string) string {
-	if v, ok := friendlyTool[strings.ToLower(name)]; ok {
-		return v
-	}
-	r := []rune(name)
-	if len(r) == 0 {
-		return name
-	}
-	r[0] = unicode.ToUpper(r[0])
-	return string(r)
-}
-
-// agentBandLines renders the running @mention's live progress as one muted band
-// beneath the mention node: while a tool runs, the tool verb in its color then
-// the file/command in gray; otherwise a plain "Thinking…" — so the band never
-// freezes on a stale tool call. Ephemeral: never persisted, never in the outline.
-// The caller only invokes this while the turn is busy.
-func (m *Model) agentBandLines(r row, subtreeBelow bool, maxLine int) []string {
-	rail := continuationPrefix(r, subtreeBelow)
-	var tl agentToolLine
-	if t := m.thread(r.it.uuid); t != nil {
-		tl = t.tool
-	}
-	body := cDim + "Thinking…" + cReset
-	if tl.name != "" {
-		verb := displayTool(tl.name)
-		body = toolColor(verb) + verb + cReset
-		if tl.detail != "" {
-			body += " " + cDim + tl.detail + cReset
-		}
-	}
-	return []string{clip(rail+cReset+"  "+body, maxLine)}
 }
 
 // noteBandLines renders a node's note as a muted, background-tinted band that
@@ -526,7 +462,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	}
 	desc := typeOf(it.typ)
 	base := cFG
-	// a type may set its own body color (e.g. log's dim, agent's red)
+	// a type may set its own body color (e.g. log's dim)
 	if desc.baseColor != nil {
 		if c := desc.baseColor(it); c != "" {
 			base = c

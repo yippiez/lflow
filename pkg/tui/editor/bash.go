@@ -74,7 +74,7 @@ func (m *Model) captureRunPWD(id string) {
 }
 
 // processCWD returns the editor process working directory, or "" when unknown.
-// Used at alt+r to pin $ chip / bash runs and (via tag.CLIClient) @ agent turns.
+// Used at alt+r to pin command-chip and runnable-node work.
 func processCWD() string {
 	pwd, err := os.Getwd()
 	if err != nil {

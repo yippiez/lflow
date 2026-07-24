@@ -13,7 +13,6 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   - The visible option list is capped at typePickerMaxRows (8) and scrolls.
 #   - The picker reserves its own rows from the body budget so the status bar
 #     always stays on-screen.
-#   - Parenthetical suffixes were removed: "Worker (Pi agent)" -> "Worker",
 #     "Query (codebase)" -> "Query", "Voice note" -> "Voice".
 #
 # Repro steps (from the bug report):
@@ -27,7 +26,6 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   - Only "Query" (the matching label) appears as an option — not all 11 types.
 #   - The status bar is still visible (not pushed off-screen).
 #   - The label reads "Query" with NO parenthetical suffix.
-#   - "Worker (Pi agent)" must never appear (clean label regression).
 
 # Use a short 12-row window to reproduce the overflow condition.
 WIN_H=12
@@ -93,7 +91,6 @@ assert_not_contains "Bullet"
 assert_not_contains "Heading 1"
 
 # The old parenthetical labels must not appear (label-clean regression check).
-assert_not_contains "Worker (Pi agent)"
 assert_not_contains "Query (codebase)"
 assert_not_contains "Voice note"
 

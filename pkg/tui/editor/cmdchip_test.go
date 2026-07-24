@@ -93,7 +93,7 @@ func TestCmdChipDraftColorsImmediately(t *testing.T) {
 
 // TestCmdDraftEndsOnCaretMove: the draft tint is a typing affordance, not a
 // property of the text — walking the caret into pre-existing "$…" prose (e.g.
-// an agent reply quoting a command) must NOT tint it as a code cell.
+// ordinary prose quoting a command) must NOT tint it as a code cell.
 func TestCmdDraftEndsOnCaretMove(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "run $ ls to list files"})
 	cursorOn(m, "edit")

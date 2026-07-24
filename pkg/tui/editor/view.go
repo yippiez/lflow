@@ -260,10 +260,6 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			if b := typeOf(it.typ).bands; b != nil {
 				bands[i] = append(bands[i], b(m, r, below, maxLine)...)
 			}
-			// a running @mention hangs its live "last tool call" line beneath it
-			if t := m.thread(it.uuid); t != nil && t.busy {
-				bands[i] = append(bands[i], m.agentBandLines(r, below, maxLine)...)
-			}
 		}
 		// flash grays the note / run-output bands too, so nothing competes with the chips
 		if m.mode == modeFlash {
@@ -587,7 +583,7 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 		return out
 	}
 
-	// A focused inline view (alt+e on a bash/json/agent node) replaces the temp
+	// A focused inline view (alt+e on a rich node) replaces the temp
 	// split, so it takes this non-showTemp path instead of the padded block above
 	// — and its body is only as tall as the expanded content. Pad it to the same
 	// constant height the showTemp frame uses (rowBudget body rows + the status
@@ -655,16 +651,8 @@ func (m *Model) bottomBar(maxLine int) []string {
 		lo, hi := m.selectionBounds()
 		state += fmt.Sprintf(" · "+cRed+"%d selected"+cDim, hi-lo+1)
 	}
-	// the agent signals the bar carries, in the same slot: how many agents are
-	// thinking, or the last failure. No install/reply/progress chatter — the
-	// outline itself shows results.
-	if n := m.busyThreadCount() + m.computingNodeCount(); n > 0 {
+	if n := m.computingNodeCount(); n > 0 {
 		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
-	}
-	if m.agentErr != "" {
-		// lowercase label; the message itself already starts capital (error
-		// strings are capitalized at the source — see rules/capitalize-error-strings)
-		state += " · " + cRed + "error: " + m.agentErr + cDim
 	}
 	if m.flash != "" {
 		state += " · " + m.flash

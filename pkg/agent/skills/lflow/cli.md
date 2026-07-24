@@ -14,8 +14,8 @@ d3f532    retry only transient failures                0  bullets
 ```
 
 Flags: `--all` includes completed nodes; `--type <t>` filters by node type
-(bullets, todo, log, h1..h3, code, quote, json, bash, query, voice, image,
-agent, wf, or any installed mod key).
+(bullets, todo, log, h1..h3, code, quote, json, query, voice, image,
+nlpcompute, math, wf, or any stored free-string type).
 
 ## Read a subtree — `lflow node list [node]`
 
@@ -58,15 +58,6 @@ $ lflow node edit d3f532 --note "curl exits 52 and 56" --color yellow
 
 Flags: `--name`, `--note`, `--type <t>`, `--state complete|uncomplete`,
 `--readonly[=false]`, the same styling flags as add, `--raw` with `--name`.
-
-## Install a mod — `lflow node install <git-url>`
-
-```
-$ lflow node install https://github.com/yippiez/lflow-log
-→ installed log 0.1.0 · timestamped log entries
-```
-
-Clones the repo into `~/.config/lflow/mods/<name>/`; re-running updates.
 
 ## Composing
 

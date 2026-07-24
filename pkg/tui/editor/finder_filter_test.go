@@ -36,36 +36,6 @@ func TestFinderHidesEmptyAndMirrorRows(t *testing.T) {
 	}
 }
 
-// TestFinderHidesSearchHiddenTypes: agent replies (and any search-hidden type)
-// never show as finder rows — they are thread answers, not navigation targets.
-func TestFinderHidesSearchHiddenTypes(t *testing.T) {
-	db := database.InitTestMemoryDB(t)
-	mk := func(uuid, name, typ string) {
-		n := database.Node{UUID: uuid, ParentUUID: "root", Rank: 1, Name: name,
-			Type: typ, AddedOn: 100, EditedOn: 100}
-		if err := n.Insert(db); err != nil {
-			t.Fatal(err)
-		}
-	}
-	mk("real", "groceries list", database.TypeBullets)
-	mk("reply", "groceries look fine to me", database.TypeAgent)
-
-	tr := &tree{db: db, root: &item{uuid: "root"},
-		byUUID: map[string]*item{}, externalNames: map[string]string{}, snapshots: map[string]snapshot{}}
-	tr.byUUID["root"] = tr.root
-	m := &Model{db: db, tree: tr, viewStack: []*item{tr.root}, width: 100, height: 30}
-
-	for _, query := range []string{"", "groceries"} {
-		for _, act := range []finderAction{actMirrorHere, actMirrorFrom, actMoveTo, actGoto, actBringHere, actLinkInsert} {
-			m.finder.act = act
-			rows := nodeFinderBackend{}.search(m, query)
-			if len(rows) != 1 || rows[0].node.UUID != "real" {
-				t.Fatalf("act %d query %q: want only the real node, got %d rows", act, query, len(rows))
-			}
-		}
-	}
-}
-
 // TestFinderRowsAreOneLine: a multi-paragraph node name flattens to a single
 // picker row — embedded newlines never wrap the finder list.
 func TestFinderRowsAreOneLine(t *testing.T) {

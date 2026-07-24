@@ -227,16 +227,15 @@ func (sv *server) session(conn net.Conn) {
 			// a CLI is the one that says whether it can
 			resp.Bins = probeBins(req.Bins)
 
-		case wire.OpAgent:
-			cl, thread, err := prepAgent(req)
-			if err != nil {
-				setErr(&resp, err)
-				break // failed turns ack the error; the conn stays a request conn
+		case wire.OpCompute:
+			if ok := probeBins([]string{"pi"})["pi"]; !ok {
+				setErr(&resp, errors.New("Missing dependency: pi"))
+				break
 			}
 			if err := enc.Encode(wire.Msg{Resp: &resp}); err != nil {
 				return
 			}
-			sv.agentTurn(conn, dec, enc, sess, req, cl, thread)
+			sv.computeTurn(conn, dec, enc, sess, req)
 			return
 
 		case wire.OpShutdown:

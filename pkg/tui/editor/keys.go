@@ -210,7 +210,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chipifyBeforeCaret(cur)
 			// a committed line under a session-bound mention is a child change —
 			// arm the debounced think (Enter itself does not ship)
-			m.markAgentTouch(cur)
 		}
 		mc := m.mirrorContext()
 		// caret at the very start of a node that has text: don't split — keep the
@@ -364,7 +363,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret = sp.start
 			m.markCmdDraft(cur)
 			m.unsaved = true
-			m.markAgentTouch(cur)
 			return m, nil
 		}
 		target := prevWordBoundary(runes, m.caret)
@@ -382,7 +380,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.caret = target
 		m.markCmdDraft(cur)
 		m.unsaved = true
-		m.markAgentTouch(cur)
 		return m, nil
 	case "ctrl+t":
 		// convert a time phrase under the cursor to canonical date text (the renderer
@@ -556,10 +553,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
-			}
-			// a node mentioning an agent starts (or re-sends) its thread session
-			if ag, ok := m.mentionedAgent(expandAnchors(cur.name, m.chips)); ok {
-				return m, m.sendThread(cur, ag)
 			}
 			if run := typeOf(cur.typ).run; run != nil {
 				if bin, missing := m.typeDepMissing(cur.typ); missing {
@@ -760,7 +753,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.caret = sp.start
 				m.markCmdDraft(cur)
 				m.unsaved = true
-				m.markAgentTouch(cur)
 				return m, nil
 			}
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
@@ -769,7 +761,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret--
 			m.markCmdDraft(cur)
 			m.unsaved = true
-			m.markAgentTouch(cur)
 			return m, nil
 		}
 		// backspace on an empty non-bullet node demotes its type to a plain bullet
@@ -811,7 +802,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			prev.children = append(prev.children, cur.children...)
 			cur.children = nil
-			m.stopAgentsUnder(cur) // mention may still have a turn in flight
+			m.removeNodeStateUnder(cur)
 			m.tree.remove(cur)
 			m.unsaved = true
 			m.refreshRows()
@@ -822,7 +813,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// the first node and empty: just remove it
 		if cur.name == "" && len(cur.children) == 0 {
-			m.stopAgentsUnder(cur)
+			m.removeNodeStateUnder(cur)
 			m.tree.remove(cur)
 			m.unsaved = true
 			m.ensureViewNonEmpty()
@@ -908,13 +899,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m.openIconPicker(cur)
 			}
 		}
-		// "@" opens the agent picker at a word boundary — picking lands an
-		// agent chip; alt+r on the node later starts the thread (see agent.go)
-		if string(k.Runes) == "@" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			len(m.agents) > 0 && tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
-			return m.openCompleter(cur, complAgent, "@")
-		}
-
 		if cur.mirrorOf != "" {
 			return m, nil // a mirror reference is edited at its original — see mirrorContext
 		}
@@ -954,7 +938,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(ins) > 0 {
 			shiftSpans(cur.uuid, m.caret, len(ins)) // painted runs ride along
 			m.persistSpans(cur.uuid)
-			m.markAgentTouch(cur) // descendant edit → debounced agent think
 		}
 		m.caret += len(ins)
 		m.markCmdDraft(cur)

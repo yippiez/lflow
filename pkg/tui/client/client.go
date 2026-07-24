@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -200,22 +199,13 @@ func (c *Client) Deps(bins []string) (map[string]bool, error) {
 	return resp.Bins, nil
 }
 
-// AgentTurn runs one agent turn ON the daemon over a dedicated connection and
-// streams its frames. Cancelling ctx closes the conn, which kills the CLI on
-// the daemon's side; the channel closes after the Done frame (or conn loss).
-// A refused turn (Unknown agent, Missing dependency) errors here, before any
-// streaming starts.
-func (c *Client) AgentTurn(ctx context.Context, agentName string, thread json.RawMessage, cwd, skillDir string) (<-chan wire.AgentEv, error) {
-	return c.agentStream(ctx, wire.Req{Op: wire.OpAgent, Agent: agentName, Thread: thread, Cwd: cwd, SkillDir: skillDir})
+// ComputePrompt runs one daemon-side NLPCompute turn. Cancelling ctx closes
+// the dedicated connection and stops the CLI process.
+func (c *Client) ComputePrompt(ctx context.Context, system, prompt, cwd, skillDir string) (<-chan wire.ComputeEv, error) {
+	return c.computeStream(ctx, wire.Req{Op: wire.OpCompute, System: system, Prompt: prompt, Cwd: cwd, SkillDir: skillDir})
 }
 
-// AgentPrompt runs one RAW daemon-side turn: system + prompt as-is, no chat
-// thread framing — the NLPCompute code generator path.
-func (c *Client) AgentPrompt(ctx context.Context, agentName, system, prompt, cwd, skillDir string) (<-chan wire.AgentEv, error) {
-	return c.agentStream(ctx, wire.Req{Op: wire.OpAgent, Agent: agentName, System: system, Prompt: prompt, Cwd: cwd, SkillDir: skillDir})
-}
-
-func (c *Client) agentStream(ctx context.Context, req wire.Req) (<-chan wire.AgentEv, error) {
+func (c *Client) computeStream(ctx context.Context, req wire.Req) (<-chan wire.ComputeEv, error) {
 	nc, err := c.dialHealing()
 	if err != nil {
 		return nil, err
@@ -225,7 +215,7 @@ func (c *Client) agentStream(ctx context.Context, req wire.Req) (<-chan wire.Age
 		return nil, err
 	}
 
-	ch := make(chan wire.AgentEv, 64)
+	ch := make(chan wire.ComputeEv, 64)
 	readerDone := make(chan struct{})
 	go func() { // cancel → close the conn → the daemon's read loop cancels the CLI
 		select {
@@ -243,13 +233,13 @@ func (c *Client) agentStream(ctx context.Context, req wire.Req) (<-chan wire.Age
 			if err := nc.dec.Decode(&msg); err != nil {
 				return
 			}
-			if msg.Agent == nil {
+			if msg.Compute == nil {
 				continue
 			}
-			if msg.Agent.Done {
+			if msg.Compute.Done {
 				return
 			}
-			ch <- *msg.Agent
+			ch <- *msg.Compute
 		}
 	}()
 	return ch, nil

@@ -28,13 +28,12 @@ per type in `pkg/tui/editor/registry.go`.
 ## Daemon + live sync
 
 - One daemon per database owns the SQLite file (WAL, one connection,
-  update-hook change events) AND runs every agent turn — the client is only a
-  client. `wire.OpAgent` streams one turn per dedicated conn (editor ships the
-  rendered thread + cwd + skill dir; closing the conn cancels the CLI);
-  `wire.OpDeps` answers which CLI binaries the daemon can exec — NodeCLIDeps:
-  node types declare `cliDeps` in the registry, agents map via `tag.DepFor`; a
-  missing dep greys the /type and @mention entries and runs error
-  "Missing dependency: <bin>". Everything else is a client: `infra.Init` →
+  update-hook change events) and runs NLPCompute generation — the client is
+  only a client. `wire.OpCompute` streams one generation per dedicated conn
+  (editor ships the prompt + cwd + skill dir; closing the conn cancels Pi);
+  `wire.OpDeps` answers which CLI binaries the daemon can exec — node types
+  declare `cliDeps` in the registry, and a missing dep greys its /type entry
+  and runs error "Missing dependency: <bin>". Everything else is a client: `infra.Init` →
   `client.Ensure` dials `daemon.sock` next to the DB and auto-spawns
   `lflow serve --quiet --idle` (10 min idle exit) when absent. A daemon built
   from a different binary is shut down and respawned on first contact, so dev
@@ -70,7 +69,7 @@ per-feature column — and no scattered `switch typ`:
    `pkg/tui/editor/registry.go` — that slice drives the `/type` picker, and the
    field doc-comments there list every hook (`sign`, `glyph`, `render`,
    `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e,
-   `toContext`/`toContextM` for the node's XML element in agent context).
+   and `toContext`/`toContextM` for structured XML context).
 3. Put the behavior in its own file. PLUGGABLE types live in
    `pkg/tui/editor/nodes/<type>.go` — ONE file per node — registered at init
    via `editor.RegisterNodePlugin` (see `editor/nodeplugin.go`): the editor
@@ -106,69 +105,22 @@ auto-run) and their output is ephemeral — never persisted or synced.
 ## Node priority
 
 `nodes.priority` (lm39) says where INCOMING nodes land among a node's children:
-`up` = top, `down` = bottom. New children (CLI `add`), moved-in nodes
-(`/move:to`, `mv`, indent, multi-select, `/mirror:from`) and agent replies all
-route through it (`database.PlaceRank`, `tree.reparent`). New nodes default
+`up` = top, `down` = bottom. New children (CLI `add`) and moved-in nodes (`/move:to`, `mv`, indent,
+multi-select, `/mirror:from`) route through it (`database.PlaceRank`,
+`tree.reparent`). New nodes default
 up; everything that existed before lm39 is down. `/priority:up` /
-`/priority:down` set it (immediate write, like /star). Agent-chipped mention
-nodes and ✦ replies are FORCED down — a conversation always reads top-down
-chronological; `/priority:up` refuses a mention, and chip completion / thread
-send convert a pre-set up (`forceThreadPriorityDown`). `buildThread` walks a
-priority-up node's children reversed, so agent context is always oldest-first
-regardless of display order — the pi prompt tells the agent so.
+`/priority:down` set it immediately, like /star.
 
-## The @mention agent
+## NLPCompute code generation
 
-- **No runtime extension system.** NodeMods (runtime JS node types / chip
-  kinds via goja; "artifacts", then "GenUI nodes" historically) existed and
-  were removed in 2026-07 — every node type is compiled in now. Nodes OF a
-  former mod type still render (unknown types fall back to bullets, text
-  intact); the `log` type was promoted to a built-in. lm38 dropped the
-  `artifacts` and `node_mod_data` tables.
-- **embedded skill** (`pkg/agent/skills/lflow/` — SKILL.md, cli.md, embedded
-  by `pkg/agent/skills.go`) teaching the CLI agent the lflow CLI and chips.
-  It is materialized to `~/.local/share/lflow/skills` at editor start and
-  passed to pi via `--skill` each turn — skills only, never a pi extension.
-- **@mention agent** (`pkg/tui/tag` + `pkg/tui/editor/agent.go`): typing `@`
-  completes configured agents and lands a red **agent chip** (expands to plain
-  `@Name`, so every mention detector reads it like typed text). Two trigger
-  rules, nothing else: (1) alt+r on the mention node is the manual fire —
-  always (starts the session or re-sends); (2) any local edit to a DESCENDANT
-  of the mention arms a ~1s debounce (markAgentTouch → noteAgentChange); when
-  it settles the agent re-reads the thread and decides whether to reply (PASS
-  is fine) — cursor-leave and Enter do not ship on their own. The mention node IS the thread root — the session binds to
-  it, so siblings/ancestors never trigger or receive replies. Context per turn
-  = the mention's parent (one ambient `<parent>` element) + the mention +
-  everything beneath it, rendered as nested XML (`<asked>`/`<answer>`/`<node>`;
-  a typed node wears its type's element via the registry's `toContext` hook —
-  `<todo done="true">`, `<log time="…">`, `<json>` with its document as the
-  body — role tags win over type tags) inside a `<NodeContext>` block under an
-  `<instructions>` tag; every node's
-  children land at most once, so mirrors can neither loop the walk nor
-  duplicate a subtree — nothing else; the rest of the outline the agent
-  searches itself via the lflow CLI (`lflow node grep/list`, taught by the
-  skill and system prompt). Replies land as red ✦ `agent` nodes — an internal type (never
-  offered in /type, only the agent creates one), born locked; /lock unlocks
-  a reply for reshaping like any other node. Only text after the turn's LAST tool call
-  lands as the reply — narration between tool calls feeds the live band and
-  is discarded, so replies read like chat messages, not work reports. Replies may speak chips:
-  `{{cmd:…}}` / `{{path:…}}` / `{{link:label|url}}` / `{{tag:…}}` / `{{date:…}}`
-  tokens land as real chips (`{{cmd:…}}` is the runnable yellow $ chip); plain
-  #tags and dates auto-convert. Attachments hang as typed children under the
-  reply via `{{attach:type|body}}` or a `{{attach:type}}…{{/attach}}` block
-  (code, image, bash-as-cmd, json, quote, … — not conversation bullets). The
-  pi system prompt (`pkg/tui/tag/pi.go`) teaches the tokens. Agents are launch-and-forget:
-  every turn is a fresh CLI run (pi --no-session, or the grok CLI when the
-  model pref reads `grok:…`) fed the whole thread as it reads now — no remote
-  session to drift from edited nodes. `agent_sessions` holds only the LOCAL
-  thread binding (node ↔ agent), so follow-ups keep reaching the agent across
-  editor restarts.
-  Config `~/.config/lflow/agents.json`; without it the built-in **Pi** and
-  **Grok** agents are registered (`tag.LoadAgents`), each running ITS OWN local
-  CLI backend and nothing else (Pi→`pi`, Grok→`grok`; `tag.ClientFor`) — a
-  missing backend is a "Missing dependency" error, NOT a silent mock. The
-  offline **mock only serves an agent that sets `"mock": true`** in agents.json
-  (a test agent). Wire protocol: JSON over websocket, see `pkg/tui/tag/ws.go`.
+NLPCompute is the only in-editor Pi surface. `alt+r` sends its natural-language
+instruction and local outline neighborhood as one fresh, no-session generation
+turn. The daemon runs Pi in the cell's pinned working directory and streams
+progress back; generated code is stored in local `node_output`, shown through
+the shared code-block face, and never executed automatically. The embedded
+`pkg/agent/skills/lflow/` skill teaches the generator how to query the outline.
+There is no conversational assistant, mention completer, assistant reply type,
+or resumable external coding-session reference.
 
 ## Demo videos
 

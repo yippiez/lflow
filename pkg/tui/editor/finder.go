@@ -18,7 +18,7 @@ func (m *Model) openFinder(act finderAction) {
 }
 
 // nodeFinderBackend is the finderBackend that fronts the outline's nodes: it
-// searches the DB (plus the Agent Domain for /move:here), commits a pick via
+// searches the DB (plus the Temporary Domain for /move:here), commits a pick via
 // runFinder, and links a URL query straight to a website for "[[".
 type nodeFinderBackend struct{}
 
@@ -67,12 +67,8 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 			continue
 		}
 		if m.finder.act == actBacklinks {
-			// backlinks KEEP mirrors (they are the references) and empty-name
-			// mirror rows; only search-hidden types stay out. An optional query
-			// filters by the resolved display name.
-			if typeOf(h.Type).searchHidden {
-				continue
-			}
+			// Backlinks keep mirrors (they are the references) and empty-name
+			// mirror rows. An optional query filters by resolved display name.
 			if q != "" {
 				name := finderRowName(h, func(uuid string) (database.Node, bool) {
 					n, e := database.GetNode(m.db, uuid)
@@ -83,10 +79,9 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 				}
 			}
 		} else {
-			// every other picker hides empty nodes (noise), mirror rows (a pick
-			// on a mirror resolves to its original anyway, so listing both has
-			// no value), and search-hidden types (agent replies)
-			if h.Name == "" || h.MirrorOf != "" || typeOf(h.Type).searchHidden {
+			// Every other picker hides empty nodes and mirror rows (a pick on a
+			// mirror resolves to its original, so listing both has no value).
+			if h.Name == "" || h.MirrorOf != "" {
 				continue
 			}
 		}
@@ -181,7 +176,7 @@ func (nodeFinderBackend) hint(m *Model) string {
 }
 
 // finderRowFor decorates a node with its subtree count for the finder list. A
-// count error (or a synthetic Agent-Domain node not in the DB) falls back to 1,
+// count error (or a synthetic Temporary-Domain node not in the DB) falls back to 1,
 // matching the pre-refactor lazy count.
 func (m *Model) finderRowFor(n database.Node) finderRow {
 	count, err := database.CountSubtree(m.db, n.UUID)
@@ -202,7 +197,7 @@ func (m *Model) tempFinderHits(cur *item, query string) []database.Node {
 	var hits []database.Node
 	for _, it := range m.tempTree.root.children {
 		name := strings.TrimSpace(it.name)
-		if name == "" || (cur != nil && it.uuid == cur.uuid) || typeOf(it.typ).searchHidden {
+		if name == "" || (cur != nil && it.uuid == cur.uuid) {
 			continue
 		}
 		if q != "" && !strings.Contains(strings.ToLower(name), q) {

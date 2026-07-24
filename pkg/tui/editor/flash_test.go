@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
 // flashLabels must hand out prefix-free labels: no label may be the start of
@@ -116,14 +115,11 @@ func TestFlashOffersRegistryActions(t *testing.T) {
 	}
 }
 
-// Content-sensitive alt+r actions are also surfaced in flash: cmd chips get a
-// runnable "run $" action, and @mention roots get a send action.
+// Content-sensitive alt+r actions are also surfaced in flash.
 func TestFlashOffersInlineRunActions(t *testing.T) {
 	m := newTestModel(80, "note", "")
-	m.agents = []tag.Agent{{Name: "Pi", Mock: true}}
 	cmdAnchor := m.createChip(chipKindCmd, "echo hi")
-	agentAnchor := m.createChip(chipKindAgent, "Pi")
-	m.tree.root.children[1].name = "ask " + cmdAnchor + " then " + agentAnchor
+	m.tree.root.children[1].name = "run " + cmdAnchor
 	m.refreshRows()
 	m.cursor = 0
 	m.enterFlash()
@@ -136,9 +132,6 @@ func TestFlashOffersInlineRunActions(t *testing.T) {
 	}
 	if !verbs["run $"] {
 		t.Fatalf("cmd chip should offer a flash run action, got %v", verbs)
-	}
-	if !verbs["send"] {
-		t.Fatalf("@mention should offer a flash send action, got %v", verbs)
 	}
 }
 

@@ -111,13 +111,12 @@ type chipKind struct {
 }
 
 const (
-	chipKindPath  = "path"
-	chipKindTag   = "tag"
-	chipKindDate  = "date"
-	chipKindLink  = "link"
-	chipKindCmd   = "cmd"
-	chipKindAgent = "agent"
-	chipKindIcon  = "icon" // painted service glyph; value=glyph, label=shortcode
+	chipKindPath = "path"
+	chipKindTag  = "tag"
+	chipKindDate = "date"
+	chipKindLink = "link"
+	chipKindCmd  = "cmd"
+	chipKindIcon = "icon" // painted service glyph; value=glyph, label=shortcode
 )
 
 var chipKinds = map[string]chipKind{
@@ -165,16 +164,6 @@ var chipKinds = map[string]chipKind{
 		color:   cYellow,
 		display: func(v string) string { return "$ " + v },
 		expand:  func(v string) string { return v },
-	},
-	// an agent chip is an @mention as a structured token: value is the agent
-	// name, worn red like the agent's ✦ replies. It expands to plain "@Name",
-	// so every mention detector (alt+r send, thread render, the agent's own
-	// placement check) reads it exactly like a typed mention.
-	chipKindAgent: {
-		key:     chipKindAgent,
-		color:   cRed,
-		display: func(v string) string { return "@" + v },
-		expand:  func(v string) string { return "@" + v },
 	},
 	// an icon chip is a painted service glyph from the :shortcode picker.
 	// value is the glyph (CLI/export show it raw); label is the shortcode used

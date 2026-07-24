@@ -171,44 +171,6 @@ func TestQueryMatchesTypeFilter(t *testing.T) {
 	}
 }
 
-// TestQueryHidesAgentRepliesUnlessTyped: with no ":type:" filter a query never
-// matches search-hidden types (agent replies); naming the type explicitly is
-// the one way to query them.
-func TestQueryHidesAgentRepliesUnlessTyped(t *testing.T) {
-	root := &item{uuid: "root"}
-	plain := &item{uuid: "b1", name: "deploy notes", typ: database.TypeBullets, parent: root}
-	reply := &item{uuid: "a1", name: "deploy looks fine", typ: database.TypeAgent, parent: root}
-	q := &item{uuid: "q", typ: database.TypeQuery, parent: root}
-	root.children = []*item{plain, reply, q}
-	tr := &tree{
-		root:          root,
-		snapshots:     map[string]snapshot{},
-		externalNames: map[string]string{},
-		byUUID:        map[string]*item{"b1": plain, "a1": reply, "q": q},
-	}
-	m := &Model{tree: tr} // db nil → in-memory only
-
-	names := func(ns []database.Node) map[string]bool {
-		s := map[string]bool{}
-		for _, n := range ns {
-			s[n.UUID] = true
-		}
-		return s
-	}
-
-	q.name = "deploy"
-	got := names(m.queryMatches(q))
-	if !got["b1"] || got["a1"] {
-		t.Errorf("plain query must skip agent replies, got %v", got)
-	}
-
-	q.name = "deploy :type:agent"
-	got = names(m.queryMatches(q))
-	if got["b1"] || !got["a1"] {
-		t.Errorf(":type:agent must surface only the reply, got %v", got)
-	}
-}
-
 // TestQueryBreadcrumbs drives the :breadcrumb: display flag: hits sort by
 // ancestor path, and only the first hit of each group renders the breadcrumb.
 func TestQueryBreadcrumbs(t *testing.T) {

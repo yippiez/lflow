@@ -135,9 +135,7 @@ func grokPump(c *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, ctx context.C
 	var reply strings.Builder
 	// flush emits the text accumulated since the last flush as one event.
 	// Called before each tool call and at turn end, so text interleaves with
-	// tools in stream order rather than arriving as one end-of-turn blob —
-	// the reply extractor in pkg/tui/tag relies on that ordering to drop
-	// pre-tool narration ("I'll look at...") from the reply node.
+	// tools in stream order rather than arriving as one end-of-turn blob.
 	flush := func() {
 		if txt := strings.TrimSpace(reply.String()); txt != "" {
 			s.events <- AgentEvent{Kind: AgentEventText, Text: txt}

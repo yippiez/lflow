@@ -443,18 +443,6 @@ func (completerSource) items(m *Model, q string) []pickerItem {
 	var out []pickerItem
 	for _, it := range m.complItems(q) {
 		pi := pickerItem{label: it.label, value: it.value, desc: it.desc}
-		// an agent whose CLI backend is missing stays listed but disabled:
-		// greyed here, refused with "Missing dependency" on pick
-		if m.compl.kind == complAgent {
-			if a, ok := m.agentByName(it.value); ok {
-				if bin, missing := m.agentDepMissing(a); missing {
-					label := pi.label
-					pi.render = func(bool) string {
-						return cDim + label + " · missing " + bin + cReset
-					}
-				}
-			}
-		}
 		// icons: colored glyph + dim :shortcode (see iconRowRender)
 		if m.compl.kind == complIcon {
 			if e, ok := iconByShortcode(strings.TrimPrefix(it.label, ":")); ok {

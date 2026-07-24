@@ -63,9 +63,6 @@ var settingDefs = []settingDef{
 		},
 		def: "select",
 	},
-	// The @Pi agent's model and thinking level are NOT settings — each backend
-	// (pi, grok) ships a baked-in default; see agent.ProviderDefault and the
-	// provider pick in tag/pi.go.
 }
 
 // themeOptions derives the theme setting's options from the theme registry so

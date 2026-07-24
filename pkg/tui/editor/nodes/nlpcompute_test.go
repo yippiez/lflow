@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/pkg/tui/compute"
 	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
 func TestPeelCodeFence(t *testing.T) {
@@ -24,10 +24,10 @@ func TestPeelCodeFence(t *testing.T) {
 // the cwd pins, the state parks idle.
 func TestNLPComputeFlow(t *testing.T) {
 	h := newFakeHost(t)
-	h.compute = func() <-chan tag.Event {
-		ch := make(chan tag.Event, 4)
-		ch <- tag.Event{Op: "message", Text: "```python\nb = sum(xs)\n```"}
-		ch <- tag.Event{Op: "done"}
+	h.compute = func() <-chan compute.Event {
+		ch := make(chan compute.Event, 4)
+		ch <- compute.Event{Op: "message", Text: "```python\nb = sum(xs)\n```"}
+		ch <- compute.Event{Op: "done"}
 		close(ch)
 		return ch
 	}
@@ -160,10 +160,10 @@ func TestNCProseFace(t *testing.T) {
 // idle it is plain red; completion drops the flag.
 func TestNCRenderShineAndFlag(t *testing.T) {
 	h := newFakeHost(t)
-	h.compute = func() <-chan tag.Event {
-		ch := make(chan tag.Event, 4)
-		ch <- tag.Event{Op: "message", Text: "```python\nb = 1\n```"}
-		ch <- tag.Event{Op: "done"}
+	h.compute = func() <-chan compute.Event {
+		ch := make(chan compute.Event, 4)
+		ch <- compute.Event{Op: "message", Text: "```python\nb = 1\n```"}
+		ch <- compute.Event{Op: "done"}
 		close(ch)
 		return ch
 	}

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/lflow/lflow/pkg/tui/compute"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/editor"
-	"github.com/lflow/lflow/pkg/tui/tag"
 )
 
 // The shared plugin-test harness. The whole point of the plugin API is that a
@@ -19,7 +19,7 @@ type fakeHost struct {
 	stores  map[string]map[string]any
 	flash   string
 	deps    map[string]bool
-	compute func() <-chan tag.Event
+	compute func() <-chan compute.Event
 }
 
 func newFakeHost(t *testing.T) *fakeHost {
@@ -41,11 +41,7 @@ func (f *fakeHost) NodeDepOK(b string) bool {
 	ok, probed := f.deps[b]
 	return !probed || ok
 }
-func (f *fakeHost) NodeDefaultAgent() string { return "Pi" }
-func (f *fakeHost) NodeAgentGate(string) (string, bool) {
-	return "", false
-}
-func (f *fakeHost) NodeComputeTurn(context.Context, string, string, string, string) (<-chan tag.Event, error) {
+func (f *fakeHost) NodeComputeTurn(context.Context, string, string, string) (<-chan compute.Event, error) {
 	return f.compute(), nil
 }
 
