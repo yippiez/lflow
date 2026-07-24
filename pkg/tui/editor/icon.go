@@ -33,7 +33,7 @@ var iconCatalog = []iconEntry{
 	{"⟴", "rlooparrow", "white"},
 	// other — white
 	{"⫘", "chain", "white"},
-	{"🔎︎", "magnifier", "white"},
+	{"⌕", "magnifier", "white"}, // U+2315, not the 🔎 emoji
 	{"◇", "decision", "white"},
 	// services — brand-ish picker tint
 	{"▯◨", "trello", "blue"},
