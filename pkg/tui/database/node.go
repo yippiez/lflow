@@ -37,6 +37,13 @@ const (
 	// complex ones fan out into a child tree and the operator row shows a dim
 	// linear preview of its whole subtree. See editor/math.go.
 	TypeMath = "math"
+	// TypeML is a neural network architecture composed AS an outline: a node's
+	// text is a building block with its arguments (Linear 784 256, Conv2d 3 64
+	// k=3, ReLU — colored by family) or a container (sequential, residual, 12×,
+	// concat) whose parts are its children. A single layer stays inline; a model
+	// fans out into a child tree and each container row shows a dim linear
+	// preview of its subtree plus its parameter count. See editor/ml.go.
+	TypeML = "ml"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -67,6 +74,7 @@ var TypeOrder = []string{
 	TypeImage,
 	TypeNLPCompute,
 	TypeMath,
+	TypeML,
 	TypeWF,
 }
 
