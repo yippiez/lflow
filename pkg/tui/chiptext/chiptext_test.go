@@ -93,3 +93,27 @@ func TestChipifyDeclineKeepsText(t *testing.T) {
 		t.Errorf("declined chip should leave original text, got %q", out)
 	}
 }
+
+func TestChipifyZoteroTargetBecomesACitation(t *testing.T) {
+	var seen []string
+	out := Chipify("as in [Smith 2020](zotero://select/library/items/AAAA1111)", mk(&seen))
+	want := "zotero:Smith 2020=zotero://select/library/items/AAAA1111"
+	if len(seen) != 1 || seen[0] != want {
+		t.Errorf("chips seen = %v, want [%s]", seen, want)
+	}
+	if out != "as in <zotero>" {
+		t.Errorf("rewrite = %q", out)
+	}
+	// a group-library reference is a citation too
+	seen = nil
+	Chipify("[Doe 1998](zotero://select/groups/5566/items/BBBB2222)", mk(&seen))
+	if len(seen) != 1 || !strings.HasPrefix(seen[0], "zotero:") {
+		t.Errorf("group citation = %v", seen)
+	}
+	// an ordinary web link is still a link
+	seen = nil
+	Chipify("[docs](https://x.com)", mk(&seen))
+	if len(seen) != 1 || !strings.HasPrefix(seen[0], "link:") {
+		t.Errorf("web link = %v, want a plain link chip", seen)
+	}
+}

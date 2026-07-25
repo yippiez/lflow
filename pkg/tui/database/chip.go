@@ -33,6 +33,9 @@ func ChipDisplay(c Chip) string {
 			return chiptext.ServiceDisplay(svc, c.Label)
 		}
 		return linkLabel(c)
+	case "zotero":
+		// a citation: the compact author-year label behind the Zotero brand mark
+		return "Z " + linkLabel(c)
 	case "cmd":
 		return "$" + c.Value
 	case "icon":
@@ -49,7 +52,7 @@ func ChipExpand(c Chip) string {
 	switch c.Kind {
 	case "tag":
 		return "#" + c.Value
-	case "link":
+	case "link", "zotero":
 		return "[" + linkLabel(c) + "](" + c.Value + ")"
 	default:
 		return c.Value

@@ -133,6 +133,8 @@ const (
 	// resumes it, alt+e shows its transcript (see agent.go).
 	chipKindAgent = "agent"
 	chipKindMol   = "molecule"
+	// a citation; value=zotero:// select URI, label=author-year (see zotero.go)
+	chipKindZotero = "zotero"
 )
 
 var chipKinds = map[string]chipKind{
@@ -199,6 +201,16 @@ var chipKinds = map[string]chipKind{
 		display: molChipDisplay,
 		expand:  func(v string) string { return v },
 	},
+	// a zotero chip is an inline citation: value is Zotero's own select URI,
+	// label the compact author-year form. display/expand below are value-only
+	// fallbacks — chipDisplay/chipExpand special-case it to use the label, the
+	// same split link chips use. Color is the brand paint (see renderBody).
+	chipKindZotero: {
+		key:     chipKindZotero,
+		color:   cRed,
+		display: func(v string) string { return zoteroGlyph + " " + v },
+		expand:  func(v string) string { return v },
+	},
 }
 
 func chipKindOf(kind string) (chipKind, bool) {
@@ -234,6 +246,9 @@ func chipDisplay(c database.Chip) string {
 		// glyph + the session's live title (see agentChipDisplay)
 		return agentChipDisplay(c)
 	}
+	if c.Kind == chipKindZotero {
+		return zoteroGlyph + " " + zoteroChipLabel(c)
+	}
 	if c.Kind == chipKindCmd {
 		// the label holds the run preview (set by setCmdPreview / hydrateCmdPreviews;
 		// never written to the chips table). show "$ cmd → preview" when a band
@@ -267,6 +282,11 @@ func nonBreaking(s string) string { return strings.ReplaceAll(s, " ", "\u00a0") 
 func chipExpand(c database.Chip) string {
 	if c.Kind == chipKindLink {
 		return "[" + linkChipLabel(c) + "](" + c.Value + ")"
+	}
+	// a citation expands to the same markdown-ish pair, so both the human
+	// citation and the machine reference survive export, scripts and search
+	if c.Kind == chipKindZotero {
+		return "[" + zoteroChipLabel(c) + "](" + c.Value + ")"
 	}
 	if k, ok := chipKindOf(c.Kind); ok && k.expand != nil {
 		return k.expand(c.Value)

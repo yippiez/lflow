@@ -56,6 +56,23 @@ var settingDefs = []settingDef{
 		def: "compact",
 	},
 	{
+		// where a citation chip goes on alt+g and on a terminal ctrl+click: the
+		// Zotero app on this desktop, or the zotero.org web library. alt+o always
+		// opens the other one (see zotero.go).
+		key: "zotero.open", label: "Zotero opens",
+		options: []settingOption{
+			{"local", "local · the Zotero app"},
+			{"cloud", "cloud · the zotero.org library"},
+		},
+		def: "local",
+		apply: func(m *Model, v string) {
+			zoteroOpenMode = v
+			if zoteroAccount == "" {
+				zoteroAccount = m.zoteroUsername()
+			}
+		},
+	},
+	{
 		// select: the terminal owns the mouse — native drag-select works (and
 		// copy-on-select where the terminal offers it); the wheel scrolls the
 		// terminal, pgup/pgdn scroll the outline. wheel: lflow captures the

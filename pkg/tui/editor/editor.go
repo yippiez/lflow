@@ -22,6 +22,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/tui/wf"
 	"github.com/lflow/lflow/pkg/tui/wire"
+	"github.com/lflow/lflow/pkg/tui/zotero"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )
@@ -45,6 +46,7 @@ const (
 	modeInsert         // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
 	modeAgentPick      // /agent: start a coding session here, or attach one from a CLI's own store
 	modeAgentColor     // ⌥c on a session chip: its color
+	modeCite           // the "@@" / /cite picker: search the local Zotero library and splice a citation chip
 	modeCharacterPick  // the alt+e character picker on a Line node: pick or write a character
 	modeCharacterColor // the character picker's recolor key: assign a pill color to a character
 	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
@@ -71,6 +73,7 @@ type slashCommand struct {
 
 var slashCommands = []slashCommand{
 	{"/backlinks", "Show nodes that mirror or link to this one"},
+	{"/cite", "Cite a paper from your Zotero library (@@)"},
 	{"/complete", "Toggle done (alt+enter)"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
@@ -86,7 +89,7 @@ var slashCommands = []slashCommand{
 	{"/priority:down", "Incoming nodes land at the bottom"},
 	{"/priority:up", "Incoming nodes land on top"},
 	{"/reborn", "Reset this node's creation date to now"},
-	{"/settings", "Editor preferences: theme, image preview"},
+	{"/settings", "Editor preferences: theme, image preview, Zotero"},
 	{"/star", "Star this node — ranks first in pickers and search hits"},
 	{"/style", "Style this node — or just the text selected with shift+←/→"},
 	{"/suggestions", "Go to the next node with a pending suggestion (alt+v reviews)"},
@@ -281,6 +284,12 @@ type Model struct {
 	wfMap    map[string]string
 	wfBusy   map[string]bool
 	wfClient *wf.Client
+
+	// Zotero library (see zotero.go and pkg/tui/zotero): the local library read
+	// once, lazily, on first cite; zoteroErr remembers why a read failed so the
+	// picker can say so instead of retrying a missing install on every keystroke.
+	zoteroLib *zotero.Library
+	zoteroErr string
 
 	// Ancestor path strings used to sort :breadcrumb: query hits before their
 	// nested result tree is reconciled; cleared whenever a query re-runs.
@@ -1803,6 +1812,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/link":
 		// splice an inline link chip at the caret (same as the [[ trigger)
 		m.openFinder(actLinkInsert)
+	case "/cite":
+		// splice a citation chip from the local Zotero library (same as "@@")
+		return m.openCitePicker()
 	case "/move:to":
 		m.openFinder(actMoveTo)
 	case "/goto":

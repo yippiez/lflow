@@ -49,7 +49,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.mode {
 	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert,
-		modeAgentPick, modeAgentColor, modeCharacterPick, modeCharacterColor:
+		modeAgentPick, modeAgentColor, modeCharacterPick, modeCharacterColor, modeCite:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
@@ -557,10 +557,14 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "alt+g":
 		// on a link chip, alt+g follows it (a node jumps, a URL opens in the
-		// browser); off a chip it opens the /goto finder to jump to any node
+		// browser); on a citation chip it goes to the paper, local or cloud per
+		// the zotero.open setting; off a chip it opens the /goto finder
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.linkChipAtCaret(cur); ok {
 				return m.followLink(c)
+			}
+			if c, ok := m.zoteroChipAtCaret(cur); ok {
+				return m.openZoteroChip(c, zoteroTargetLocal())
 			}
 		}
 		if !m.tempActive {
@@ -645,8 +649,14 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "alt+o":
 		// open the cursor node in the HOST's own app — outside the terminal
-		// (image → the desktop image viewer). Types without the hook ignore it.
+		// (image → the desktop image viewer). On a citation chip it opens the
+		// destination alt+g did NOT take: the Zotero app when the setting points
+		// at the cloud, the web library when it points at this desktop — so a
+		// machine without Zotero installed can still reach the paper.
 		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.zoteroChipAtCaret(cur); ok {
+				return m.openZoteroChip(c, !zoteroTargetLocal())
+			}
 			if open := typeOf(cur.typ).openHost; open != nil {
 				return m, open(m, cur)
 			}
@@ -1026,6 +1036,20 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.flash = "empty $ chip · alt+i edits the command"
 			}
 			return m, nil
+		}
+
+		// "@@" opens the cite picker: the second "@" drops the first and opens the
+		// Zotero library search, exactly like "[[" opens the link picker. A single
+		// "@" always stays literal (an email address, a handle), which is why the
+		// gesture is doubled.
+		if string(k.Runes) == "@" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '@') {
+			runes := []rune(cur.name)
+			m.boundCaret(len(runes))
+			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			m.caret--
+			m.unsaved = true
+			return m.openCitePicker()
 		}
 
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command

@@ -41,6 +41,8 @@ func (m *Model) listSource() pickerSource {
 		return characterSource{}
 	case modeCharacterColor:
 		return characterColorSource{}
+	case modeCite:
+		return zoteroSource{}
 	}
 	return nil
 }
@@ -124,6 +126,7 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // query nodes (where ":" is the query-command completer) can still insert icons.
 var insertKinds = []struct{ value, label, desc string }{
 	{"agent", "agent", "a coding session you already have"},
+	{"cite", "cite", "a citation from your Zotero library"},
 	{"cmd", "bash", "a runnable $ command chip (or type $$)"},
 	{"date", "date", "today as a date chip"},
 	{"icon", "icon", "an icon or emoji via shortcode"},
@@ -199,6 +202,8 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 		m.openAgentPicker()
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")
+	case "cite":
+		return m.openCitePicker()
 	case "link":
 		m.openFinder(actLinkInsert)
 	case "date":

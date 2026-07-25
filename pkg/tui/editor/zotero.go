@@ -1,0 +1,317 @@
+package editor
+
+import (
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
+
+	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/zotero"
+	"github.com/lflow/lflow/pkg/utils/browser"
+)
+
+// A zotero chip is an inline CITATION backed by an entry in the local Zotero
+// library. Its value is Zotero's own "zotero://select/…" URI — so the stored
+// value IS the local-open target — and its label is the compact author-year
+// form the outline shows ("Z Smith et al. 2020").
+//
+// Two destinations, both a keystroke (or a terminal click) away:
+//
+//	alt+g   the destination the "zotero.open" setting names — LOCAL, the entry
+//	        selected in the Zotero desktop app, or CLOUD, the entry in the
+//	        zotero.org web library. The same target backs the chip's OSC 8
+//	        hyperlink, so ctrl+clicking it in a modern terminal goes there too.
+//	alt+o   the other destination, always — the escape hatch when the machine
+//	        you are on is not the machine Zotero is installed on.
+//
+// Create one with "@@" (or /cite, or /insert → cite), which opens a picker over
+// the library.
+
+// zoteroPickerLimit caps how many library entries the picker ranks per
+// keystroke; the list itself only ever shows pickerMaxRows of them.
+const zoteroPickerLimit = 60
+
+// zoteroGlyph marks a citation chip. It is the ":zotero" icon from the icon
+// catalog, so the brand mark is the same one everywhere in the outline.
+const zoteroGlyph = "Z"
+
+// zoteroOpenMode is the /settings "zotero.open" preference ("local" or
+// "cloud"): which destination alt+g and the chip's terminal hyperlink go to.
+// A package var, like linkColorMode, because the render path is Model-free.
+var zoteroOpenMode = "local"
+
+// zoteroAccount is the zotero.org account name the personal web-library URL is
+// built from, cached at the package level for the same reason. It is refreshed
+// whenever the library is read (see zoteroLibrary).
+var zoteroAccount = ""
+
+// zoteroLibrary returns the library already in hand. It never reads the disk:
+// the picker calls it on every keystroke, and a Zotero library is a file big
+// enough that re-reading it per keystroke is not a thing to do. zoteroRefresh
+// is what does the reading, at the moments a user asks for something.
+func (m *Model) zoteroLibrary() (*zotero.Library, bool) {
+	return m.zoteroLib, m.zoteroLib != nil
+}
+
+// zoteroRefresh loads the library if it is not loaded, or re-loads it if Zotero
+// has written since — called when the cite picker opens and when a citation is
+// followed, never in a render or a keystroke path. A failed read is remembered
+// in zoteroErr so the picker can explain itself; the next explicit refresh
+// tries again, because the answer changes when Zotero gets installed.
+func (m *Model) zoteroRefresh() (*zotero.Library, bool) {
+	if m.zoteroLib != nil && !m.zoteroLib.Stale() {
+		return m.zoteroLib, true
+	}
+	lib, err := zotero.Load("")
+	if err != nil {
+		m.zoteroErr = err.Error()
+		return m.zoteroLib, m.zoteroLib != nil // a stale copy still beats nothing
+	}
+	m.zoteroLib, m.zoteroErr = lib, ""
+	zoteroAccount = m.zoteroUsername()
+	return lib, true
+}
+
+// zoteroUsername is the zotero.org account the personal web-library URL is
+// built from: the one the synced library records about itself, falling back to
+// credentials.json for a library that has never signed in locally.
+func (m *Model) zoteroUsername() string {
+	if m.zoteroLib != nil && m.zoteroLib.Username != "" {
+		return m.zoteroLib.Username
+	}
+	if m.ctx.Paths.Config == "" {
+		return ""
+	}
+	return zotero.LoadUsername(m.ctx.Paths.Config)
+}
+
+// ── the chip ───────────────────────────────────────────────────────────────
+
+// zoteroChipAtCaret returns the zotero chip the caret sits on (its anchor
+// begins at the caret, or ends exactly at it), or ok=false. It mirrors
+// linkChipAtCaret — the caret vocabulary for chips is the same everywhere.
+func (m *Model) zoteroChipAtCaret(cur *item) (database.Chip, bool) {
+	if cur == nil {
+		return database.Chip{}, false
+	}
+	spans := anchorSpans([]rune(cur.name))
+	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
+		if sp == nil {
+			continue
+		}
+		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindZotero {
+			return c, true
+		}
+	}
+	return database.Chip{}, false
+}
+
+// insertZoteroCite splices a citation chip for one library entry in at the caret.
+func (m *Model) insertZoteroCite(it zotero.Item) {
+	cur := m.cursorItem()
+	if cur == nil {
+		return
+	}
+	m.pushUndo("")
+	anchor := m.createLabeledChip(chipKindZotero, zotero.RefOf(it).LocalURI(), it.Label())
+	if anchor == "" {
+		return
+	}
+	runes := []rune(cur.name)
+	m.boundCaret(len(runes))
+	cur.name = string(runes[:m.caret]) + anchor + string(runes[m.caret:])
+	m.caret += len([]rune(anchor))
+	m.unsaved = true
+}
+
+// ── following a citation ───────────────────────────────────────────────────
+
+// zoteroTargetLocal reports whether the "zotero.open" preference points at the
+// local Zotero app (the default) rather than the web library.
+func zoteroTargetLocal() bool { return zoteroOpenMode != "cloud" }
+
+// zoteroWebURL resolves a citation's cloud address: the zotero.org web library
+// when the account is known, and otherwise the entry's DOI — a paper's other
+// public home, and the only thing a library with no signed-in account can
+// offer. Returns "" plus the reason when neither is available.
+func (m *Model) zoteroWebURL(ref zotero.Ref) (string, string) {
+	if url, ok := ref.WebURL(m.zoteroUsername()); ok {
+		return url, ""
+	}
+	// no username: fall back to the entry's own public identifier
+	if lib, ok := m.zoteroRefresh(); ok {
+		if it, found := lib.ByKey(ref.Key); found {
+			if url := zotero.DOIURL(it.DOI); url != "" {
+				return url, ""
+			}
+			if it.URL != "" {
+				return it.URL, ""
+			}
+		}
+	}
+	return "", `zotero · no account name — add {"zotero":{"username":"…"}} to ~/.config/lflow/credentials.json`
+}
+
+// openZoteroChip follows a citation. local selects the entry in the Zotero
+// desktop app through its registered URI scheme (which is how this works on
+// Windows, and from WSL onto the Windows-side Zotero); otherwise it opens the
+// cloud address in the browser.
+func (m *Model) openZoteroChip(c database.Chip, local bool) (tea.Model, tea.Cmd) {
+	ref, ok := zotero.ParseRef(c.Value)
+	if !ok {
+		m.flash = "zotero · this citation has no library reference"
+		return m, nil
+	}
+	label := clipStr(zoteroChipLabel(c), 28)
+	if local {
+		if err := browser.OpenApp(ref.LocalURI()); err != nil {
+			m.flash = "zotero · " + err.Error()
+		} else {
+			m.flash = "zotero · opened " + label + " in Zotero"
+		}
+		return m, nil
+	}
+	url, why := m.zoteroWebURL(ref)
+	if url == "" {
+		m.flash = why
+		return m, nil
+	}
+	if err := browser.Open(url); err != nil {
+		m.flash = "zotero · " + err.Error()
+	} else {
+		m.flash = "zotero · opened " + label + " on the web"
+	}
+	return m, nil
+}
+
+// zoteroChipLabel is a citation's display text, falling back to its reference
+// so a chip is never blank.
+func zoteroChipLabel(c database.Chip) string {
+	if c.Label != "" {
+		return c.Label
+	}
+	if ref, ok := zotero.ParseRef(c.Value); ok {
+		return ref.Key
+	}
+	return c.Value
+}
+
+// zoteroLinkTarget is the hyperlink target a citation chip advertises to the
+// terminal, so a ctrl+click goes where alt+g would. Terminals follow what they
+// can hand to the desktop: the local target is Zotero's own scheme (which the
+// desktop resolves), the cloud target an ordinary https URL. "" = no
+// hyperlink — a cloud target with no account name known yet.
+func zoteroLinkTarget(c database.Chip) string {
+	ref, ok := zotero.ParseRef(c.Value)
+	if !ok {
+		return ""
+	}
+	if zoteroTargetLocal() {
+		return ref.LocalURI()
+	}
+	url, _ := ref.WebURL(zoteroAccount)
+	return url
+}
+
+// ── the cite picker (modeCite) ─────────────────────────────────────────────
+
+// openCitePicker opens the library picker at the caret, reading the library
+// first (the one place a cite costs a disk read). A node that cannot hold a
+// chip refuses, the same way /insert does.
+func (m *Model) openCitePicker() (tea.Model, tea.Cmd) {
+	cur := m.cursorItem()
+	if cur == nil {
+		return m, nil
+	}
+	if !m.mirrorContext().editable || !typeOf(cur.typ).inlineEditable || cur.readonly {
+		m.flash = "node is not editable"
+		return m, nil
+	}
+	if !chipsEnabled(cur) {
+		m.flash = "chips are disabled for this node type"
+		return m, nil
+	}
+	m.mode = modeCite
+	m.list.open(m, zoteroSource{}, true)
+	if _, ok := m.zoteroRefresh(); !ok {
+		m.flash = "zotero · " + m.zoteroErr
+	}
+	return m, nil
+}
+
+// zoteroSource is the Group-A picker over the Zotero library: type to search
+// authors, titles, years and journals; Enter cites the highlighted entry.
+type zoteroSource struct{}
+
+func (zoteroSource) items(m *Model, q string) []pickerItem {
+	lib, ok := m.zoteroLibrary()
+	if !ok {
+		return nil
+	}
+	var out []pickerItem
+	for _, it := range lib.Search(q, zoteroPickerLimit) {
+		it := it
+		out = append(out, pickerItem{value: it.Key, render: func(bool) string {
+			return zoteroRowRender(it)
+		}})
+	}
+	return out
+}
+
+// zoteroRowRender is one picker row: the brand mark, the author-year label the
+// chip will carry, then the title and venue in dim text.
+func zoteroRowRender(it zotero.Item) string {
+	label, detail := zotero.Format(it)
+	brand := iconColorSGR(zoteroBrandColor())
+	pad := 22 - runewidth.StringWidth(label)
+	if pad < 1 {
+		pad = 1
+	}
+	row := brand + zoteroGlyph + cReset + " " + cFG + label + cReset + strings.Repeat(" ", pad)
+	if detail != "" {
+		row += cDim + detail + cReset
+	}
+	return row
+}
+
+// zoteroBrandColor is the ":zotero" icon's catalog color, so the citation chip
+// and the icon wear the same brand paint.
+func zoteroBrandColor() string {
+	if e, ok := iconByShortcode("zotero"); ok {
+		return e.color
+	}
+	return "red"
+}
+
+func (zoteroSource) header(m *Model, p *listPicker) string {
+	if _, ok := m.zoteroLibrary(); !ok {
+		return " " + cDim + "cite: " + cReset + cRed + m.zoteroErr + cReset
+	}
+	query := cDim + "search your Zotero library" + cReset
+	if p.query != "" {
+		query = cFG + p.query + cReset
+	}
+	return " " + cDim + "cite: " + cReset + query
+}
+
+func (zoteroSource) initialSel(*Model) int { return 0 }
+
+func (zoteroSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
+	m.mode = modeOutline
+	if it.value == "" {
+		return m, nil
+	}
+	lib, ok := m.zoteroLibrary()
+	if !ok {
+		return m, nil
+	}
+	entry, found := lib.ByKey(it.value)
+	if !found {
+		return m, nil
+	}
+	m.insertZoteroCite(entry)
+	m.flash = "cited · " + clipStr(entry.Label(), 28)
+	m.refreshRows()
+	return m, nil
+}

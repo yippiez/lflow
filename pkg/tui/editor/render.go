@@ -799,6 +799,15 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 						osc8 = c.Value
 					}
 				}
+				// a citation chip wears the Zotero brand paint and advertises the
+				// destination /settings zotero.open names, so ctrl+clicking it lands
+				// in the same place alt+g would (see zotero.go)
+				if c.Kind == chipKindZotero {
+					if s := iconColorSGR(zoteroBrandColor()); s != "" {
+						col = s
+					}
+					osc8 = zoteroLinkTarget(c)
+				}
 			}
 			b.WriteString(cReset + col)
 			if osc8 != "" {

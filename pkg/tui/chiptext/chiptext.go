@@ -22,10 +22,17 @@ import (
 // Chip kind keys. These are plain strings matching the editor's chip-kind
 // registry and the values stored in the chips table.
 const (
-	KindTag  = "tag"
-	KindDate = "date"
-	KindLink = "link"
+	KindTag    = "tag"
+	KindDate   = "date"
+	KindLink   = "link"
+	KindZotero = "zotero"
 )
+
+// zoteroScheme prefixes a Zotero select URI. A "[label](target)" whose target
+// is one is a CITATION, not a plain web link, so it chipifies as a zotero chip
+// — that is how `lflow add` writes a citation the editor lights up. Spelled out
+// here rather than imported so this vocabulary package stays a leaf.
+const zoteroScheme = "zotero://select/"
 
 // ReTag matches a #word tag at a left boundary (start of text or a non-word
 // char) so bare '#'s and mid-word hashes are ignored. The word must start with a
@@ -164,7 +171,11 @@ func Chipify(name string, mk func(kind, value, label string) string) string {
 		spans = append(spans, span{sp[0], sp[1], KindDate, string(runes[sp[0]:sp[1]]), ""})
 	}
 	for _, sp := range LinkSpans(name) {
-		spans = append(spans, span{sp.Start, sp.End, KindLink, sp.Target, sp.Label})
+		kind := KindLink
+		if strings.HasPrefix(sp.Target, zoteroScheme) {
+			kind = KindZotero
+		}
+		spans = append(spans, span{sp.Start, sp.End, kind, sp.Target, sp.Label})
 	}
 	if len(spans) == 0 {
 		return name
