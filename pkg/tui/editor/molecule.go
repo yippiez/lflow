@@ -575,7 +575,9 @@ func (moleculeView) viewIndex(m *Model, it *item) int {
 func (v moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 	d := m.nodeStore(it.uuid)
 	vi := v.viewIndex(m, it)
-	key := fmt.Sprintf("%d|%d|%s", vi, innerW, it.name)
+	// the cache key is the FLATTENED subtree, so editing any descendant atom of
+	// an outline-composed molecule re-renders (it.name alone would miss that).
+	key := fmt.Sprintf("%d|%d|%s", vi, innerW, molTreeSMILES(it))
 	if d["molKey"] == key {
 		info, _ := d["molInfo"].(string)
 		lines, _ := d["molLines"].([]string)
@@ -583,7 +585,7 @@ func (v moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 	}
 	var info string
 	var lines []string
-	g, err := parseMolecule(it.name)
+	g, err := moleculeGraphOf(it)
 	if err != nil {
 		info = "molecule · cannot parse · esc close"
 		lines = []string{cRed + "  " + err.Error() + cReset}
@@ -599,8 +601,10 @@ func (v moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 	return info, lines
 }
 
+// Enter accepts either form: a typed notation leaf or an outline-composed
+// molecule (whose own text may be a bare atom).
 func (v moleculeView) Enter(m *Model, it *item) bool {
-	return strings.TrimSpace(it.name) != ""
+	return strings.TrimSpace(molTreeSMILES(it)) != ""
 }
 
 func (v moleculeView) Leave(m *Model, it *item) {
