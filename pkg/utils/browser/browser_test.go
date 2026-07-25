@@ -1,6 +1,9 @@
 package browser
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestIsURL(t *testing.T) {
 	urls := []string{
@@ -34,5 +37,24 @@ func TestNormalize(t *testing.T) {
 	}
 	if got := Normalize("  https://x.com  "); got != "https://x.com" {
 		t.Errorf("Normalize trims + keeps scheme: %q", got)
+	}
+}
+
+func TestUnderWSL(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		if UnderWSL() {
+			t.Error("UnderWSL must be false off Linux")
+		}
+		return
+	}
+	// the interop env vars are the cheap, definitive signal
+	t.Setenv("WSL_DISTRO_NAME", "Ubuntu")
+	if !UnderWSL() {
+		t.Error("WSL_DISTRO_NAME set but UnderWSL says no")
+	}
+	t.Setenv("WSL_DISTRO_NAME", "")
+	t.Setenv("WSL_INTEROP", "/run/WSL/1_interop")
+	if !UnderWSL() {
+		t.Error("WSL_INTEROP set but UnderWSL says no")
 	}
 }

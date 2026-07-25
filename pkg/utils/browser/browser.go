@@ -5,6 +5,7 @@ package browser
 
 import (
 	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -68,4 +69,51 @@ func Open(url string) error {
 		return exec.Command(path, "/c", "start", "", url).Start()
 	}
 	return exec.Command("xdg-open", url).Start() // nothing found: surface the canonical error
+}
+
+// OpenApp hands an application URI — a registered protocol handler like
+// "zotero://select/…", not a web address — to whichever desktop owns that
+// handler. It is Open with the WSL preference flipped: under WSL the handler
+// lives on the Windows side (that is where the desktop app is installed), so
+// the Windows shell is tried FIRST and xdg-open is only the fallback. A web URL
+// is the opposite case and keeps using Open.
+func OpenApp(uri string) error {
+	uri = strings.TrimSpace(uri)
+	if runtime.GOOS == "linux" && UnderWSL() {
+		for _, opener := range []string{"wslview"} {
+			if path, err := exec.LookPath(opener); err == nil {
+				return exec.Command(path, uri).Start()
+			}
+		}
+		if path, err := exec.LookPath("cmd.exe"); err == nil {
+			return exec.Command(path, "/c", "start", "", uri).Start()
+		}
+	}
+	return Open(uri)
+}
+
+// wslMarkers are the kernel-version substrings a WSL kernel carries.
+var wslMarkers = []string{"microsoft", "wsl"}
+
+// UnderWSL reports whether this Linux process runs inside the Windows Subsystem
+// for Linux — the case where a desktop app the outline wants to reach lives on
+// the Windows side rather than in this filesystem.
+func UnderWSL() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	if os.Getenv("WSL_DISTRO_NAME") != "" || os.Getenv("WSL_INTEROP") != "" {
+		return true
+	}
+	b, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	v := strings.ToLower(string(b))
+	for _, marker := range wslMarkers {
+		if strings.Contains(v, marker) {
+			return true
+		}
+	}
+	return false
 }
