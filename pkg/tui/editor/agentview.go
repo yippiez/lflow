@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -69,21 +70,23 @@ func (m *Model) focusAgentChip(c database.Chip) {
 	}
 }
 
-// loadAgentEntries reads (and caches) a session's transcript. The cache is
-// keyed in the node store and dropped whenever the session is opened again, so
-// scrolling a long conversation never re-reads it per frame.
-func (m *Model) loadAgentEntries(id string, v agentVariant, s agentSession) []agentEntry {
+// loadAgentEntries reads (and caches) a session's transcript and what it adds
+// up to. The cache is keyed in the node store and dropped whenever the session
+// is opened again, so scrolling a long conversation never re-reads it per frame.
+func (m *Model) loadAgentEntries(id string, v agentVariant, s agentSession) ([]agentEntry, agentStats) {
 	store := m.nodeStore(id)
 	if e, ok := store["agentEntries"].([]agentEntry); ok {
 		if got, _ := store["agentEntriesID"].(string); got == s.SessionID {
-			return e
+			st, _ := store["agentStats"].(agentStats)
+			return e, st
 		}
 	}
-	entries, path := agentTranscript(v.transcriptDirs(), v.exts, s.SessionID)
+	entries, stats, path := agentTranscript(v.transcriptDirs(), v.exts, s.SessionID)
 	store["agentEntries"] = entries
+	store["agentStats"] = stats
 	store["agentEntriesID"] = s.SessionID
 	store["agentEntriesPath"] = path
-	return entries
+	return entries, stats
 }
 
 // dropAgentEntries forces the next read to hit the store again (after a run, or
@@ -165,11 +168,43 @@ func (agentChipView) Bands(m *Model, it *item, rail string, width, scroll, winH 
 
 // ── shared keys and lines ──────────────────────────────────────────────────
 
-// agentViewKey scrolls the transcript, reopens the session (alt+r), rereads it
-// (r) and opens a hosted session in the browser (alt+o). esc falls through to the
-// central defocus.
+// agentRenameState returns the open rename field for a handle, or nil. The name
+// is edited IN the panel — the session's own line becomes the field — so
+// renaming never leaves the outline.
+func (m *Model) agentRenameState(id string) *textField {
+	f, _ := m.nodeStore(id)["agentRename"].(*textField)
+	return f
+}
+
+// agentViewKey drives the panel: n renames the session, alt+r reopens it, r
+// rereads the transcript, alt+o opens a hosted one in the browser, the rest
+// scrolls. esc falls through to the central defocus — unless a rename is open,
+// which takes esc for itself.
 func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
+	if f := m.agentRenameState(h.id); f != nil {
+		switch k.String() {
+		case "enter":
+			m.agentRename(h.id, f.value)
+			delete(m.nodeStore(h.id), "agentRename")
+			m.flash = "session renamed"
+			return nil, true
+		case "esc":
+			delete(m.nodeStore(h.id), "agentRename")
+			return nil, true
+		}
+		f.handleKey(k) // the shared field vocabulary: runes, backspace, caret moves
+		return nil, true
+	}
 	switch k.String() {
+	case "n":
+		// seed with the name in force, so a rename starts from what is on screen
+		f := &textField{value: h.sess.Name}
+		if f.value == "" {
+			f.value = m.agentTitle(h.id, h.v, h.sess)
+		}
+		f.caret = len([]rune(f.value))
+		m.nodeStore(h.id)["agentRename"] = f
+		return nil, true
 	case "alt+r":
 		m.dropAgentEntries(h.id)
 		cwd := h.sess.Cwd
@@ -217,44 +252,67 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// agentBandContent renders the whole view: two header lines, then one line per
-// transcript entry. Callers window it; rail is the tree-rail prefix.
+// agentBandContent renders the whole panel: a labelled field block (what this
+// session IS — where it runs, on what branch, which model, what it has spent),
+// a rule, then the log of everything it did. The node row above carries only the
+// pill; all of this shows up only while the row is expanded.
 func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string {
 	if width <= 0 {
 		width = 1 << 20
 	}
 	color := m.agentColorFor(h.id, h.v, h.sess)
 	line := func(s string) string { return clip(rail+cReset+s, width) }
-
-	var head []string
-	switch {
-	case h.sess.Remote != "":
-		head = append(head, "remote session · "+h.sess.Remote)
-	case h.sess.SessionID != "":
-		head = append(head, "session "+agentShortID(h.sess.SessionID))
-	default:
-		head = append(head, "no session yet")
-	}
-	if t := m.agentTitle(h.id, h.v, h.sess); t != "" && h.sess.SessionID != "" {
-		head = append(head, t)
-	}
-	if h.sess.Cwd != "" {
-		head = append(head, tildePath(h.sess.Cwd))
-	}
-	if h.sess.OpenedAt > 0 {
-		head = append(head, "opened "+relTime(h.sess.OpenedAt))
-	}
-	content := []string{
-		line("  " + color + h.v.glyph + " " + h.v.label + cReset + cDim + " · " + strings.Join(head, " · ") + cReset),
+	field := func(k, v string) string {
+		return line("  " + cDim + fmt.Sprintf("%-8s", k) + cReset + v + cReset)
 	}
 
-	keys := "  ⌥r open · r reload · ↑↓ scroll · esc close"
+	entries, stats := m.loadAgentEntries(h.id, h.v, h.sess)
+
+	// the rename field takes the top line while it is open
+	var content []string
+	if st := m.agentRenameState(h.id); st != nil {
+		content = append(content, line("  "+cDim+"name    "+cReset+
+			withCaret(st.value, st.caret)+cDim+"   enter save · esc cancel · empty = the CLI's own name"+cReset))
+	} else {
+		content = append(content, line("  "+color+h.v.glyph+" "+m.agentTitle(h.id, h.v, h.sess)+cReset+
+			cDim+"  n rename"+cReset))
+	}
+
+	if h.sess.Cwd != "" || stats.cwd != "" {
+		content = append(content, field("dir", cFG+tildePath(NodeFirstNonEmpty(h.sess.Cwd, stats.cwd))))
+	}
+	if stats.branch != "" {
+		content = append(content, field("branch", cFG+stats.branch))
+	}
+	if stats.model != "" {
+		model := stats.model
+		if stats.effort != "" {
+			model += cDim + " · effort " + stats.effort
+		}
+		content = append(content, field("model", cFG+model))
+	}
+	if tok := agentTokenLine(stats); tok != "" {
+		content = append(content, field("tokens", cFG+tok))
+	}
+	if h.sess.SessionID != "" {
+		id := agentShortID(h.sess.SessionID)
+		if stats.turns > 0 {
+			id += cDim + " · " + fmt.Sprintf("%d turns", stats.turns)
+		}
+		if h.sess.OpenedAt > 0 {
+			id += cDim + " · opened " + relTime(h.sess.OpenedAt)
+		}
+		content = append(content, field("session", cFG+id))
+	}
+	content = append(content, field("state", m.agentStateLine(h)))
+
+	keys := "  ⌥r open · n rename · r reload · ↑↓ scroll · esc close"
 	if h.v.webURL != nil || h.sess.Remote != "" {
-		keys = "  ⌥r open · ⌥o browser · r reload · ↑↓ scroll · esc close"
+		keys = "  ⌥r open · ⌥o browser · n rename · r reload · ↑↓ scroll · esc close"
 	}
 	content = append(content, line(cDim+keys+cReset))
+	content = append(content, line("  "+cDim+strings.Repeat("─", 58)+cReset))
 
-	entries := m.loadAgentEntries(h.id, h.v, h.sess)
 	if len(entries) == 0 {
 		hint := "  no transcript yet · ⌥r opens the session"
 		if h.sess.SessionID != "" {
@@ -271,10 +329,49 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 	return content
 }
 
-// agentEntryLine renders one transcript entry: a dim clock, a colored speaker or
-// tool arrow, then the text. Tool calls are what a session is skimmed for, so
-// they carry the tool's name in the accent color and the call's own detail after
-// it.
+// agentStateLine says what the session is doing right now: running in its CLI,
+// hosted on the web, finished, or waiting to be opened.
+func (m *Model) agentStateLine(h agentHandle) string {
+	switch {
+	case m.agentLive(h.v, h.sess):
+		return cGreen + "live" + cReset + cDim + " · the CLI is running it now" + cReset
+	case m.agentCloud(h.v, h.sess):
+		return cAccent + glyphCloud + " hosted" + cReset + cDim + " · ⌥o opens it in the browser" + cReset
+	case h.sess.SessionID == "":
+		return cDim + "not started · ⌥r opens it" + cReset
+	default:
+		return cDim + "idle · ⌥r resumes it" + cReset
+	}
+}
+
+// agentTokenLine renders a session's spend: prompt, completion and the cache
+// reads that dominate a long conversation. "" when the store reports no usage.
+func agentTokenLine(s agentStats) string {
+	if s.inTok == 0 && s.outTok == 0 && s.cacheTok == 0 {
+		return ""
+	}
+	parts := []string{agentThousands(s.inTok) + " in", agentThousands(s.outTok) + " out"}
+	if s.cacheTok > 0 {
+		parts = append(parts, agentThousands(s.cacheTok)+" cached")
+	}
+	return strings.Join(parts, cDim+" · "+cFG)
+}
+
+// agentThousands renders a token count compactly (46.8k, 1.2M).
+func agentThousands(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+// agentEntryLine renders one transcript entry: a dim clock, then the speaker or
+// the tool call. A TOOL CALL is what a session is skimmed for, so it reads as
+// the tool's name in its own color followed by the call's arguments as compact
+// JSON — the call exactly as the agent made it.
 func agentEntryLine(e agentEntry, color string) string {
 	stamp := "     "
 	if !e.at.IsZero() {
@@ -294,9 +391,30 @@ func agentEntryLine(e agentEntry, color string) string {
 		if name == "" {
 			name = "tool"
 		}
-		return head + cCyan + "→ " + name + cReset + " " + cDim + clipStr(body, 200) + cReset
+		args := e.args
+		if args == "" {
+			args = body
+		}
+		return head + agentToolColor(name) + fmt.Sprintf("%-7s", name) + cReset +
+			cDim + clipStr(args, 220) + cReset
 	case "result":
 		return head + cDim + "  ← " + clipStr(body, 160) + cReset
 	}
 	return head + cDim + clipStr(body, 200) + cReset
+}
+
+// agentToolColor gives each kind of tool call its own color, so a log reads at a
+// glance: reads/searches cool, writes warm, shell green.
+func agentToolColor(name string) string {
+	switch strings.ToLower(name) {
+	case "bash", "shell", "run", "exec", "terminal":
+		return cGreen
+	case "edit", "write", "apply_patch", "multiedit", "notebookedit", "create":
+		return cYellow
+	case "task", "agent", "todowrite", "plan":
+		return cMagenta
+	case "websearch", "webfetch", "fetch":
+		return cAccent
+	}
+	return cCyan // read, grep, glob, ls and everything unrecognized
 }

@@ -72,6 +72,10 @@ type agentVariant struct {
 	// sessionPath narrows discovery to records under this path fragment, for a
 	// store that keeps sessions and their messages as sibling trees.
 	sessionPath string
+	// registryRoots is where the CLI records its RUNNING sessions (Claude Code
+	// writes one file per live session). It is what tells lflow a session's own
+	// name, whether it is live, and whether it is hosted rather than local.
+	registryRoots func() []string
 
 	// webURL renders the browser URL for a session hosted on the web; "" for a
 	// variant that has no remote surface.
@@ -90,9 +94,10 @@ var agentVariants = []agentVariant{
 			// --session-id pins the conversation lflow will resume later
 			return []string{"--session-id", s.SessionID}
 		},
-		sessionRoots: func() []string { return homeStores(".claude/projects") },
-		exts:         []string{".jsonl"},
-		webURL:       func(id string) string { return "https://claude.ai/code/" + id },
+		sessionRoots:  func() []string { return homeStores(".claude/projects") },
+		registryRoots: func() []string { return homeStores(".claude/sessions") },
+		exts:          []string{".jsonl"},
+		webURL:        func(id string) string { return "https://claude.ai/code/" + id },
 	},
 	{
 		id: "pi", key: database.TypeAgentPi, label: "Pi session",
@@ -189,6 +194,10 @@ type agentSession struct {
 	OpenedAt  int64  `json:"opened,omitempty"` // unix seconds of the last open
 	Title     string `json:"title,omitempty"`  // last title read from the CLI's store
 	Remote    string `json:"remote,omitempty"` // a web session URL — opened in the browser
+	// Name is the user's OWN name for this session, like a link chip's name: set
+	// it and the row/chip reads that instead of whatever the CLI calls the
+	// session. Empty = follow the CLI's live title.
+	Name string `json:"name,omitempty"`
 }
 
 // agentLoad reads a handle's session data, memory-cached in the node store: the
@@ -252,11 +261,22 @@ func (m *Model) agentMeta(id string, v agentVariant, s agentSession) agentStoreS
 	return meta
 }
 
-// agentTitle is the session's display name: the CLI's own live title when the
-// store has one — so a session renamed inside the CLI reads renamed here, in the
-// row and in the chip — else the last title seen, else "new session". Pure: it is
-// called from the render path, which never writes.
+// agentTitle is the session's display name, in priority order:
+//
+//	the user's own name for it (like a link chip's name)
+//	→ the name the CLI gave the running session (its registry)
+//	→ the title in the CLI's store — so a session renamed inside the CLI reads
+//	  renamed here, in the row and in the chip
+//	→ the last title seen → "session <id>".
+//
+// Pure: it is called from the render path, which never writes.
 func (m *Model) agentTitle(id string, v agentVariant, s agentSession) string {
+	if s.Name != "" {
+		return s.Name
+	}
+	if reg, ok := m.agentRegOf(v, s.SessionID); ok && reg.name != "" {
+		return reg.name
+	}
 	if meta := m.agentMeta(id, v, s); meta.title != "" {
 		return meta.title
 	}
@@ -267,6 +287,41 @@ func (m *Model) agentTitle(id string, v agentVariant, s agentSession) string {
 		return "new session"
 	}
 	return "session " + agentShortID(s.SessionID)
+}
+
+// agentRegOf looks a session up in its CLI's live registry (cached briefly —
+// the registry is a handful of small files, but the render path asks per frame).
+func (m *Model) agentRegOf(v agentVariant, sessionID string) (agentReg, bool) {
+	if sessionID == "" || v.registryRoots == nil {
+		return agentReg{}, false
+	}
+	store := m.nodeStore("agent.registry." + v.id)
+	regs, _ := store["regs"].(map[string]agentReg)
+	at, _ := store["at"].(time.Time)
+	if regs == nil || time.Since(at) > 3*time.Second {
+		regs = agentRegistry(v.registryRoots())
+		store["regs"], store["at"] = regs, time.Now()
+	}
+	reg, ok := regs[sessionID]
+	return reg, ok
+}
+
+// agentCloud reports whether a session is HOSTED rather than local: a
+// claude.ai/code link on the node, or a registry entry whose entrypoint says the
+// session was started from the web or a phone. A hosted session wears the cloud
+// mark on its chip and opens in the browser.
+func (m *Model) agentCloud(v agentVariant, s agentSession) bool {
+	if s.Remote != "" {
+		return true
+	}
+	reg, ok := m.agentRegOf(v, s.SessionID)
+	return ok && reg.cloud
+}
+
+// agentLive reports whether the session's CLI is running right now.
+func (m *Model) agentLive(v agentVariant, s agentSession) bool {
+	reg, ok := m.agentRegOf(v, s.SessionID)
+	return ok && reg.live
 }
 
 // agentColorFor is the color a session is drawn in: the one the CLI stamped on
@@ -338,29 +393,42 @@ func (m *Model) publishAgentLook(id string, v agentVariant) agentLook {
 	s := m.agentLoad(id)
 	l := agentLook{color: m.agentColorFor(id, v, s)}
 
+	// The row stays as quiet as any other node: the session's STATE (hosted,
+	// running) and, while the node is still unnamed, the session's own name.
+	// Everything else about a session — where it runs, on what branch, which
+	// model, what it has spent, every tool call — lives in the expanded panel
+	// (alt+e) and nowhere else. See agentBandContent.
 	var parts []string
-	if s.Remote != "" {
-		parts = append(parts, "remote · ⌥o opens it")
+	if name := m.agentUnnamedRow(id, v, s); name != "" {
+		parts = append(parts, name)
 	}
-	if s.SessionID != "" {
-		if title := m.agentTitle(id, v, s); title != "" {
-			parts = append(parts, title)
-		}
+	if m.agentCloud(v, s) {
+		parts = append(parts, glyphCloud+" hosted")
 	}
-	if s.Cwd != "" {
-		parts = append(parts, tildePath(s.Cwd))
+	if m.agentLive(v, s) {
+		parts = append(parts, "live")
 	}
-	switch {
-	case s.OpenedAt > 0:
-		parts = append(parts, relTime(s.OpenedAt))
-	case s.Remote == "":
-		parts = append(parts, "not opened yet · ⌥r starts it")
+	if s.SessionID == "" && s.Remote == "" {
+		parts = append(parts, "⌥r starts it")
 	}
 	if len(parts) > 0 {
 		l.tail = cDim + "· " + strings.Join(parts, " · ") + cReset
 	}
 	agentLooks[id] = l
 	return l
+}
+
+// agentUnnamedRow returns the session's own name when the NODE has no text of
+// its own — so a row a user never titled still reads as the session it holds,
+// and a titled row is left alone.
+func (m *Model) agentUnnamedRow(id string, v agentVariant, s agentSession) string {
+	if s.SessionID == "" && s.Name == "" {
+		return ""
+	}
+	if it, ok := m.tree.byUUID[id]; ok && strings.TrimSpace(it.name) != "" {
+		return ""
+	}
+	return m.agentTitle(id, v, s)
 }
 
 // refreshAgentLooks republishes the look of every session on screen — nodes and
@@ -728,11 +796,12 @@ func (m *Model) runAgentChip(c database.Chip) tea.Cmd {
 	return m.agentOpen(v, c.ID, cwd)
 }
 
-// refreshAgentChip refreshes a chip's inline label — the session's live title,
-// so a session renamed inside the CLI reads renamed here too. Like the cmd
-// chip's run preview the label is mutated IN MEMORY only and never written to
-// the chips table: the variant persists, the session's chrome does not (it is
-// local to this machine's CLI store).
+// refreshAgentChip refreshes a chip's inline label — the name the pill shows:
+// the user's own name for the session when it has one, else the session's live
+// title, so a session renamed inside its CLI reads renamed here too. A hosted
+// session's label carries the cloud mark. Like the cmd chip's run preview the
+// label is mutated IN MEMORY only and never written to the chips table: the
+// variant persists, the session's chrome does not (it is local to this machine).
 func (m *Model) refreshAgentChip(id string) {
 	c, ok := m.chips[id]
 	if !ok || c.Kind != chipKindAgent {
@@ -743,12 +812,29 @@ func (m *Model) refreshAgentChip(id string) {
 		return
 	}
 	s := m.agentLoad(id)
-	title := ""
-	if s.SessionID != "" || s.Remote != "" {
-		title = m.agentTitle(id, v, s)
+	label := ""
+	if s.Name != "" || s.SessionID != "" || s.Remote != "" {
+		label = clipStr(m.agentTitle(id, v, s), 34)
 	}
-	c.Label = clipStr(title, 28)
+	if m.agentCloud(v, s) {
+		label += " " + glyphCloud // a hosted session says so on the chip itself
+	}
+	c.Label = label
 	m.chips[id] = c
+}
+
+// agentRename sets (or clears, with "") the user's own name for a session — the
+// chip's name, exactly like a link chip's. Clearing it hands the name back to
+// the CLI's live title.
+func (m *Model) agentRename(id, name string) {
+	s := m.agentLoad(id)
+	s.Name = strings.TrimSpace(name)
+	m.agentSave(id, s)
+	delete(m.nodeStore(id), "agentMeta")
+	m.refreshAgentChip(id)
+	if v, ok := agentVariantByID(s.Variant); ok {
+		m.publishAgentLook(id, v)
+	}
 }
 
 // hydrateAgentChips refreshes every session chip's label from the CLI stores.
@@ -772,15 +858,18 @@ func (m *Model) agentChipColor(c database.Chip) string {
 	return m.agentColorFor(c.ID, v, m.agentLoad(c.ID))
 }
 
-// agentChipDisplay is the chip's compact form: the variant glyph, the session's
-// live title (or the CLI's name before there is one).
+// agentChipDisplay is the chip's compact form — what every surface OUTSIDE the
+// styled editor (the CLI's list/grep, exports) reads: the agent's glyph and the
+// session's name. The editor draws the same thing as a filled pill; see
+// renderAgentChip.
 func agentChipDisplay(c database.Chip) string {
-	v, ok := agentVariantByID(c.Value)
-	if !ok {
-		return "◈ " + c.Value
+	glyph := "◈"
+	if v, ok := agentVariantByID(c.Value); ok {
+		glyph = v.glyph
 	}
-	if c.Label != "" {
-		return v.glyph + " " + c.Label
+	name := c.Label
+	if name == "" {
+		name = c.Value
 	}
-	return v.glyph + " " + v.id
+	return glyph + " " + name
 }

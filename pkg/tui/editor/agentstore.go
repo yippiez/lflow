@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -50,8 +51,38 @@ type agentStoreSession struct {
 type agentEntry struct {
 	kind string // "user" | "assistant" | "thinking" | "tool" | "result" | "meta"
 	name string // tool name, for kind "tool"
-	text string
+	text string // the human-readable detail (the command, the path, the prose)
+	args string // for a tool call: its arguments as compact JSON, shown after the name
 	at   time.Time
+}
+
+// agentStats is what a whole transcript adds up to — the numbers the expanded
+// panel reports. Filled by agentTranscript, which is only ever called with a
+// panel open, so the render path never pays for it.
+type agentStats struct {
+	model    string // the model the CLI reported ("claude-opus-5")
+	effort   string // reasoning effort, when the CLI records one
+	branch   string // git branch the session is working on
+	cwd      string
+	version  string
+	inTok    int // prompt tokens
+	outTok   int // completion tokens
+	cacheTok int // cache reads — the bulk of a long session's spend
+	turns    int // assistant turns
+	first    time.Time
+	last     time.Time
+}
+
+// agentReg is one entry of a CLI's LIVE session registry (Claude Code writes
+// ~/.claude/sessions/<pid>.json while a session runs): the session's own name,
+// whether it is running right now, and whether it is a hosted one.
+type agentReg struct {
+	id         string
+	name       string
+	cwd        string
+	entrypoint string
+	live       bool
+	cloud      bool
 }
 
 // homeStores resolves store paths written relative to the user's home dir,
@@ -248,13 +279,15 @@ func agentReadRecords(path string, limit int) []map[string]any {
 	return nil
 }
 
-// agentTranscript reads a session's transcript: the located path plus its
-// entries, oldest first. A missing store yields no entries and an empty path —
-// the view says so rather than pretending the session is empty.
-func agentTranscript(roots []string, exts []string, id string) ([]agentEntry, string) {
+// agentTranscript reads a session's transcript: the located path, its entries
+// oldest first, and what the whole conversation adds up to (model, branch,
+// tokens, turns). A missing store yields no entries and an empty path — the
+// panel says so rather than pretending the session is empty.
+func agentTranscript(roots []string, exts []string, id string) ([]agentEntry, agentStats, string) {
+	var stats agentStats
 	path := agentTranscriptPath(roots, exts, id)
 	if path == "" {
-		return nil, ""
+		return nil, stats, ""
 	}
 	var files []string
 	if st, err := os.Stat(path); err == nil && st.IsDir() {
@@ -273,13 +306,137 @@ func agentTranscript(roots []string, exts []string, id string) ([]agentEntry, st
 	var out []agentEntry
 	for _, f := range files {
 		for _, rec := range agentReadRecords(f, 0) {
+			agentAddStats(&stats, rec)
 			out = append(out, agentDecodeRecord(rec)...)
 			if len(out) >= agentEntryCap {
-				return out, path
+				return out, stats, path
 			}
 		}
 	}
-	return out, path
+	for _, e := range out {
+		if e.at.IsZero() {
+			continue
+		}
+		if stats.first.IsZero() || e.at.Before(stats.first) {
+			stats.first = e.at
+		}
+		if e.at.After(stats.last) {
+			stats.last = e.at
+		}
+	}
+	return out, stats, path
+}
+
+// agentAddStats folds one record into the running totals. Every field is
+// optional: a store that reports no usage simply contributes no tokens.
+func agentAddStats(s *agentStats, rec map[string]any) {
+	if v := agentString(rec, "cwd", "directory", "workingDirectory"); v != "" {
+		s.cwd = v
+	}
+	if v := agentString(rec, "gitBranch", "branch"); v != "" {
+		s.branch = v
+	}
+	if v := agentString(rec, "version"); v != "" {
+		s.version = v
+	}
+	if v := agentString(rec, "effort", "thinking", "reasoning"); v != "" {
+		s.effort = v
+	}
+	msg, _ := rec["message"].(map[string]any)
+	if msg == nil {
+		msg = rec
+	}
+	if v := agentString(msg, "model"); v != "" {
+		s.model = v
+	}
+	if strings.EqualFold(agentString(rec, "type", "role"), "assistant") ||
+		strings.EqualFold(agentString(msg, "role"), "assistant") {
+		s.turns++
+	}
+	usage, _ := msg["usage"].(map[string]any)
+	if usage == nil {
+		usage, _ = rec["usage"].(map[string]any)
+	}
+	if usage == nil {
+		return
+	}
+	s.inTok += agentInt(usage, "input_tokens", "inputTokens", "input", "prompt_tokens")
+	s.outTok += agentInt(usage, "output_tokens", "outputTokens", "output", "completion_tokens")
+	s.cacheTok += agentInt(usage, "cache_read_input_tokens", "cacheReadInputTokens", "cache_read", "cached")
+}
+
+// agentInt reads the first numeric field among keys.
+func agentInt(rec map[string]any, keys ...string) int {
+	for _, k := range keys {
+		switch v := rec[k].(type) {
+		case float64:
+			return int(v)
+		case int:
+			return v
+		}
+	}
+	return 0
+}
+
+// agentRegistry reads a CLI's live-session registry: which sessions are running
+// right now, the names the CLI gave them, and whether they are hosted rather
+// than local. Claude Code writes one file per running session; a CLI without a
+// registry contributes nothing and every session simply reads as local.
+func agentRegistry(roots []string) map[string]agentReg {
+	out := map[string]agentReg{}
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			for _, rec := range agentReadRecords(filepath.Join(root, e.Name()), agentMetaCap) {
+				id := agentString(rec, "sessionId", "session_id", "id")
+				if id == "" {
+					continue
+				}
+				entry := agentString(rec, "entrypoint", "kind", "origin")
+				reg := agentReg{
+					id:         id,
+					name:       agentString(rec, "name", "title"),
+					cwd:        agentString(rec, "cwd", "directory"),
+					entrypoint: entry,
+					live:       agentPidAlive(agentInt(rec, "pid")),
+					cloud:      agentCloudEntry(entry),
+				}
+				out[id] = reg
+			}
+		}
+	}
+	return out
+}
+
+// agentCloudEntry reports whether a registry entrypoint names a HOSTED session
+// — one started from the web or a phone rather than this terminal.
+func agentCloudEntry(entry string) bool {
+	e := strings.ToLower(entry)
+	for _, k := range []string{"remote", "mobile", "web", "cloud"} {
+		if strings.Contains(e, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// agentPidAlive reports whether a registry entry's process is still running —
+// a stale file from a crashed session must not read as live.
+func agentPidAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
 }
 
 // agentTranscriptPath locates the record file (or directory) for a session id
@@ -397,7 +554,8 @@ func agentDecodeRecord(rec map[string]any) []agentEntry {
 	var out []agentEntry
 	// a top-level tool record (pi's rpc stream)
 	if name := agentString(rec, "toolName", "tool_name"); name != "" {
-		out = append(out, agentEntry{kind: "tool", name: name, text: agentToolDetail(rec["args"]), at: at})
+		out = append(out, agentEntry{kind: "tool", name: name, text: agentToolDetail(rec["args"]),
+			args: agentArgsJSON(rec["args"]), at: at})
 	}
 
 	switch c := content.(type) {
@@ -440,7 +598,8 @@ func agentDecodePart(part map[string]any, role string, at time.Time) []agentEntr
 		if state, ok := part["state"].(map[string]any); ok && input == nil {
 			input = state["input"]
 		}
-		return []agentEntry{{kind: "tool", name: name, text: agentToolDetail(input), at: at}}
+		return []agentEntry{{kind: "tool", name: name, text: agentToolDetail(input),
+			args: agentArgsJSON(input), at: at}}
 	case "tool_result", "tool-result":
 		return []agentEntry{{kind: "result", text: agentToolDetail(part["content"]), at: at}}
 	}
@@ -498,6 +657,45 @@ func agentToolDetail(v any) string {
 		return clipStr(strings.Join(parts, " "), 90)
 	}
 	return ""
+}
+
+// agentArgsJSON renders a tool call's arguments as compact JSON — what the
+// expanded panel prints after the tool's name, so a call reads exactly as the
+// agent made it. Long values are clipped; the panel is a log, not an inspector.
+func agentArgsJSON(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return clipStr(oneLine(s), 160)
+	}
+	raw, err := json.Marshal(agentClipValues(v, 120))
+	if err != nil {
+		return ""
+	}
+	return clipStr(string(raw), 200)
+}
+
+// agentClipValues shortens the long strings inside a decoded JSON value so one
+// pasted file body cannot flood the panel.
+func agentClipValues(v any, n int) any {
+	switch t := v.(type) {
+	case string:
+		return clipStr(oneLine(t), n)
+	case []any:
+		out := make([]any, 0, len(t))
+		for _, item := range t {
+			out = append(out, agentClipValues(item, n))
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, item := range t {
+			out[k] = agentClipValues(item, n)
+		}
+		return out
+	}
+	return v
 }
 
 // agentString returns the first non-empty string field among keys.

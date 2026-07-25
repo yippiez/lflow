@@ -66,6 +66,12 @@ var (
 // color on it. Themed, so a /theme change moves them together.
 func bgTextSel() string { return bgPill }
 
+// cChipInk is the ink a FILLED chip writes with — the session pill's text on the
+// agent's own color. Not themed for the same reason the painter's bar is not:
+// every variant color is a mid-to-light tone, so near-black is what stays
+// readable on all of them, in every palette.
+const cChipInk = "\x1b[38;2;18;18;18m"
+
 // glyphs (locked)
 const (
 	glyphOpen      = "○"
@@ -74,6 +80,7 @@ const (
 	glyphTodoDone  = "■"
 	glyphQuoteBar  = "▎"
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
+	glyphCloud     = "☁" // a HOSTED coding session (started on the web or a phone)
 )
 
 // underCompleted reports whether it sits under a completed ancestor in the
@@ -444,6 +451,43 @@ func renderCmdChip(c database.Chip, caretOn bool) string {
 	return b.String()
 }
 
+// renderAgentChip draws a session chip as a filled PILL: the agent's glyph and
+// the session's name on the session's own color, near-black ink on top. A hosted
+// session carries the cloud mark inside the pill (see refreshAgentChip). Like
+// the cmd chip this owns its whole look, so the generic chip-color path in
+// renderBody steps aside for it.
+func renderAgentChip(c database.Chip, caretOn bool) string {
+	glyph, col := "◈", cDim
+	if v, ok := agentVariantByID(c.Value); ok {
+		glyph = v.glyph
+		col = v.colorSGR()
+	}
+	if l, ok := agentLooks[c.ID]; ok && l.color != "" {
+		col = l.color // the session's own color, when its CLI gave it one
+	}
+	label := c.Label
+	if label == "" {
+		label = c.Value // no session yet: the pill names the CLI
+	}
+	var b strings.Builder
+	b.WriteString(cReset)
+	if caretOn {
+		b.WriteString(cInvert)
+	}
+	b.WriteString(bgOf(col) + cChipInk + " " + glyph + " " + label + " " + cReset)
+	return b.String()
+}
+
+// bgOf turns a foreground SGR ("\x1b[38;2;r;g;bm") into the matching BACKGROUND
+// sequence, so a chip can be filled with the color a session is themed in
+// without a second palette. A code it cannot read leaves the pill unfilled.
+func bgOf(fg string) string {
+	if s, ok := strings.CutPrefix(fg, "\x1b[38;"); ok {
+		return "\x1b[48;" + s
+	}
+	return ""
+}
+
 // activeCmdDraftRange returns the not-yet-committed cmd chip range that contains
 // the caret. A standalone "$" starts the draft immediately; single spaces stay
 // in the command, while a double space means the draft has ended (and normally
@@ -606,6 +650,14 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				i = sp.end
 				continue
 			}
+			// a session chip is a filled pill in the agent's (or the session's)
+			// own color — it owns its whole look, like the cmd chip's code cell
+			if c, ok := chips[sp.id]; ok && c.Kind == chipKindAgent {
+				b.WriteString(renderAgentChip(c, caret == sp.start))
+				cur = ""
+				i = sp.end
+				continue
+			}
 			col := cCyan
 			osc8 := "" // URL link target for an OSC 8 hyperlink, "" = none
 			if c, ok := chips[sp.id]; ok {
@@ -616,15 +668,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				if c.Kind == chipKindTag {
 					if pill := tagColorSGR(c.Value); pill != "" {
 						col = pill
-					}
-				}
-				// a session chip wears its agent's color — or the session's own, when
-				// the CLI gave it one (published like the node's, see agentLooks)
-				if c.Kind == chipKindAgent {
-					if l, ok := agentLooks[c.ID]; ok && l.color != "" {
-						col = l.color
-					} else if v, ok := agentVariantByID(c.Value); ok {
-						col = v.colorSGR()
 					}
 				}
 				// a painted icon chip wears its catalog brand color (label=shortcode)

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
@@ -135,7 +137,7 @@ func TestAgentReadMetaFallsBackToFirstPrompt(t *testing.T) {
 func TestAgentTranscript(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser, recTool, recReply)
 	c := variant(t, "claude")
-	entries, path := agentTranscript(c.transcriptDirs(), c.exts, id)
+	entries, stats, path := agentTranscript(c.transcriptDirs(), c.exts, id)
 	if path == "" {
 		t.Fatal("no transcript path")
 	}
@@ -147,6 +149,9 @@ func TestAgentTranscript(t *testing.T) {
 	if strings.Join(kinds, ",") != strings.Join(want, ",") {
 		t.Fatalf("entry kinds = %v, want %v", kinds, want)
 	}
+	if stats.turns != 2 {
+		t.Errorf("assistant turns = %d, want 2", stats.turns)
+	}
 	tool := entries[2]
 	if tool.name != "Bash" || !strings.Contains(tool.text, "go test") {
 		t.Errorf("tool entry = %+v, want the Bash call and its command", tool)
@@ -154,8 +159,9 @@ func TestAgentTranscript(t *testing.T) {
 	if tool.at.IsZero() {
 		t.Error("tool entry lost its timestamp")
 	}
-	if line := stripSGR(agentEntryLine(tool, cCyan)); !strings.Contains(line, "→ Bash") {
-		t.Errorf("tool line = %q, want the tool call spelled out", line)
+	if line := stripSGR(agentEntryLine(tool, cCyan)); !strings.Contains(line, "Bash") ||
+		!strings.Contains(line, `{"command":"go test ./pkg/tui/..."}`) {
+		t.Errorf("tool line = %q, want the tool name and its arguments as JSON", line)
 	}
 }
 
@@ -245,12 +251,17 @@ func TestAgentNodeLookAndDone(t *testing.T) {
 	if look.color != c.colorSGR() {
 		t.Errorf("live session color = %q, want the claude color", look.color)
 	}
-	tail := stripSGR(look.tail)
-	for _, want := range []string{"fix the flaky sync test", "/home/dev/repo", "just now"} {
-		if !strings.Contains(tail, want) {
-			t.Errorf("tail %q missing %q", tail, want)
-		}
+	// the row stays quiet: a NAMED node carries no tail at all — the directory,
+	// the model, the tokens and the tool calls all live in the expanded panel
+	if tail := stripSGR(look.tail); tail != "" {
+		t.Errorf("a named session row must carry no tail, got %q", tail)
 	}
+	// an UNNAMED row falls back to the session's own name so it never reads blank
+	it.name = ""
+	if tail := stripSGR(m.publishAgentLook("sess", c).tail); !strings.Contains(tail, "fix the flaky sync test") {
+		t.Errorf("unnamed row tail = %q, want the session's own name", tail)
+	}
+	it.name = "flaky test"
 
 	if _, color := glyphFor(it); color != c.colorSGR() {
 		t.Errorf("live glyph color = %q", color)
@@ -443,7 +454,9 @@ func TestAgentViewShowsToolCalls(t *testing.T) {
 		t.Fatalf("view rendered %d lines: %v", len(bands), bands)
 	}
 	joined := stripSGR(strings.Join(bands, "\n"))
-	for _, want := range []string{"Claude Code session", "session " + agentShortID(id), "the sync test is flaky", "→ Bash", "the flake is a clock race"} {
+	for _, want := range []string{"fix the flaky sync test", "dir", "/home/dev/repo",
+		"session " + agentShortID(id), "state", "the sync test is flaky", "Bash",
+		`{"command":"go test ./pkg/tui/..."}`, "the flake is a clock race"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("view is missing %q:\n%s", want, joined)
 		}
@@ -575,4 +588,160 @@ func TestAgentsListSeesUnflushedEdits(t *testing.T) {
 	if len(m.agentRows) != 1 || m.agentRows[0].uuid != "blank" {
 		t.Fatalf("/agents rows = %+v, want the just-started session", m.agentRows)
 	}
+}
+
+// TestAgentChipPill: the chip is a filled pill — the agent's glyph and the
+// session's NAME on the session's color, ink near-black on top.
+func TestAgentChipPill(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser)
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	cursorOn(m, "note")
+	cur := m.tree.byUUID["note"]
+	m.caret = len([]rune(cur.name))
+	m.insertAgentChip(cur, c, agentStoreSession{variant: c.id, id: id, title: "fix the flaky sync test"})
+	chip, _ := m.agentChipAtCaret(cur)
+	m.refreshAgentLooks()
+
+	pill := renderAgentChip(m.chips[chip.ID], false)
+	if !strings.Contains(pill, cChipInk) {
+		t.Error("the pill must write in the chip ink")
+	}
+	if !strings.Contains(pill, "\x1b[48;2;") {
+		t.Errorf("the pill must be FILLED with the session's color: %q", pill)
+	}
+	if !strings.Contains(stripSGR(pill), "✳ fix the flaky sync test") {
+		t.Errorf("pill reads %q, want the glyph and the session's name", stripSGR(pill))
+	}
+	// the CLI's store gave this session a color: the pill is filled with it
+	if !strings.Contains(pill, "\x1b[48;2;78;201;176m") {
+		t.Errorf("pill = %q, want the session's own #4ec9b0 fill", pill)
+	}
+}
+
+// TestAgentChipCustomName: like a link chip, a session can be given the user's
+// own name — and clearing it hands the name back to the CLI.
+func TestAgentChipCustomName(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser)
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	cursorOn(m, "note")
+	cur := m.tree.byUUID["note"]
+	m.caret = len([]rune(cur.name))
+	m.insertAgentChip(cur, c, agentStoreSession{variant: c.id, id: id, title: "fix the flaky sync test"})
+	chip, _ := m.agentChipAtCaret(cur)
+
+	m.agentRename(chip.ID, "flush fix")
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✳ flush fix") {
+		t.Errorf("renamed chip reads %q", got)
+	}
+	if s := m.agentLoad(chip.ID); s.Name != "flush fix" {
+		t.Errorf("stored name = %q", s.Name)
+	}
+	m.agentRename(chip.ID, "")
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✳ fix the flaky sync test") {
+		t.Errorf("cleared name reads %q, want the CLI's own title back", got)
+	}
+}
+
+// TestAgentRenameInPanel: n opens the rename field in the expanded panel, enter
+// commits it, esc leaves the name alone.
+func TestAgentRenameInPanel(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser)
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "sess", Name: "work", Type: c.key})
+	m.agentSave("sess", agentSession{Variant: c.id, SessionID: id})
+	it := m.tree.byUUID["sess"]
+	(agentView{}).Enter(m, it)
+
+	(agentView{}).Key(m, it, key("n"))
+	if m.agentRenameState("sess") == nil {
+		t.Fatal("n did not open the rename field")
+	}
+	for _, r := range "retry fix" {
+		(agentView{}).Key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	(agentView{}).Key(m, it, key("enter"))
+	if s := m.agentLoad("sess"); !strings.HasSuffix(s.Name, "retry fix") {
+		t.Fatalf("committed name = %q", s.Name)
+	}
+	if m.agentRenameState("sess") != nil {
+		t.Error("the field must close on enter")
+	}
+
+	(agentView{}).Key(m, it, key("n"))
+	(agentView{}).Key(m, it, key("esc"))
+	if m.agentRenameState("sess") != nil {
+		t.Error("esc must close the field")
+	}
+}
+
+// TestAgentStats: the panel's numbers come from the session's own records —
+// model, branch, turns and the tokens it spent.
+func TestAgentStats(t *testing.T) {
+	rec := `{"type":"assistant","timestamp":"2026-07-24T10:03:04Z","cwd":"/home/dev/repo",` +
+		`"gitBranch":"claude/agent-sessions","effort":"high","message":{"role":"assistant",` +
+		`"model":"claude-opus-5","usage":{"input_tokens":1200,"output_tokens":340,` +
+		`"cache_read_input_tokens":46780},"content":[{"type":"text","text":"done"}]}}`
+	id := claudeStore(t, recSummary, recUser, rec, rec)
+	c := variant(t, "claude")
+	_, stats, _ := agentTranscript(c.transcriptDirs(), c.exts, id)
+
+	if stats.model != "claude-opus-5" || stats.branch != "claude/agent-sessions" || stats.effort != "high" {
+		t.Errorf("stats = %+v", stats)
+	}
+	if stats.inTok != 2400 || stats.outTok != 680 || stats.cacheTok != 93560 {
+		t.Errorf("tokens = %d in / %d out / %d cached", stats.inTok, stats.outTok, stats.cacheTok)
+	}
+	if stats.turns != 2 {
+		t.Errorf("turns = %d", stats.turns)
+	}
+	if got := stripSGR(agentTokenLine(stats)); got != "2.4k in · 680 out · 93.6k cached" {
+		t.Errorf("token line = %q", got)
+	}
+}
+
+// TestAgentCloudMark: a session the CLI records as started from the web wears
+// the cloud mark on its chip and reports itself hosted.
+func TestAgentCloudMark(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser)
+	home := os.Getenv("HOME")
+	reg := filepath.Join(home, ".claude", "sessions")
+	if err := os.MkdirAll(reg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"pid":1,"sessionId":"` + id + `","cwd":"/home/dev/repo","name":"lflow-c1",` +
+		`"kind":"interactive","entrypoint":"remote_mobile"}`
+	if err := os.WriteFile(filepath.Join(reg, "1.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	cursorOn(m, "note")
+	cur := m.tree.byUUID["note"]
+	m.caret = len([]rune(cur.name))
+	m.insertAgentChip(cur, c, agentStoreSession{variant: c.id, id: id})
+
+	s := m.agentLoad(agentOnlyChipID(m))
+	if !m.agentCloud(c, s) {
+		t.Error("a session started from a phone must read as hosted")
+	}
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, glyphCloud) {
+		t.Errorf("chip reads %q, want the cloud mark", got)
+	}
+	// the CLI's own name for the session wins over the store's summary
+	if !strings.Contains(displayAnchors(cur.name, m.chips), "lflow-c1") {
+		t.Errorf("chip reads %q, want the name the CLI gave the session", displayAnchors(cur.name, m.chips))
+	}
+}
+
+// agentOnlyChipID returns the single agent chip in the model (test helper).
+func agentOnlyChipID(m *Model) string {
+	for id, c := range m.chips {
+		if c.Kind == chipKindAgent {
+			return id
+		}
+	}
+	return ""
 }
