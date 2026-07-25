@@ -46,7 +46,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.mode {
-	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert:
+	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert,
+		modeAgentPick, modeAgents:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
@@ -565,6 +566,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if c, ok := m.cmdChipAtCaret(cur); ok {
 				m.focusCmdChip(c) // ⌥e on a cmd chip: its run output as an inline band
 				return m, nil
+			} else if c, ok := m.agentChipAtCaret(cur); ok {
+				m.focusAgentChip(c) // ⌥e on a session chip: its transcript as a band
+				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
 				return m, nil
@@ -584,6 +588,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
+			}
+			if c, ok := m.agentChipAtCaret(cur); ok {
+				return m, m.runAgentChip(c) // an inline session chip opens its CLI
 			}
 			// running a link chip IS opening it — the browser for a URL (a Google
 			// Sheets/Docs chip lands in the host browser), a jump for a node link.
@@ -610,6 +617,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// open the cursor node in the HOST's own app — outside the terminal
 		// (image → the desktop image viewer). Types without the hook ignore it.
 		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipAtCaret(cur); ok {
+				// a session chip on a hosted session opens it in the browser
+				s := m.agentLoad(c.ID)
+				if s.Remote != "" {
+					return m, m.agentOpenURL(c.ID, s.Remote)
+				}
+				if v, ok := agentVariantByID(c.Value); ok && v.webURL != nil && s.SessionID != "" {
+					return m, m.agentOpenURL(c.ID, v.webURL(s.SessionID))
+				}
+			}
 			if open := typeOf(cur.typ).openHost; open != nil {
 				return m, open(m, cur)
 			}

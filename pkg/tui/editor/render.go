@@ -618,6 +618,15 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 						col = pill
 					}
 				}
+				// a session chip wears its agent's color — or the session's own, when
+				// the CLI gave it one (published like the node's, see agentLooks)
+				if c.Kind == chipKindAgent {
+					if l, ok := agentLooks[c.ID]; ok && l.color != "" {
+						col = l.color
+					} else if v, ok := agentVariantByID(c.Value); ok {
+						col = v.colorSGR()
+					}
+				}
 				// a painted icon chip wears its catalog brand color (label=shortcode)
 				if c.Kind == chipKindIcon {
 					if s := iconColorSGR(iconColorForChip(c)); s != "" {

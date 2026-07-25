@@ -33,6 +33,10 @@ func (m *Model) listSource() pickerSource {
 		return tagColorSource{}
 	case modeInsert:
 		return insertSource{}
+	case modeAgentPick:
+		return agentStartSource{}
+	case modeAgents:
+		return agentListSource{}
 	}
 	return nil
 }
@@ -115,6 +119,7 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // kind handed to insertChip. "icon" is plain unicode (not a chip) — offered so
 // query nodes (where ":" is the query-command completer) can still insert icons.
 var insertKinds = []struct{ value, label, desc string }{
+	{"agent", "agent", "an agentic coding session chip"},
 	{"cmd", "bash", "a runnable $ command chip"},
 	{"date", "date", "today as a date chip"},
 	{"icon", "icon", "an icon or emoji via shortcode"},
@@ -174,6 +179,9 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch kind {
+	case "agent":
+		// pick the CLI (or an existing session) — the chip lands on select
+		m.openAgentPicker(agentPickChip)
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")
 	case "link":
