@@ -122,6 +122,19 @@ the shared code-block face, and never executed automatically. The embedded
 There is no conversational assistant, mention completer, assistant reply type,
 or resumable external coding-session reference.
 
+## Web search
+
+The websearch node (`pkg/tui/editor/nodes/websearch.go`) is an ordinary editable
+row whose text IS the query: alt+r asks DuckDuckGo's **keyless** result pages
+(`pkg/tui/websearch` — html.duckduckgo.com/html/, falling back to
+lite.duckduckgo.com/lite/; no account, no API key, nothing in
+`credentials.json`) and hangs the first ten hits beneath the node as bands —
+rank, title, host — with alt+e opening the same ten with their URLs and
+snippets in a scrollable view. `LFLOW_SEARCH_URL` points the client at one other
+endpoint (a self-hosted mirror, or a mock for tests and demos). The hits are run
+output: they live in the ephemeral node store only, never in the DB and never in
+sync.
+
 ## Demo videos
 
 A visible change ships with a short video. **`DEMO.md` in the repo root is the
