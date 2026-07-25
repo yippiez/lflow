@@ -44,6 +44,14 @@ const (
 	// moves when a node becomes a table — it is a reading, so any node converts and
 	// the grid ⇄ nodes toggle is lossless. See editor/table.go.
 	TypeTable = "table"
+	// The agentic coding SESSION nodes: one type per CLI agent lflow can hand the
+	// terminal to (alt+r suspends lflow and opens/resumes that CLI's session in the
+	// node's pinned directory; alt+e shows its transcript). Each variant is its own
+	// free-string type so the /type picker, its CLI dependency gate and its own
+	// theming come for free — see editor/agent.go.
+	TypeAgentPi       = "agent.pi"
+	TypeAgentClaude   = "agent.claude"
+	TypeAgentOpencode = "agent.opencode"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -76,6 +84,9 @@ var TypeOrder = []string{
 	TypeMath,
 	TypeTable,
 	TypeWF,
+	TypeAgentClaude,
+	TypeAgentPi,
+	TypeAgentOpencode,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.

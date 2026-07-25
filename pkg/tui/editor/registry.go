@@ -246,6 +246,13 @@ var nodeTypes = []nodeType{
 		onType:       tableOnType,
 		toContextM:   tableToContext,
 	},
+	// the agentic coding SESSION nodes: one per CLI lflow can hand the terminal to
+	// (alt+r suspends lflow into that CLI's session, alt+e shows its transcript).
+	// All three are the same node built from one variant descriptor — see agent.go,
+	// where a new CLI is one table entry plus one line here.
+	agentNodeType(agentVariants[0]), // Claude Code
+	agentNodeType(agentVariants[1]), // Pi
+	agentNodeType(agentVariants[2]), // opencode
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see
 	// nodeplugin.go.
