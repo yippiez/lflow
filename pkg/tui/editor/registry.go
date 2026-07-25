@@ -234,7 +234,9 @@ var nodeTypes = []nodeType{
 	// container row carries a dim preview of its subtree and its parameter count,
 	// and alt+r exports the subtree as PyTorch.
 	{
-		key: database.TypeML, label: "Model", inlineEditable: true,
+		// Enter continues the stack: building a model is typing layer after layer,
+		// so a fresh sibling stays a Model row (the todo-list continuation).
+		key: database.TypeML, label: "Model", inlineEditable: true, continueOnEnter: true,
 		spanColor:    mlSpanColor,
 		bodyTail:     mlBodyTail,
 		run:          runMLTorch, // alt+r: export this subtree as PyTorch to the run band

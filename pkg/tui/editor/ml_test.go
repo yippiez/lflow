@@ -291,6 +291,13 @@ func TestMLRegistryEntry(t *testing.T) {
 	if !nt.inlineEditable || nt.spanColor == nil || nt.bodyTail == nil || nt.run == nil || nt.toContext == nil {
 		t.Errorf("the ml entry is missing a hook: %+v", nt)
 	}
+	if nt.view == nil {
+		t.Error("the ml entry has no alt+e code view")
+	}
+	// Enter keeps the stack going: a fresh sibling is another Model row.
+	if !nt.continueOnEnter {
+		t.Error("Enter from a model row should open another model row")
+	}
 }
 
 // The alt+e view is stateless: it recomputes the export from the subtree, so a
