@@ -19,6 +19,7 @@ type fakeHost struct {
 	stores  map[string]map[string]any
 	flash   string
 	deps    map[string]bool
+	scroll  int
 	compute func() <-chan compute.Event
 }
 
@@ -41,6 +42,8 @@ func (f *fakeHost) NodeDepOK(b string) bool {
 	ok, probed := f.deps[b]
 	return !probed || ok
 }
+func (f *fakeHost) NodeScroll() int     { return f.scroll }
+func (f *fakeHost) NodeSetScroll(n int) { f.scroll = n }
 func (f *fakeHost) NodeComputeTurn(context.Context, string, string, string) (<-chan compute.Event, error) {
 	return f.compute(), nil
 }

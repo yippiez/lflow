@@ -37,6 +37,9 @@ const (
 	// complex ones fan out into a child tree and the operator row shows a dim
 	// linear preview of its whole subtree. See editor/math.go.
 	TypeMath = "math"
+	// TypeWebSearch is a web search: the node's text is the query and alt+r hangs
+	// the first ten hits beneath it, ephemerally (see editor/nodes/websearch.go).
+	TypeWebSearch = "websearch"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -63,6 +66,7 @@ var TypeOrder = []string{
 	TypeLog,
 	TypeJSON,
 	TypeQuery,
+	TypeWebSearch,
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,

@@ -110,6 +110,12 @@ type NodeHost interface {
 	// NodeDepOK reports a CLI binary's availability (NodeCLIDeps; judged by
 	// the daemon — the execution side).
 	NodeDepOK(bin string) bool
+	// NodeScroll / NodeSetScroll read and move the focused view's scroll offset —
+	// the shared window origin the core clamps against the view's Lines each
+	// frame. A plugin View's Key handler uses them to page its own bands; a huge
+	// value means "the last page" (the clamp pins it).
+	NodeScroll() int
+	NodeSetScroll(int)
 	// NodeComputeTurn runs one raw code-generation turn (system+prompt as-is) —
 	// on the daemon when connected, locally otherwise. Cancel ctx to stop it.
 	NodeComputeTurn(ctx context.Context, system, prompt, cwd string) (<-chan compute.Event, error)
@@ -274,6 +280,8 @@ func (m *Model) NodeStore(uuid string) map[string]any { return m.nodeStore(uuid)
 func (m *Model) NodeDB() *database.DB                 { return m.db }
 func (m *Model) NodeFlash(msg string)                 { m.flash = msg }
 func (m *Model) NodeDepOK(bin string) bool            { return m.depOK(bin) }
+func (m *Model) NodeScroll() int                      { return m.focusScroll }
+func (m *Model) NodeSetScroll(n int)                  { m.focusScroll = n }
 
 // NodeComputeTurn runs a raw generation turn — daemon-side when connected and
 // local otherwise.

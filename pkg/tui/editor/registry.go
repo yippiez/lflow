@@ -227,9 +227,9 @@ var nodeTypes = []nodeType{
 		flashActions: mathFlashActions,
 		toContext:    mathToContext,
 	},
-	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
-	// per node) and register themselves via RegisterNodePlugin at init; see
-	// nodeplugin.go.
+	// The pluggable node types — nlpcompute, websearch — live in editor/nodes
+	// (one Go file per node) and register themselves via RegisterNodePlugin at
+	// init; see nodeplugin.go.
 }
 
 // byType fills in init() — a var initializer would cycle: nodeTypes references
