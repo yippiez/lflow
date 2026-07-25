@@ -251,10 +251,16 @@ func TestAgentNodeLookAndDone(t *testing.T) {
 	if look.color != c.colorSGR() {
 		t.Errorf("live session color = %q, want the claude color", look.color)
 	}
-	// the row stays quiet: a NAMED node carries no tail at all — the directory,
-	// the model, the tokens and the tool calls all live in the expanded panel
-	if tail := stripSGR(look.tail); tail != "" {
-		t.Errorf("a named session row must carry no tail, got %q", tail)
+	// the row is the pill plus MUTED GRAY info: where it runs and when it last
+	// moved. The branch, the model, the tokens and the tool calls stay in the panel.
+	tail := stripSGR(look.tail)
+	for _, want := range []string{"/home/dev/repo", "just now"} {
+		if !strings.Contains(tail, want) {
+			t.Errorf("row info %q missing %q", tail, want)
+		}
+	}
+	if strings.Contains(tail, "opus") || strings.Contains(tail, "tokens") {
+		t.Errorf("row info %q leaks panel material", tail)
 	}
 	// an UNNAMED row falls back to the session's own name so it never reads blank
 	it.name = ""
@@ -376,12 +382,12 @@ func TestAgentsListRanksLiveFirst(t *testing.T) {
 		t.Fatalf("order = %s,%s — live sessions rank first", rows[0].uuid, rows[1].uuid)
 	}
 	doneRow := m.agentListRow(rows[1], "")
-	if !strings.HasPrefix(doneRow, cDim) || !strings.Contains(doneRow, "done") {
-		t.Errorf("done row = %q, want it muted and marked done", doneRow)
+	if !strings.HasPrefix(doneRow, bgOf(cDim)) || !strings.Contains(stripSGR(doneRow), "done") {
+		t.Errorf("done row = %q, want a gray-filled pill marked done", doneRow)
 	}
 	liveRow := m.agentListRow(rows[0], "")
-	if !strings.Contains(liveRow, p.colorSGR()) {
-		t.Errorf("live row = %q, want the agent's own color", liveRow)
+	if !strings.Contains(liveRow, bgOf(p.colorSGR())) {
+		t.Errorf("live row = %q, want a pill filled with the agent's own color", liveRow)
 	}
 }
 
@@ -604,8 +610,8 @@ func TestAgentChipPill(t *testing.T) {
 	m.refreshAgentLooks()
 
 	pill := renderAgentChip(m.chips[chip.ID], false)
-	if !strings.Contains(pill, cChipInk) {
-		t.Error("the pill must write in the chip ink")
+	if !strings.Contains(pill, cInkDark) {
+		t.Error("a light fill must be written in dark ink")
 	}
 	if !strings.Contains(pill, "\x1b[48;2;") {
 		t.Errorf("the pill must be FILLED with the session's color: %q", pill)
@@ -744,4 +750,72 @@ func agentOnlyChipID(m *Model) string {
 		}
 	}
 	return ""
+}
+
+// TestContrastInk: a filled pill writes in whatever ink contrasts with the
+// fill — dark on Claude Code's orange, light on a dark session color.
+func TestContrastInk(t *testing.T) {
+	if got := contrastInk(styleColorCode["orange"]); got != cInkDark {
+		t.Errorf("ink on orange = %q, want dark", got)
+	}
+	if got := contrastInk("\x1b[38;2;20;30;90m"); got != cInkLight {
+		t.Errorf("ink on a dark navy = %q, want light", got)
+	}
+	if got := contrastInk("not an sgr"); got != cInkDark {
+		t.Errorf("unreadable fill = %q, want the dark default", got)
+	}
+}
+
+// TestAgentNodeFill: a session NODE wears the chip's pill — the row's text on
+// the agent's color — with the muted gray info trailing it. A done session
+// fills gray instead.
+func TestAgentNodeFill(t *testing.T) {
+	id := claudeStore(t, recPlain, recUser)
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "sess", Name: "flaky test", Type: c.key})
+	it := m.tree.byUUID["sess"]
+	m.agentSave("sess", agentSession{Variant: c.id, SessionID: id, Cwd: "/home/dev/repo", OpenedAt: time.Now().Unix()})
+	m.refreshAgentLooks()
+
+	body := renderBody(it, it.name, -1, false, m.chips, false)
+	if !strings.Contains(body, bgOf(c.colorSGR())) {
+		t.Errorf("a session row must be filled with the agent's color: %q", body)
+	}
+	if !strings.Contains(body, cInkDark) {
+		t.Error("the filled row must write in contrasting ink")
+	}
+	tail := stripSGR(agentLookOf(c, it).tail)
+	for _, want := range []string{"/home/dev/repo", "just now"} {
+		if !strings.Contains(tail, want) {
+			t.Errorf("row info %q missing %q", tail, want)
+		}
+	}
+
+	it.completedAt = time.Now().Unix()
+	if got := agentFillOf(c, it); got != cDim {
+		t.Errorf("a done session fills %q, want muted gray", got)
+	}
+}
+
+// TestAgentMenuRowIsAPill: /agents draws the same pill the outline does, with
+// the same muted gray info after it.
+func TestAgentMenuRowIsAPill(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "sess", Name: "flaky test", Type: c.key})
+	m.agentSave("sess", agentSession{Variant: c.id, SessionID: "abc-123", Cwd: "/home/dev/repo"})
+	rows := m.collectAgentRows()
+	if len(rows) != 1 {
+		t.Fatalf("collected %d rows", len(rows))
+	}
+	row := m.agentListRow(rows[0], "flush fix")
+	if !strings.Contains(row, bgOf(c.colorSGR())) || !strings.Contains(row, cInkDark) {
+		t.Errorf("menu row is not a pill: %q", row)
+	}
+	plain := stripSGR(row)
+	if !strings.HasPrefix(plain, " ✳ flush fix ") {
+		t.Errorf("menu row = %q, want the pill first", plain)
+	}
+	if !strings.Contains(plain, "/home/dev/repo") {
+		t.Errorf("menu row = %q, want the gray info after the pill", plain)
+	}
 }

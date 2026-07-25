@@ -104,6 +104,7 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 			color = v.colorSGR()
 		}
 		out = append(out, pickerItem{value: "use/" + v.id + "/" + s.id, render: func(bool) string {
+			// an existing session is drawn as the pill it will become
 			meta := []string{}
 			if s.cwd != "" {
 				meta = append(meta, tildePath(s.cwd))
@@ -111,9 +112,9 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 			if !s.updated.IsZero() {
 				meta = append(meta, relTime(s.updated.Unix()))
 			}
-			row := color + fmt.Sprintf("%-2s ", v.glyph) + cReset + cFG + clipStr(label, 46) + cReset
+			row := bgOf(color) + contrastInk(color) + " " + v.glyph + " " + clipStr(label, 40) + " " + cReset
 			if len(meta) > 0 {
-				row += cDim + "  " + strings.Join(meta, " · ") + cReset
+				row += cDim + " " + strings.Join(meta, " · ") + cReset
 			}
 			return row
 		}})
@@ -293,43 +294,46 @@ func (agentListSource) items(m *Model, q string) []pickerItem {
 	return out
 }
 
-// agentListRow draws one /agents row: variant glyph, the node's name, then the
-// session's own title and where it left off. A DONE session is drawn entirely in
-// muted gray — it reads as settled at a glance, and it sits below the live ones.
+// agentListRow draws one /agents row in exactly the language the outline uses:
+// the session's PILL — glyph and name on its agent's color — then muted gray
+// info to its right. A DONE session fills gray instead and sits below the live
+// ones, so the list reads active-then-settled at a glance.
 func (m *Model) agentListRow(r agentRow, title string) string {
-	name := r.name
-	if strings.TrimSpace(name) == "" {
-		name = title
+	fill := m.agentColorFor(r.id, r.variant, r.sess)
+	if r.done {
+		fill = cDim
 	}
+	name := title
+	if strings.TrimSpace(name) == "" {
+		name = r.name
+	}
+	pill := bgOf(fill) + contrastInk(fill) + " " + r.variant.glyph + " " + clipStr(name, 32) + " " + cReset
+
 	var meta []string
-	if title != "" && title != name {
-		meta = append(meta, title)
+	if r.name != "" && r.name != name {
+		meta = append(meta, clipStr(r.name, 30)) // the node the session is filed under
 	}
 	if r.chip {
 		meta = append(meta, "chip")
 	}
+	if m.agentCloud(r.variant, r.sess) {
+		meta = append(meta, glyphCloud+" hosted")
+	}
+	if m.agentLive(r.variant, r.sess) {
+		meta = append(meta, "live")
+	}
 	if r.sess.Cwd != "" {
 		meta = append(meta, tildePath(r.sess.Cwd))
 	}
-	if r.sess.Remote != "" {
-		meta = append(meta, "remote")
-	}
-	if r.sess.OpenedAt > 0 {
+	switch {
+	case r.done:
+		meta = append(meta, "done")
+	case r.sess.OpenedAt > 0:
 		meta = append(meta, relTime(r.sess.OpenedAt))
-	} else {
+	default:
 		meta = append(meta, "not opened")
 	}
-	tail := ""
-	if len(meta) > 0 {
-		tail = "  " + strings.Join(meta, " · ")
-	}
-	if r.done {
-		// done: glyph, name and tail all muted — the passive half of the list
-		return cDim + r.variant.glyph + " " + fmt.Sprintf("%-34s", clipStr(name, 34)) + tail + " · done" + cReset
-	}
-	color := m.agentColorFor(r.id, r.variant, r.sess)
-	return color + r.variant.glyph + " " + cReset + cFG + fmt.Sprintf("%-34s", clipStr(name, 34)) + cReset +
-		cDim + tail + cReset
+	return pill + cDim + " " + strings.Join(meta, " · ") + cReset
 }
 
 func (agentListSource) header(m *Model, p *listPicker) string {

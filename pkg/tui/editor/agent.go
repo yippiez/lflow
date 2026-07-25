@@ -111,8 +111,11 @@ var agentVariants = []agentVariant{
 		exts:         []string{".jsonl", ".json"},
 	},
 	{
+		// ❯ is the closest plain-Unicode stand-in for opencode's terminal mark —
+		// the shell prompt it lives at. One table entry to change if a better one
+		// turns up.
 		id: "opencode", key: database.TypeAgentOpencode, label: "Opencode session",
-		bin: "opencode", glyph: "◈", color: "cyan", assignsID: false,
+		bin: "opencode", glyph: "❯", color: "cyan", assignsID: false,
 		args: func(s agentSession, resume bool) []string {
 			switch {
 			case resume && s.SessionID != "":
@@ -351,7 +354,7 @@ func agentNodeType(v agentVariant) nodeType {
 		key: v.key, label: v.label, inlineEditable: true,
 		cliDeps:      []string{v.bin},
 		glyph:        func(it *item) (string, string) { return v.glyph, agentGlyphColor(v, it) },
-		baseColor:    func(it *item) string { return agentLookOf(v, it).color },
+		fill:         func(it *item) string { return agentFillOf(v, it) },
 		bodyTail:     func(it *item) string { return agentLookOf(v, it).tail },
 		run:          func(m *Model, it *item) tea.Cmd { return m.agentRunNode(v, it) },
 		view:         agentView{},
@@ -393,11 +396,10 @@ func (m *Model) publishAgentLook(id string, v agentVariant) agentLook {
 	s := m.agentLoad(id)
 	l := agentLook{color: m.agentColorFor(id, v, s)}
 
-	// The row stays as quiet as any other node: the session's STATE (hosted,
-	// running) and, while the node is still unnamed, the session's own name.
-	// Everything else about a session — where it runs, on what branch, which
-	// model, what it has spent, every tool call — lives in the expanded panel
-	// (alt+e) and nowhere else. See agentBandContent.
+	// A session ROW is the chip's pill plus MUTED GRAY info to its right: what
+	// this session is at a glance. The rest — the branch, the model, the tokens,
+	// every tool call — belongs to the expanded panel (alt+e). See
+	// agentBandContent.
 	var parts []string
 	if name := m.agentUnnamedRow(id, v, s); name != "" {
 		parts = append(parts, name)
@@ -408,11 +410,17 @@ func (m *Model) publishAgentLook(id string, v agentVariant) agentLook {
 	if m.agentLive(v, s) {
 		parts = append(parts, "live")
 	}
-	if s.SessionID == "" && s.Remote == "" {
+	if s.Cwd != "" {
+		parts = append(parts, tildePath(s.Cwd))
+	}
+	switch {
+	case s.OpenedAt > 0:
+		parts = append(parts, relTime(s.OpenedAt))
+	case s.SessionID == "" && s.Remote == "":
 		parts = append(parts, "⌥r starts it")
 	}
 	if len(parts) > 0 {
-		l.tail = cDim + "· " + strings.Join(parts, " · ") + cReset
+		l.tail = cDim + strings.Join(parts, " · ") + cReset
 	}
 	agentLooks[id] = l
 	return l
@@ -460,7 +468,17 @@ func (m *Model) refreshAgentLooks() {
 	}
 }
 
-// agentGlyphColor keeps a done session's glyph as quiet as its text.
+// agentFillOf is the color a session ROW is filled with — the same pill the
+// chip wears, so one session reads the same wherever it appears. A done session
+// fills muted gray instead, which is what makes finished work read as settled.
+func agentFillOf(v agentVariant, it *item) string {
+	if it != nil && (it.completedAt > 0 || underCompleted(it)) {
+		return cDim
+	}
+	return agentLookOf(v, it).color
+}
+
+// agentGlyphColor keeps a done session's glyph as quiet as its row.
 func agentGlyphColor(v agentVariant, it *item) string {
 	if it != nil && (it.completedAt > 0 || underCompleted(it)) {
 		return cDim

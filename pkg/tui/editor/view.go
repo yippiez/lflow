@@ -257,7 +257,13 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			body = cDim + stripSGR(body) + cReset
 			suffix = cDim + stripSGR(suffix) + cReset
 		}
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
+		// a filled row (an agent session's pill) carries its own inset, so the
+		// usual glyph gap would read as a double space
+		gap := " "
+		if rowFill(shown) != "" {
+			gap = ""
+		}
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + gap + body + suffix
 		// flash mode hangs each row's action labels off the end of the line
 		if m.mode == modeFlash {
 			line += m.flashRowSuffix(i)
