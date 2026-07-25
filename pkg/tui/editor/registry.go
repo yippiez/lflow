@@ -238,6 +238,7 @@ var nodeTypes = []nodeType{
 		spanColor:    mlSpanColor,
 		bodyTail:     mlBodyTail,
 		run:          runMLTorch, // alt+r: export this subtree as PyTorch to the run band
+		view:         mlView{},   // alt+e: read that export in the shared code block
 		flashActions: mlFlashActions,
 		toContext:    mlToContext,
 	},

@@ -292,3 +292,46 @@ func TestMLRegistryEntry(t *testing.T) {
 		t.Errorf("the ml entry is missing a hook: %+v", nt)
 	}
 }
+
+// The alt+e view is stateless: it recomputes the export from the subtree, so a
+// layer edited between openings shows up without any buffer to invalidate.
+func TestMLViewFollowsTheTree(t *testing.T) {
+	it := mltree("sequential\n  Linear 4 8")
+	if !(mlView{}).Enter(nil, it) {
+		t.Fatal("the view declined a model with an export")
+	}
+	if n := (mlView{}).Lines(nil, it, 80); n != len(strings.Split(mlToTorch(it), "\n")) {
+		t.Errorf("Lines = %d, want one per exported line", n)
+	}
+	it.children[0].name = "Linear 4 16"
+	if !strings.Contains(mlViewCode(it), "nn.Linear(4, 16)") {
+		t.Errorf("the view did not follow the edit:\n%s", mlViewCode(it))
+	}
+	// a row with nothing to export declines rather than opening a block holding
+	// a lone nn.Identity(): an empty node, and a prose leaf.
+	if (mlView{}).Enter(nil, &item{typ: "ml"}) {
+		t.Error("the view should decline an empty node")
+	}
+	if (mlView{}).Enter(nil, mlleaf("some thoughts on scaling")) {
+		t.Error("the view should decline a prose leaf")
+	}
+}
+
+// A row with children is a container or a group LABEL; a label stays prose even
+// when it starts with a block word, so a model named "LSTM language model" does
+// not read as an LSTM layer.
+func TestMLSpanColorGroupLabels(t *testing.T) {
+	group := mltree("LSTM language model\n  Embedding 10000 300\n  LSTM 300 512 2")
+	if got := mlSpanColor(group, []rune(group.name)); got != nil {
+		t.Errorf("a group label should not be tinted, got %v", got)
+	}
+	// the container it wraps still reads as one, and so does the layer leaf.
+	stack := mltree("12×\n  ReLU")
+	if got := mlSpanColor(stack, []rune(stack.name)); got[0] != mlColor(mlContainerK) {
+		t.Errorf("a container with children lost its tint: %v", got)
+	}
+	leaf := group.children[1]
+	if got := mlSpanColor(leaf, []rune(leaf.name)); got[0] != mlColor(mlWeighted) {
+		t.Errorf("a layer leaf lost its tint: %v", got)
+	}
+}

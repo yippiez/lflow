@@ -600,6 +600,14 @@ func mlBoolWord(s string) (float64, bool) {
 // prose row (a group name like "Encoder") completely untouched. It rides the
 // per-rune kwColor channel (see renderBody), so caret and selection keep working.
 func mlSpanColor(it *item, runes []rune) map[int]string {
+	if it != nil && len(it.children) > 0 {
+		// a row with children is a container or a GROUP LABEL. A label is prose,
+		// even when it happens to start with a block word ("LSTM language model"),
+		// so only containers tint here.
+		if _, _, ok := mlContainerOf(string(runes)); !ok {
+			return nil
+		}
+	}
 	i := 0
 	for i < len(runes) && runes[i] == ' ' {
 		i++
@@ -692,9 +700,75 @@ func runMLTorch(m *Model, it *item) tea.Cmd {
 	return nil
 }
 
-// mlFlashActions names the alt+r action "torch" in the flash bar.
+// mlFlashActions names the type's two actions in the flash bar: alt+r exports
+// into the run band, alt+e reads the whole snippet in the code view.
 func mlFlashActions(m *Model, it *item) []flashAction {
-	return []flashAction{{verb: "torch", color: cGreen, do: runMLTorch}}
+	return []flashAction{
+		{verb: "torch", color: cGreen, do: runMLTorch},
+		{verb: "code", color: cCyan, do: flashExpandDo},
+	}
+}
+
+// ── the alt+e code view ────────────────────────────────────────────────────
+
+// mlView shows the node's exported PyTorch through the shared code-block face,
+// scrollable beneath the row. The run band is a three-line peek by design, which
+// is the right size for a shell command and far too small for a module — this is
+// where you actually read the export.
+//
+// It is stateless in the strictest sense: the code is recomputed from the
+// subtree on every call (mlToTorch is pure), so editing a layer and reopening
+// always shows the current model, with no buffer to invalidate.
+type mlView struct{}
+
+// mlViewCode is the snippet the view renders — the same export alt+r writes.
+func mlViewCode(it *item) string { return mlToTorch(it) }
+
+// Enter declines a row with nothing to export — a prose leaf, an empty node —
+// rather than opening a block holding a lone nn.Identity().
+func (mlView) Enter(m *Model, it *item) bool {
+	if it == nil {
+		return false
+	}
+	if len(it.children) == 0 {
+		if _, _, ok := mlParse(it.name); !ok {
+			return false
+		}
+	}
+	return mlViewCode(it) != ""
+}
+
+func (mlView) Leave(m *Model, it *item) {}
+
+func (mlView) Lines(m *Model, it *item, width int) int {
+	return len(strings.Split(mlViewCode(it), "\n"))
+}
+
+// Key scrolls the block; esc (defocus) is handled centrally.
+func (mlView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+	switch k.String() {
+	case "up", "k":
+		if m.focusScroll > 0 {
+			m.focusScroll--
+		}
+		return nil, true
+	case "down", "j":
+		m.focusScroll++ // the upper bound is clamped where the view is rendered
+		return nil, true
+	case "pgup":
+		if m.focusScroll -= 6; m.focusScroll < 0 {
+			m.focusScroll = 0
+		}
+		return nil, true
+	case "pgdown":
+		m.focusScroll += 6
+		return nil, true
+	}
+	return nil, false
+}
+
+func (mlView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+	return CodeBlockBands(mlViewCode(it), -1, focused, rail, width, scroll, winH)
 }
 
 // ── preview: subtree → one linear line ─────────────────────────────────────
