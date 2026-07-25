@@ -135,35 +135,35 @@ up; everything that existed before lm39 is down. `/priority:up` /
 
 ## Agentic coding sessions
 
-A coding session with a CLI agent is a NODE (and an inline chip of the same
-thing), so it can be filed next to the notes it belongs to. One type per CLI —
-`agent.claude`, `agent.pi`, `agent.opencode` — all built from one variant
-descriptor in `pkg/tui/editor/agent.go`; adding a CLI is one table entry plus one
-line in the registry. It is a core woven type rather than a plugin because it is
-two surfaces at once (a node type AND a chip kind, /insert, caret gestures).
+A coding session with a CLI agent is an inline CHIP — and only a chip, so it can
+be dropped into whatever note it belongs to instead of owning a row. One variant
+per CLI — claude / pi / opencode — in one table in `pkg/tui/editor/agent.go`;
+adding a CLI is one entry there and nothing else. There is deliberately no agent
+NODE type: `nodes.type` stays free of it.
 
+- The chip reads as one token: the agent's glyph and the session's NAME on the
+  agent's color, in whatever ink contrasts with that fill (`contrastInk`), plus a
+  cloud mark when the session is hosted. `n` in the panel gives a session your own
+  name, like a link chip's; clearing it hands the name back to the CLI.
 - `alt+r` hands the terminal over: lflow suspends itself (`tea.ExecProcess`) and
-  the CLI takes the screen in the session's pinned directory — a node's path chip
-  when it has one, else the editor's cwd. The first open CREATES the session
-  (`--session-id` for the CLIs that take one) and every later open RESUMES it; a
-  CLI that names its own sessions has its id adopted from what its run touched.
-- `alt+e` shows the conversation — prompts, replies and each tool call — read
-  live out of the CLI's OWN store (`agentstore.go`, tolerant decoders for Claude
-  Code / pi / opencode shapes). `alt+o` opens a hosted Claude Code session (a
-  claude.ai/code link in the node text) in the browser; there is no local process
-  to attach to.
-- `/agent` starts a session on the cursor node or ATTACHES one that already
-  exists in a CLI's store; `/insert → agent` does the same as a chip. `/agents`
-  lists every session in the outline, live ones first, done ones muted below.
-  `alt+enter` (or `/complete`) is what marks one done.
-- Each variant is themed as itself (glyph + color); a session the CLI gave its
-  own color wears that instead. A chip's text is the session's LIVE title, so a
-  session renamed inside its CLI reads renamed here.
+  the CLI takes the screen in the session's pinned directory. The first open
+  CREATES the session (`--session-id` for the CLIs that take one) and every later
+  one RESUMES it; a CLI that names its own sessions has its id adopted from what
+  its run touched. A session whose directory is gone refuses to open.
+- `alt+e` opens a THREE-LINE panel: the session, where it runs and its state, and
+  the keys. Nothing else — no transcript, no tool log, no counters. The
+  conversation belongs to the CLI.
+- `alt+o` opens a hosted session in the browser; there is no local process to
+  attach to. What makes a session hosted is the CLI's own record of it (Claude
+  Code's `~/.claude/sessions/<pid>.json` entry point), or a claude.ai/code link.
+- `/agent` (and `/insert → agent`) drops a chip: a fresh session, or one that
+  already exists in a CLI's store. `/agents` lists every session chip in the
+  outline, live first, done ones muted below; `alt+enter` on the row marks done.
 
-WARNING (invariant): lflow never copies a conversation into the outline. A node
+WARNING (invariant): lflow never copies a conversation into the outline. A chip
 stores only `{variant, cwd, session id}` in LOCAL `node_output` — never in the
-node row, never synced — and the title, transcript and color are always read back
-out of the CLI's own store.
+chip row, never synced — and the name, color and state are always read back out
+of the CLI's own store (`agentstore.go`).
 
 ## NLPCompute code generation
 
@@ -196,7 +196,7 @@ binary), and the status bar being the last rendered line.
 
 Remaining doc-level rules:
 
-- Never auto-run runnable nodes (alt+r only) — an agentic coding session is
+- Never auto-run runnable nodes (alt+r only) — an agentic coding session chip is
   opened by that same key and by nothing else.
 - Secrets live in local config — Pi in `~/.pi/agent/settings.json`, service keys
   in `~/.config/lflow/credentials.json` (e.g. `{"workflowy":{"api_key":"…"}}`).

@@ -15,27 +15,27 @@ import (
 )
 
 // Reading the CLI agents' OWN session stores. lflow never keeps a copy of a
-// conversation: a session node/chip stores only which CLI and which session id it
-// points at, and everything shown about that session — its title, its transcript,
-// the color the CLI itself gave it — is read back out of the CLI's store on
-// demand (see agent.go for the node/chip side).
+// conversation: a session chip stores only which CLI and which session id it
+// points at, and what it shows about that session — its name, whether it is
+// running, the color the CLI gave it — is read back out of the CLI's store on
+// demand (see agent.go for the chip side). The conversation itself is never read:
+// it belongs to the CLI.
 //
-// Every reader here is deliberately TOLERANT. Each CLI writes its own transcript
+// Every reader here is deliberately TOLERANT. Each CLI writes its own record
 // shape, and those shapes move between releases; a record we cannot read is
-// skipped, a store we cannot find degrades to "no transcript", and nothing here
-// ever fails a render. The one thing we never do is write into a CLI's store.
+// skipped, a store we cannot find degrades to "no session found", and nothing
+// here ever fails a render. The one thing we never do is write into a CLI's store.
 
 const (
 	agentScanCap   = 400                 // most session files one discovery scan reads
 	agentScanDepth = 7                   // how deep a store walk goes below its root
-	agentMetaCap   = 64 << 10            // bytes read from a file when only meta is wanted
-	agentEntryCap  = 4000                // most transcript entries held for one session
+	agentMetaCap   = 64 << 10            // bytes read from a record file: its head names the session
 	agentScanAge   = 90 * 24 * time.Hour // sessions older than this are not offered
 )
 
 // agentStoreSession is one session discovered in a CLI's own store: what lflow
-// needs to offer it in the "attach an existing session" picker and to keep a
-// node/chip labelled with the session's live title.
+// needs to offer it in the "attach an existing session" picker and to keep a chip
+// labelled with the session's live name.
 type agentStoreSession struct {
 	variant string
 	id      string
@@ -45,32 +45,6 @@ type agentStoreSession struct {
 	updated time.Time // when the session itself last moved (the store's clock, else the file's)
 	modAt   time.Time // the record file's mtime — what a cache checks to skip a re-read
 	path    string    // the file (or directory) the session was read from
-}
-
-// agentEntry is one line of a session transcript, normalized across CLIs.
-type agentEntry struct {
-	kind string // "user" | "assistant" | "thinking" | "tool" | "result" | "meta"
-	name string // tool name, for kind "tool"
-	text string // the human-readable detail (the command, the path, the prose)
-	args string // for a tool call: its arguments as compact JSON, shown after the name
-	at   time.Time
-}
-
-// agentStats is what a whole transcript adds up to — the numbers the expanded
-// panel reports. Filled by agentTranscript, which is only ever called with a
-// panel open, so the render path never pays for it.
-type agentStats struct {
-	model    string // the model the CLI reported ("claude-opus-5")
-	effort   string // reasoning effort, when the CLI records one
-	branch   string // git branch the session is working on
-	cwd      string
-	version  string
-	inTok    int // prompt tokens
-	outTok   int // completion tokens
-	cacheTok int // cache reads — the bulk of a long session's spend
-	turns    int // assistant turns
-	first    time.Time
-	last     time.Time
 }
 
 // agentReg is one entry of a CLI's LIVE session registry (Claude Code writes
@@ -196,16 +170,50 @@ func agentReadMeta(variant, path string) agentStoreSession {
 			s.title = clipStr(oneLine(agentString(rec, "summary", "title", "name", "description")), 60)
 		}
 		if s.title == "" {
-			// no titled record: the first user message is the session's own name
-			for _, e := range agentDecodeRecord(rec) {
-				if e.kind == "user" && strings.TrimSpace(e.text) != "" {
-					s.title = clipStr(oneLine(e.text), 60)
-					break
-				}
+			// no titled record: the first thing asked of the session names it
+			if p := agentFirstPrompt(rec); p != "" {
+				s.title = clipStr(oneLine(p), 60)
 			}
 		}
 	}
 	return s
+}
+
+// agentFirstPrompt returns a record's user text, when it holds one — the fallback
+// name for a session its CLI never titled. Deliberately shallow: it reads the
+// shapes these stores actually write and gives up on anything else.
+func agentFirstPrompt(rec map[string]any) string {
+	role := strings.ToLower(agentString(rec, "role", "type"))
+	content := rec["content"]
+	if msg, ok := rec["message"].(map[string]any); ok {
+		if r := strings.ToLower(agentString(msg, "role")); r != "" {
+			role = r
+		}
+		content = msg["content"]
+	}
+	if content == nil {
+		content = rec["parts"]
+	}
+	if role != "user" && role != "human" {
+		return ""
+	}
+	switch c := content.(type) {
+	case string:
+		return c
+	case []any:
+		for _, item := range c {
+			part, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if strings.EqualFold(agentString(part, "type"), "text") {
+				if t := agentString(part, "text"); strings.TrimSpace(t) != "" {
+					return t
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // agentIDFromPath derives a session id from its record file name — the shape
@@ -258,9 +266,6 @@ func agentReadRecords(path string, limit int) []map[string]any {
 		var rec map[string]any
 		if err := json.Unmarshal([]byte(line), &rec); err == nil {
 			out = append(out, rec)
-			if len(out) >= agentEntryCap {
-				break
-			}
 		}
 	}
 	if len(out) > 0 {
@@ -277,92 +282,6 @@ func agentReadRecords(path string, limit int) []map[string]any {
 		return many
 	}
 	return nil
-}
-
-// agentTranscript reads a session's transcript: the located path, its entries
-// oldest first, and what the whole conversation adds up to (model, branch,
-// tokens, turns). A missing store yields no entries and an empty path — the
-// panel says so rather than pretending the session is empty.
-func agentTranscript(roots []string, exts []string, id string) ([]agentEntry, agentStats, string) {
-	var stats agentStats
-	path := agentTranscriptPath(roots, exts, id)
-	if path == "" {
-		return nil, stats, ""
-	}
-	var files []string
-	if st, err := os.Stat(path); err == nil && st.IsDir() {
-		// a per-session DIRECTORY of message records (opencode): read them in name
-		// order, which is creation order for every store that uses this shape.
-		entries, _ := os.ReadDir(path)
-		for _, e := range entries {
-			if !e.IsDir() && hasExt(e.Name(), exts) {
-				files = append(files, filepath.Join(path, e.Name()))
-			}
-		}
-		sort.Strings(files)
-	} else {
-		files = []string{path}
-	}
-	var out []agentEntry
-	for _, f := range files {
-		for _, rec := range agentReadRecords(f, 0) {
-			agentAddStats(&stats, rec)
-			out = append(out, agentDecodeRecord(rec)...)
-			if len(out) >= agentEntryCap {
-				return out, stats, path
-			}
-		}
-	}
-	for _, e := range out {
-		if e.at.IsZero() {
-			continue
-		}
-		if stats.first.IsZero() || e.at.Before(stats.first) {
-			stats.first = e.at
-		}
-		if e.at.After(stats.last) {
-			stats.last = e.at
-		}
-	}
-	return out, stats, path
-}
-
-// agentAddStats folds one record into the running totals. Every field is
-// optional: a store that reports no usage simply contributes no tokens.
-func agentAddStats(s *agentStats, rec map[string]any) {
-	if v := agentString(rec, "cwd", "directory", "workingDirectory"); v != "" {
-		s.cwd = v
-	}
-	if v := agentString(rec, "gitBranch", "branch"); v != "" {
-		s.branch = v
-	}
-	if v := agentString(rec, "version"); v != "" {
-		s.version = v
-	}
-	if v := agentString(rec, "effort", "thinking", "reasoning"); v != "" {
-		s.effort = v
-	}
-	msg, _ := rec["message"].(map[string]any)
-	if msg == nil {
-		msg = rec
-	}
-	if v := agentString(msg, "model"); v != "" {
-		s.model = v
-	}
-	if strings.EqualFold(agentString(rec, "type", "role"), "assistant") ||
-		strings.EqualFold(agentString(msg, "role"), "assistant") {
-		s.turns++
-	}
-	usage, _ := msg["usage"].(map[string]any)
-	if usage == nil {
-		usage, _ = rec["usage"].(map[string]any)
-	}
-	if usage == nil {
-		return
-	}
-	s.inTok += agentInt(usage, "input_tokens", "inputTokens", "input", "prompt_tokens")
-	s.outTok += agentInt(usage, "output_tokens", "outputTokens", "output", "completion_tokens")
-	s.cacheTok += agentInt(usage, "cache_read_input_tokens", "cacheReadInputTokens", "cache_read", "cached")
 }
 
 // agentInt reads the first numeric field among keys.
@@ -439,9 +358,10 @@ func agentPidAlive(pid int) bool {
 	return p.Signal(syscall.Signal(0)) == nil
 }
 
-// agentTranscriptPath locates the record file (or directory) for a session id
-// under the given roots. The walk is bounded like agentStoreFiles.
-func agentTranscriptPath(roots []string, exts []string, id string) string {
+// agentSessionPath locates the record file (or directory) for a session id under
+// the given roots — how a chip finds the session it points at. The walk is
+// bounded like agentStoreFiles.
+func agentSessionPath(roots []string, exts []string, id string) string {
 	if id == "" {
 		return ""
 	}
@@ -509,193 +429,6 @@ func agentNewestSince(roots []string, exts []string, since time.Time) string {
 		})
 	}
 	return best
-}
-
-// ── record decoding ────────────────────────────────────────────────────────
-
-// agentDecodeRecord normalizes ONE transcript record into entries. The shapes it
-// knows, in the order they are tried:
-//
-//   - Claude Code: {"type":"user|assistant","message":{"role","content":[…]},"timestamp"}
-//     with content items text / thinking / tool_use / tool_result.
-//   - pi (rpc-shaped records): {"type":"tool","toolName":…,"args":{…}} and
-//     {"message":{"role","content":[{"type":"text","text":…}]}}.
-//   - opencode: {"role":…,"parts":[{"type":"text"|"tool","tool":…,"state":{"input"}}]}.
-//   - a summary/title record, which becomes a "meta" entry.
-//
-// Anything else yields nothing — an unknown record is skipped, never guessed at.
-func agentDecodeRecord(rec map[string]any) []agentEntry {
-	at := agentTime(rec)
-	typ := strings.ToLower(agentString(rec, "type"))
-	if typ == "summary" {
-		if s := agentString(rec, "summary", "title"); s != "" {
-			return []agentEntry{{kind: "meta", text: s, at: at}}
-		}
-	}
-
-	role := strings.ToLower(agentString(rec, "role"))
-	var content any
-	if msg, ok := rec["message"].(map[string]any); ok {
-		if r := strings.ToLower(agentString(msg, "role")); r != "" {
-			role = r
-		}
-		content = msg["content"]
-	}
-	if content == nil {
-		content = rec["parts"]
-	}
-	if content == nil {
-		content = rec["content"]
-	}
-	if role == "" && (typ == "user" || typ == "assistant") {
-		role = typ
-	}
-
-	var out []agentEntry
-	// a top-level tool record (pi's rpc stream)
-	if name := agentString(rec, "toolName", "tool_name"); name != "" {
-		out = append(out, agentEntry{kind: "tool", name: name, text: agentToolDetail(rec["args"]),
-			args: agentArgsJSON(rec["args"]), at: at})
-	}
-
-	switch c := content.(type) {
-	case string:
-		if strings.TrimSpace(c) != "" {
-			out = append(out, agentEntry{kind: agentRoleKind(role), text: c, at: at})
-		}
-	case []any:
-		for _, item := range c {
-			part, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			out = append(out, agentDecodePart(part, role, at)...)
-		}
-	}
-	return out
-}
-
-// agentDecodePart normalizes one content/parts item.
-func agentDecodePart(part map[string]any, role string, at time.Time) []agentEntry {
-	if t := agentTime(part); !t.IsZero() {
-		at = t
-	}
-	switch strings.ToLower(agentString(part, "type")) {
-	case "text":
-		if s := agentString(part, "text"); strings.TrimSpace(s) != "" {
-			return []agentEntry{{kind: agentRoleKind(role), text: s, at: at}}
-		}
-	case "thinking", "reasoning":
-		if s := agentString(part, "thinking", "text"); strings.TrimSpace(s) != "" {
-			return []agentEntry{{kind: "thinking", text: s, at: at}}
-		}
-	case "tool_use", "tool", "tool-call", "tool_call":
-		name := agentString(part, "name", "tool", "toolName")
-		input := part["input"]
-		if input == nil {
-			input = part["args"]
-		}
-		if state, ok := part["state"].(map[string]any); ok && input == nil {
-			input = state["input"]
-		}
-		return []agentEntry{{kind: "tool", name: name, text: agentToolDetail(input),
-			args: agentArgsJSON(input), at: at}}
-	case "tool_result", "tool-result":
-		return []agentEntry{{kind: "result", text: agentToolDetail(part["content"]), at: at}}
-	}
-	return nil
-}
-
-func agentRoleKind(role string) string {
-	switch role {
-	case "user", "human":
-		return "user"
-	case "assistant", "model", "ai":
-		return "assistant"
-	case "system":
-		return "meta"
-	}
-	return "assistant"
-}
-
-// agentToolDetail renders a tool's arguments as one short human line — the
-// command, path or pattern that says what the call actually did.
-func agentToolDetail(v any) string {
-	switch t := v.(type) {
-	case string:
-		return clipStr(oneLine(t), 90)
-	case []any:
-		var parts []string
-		for _, item := range t {
-			if s := agentToolDetail(item); s != "" {
-				parts = append(parts, s)
-			}
-		}
-		return clipStr(strings.Join(parts, " "), 90)
-	case map[string]any:
-		// order matters: a search call carries both a pattern and the path it
-		// searched, and the pattern is what says what the call was for
-		for _, key := range []string{"command", "cmd", "pattern", "query", "file_path", "filePath", "path", "url", "description", "prompt", "text", "content"} {
-			if s := agentString(t, key); strings.TrimSpace(s) != "" {
-				return clipStr(oneLine(s), 90)
-			}
-		}
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var parts []string
-		for _, k := range keys {
-			if s, ok := t[k].(string); ok && strings.TrimSpace(s) != "" {
-				parts = append(parts, k+"="+oneLine(s))
-			}
-			if len(parts) == 2 {
-				break
-			}
-		}
-		return clipStr(strings.Join(parts, " "), 90)
-	}
-	return ""
-}
-
-// agentArgsJSON renders a tool call's arguments as compact JSON — what the
-// expanded panel prints after the tool's name, so a call reads exactly as the
-// agent made it. Long values are clipped; the panel is a log, not an inspector.
-func agentArgsJSON(v any) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return clipStr(oneLine(s), 160)
-	}
-	raw, err := json.Marshal(agentClipValues(v, 120))
-	if err != nil {
-		return ""
-	}
-	return clipStr(string(raw), 200)
-}
-
-// agentClipValues shortens the long strings inside a decoded JSON value so one
-// pasted file body cannot flood the panel.
-func agentClipValues(v any, n int) any {
-	switch t := v.(type) {
-	case string:
-		return clipStr(oneLine(t), n)
-	case []any:
-		out := make([]any, 0, len(t))
-		for _, item := range t {
-			out = append(out, agentClipValues(item, n))
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(t))
-		for k, item := range t {
-			out[k] = agentClipValues(item, n)
-		}
-		return out
-	}
-	return v
 }
 
 // agentString returns the first non-empty string field among keys.

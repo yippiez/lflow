@@ -66,7 +66,7 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/agent", "Start an agentic coding session here, or attach an existing one"},
+	{"/agent", "Insert a coding-session chip — a new session, or one you already have"},
 	{"/agents", "List every coding session — live ones first, done ones after"},
 	{"/backlinks", "Show nodes that mirror or link to this one"},
 	{"/complete", "Toggle done (alt+enter)"},
@@ -188,11 +188,11 @@ type Model struct {
 
 	// the agentic coding session pickers (/agent, /agents). agentStore is the
 	// sessions discovered in the CLIs' own stores when the start/attach picker
-	// opened; agentRows is the outline's own sessions when /agents opened. Both
-	// are snapshots — a picker never re-walks a store while it is being typed in.
-	agentPickTarget agentPickTarget
-	agentStore      []agentStoreSession
-	agentRows       []agentRow
+	// opened; agentRows is the outline's own session chips when /agents opened.
+	// Both are snapshots — a picker never re-walks a store while it is being
+	// typed in.
+	agentStore []agentStoreSession
+	agentRows  []agentRow
 
 	// live cmd-chip draft gate: where the last text edit left the caret.
 	// activeCmdDraftRange is purely positional, so without this gate merely
@@ -1596,9 +1596,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 
 	switch name {
 	case "/agent":
-		// make this node an agentic coding session: pick the CLI, or attach a
+		// drop a coding-session chip at the caret: pick the CLI, or attach a
 		// session that already exists in that CLI's own store
-		m.openAgentPicker(agentPickNode)
+		m.openAgentPicker()
 	case "/agents":
 		// the index of every session in the outline (live first, done after)
 		m.openAgentsList()

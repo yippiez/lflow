@@ -75,16 +75,6 @@ const (
 	cInkLight = "\x1b[38;2;245;245;245m"
 )
 
-// rowFill returns the color a node's row is FILLED with, or "" for the ordinary
-// unfilled row. view.go asks too: a filled row drops the space between the glyph
-// and the body so the pill's own inset is the only gap.
-func rowFill(it *item) string {
-	if f := typeOf(it.typ).fill; f != nil {
-		return f(it)
-	}
-	return ""
-}
-
 // contrastInk picks the ink for a fill given as a foreground SGR.
 func contrastInk(fill string) string {
 	r, g, b, ok := sgrRGB(fill)
@@ -504,8 +494,8 @@ func renderAgentChip(c database.Chip, caretOn bool) string {
 		glyph = v.glyph
 		col = v.colorSGR()
 	}
-	if l, ok := agentLooks[c.ID]; ok && l.color != "" {
-		col = l.color // the session's own color, when its CLI gave it one
+	if l, ok := agentLooks[c.ID]; ok && l != "" {
+		col = l // the session's own color, when its CLI gave it one
 	}
 	label := c.Label
 	if label == "" {
@@ -581,14 +571,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	if c := styleBaseColor(it.style); c != "" {
 		base = c
 	}
-	// a FILLED type (an agent session) writes on a pill: the fill becomes the
-	// row's background and the base color becomes the ink that contrasts with it,
-	// so the node reads exactly as the same session does as a chip.
-	fill := ""
-	if c := rowFill(it); c != "" {
-		fill = bgOf(c)
-		base = contrastInk(c)
-	}
 
 	attrs := ""
 	prefix := ""
@@ -614,11 +596,9 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	// under a different parent keeps normal color (it.parent is the mirror's
 	// own parent, not the completed one).
 	if it.completedAt > 0 {
-		if fill == "" {
-			base = cDim // a filled row mutes by filling gray; its ink must stay readable
-		}
+		base = cDim
 		attrs += cStrike
-	} else if underCompleted(it) && fill == "" {
+	} else if underCompleted(it) {
 		base = cDim
 	}
 
@@ -677,9 +657,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			fg = cFG
 		}
 		s := cReset + fg + attrs
-		if fill != "" {
-			s += fill
-		}
 		if f.date {
 			s += bgPill
 		}
@@ -688,9 +665,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 
 	var b strings.Builder
 	b.WriteString(prefix)
-	if fill != "" {
-		b.WriteString(fill + base + " ") // the pill's left inset
-	}
 	cur := ""
 	for i := 0; i < len(runes); {
 		// a chip anchor renders collapsed: the chip kind's color + compact display,
@@ -830,17 +804,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	if caret >= len(runes) && caret >= 0 {
 		// past the last rune: paint one trailing cell; keep a live cmd draft's
 		// cursor inside the gray cell until the double-space commits it.
-		switch {
-		case cmdDraftStart >= 0 && cmdDraftEnd == len(runes):
+		if cmdDraftStart >= 0 && cmdDraftEnd == len(runes) {
 			b.WriteString(cReset + bgCode + cFG + cInvert + " ")
-		case fill != "":
-			b.WriteString(cReset + fill + base + cInvert + " ")
-		default:
+		} else {
 			b.WriteString(cReset + cFG + cInvert + " ")
 		}
-	}
-	if fill != "" {
-		b.WriteString(cReset + fill + base + " " + cReset) // the pill's right inset
 	}
 	if bt := desc.bodyTail; bt != nil {
 		if tail := bt(it); tail != "" {

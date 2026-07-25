@@ -76,11 +76,6 @@ type nodeType struct {
 	// so the caret and selection still work. The Math type paints its operator
 	// glyphs yellow this way. nil → no per-rune tint. (index is a rune index.)
 	spanColor func(it *item, runes []rune) map[int]string
-	// fill makes the node's TEXT ride on a filled pill: it returns the fill color
-	// (a foreground SGR, converted to a background by renderBody) and the body is
-	// written in whatever ink contrasts with it. The agent-session types use it so
-	// a session reads the same as a node as it does as a chip. "" = no fill.
-	fill func(it *item) string
 	// bodyTail appends already-styled text after the node's body on the same row
 	// (before the ★ mark) — the Math type's dim linear preview of its subtree.
 	// Called for the resting/selected row alike. nil → nothing. "" → nothing.
@@ -251,13 +246,8 @@ var nodeTypes = []nodeType{
 		onType:       tableOnType,
 		toContextM:   tableToContext,
 	},
-	// the agentic coding SESSION nodes: one per CLI lflow can hand the terminal to
-	// (alt+r suspends lflow into that CLI's session, alt+e shows its transcript).
-	// All three are the same node built from one variant descriptor — see agent.go,
-	// where a new CLI is one table entry plus one line here.
-	agentNodeType(agentVariants[0]), // Claude Code
-	agentNodeType(agentVariants[1]), // Pi
-	agentNodeType(agentVariants[2]), // opencode
+	// An agentic coding SESSION is not a node type: it is an inline chip only
+	// (see agent.go), so there is no entry here.
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see
 	// nodeplugin.go.

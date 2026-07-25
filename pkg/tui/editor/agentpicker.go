@@ -12,26 +12,16 @@ import (
 
 // The two session pickers, both Group-A lists (see picker_list.go):
 //
-//   - /agent (agentStartSource) starts a session here, or ATTACHES one that
-//     already exists in a CLI's own store — the sessions you began in a terminal
-//     before you thought to file them. It is also the /insert "agent" chip flow;
-//     the target (node or chip) is m.agentPickChip.
-//   - /agents (agentListSource) lists every session in the outline, live ones
-//     first and done ones after, muted gray — the index of everything you have
-//     going.
+//   - /agent (agentStartSource) drops a session chip at the caret: a fresh
+//     session, or one that already exists in a CLI's own store — the sessions you
+//     began in a terminal before you thought to file them. /insert → agent is the
+//     same picker.
+//   - /agents (agentListSource) lists every session chip in the outline, live
+//     ones first and done ones after — the index of everything you have going.
 
-// agentPickTarget says what the /agent picker is choosing FOR.
-type agentPickTarget int
-
-const (
-	agentPickNode agentPickTarget = iota // retype the cursor node as a session
-	agentPickChip                        // splice a session chip at the caret
-)
-
-// openAgentPicker opens the start/attach picker for a target.
-func (m *Model) openAgentPicker(target agentPickTarget) {
+// openAgentPicker opens the start/attach picker.
+func (m *Model) openAgentPicker() {
 	m.mode = modeAgentPick
-	m.agentPickTarget = target
 	m.agentStore = m.discoverAgentSessions()
 	m.list.open(m, agentStartSource{}, true)
 }
@@ -74,17 +64,17 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 		if ql != "" && !fuzzyMatch(strings.ToLower(v.label), ql) && !fuzzyMatch(v.id, ql) && !fuzzyMatch("new", ql) {
 			continue
 		}
-		bin, missing := m.typeDepMissing(v.key)
+		missing := !m.depOK(v.bin)
 		out = append(out, pickerItem{value: "new/" + v.id, render: func(bool) string {
 			if missing {
-				return cDim + fmt.Sprintf("%-2s new %-9s", v.glyph, v.id) + " · missing " + bin + cReset
+				return cDim + fmt.Sprintf("%-2s new %-9s", v.glyph, v.id) + " · missing " + v.bin + cReset
 			}
 			return v.colorSGR() + fmt.Sprintf("%-2s ", v.glyph) + cReset +
 				cFG + fmt.Sprintf("new %-9s", v.id) + cReset + cDim + " start a fresh session here" + cReset
 		}})
 	}
 
-	// then the sessions already in the CLIs' stores — attach one to this node
+	// then the sessions already in the CLIs' stores — attach one to a new chip
 	for _, s := range m.agentStore {
 		s := s
 		v, ok := agentVariantByID(s.variant)
@@ -123,14 +113,10 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 }
 
 func (agentStartSource) header(m *Model, p *listPicker) string {
-	what := "session on this node"
-	if m.agentPickTarget == agentPickChip {
-		what = "session chip"
-	}
 	if p.query != "" {
 		return " " + cDim + "agent: " + cReset + cFG + p.query + cReset
 	}
-	return " " + cDim + "start or attach a " + what + " · type to search" + cReset
+	return " " + cDim + "start or attach a coding session · type to search" + cReset
 }
 
 func (agentStartSource) initialSel(*Model) int { return 0 }
@@ -146,8 +132,8 @@ func (agentStartSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if bin, missing := m.typeDepMissing(v.key); missing && m.agentPickTarget == agentPickNode {
-		m.flash = "Missing dependency: " + bin
+	if !m.depOK(v.bin) {
+		m.flash = "Missing dependency: " + v.bin
 		return m, nil
 	}
 
@@ -160,56 +146,26 @@ func (agentStartSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-
-	if m.agentPickTarget == agentPickChip {
-		m.insertAgentChip(cur, v, attach)
-		return m, nil
-	}
-
-	// the node itself becomes the session: retype it, pin its directory, and give
-	// it the session's own name when it is still unnamed
-	if cur.readonly || cur.mirrorOf != "" {
-		m.flash = "node is not editable"
-		return m, nil
-	}
-	m.pushUndo("")
-	cur.typ = v.key
-	m.unsaved = true
-	if attach.id != "" {
-		m.agentAttach(cur.uuid, attach)
-		if strings.TrimSpace(cur.name) == "" && attach.title != "" {
-			cur.name = attach.title
-			m.caret = len([]rune(cur.name))
-		}
-		m.flash = v.label + " · attached " + agentShortID(attach.id)
-	} else {
-		s := m.agentLoad(cur.uuid)
-		s.Variant, s.Cwd = v.id, m.agentNodeCwd(cur)
-		m.agentSave(cur.uuid, s)
-		m.flash = v.label + " · ⌥r opens it"
-	}
-	m.publishAgentLook(cur.uuid, v)
+	m.insertAgentChip(cur, v, attach)
 	return m, nil
 }
 
 // --- /agents: every session in the outline ----------------------------------
 
-// agentRow is one row of the /agents list: a session handle (node or chip) with
-// what it takes to rank, draw and jump to it.
+// agentRow is one row of the /agents list: a session chip with what it takes to
+// rank, draw and jump to it.
 type agentRow struct {
-	uuid    string // the node to jump to (a chip row jumps to its host node)
-	id      string // the handle's storage id (node uuid, or chip id)
+	uuid    string // the node carrying the chip — where a pick jumps to
+	id      string // the chip id, which is the session handle's storage key
 	variant agentVariant
-	name    string // the outline's name for it
+	name    string // the row the chip lives in
 	sess    agentSession
 	done    bool
-	chip    bool
 }
 
 // openAgentsList opens the /agents index. The list is read from the database, so
-// pending edits are flushed first — a session started seconds ago (or, with no
-// daemon, a whole session's worth of edits) must be in the index that claims to
-// list them all.
+// pending edits are flushed first — a session started seconds ago must be in the
+// index that claims to list them all.
 func (m *Model) openAgentsList() {
 	_ = m.flushSync()
 	m.mode = modeAgents
@@ -217,56 +173,35 @@ func (m *Model) openAgentsList() {
 	m.list.open(m, agentListSource{}, true)
 }
 
-// collectAgentRows gathers every session in the outline: the session NODES, and
-// the session CHIPS living inside ordinary rows. Done ones sink below live ones;
-// within each group the most recently opened comes first.
+// collectAgentRows gathers every session chip in the outline, in one scan of the
+// rows that carry any chip anchor. A chip inside a completed row counts as done:
+// finished work sinks below the live sessions.
 func (m *Model) collectAgentRows() []agentRow {
 	if m.db == nil {
 		return nil
 	}
-	var rows []agentRow
-
-	keys := make([]string, 0, len(agentVariants))
-	for _, v := range agentVariants {
-		keys = append(keys, "'"+v.key+"'")
+	hosts, err := database.GetNodesWhere(m.db, "name LIKE ?", "%"+string(chipSentinel)+"%")
+	if err != nil {
+		return nil
 	}
-	nodes, err := database.GetNodesWhere(m.db, "type IN ("+strings.Join(keys, ",")+")")
-	if err == nil {
-		for _, n := range nodes {
-			v, ok := agentVariantOf(n.Type)
+	var rows []agentRow
+	for _, n := range hosts {
+		for _, sp := range anchorSpans([]rune(n.Name)) {
+			c, ok := m.chips[sp.id]
+			if !ok || c.Kind != chipKindAgent {
+				continue
+			}
+			v, ok := agentVariantByID(c.Value)
 			if !ok {
 				continue
 			}
 			rows = append(rows, agentRow{
-				uuid: n.UUID, id: n.UUID, variant: v,
+				uuid: n.UUID, id: c.ID, variant: v,
 				name: oneLine(displayAnchors(n.Name, m.chips)),
-				sess: m.agentLoad(n.UUID), done: n.CompletedAt > 0,
+				sess: m.agentLoad(c.ID), done: n.CompletedAt > 0,
 			})
 		}
 	}
-
-	// the chips: one scan of the rows that carry any chip anchor, matched against
-	// the loaded chip store — a session chip's host node is what a pick jumps to
-	if hosts, err := database.GetNodesWhere(m.db, "name LIKE ?", "%"+string(chipSentinel)+"%"); err == nil {
-		for _, n := range hosts {
-			for _, sp := range anchorSpans([]rune(n.Name)) {
-				c, ok := m.chips[sp.id]
-				if !ok || c.Kind != chipKindAgent {
-					continue
-				}
-				v, ok := agentVariantByID(c.Value)
-				if !ok {
-					continue
-				}
-				rows = append(rows, agentRow{
-					uuid: n.UUID, id: c.ID, variant: v,
-					name: oneLine(displayAnchors(n.Name, m.chips)),
-					sess: m.agentLoad(c.ID), done: n.CompletedAt > 0, chip: true,
-				})
-			}
-		}
-	}
-
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
 		if a.done != b.done {
@@ -294,28 +229,18 @@ func (agentListSource) items(m *Model, q string) []pickerItem {
 	return out
 }
 
-// agentListRow draws one /agents row in exactly the language the outline uses:
-// the session's PILL — glyph and name on its agent's color — then muted gray
-// info to its right. A DONE session fills gray instead and sits below the live
-// ones, so the list reads active-then-settled at a glance.
+// agentListRow draws one /agents row in the language the outline uses: the
+// session's PILL — glyph and name on its agent's color — then muted gray info.
+// A DONE session fills gray and sits below the live ones, so the list reads
+// active-then-settled at a glance.
 func (m *Model) agentListRow(r agentRow, title string) string {
 	fill := m.agentColorFor(r.id, r.variant, r.sess)
 	if r.done {
 		fill = cDim
 	}
-	name := title
-	if strings.TrimSpace(name) == "" {
-		name = r.name
-	}
-	pill := bgOf(fill) + contrastInk(fill) + " " + r.variant.glyph + " " + clipStr(name, 32) + " " + cReset
+	pill := bgOf(fill) + contrastInk(fill) + " " + r.variant.glyph + " " + clipStr(title, 32) + " " + cReset
 
-	var meta []string
-	if r.name != "" && r.name != name {
-		meta = append(meta, clipStr(r.name, 30)) // the node the session is filed under
-	}
-	if r.chip {
-		meta = append(meta, "chip")
-	}
+	meta := []string{clipStr(r.name, 30)} // the row the chip is filed in
 	if m.agentCloud(r.variant, r.sess) {
 		meta = append(meta, glyphCloud+" hosted")
 	}
@@ -354,8 +279,8 @@ func (agentListSource) header(m *Model, p *listPicker) string {
 
 func (agentListSource) initialSel(*Model) int { return 0 }
 
-// onSelect jumps the editor to the picked session's node — the same jump /goto
-// makes, so a session is one keystroke away from wherever you are.
+// onSelect jumps the editor to the row the picked session is filed in — the same
+// jump /goto makes, so a session is one keystroke away from wherever you are.
 func (agentListSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	if it.value == "" {

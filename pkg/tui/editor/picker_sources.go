@@ -181,7 +181,7 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	switch kind {
 	case "agent":
 		// pick the CLI (or an existing session) — the chip lands on select
-		m.openAgentPicker(agentPickChip)
+		m.openAgentPicker()
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")
 	case "link":
