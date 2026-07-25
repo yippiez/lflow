@@ -133,6 +133,38 @@ multi-select, `/mirror:from`) route through it (`database.PlaceRank`,
 up; everything that existed before lm39 is down. `/priority:up` /
 `/priority:down` set it immediately, like /star.
 
+## Agentic coding sessions
+
+A coding session with a CLI agent is a NODE (and an inline chip of the same
+thing), so it can be filed next to the notes it belongs to. One type per CLI —
+`agent.claude`, `agent.pi`, `agent.opencode` — all built from one variant
+descriptor in `pkg/tui/editor/agent.go`; adding a CLI is one table entry plus one
+line in the registry. It is a core woven type rather than a plugin because it is
+two surfaces at once (a node type AND a chip kind, /insert, caret gestures).
+
+- `alt+r` hands the terminal over: lflow suspends itself (`tea.ExecProcess`) and
+  the CLI takes the screen in the session's pinned directory — a node's path chip
+  when it has one, else the editor's cwd. The first open CREATES the session
+  (`--session-id` for the CLIs that take one) and every later open RESUMES it; a
+  CLI that names its own sessions has its id adopted from what its run touched.
+- `alt+e` shows the conversation — prompts, replies and each tool call — read
+  live out of the CLI's OWN store (`agentstore.go`, tolerant decoders for Claude
+  Code / pi / opencode shapes). `alt+o` opens a hosted Claude Code session (a
+  claude.ai/code link in the node text) in the browser; there is no local process
+  to attach to.
+- `/agent` starts a session on the cursor node or ATTACHES one that already
+  exists in a CLI's store; `/insert → agent` does the same as a chip. `/agents`
+  lists every session in the outline, live ones first, done ones muted below.
+  `alt+enter` (or `/complete`) is what marks one done.
+- Each variant is themed as itself (glyph + color); a session the CLI gave its
+  own color wears that instead. A chip's text is the session's LIVE title, so a
+  session renamed inside its CLI reads renamed here.
+
+WARNING (invariant): lflow never copies a conversation into the outline. A node
+stores only `{variant, cwd, session id}` in LOCAL `node_output` — never in the
+node row, never synced — and the title, transcript and color are always read back
+out of the CLI's own store.
+
 ## NLPCompute code generation
 
 NLPCompute is the only in-editor Pi surface. `alt+r` sends its natural-language
@@ -164,7 +196,8 @@ binary), and the status bar being the last rendered line.
 
 Remaining doc-level rules:
 
-- Never auto-run runnable nodes (alt+r only).
+- Never auto-run runnable nodes (alt+r only) — an agentic coding session is
+  opened by that same key and by nothing else.
 - Secrets live in local config — Pi in `~/.pi/agent/settings.json`, service keys
   in `~/.config/lflow/credentials.json` (e.g. `{"workflowy":{"api_key":"…"}}`).
   Never synced, never written into the DB.
