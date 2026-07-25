@@ -84,7 +84,17 @@ per-feature column — and no scattered `switch typ`:
    exports any subtree as LaTeX (mathToLatex) into the run band, and one symbol
    table (mathSym) drives both operator coloring and LaTeX — arithmetic, Greek,
    relations, calculus, set/logic, plus programming/bitwise/tensor operators;
-   `bash.go` holds the shared
+   `ml.go` — the same shape for neural networks: a node's text is a BUILDING
+   BLOCK with its arguments (`Linear 784 256`, `Conv2d 3 64 k=3 p=1`, `ReLU`,
+   `Attention 768 heads=12`) or a CONTAINER (`sequential`, `residual`, `12×`,
+   `concat`, `add`) whose parts are its children; one block table
+   (`buildMLBlocks`) drives the family coloring (`spanColor` — containers
+   yellow like math operators, weighted cyan, activations purple, norms blue,
+   shape ops green), the PyTorch export on alt+r (`mlToTorch`, emitting only the
+   support classes it calls) and the parameter count, so the code and the count
+   in the `bodyTail` can never describe different models — `mlcorpus_test.go`
+   holds ~28 real architectures (LeNet…GPT-2, ViT, CLIP) and pins the published
+   counts; `bash.go` holds the shared
    shell-run machinery, `code.go` the shared multi-line **code block** —
    `codeBlockLines`: a borderless gray block (no rule box, no header) whose every
    line is the dim line number, a white vertical rule to its RIGHT, then the
