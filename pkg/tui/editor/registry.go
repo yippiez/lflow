@@ -227,6 +227,20 @@ var nodeTypes = []nodeType{
 		flashActions: mathFlashActions,
 		toContext:    mathToContext,
 	},
+	// a neural network architecture composed as an outline (see ml.go): the
+	// node's text is a building block (colored by family — weighted cyan,
+	// activation purple, norm blue, shape green) or a container (yellow, like a
+	// math operator) whose parts are its children. Stays inline-editable; every
+	// container row carries a dim preview of its subtree and its parameter count,
+	// and alt+r exports the subtree as PyTorch.
+	{
+		key: database.TypeML, label: "Model", inlineEditable: true,
+		spanColor:    mlSpanColor,
+		bodyTail:     mlBodyTail,
+		run:          runMLTorch, // alt+r: export this subtree as PyTorch to the run band
+		flashActions: mlFlashActions,
+		toContext:    mlToContext,
+	},
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see
 	// nodeplugin.go.
