@@ -38,11 +38,12 @@ const (
 type agentStoreSession struct {
 	variant string
 	id      string
-	title   string // the CLI's own title/summary for the session; "" = untitled
-	cwd     string // the directory the session ran in, when the store records it
-	color   string // an SGR color the CLI assigned the session; "" = none
-	updated time.Time
-	path    string // the file (or directory) the session was read from
+	title   string    // the CLI's own title/summary for the session; "" = untitled
+	cwd     string    // the directory the session ran in, when the store records it
+	color   string    // an SGR color the CLI assigned the session; "" = none
+	updated time.Time // when the session itself last moved (the store's clock, else the file's)
+	modAt   time.Time // the record file's mtime — what a cache checks to skip a re-read
+	path    string    // the file (or directory) the session was read from
 }
 
 // agentEntry is one line of a session transcript, normalized across CLIs.
@@ -78,9 +79,12 @@ func homeStores(paths ...string) []string {
 }
 
 // agentStoreFiles walks a variant's store roots and returns the session record
-// paths, newest first. The walk is bounded (depth, count, age) so a store with
-// years of history cannot stall a picker.
-func agentStoreFiles(roots []string, exts []string) []string {
+// paths, newest first. mustContain, when set, is a path fragment a session record
+// must sit under ("/session/") — a store that keeps sessions and their messages
+// as sibling trees would otherwise offer every message file as a session. The
+// walk is bounded (depth, count, age) so a store with years of history cannot
+// stall a picker.
+func agentStoreFiles(roots []string, exts []string, mustContain string) []string {
 	type hit struct {
 		path string
 		mod  time.Time
@@ -100,6 +104,9 @@ func agentStoreFiles(roots []string, exts []string) []string {
 				return nil
 			}
 			if !hasExt(path, exts) {
+				return nil
+			}
+			if mustContain != "" && !strings.Contains(filepath.ToSlash(path), mustContain) {
 				return nil
 			}
 			info, err := d.Info()
@@ -137,9 +144,14 @@ func hasExt(path string, exts []string) bool {
 func agentReadMeta(variant, path string) agentStoreSession {
 	s := agentStoreSession{variant: variant, path: path, id: agentIDFromPath(path)}
 	if st, err := os.Stat(path); err == nil {
-		s.updated = st.ModTime()
+		s.modAt, s.updated = st.ModTime(), st.ModTime()
 	}
 	for _, rec := range agentReadRecords(path, agentMetaCap) {
+		// a store that keeps its own clock (opencode's session index) is more
+		// truthful than the file's mtime, which a copy or a sync would reset
+		if t := agentTime(rec); !t.IsZero() {
+			s.updated = t
+		}
 		if id := agentString(rec, "sessionId", "session_id", "sessionID", "id"); id != "" && looksLikeSessionID(id) {
 			s.id = id
 		}
@@ -462,7 +474,9 @@ func agentToolDetail(v any) string {
 		}
 		return clipStr(strings.Join(parts, " "), 90)
 	case map[string]any:
-		for _, key := range []string{"command", "cmd", "file_path", "filePath", "path", "pattern", "query", "url", "description", "prompt", "text", "content"} {
+		// order matters: a search call carries both a pattern and the path it
+		// searched, and the pattern is what says what the call was for
+		for _, key := range []string{"command", "cmd", "pattern", "query", "file_path", "filePath", "path", "url", "description", "prompt", "text", "content"} {
 			if s := agentString(t, key); strings.TrimSpace(s) != "" {
 				return clipStr(oneLine(s), 90)
 			}

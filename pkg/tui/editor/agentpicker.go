@@ -47,7 +47,7 @@ func (m *Model) discoverAgentSessions() []agentStoreSession {
 		if len(roots) == 0 {
 			continue
 		}
-		for _, path := range agentStoreFiles(roots, v.exts) {
+		for _, path := range agentStoreFiles(roots, v.exts, v.sessionPath) {
 			s := agentReadMeta(v.id, path)
 			if s.id == "" || seen[v.id+"/"+s.id] {
 				continue
@@ -205,8 +205,12 @@ type agentRow struct {
 	chip    bool
 }
 
-// openAgentsList opens the /agents index.
+// openAgentsList opens the /agents index. The list is read from the database, so
+// pending edits are flushed first — a session started seconds ago (or, with no
+// daemon, a whole session's worth of edits) must be in the index that claims to
+// list them all.
 func (m *Model) openAgentsList() {
+	_ = m.flushSync()
 	m.mode = modeAgents
 	m.agentRows = m.collectAgentRows()
 	m.list.open(m, agentListSource{}, true)

@@ -69,6 +69,9 @@ type agentVariant struct {
 	sessionRoots    func() []string
 	transcriptRoots func() []string
 	exts            []string // record file extensions, e.g. ".jsonl"
+	// sessionPath narrows discovery to records under this path fragment, for a
+	// store that keeps sessions and their messages as sibling trees.
+	sessionPath string
 
 	// webURL renders the browser URL for a session hosted on the web; "" for a
 	// variant that has no remote surface.
@@ -116,9 +119,13 @@ var agentVariants = []agentVariant{
 			}
 			return nil
 		},
-		sessionRoots:    func() []string { return homeStores("<data>/opencode/storage/session", "<data>/opencode/storage") },
-		transcriptRoots: func() []string { return homeStores("<data>/opencode/storage/message", "<data>/opencode/storage") },
+		// opencode keeps sessions and their messages as sibling trees (and, in newer
+		// layouts, one such pair per project), so discovery is pinned to the session
+		// side while the transcript is read from the message side.
+		sessionRoots:    func() []string { return homeStores("<data>/opencode/storage", "<data>/opencode/project") },
+		transcriptRoots: func() []string { return homeStores("<data>/opencode/storage/message", "<data>/opencode/project") },
 		exts:            []string{".json"},
+		sessionPath:     "/session/",
 	},
 }
 
@@ -231,7 +238,7 @@ func (m *Model) agentMeta(id string, v agentVariant, s agentSession) agentStoreS
 		if at, ok := store["agentMetaAt"].(time.Time); ok && time.Since(at) < ttl {
 			return cached
 		}
-		if st, err := os.Stat(cached.path); err == nil && st.ModTime().Equal(cached.updated) {
+		if st, err := os.Stat(cached.path); err == nil && st.ModTime().Equal(cached.modAt) {
 			store["agentMetaAt"] = time.Now()
 			return cached
 		}
@@ -481,6 +488,15 @@ func (m *Model) agentOpen(v agentVariant, id, cwd string) tea.Cmd {
 	}
 	if s.Remote != "" {
 		return m.agentOpenURL(id, s.Remote)
+	}
+	// a session pinned to a directory that is gone (an attached session from
+	// another machine, a moved repo) refuses to open rather than silently running
+	// the agent somewhere else — which repo it works in is the whole point
+	if s.Cwd != "" {
+		if st, err := os.Stat(s.Cwd); err != nil || !st.IsDir() {
+			m.flash = v.id + ": " + tildePath(s.Cwd) + " is gone · the session is pinned to it"
+			return nil
+		}
 	}
 	resume := s.Runs > 0 || s.SessionID != ""
 	if v.assignsID && s.SessionID == "" {

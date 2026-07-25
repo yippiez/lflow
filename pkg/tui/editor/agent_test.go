@@ -488,3 +488,91 @@ func TestAgentSessionDataStaysLocal(t *testing.T) {
 		t.Error("the session id leaked into the node row")
 	}
 }
+
+// TestAgentStoreFilesSkipsMessages: a store that keeps sessions and their
+// messages as sibling trees must not offer a message file as a session.
+func TestAgentStoreFilesSkipsMessages(t *testing.T) {
+	root := t.TempDir()
+	sess := filepath.Join(root, "session", "ses_01.json")
+	msg := filepath.Join(root, "message", "ses_01", "msg_0001.json")
+	for _, p := range []string{sess, msg} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := agentStoreFiles([]string{root}, []string{".json"}, "/session/")
+	if len(got) != 1 || got[0] != sess {
+		t.Errorf("discovered %v, want only the session record", got)
+	}
+	if all := agentStoreFiles([]string{root}, []string{".json"}, ""); len(all) != 2 {
+		t.Errorf("unfiltered discovery = %v, want both files", all)
+	}
+}
+
+// TestAgentMetaPrefersStoreClock: a store that records its own clock is more
+// truthful about when a session moved than the record file's mtime, which a copy
+// or a sync resets.
+func TestAgentMetaPrefersStoreClock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ses_77.json")
+	body := `{"id":"ses_77aabbcc","title":"trim the handshake","time":{"created":1750000000000}}`
+	if err := os.WriteFile(path, []byte(body+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	meta := agentReadMeta("opencode", path)
+	if meta.title != "trim the handshake" || meta.id != "ses_77aabbcc" {
+		t.Fatalf("meta = %+v", meta)
+	}
+	if want := time.UnixMilli(1750000000000); !meta.updated.Equal(want) {
+		t.Errorf("updated = %v, want the store's clock %v", meta.updated, want)
+	}
+	if meta.modAt.Equal(meta.updated) {
+		t.Error("modAt must stay the file's mtime — it is what the render cache checks")
+	}
+}
+
+// TestAgentToolDetailPrefersPattern: a search call carries both a pattern and
+// the path it searched; the pattern is what says what the call was for.
+func TestAgentToolDetailPrefersPattern(t *testing.T) {
+	got := agentToolDetail(map[string]any{"pattern": "flushSync", "path": "pkg/tui/editor"})
+	if got != "flushSync" {
+		t.Errorf("grep detail = %q, want the pattern", got)
+	}
+	if got := agentToolDetail(map[string]any{"file_path": "livesync.go"}); got != "livesync.go" {
+		t.Errorf("read detail = %q", got)
+	}
+}
+
+// TestAgentOpenRefusesGoneCwd: a session pinned to a directory that no longer
+// exists refuses to open rather than running the agent somewhere else.
+func TestAgentOpenRefusesGoneCwd(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "sess", Name: "work", Type: c.key})
+	gone := filepath.Join(t.TempDir(), "removed-repo")
+	m.agentSave("sess", agentSession{Variant: c.id, SessionID: "abc-123", Cwd: gone, Runs: 1})
+
+	if cmd := m.agentOpen(c, "sess", gone); cmd != nil {
+		t.Error("a session whose directory is gone must not launch the CLI")
+	}
+	if !strings.Contains(m.flash, "is gone") {
+		t.Errorf("flash = %q, want it to name the missing directory", m.flash)
+	}
+}
+
+// TestAgentsListSeesUnflushedEdits: /agents reads the database, so a session
+// started seconds ago must still be in the index that claims to list them all.
+func TestAgentsListSeesUnflushedEdits(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "blank", Name: "just typed"})
+	m.tree.byUUID["blank"].typ = c.key // an in-memory retype, not yet saved
+	m.unsaved = true
+	m.agentSave("blank", agentSession{Variant: c.id, SessionID: "abc-123"})
+
+	m.openAgentsList()
+	if len(m.agentRows) != 1 || m.agentRows[0].uuid != "blank" {
+		t.Fatalf("/agents rows = %+v, want the just-started session", m.agentRows)
+	}
+}
