@@ -23,7 +23,12 @@ fonts = {
     (True, True): ImageFont.truetype(f"{FONT_DIR}/DejaVuSansMono-BoldOblique.ttf", SIZE),
 }
 
-SGR = re.compile(r"\x1b\[([0-9;]*)m")
+# A captured line carries more than SGR: OSC 8 hyperlinks (URL chips, web-search
+# hits) are ESC ] … BEL/ST, and other CSI sequences end in some byte in @-~.
+# Only the m-final CSI changes the pen; everything else is skipped rather than
+# painted, or the escape's own payload shows up as text in the picture.
+CSI = re.compile(r"\x1b\[([0-9;]*)([@-~])")
+OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 class State:
@@ -74,14 +79,23 @@ def parse_line(line):
     """Yield (char, snapshot-of-state) cells for one line."""
     state = State()
     cells = []
-    pos = 0
-    for m in SGR.finditer(line):
-        for ch in line[pos:m.start()]:
-            cells.append((ch, snapshot(state)))
-        apply(state, m.group(1))
-        pos = m.end()
-    for ch in line[pos:]:
-        cells.append((ch, snapshot(state)))
+    i = 0
+    while i < len(line):
+        if line[i] == "\x1b":
+            m = CSI.match(line, i)
+            if m:
+                if m.group(2) == "m":
+                    apply(state, m.group(1))
+                i = m.end()
+                continue
+            m = OSC.match(line, i)
+            if m:
+                i = m.end()
+                continue
+            i += 2  # some other two-byte escape
+            continue
+        cells.append((line[i], snapshot(state)))
+        i += 1
     return cells
 
 
