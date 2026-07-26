@@ -109,11 +109,10 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 	}
 	switch k.String() {
 	case "n":
-		// seed with the name in force, so a rename starts from what is on screen
+		// a session still wearing the CLI's own name opens an EMPTY field: typing
+		// replaces rather than appends, and an empty field already means "follow
+		// the CLI". A session you named before opens with that name to edit.
 		f := &textField{value: h.sess.Name}
-		if f.value == "" {
-			f.value = m.agentTitle(h.id, h.v, h.sess)
-		}
 		f.caret = len([]rune(f.value))
 		m.nodeStore(h.id)["agentRename"] = f
 		return nil, true
@@ -124,11 +123,8 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return m.agentOpen(h.v, h.id, cwd), true
 	case "alt+o":
-		if url := h.sess.Remote; url != "" {
+		if url := m.agentWebURL(h.v, h.sess); url != "" {
 			return m.agentOpenURL(h.id, url), true
-		}
-		if h.v.webURL != nil && h.sess.SessionID != "" {
-			return m.agentOpenURL(h.id, h.v.webURL(h.sess.SessionID)), true
 		}
 		m.flash = "local session · no browser view"
 		return nil, true
@@ -147,8 +143,8 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 	// the session's line: its pill, or the rename field in its place
 	var head string
 	if f := m.agentRenameState(h.id); f != nil {
-		head = "  " + cDim + "name  " + cReset + withCaret(f.value, f.caret) +
-			cDim + "   enter save · esc cancel · empty = the CLI's own name" + cReset
+		hint := "   enter save · esc cancel · empty = the CLI's own name"
+		head = "  " + cDim + "name  " + cReset + withCaret(f.value, f.caret) + cDim + hint + cReset
 	} else {
 		head = "  " + bgOf(color) + contrastInk(color) + " " + h.v.glyph + " " +
 			m.agentTitle(h.id, h.v, h.sess) + " " + cReset
@@ -166,7 +162,9 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 	content = append(content, line("  "+cDim+strings.Join(meta, " · ")+cReset))
 
 	keys := "  ⌥r open · n rename · esc close"
-	if h.v.webURL != nil || h.sess.Remote != "" {
+	if h.v.webOnly() {
+		keys = "  ⌥r open in browser · n rename · esc close"
+	} else if h.v.webURL != nil || h.sess.Remote != "" {
 		keys = "  ⌥r open · ⌥o browser · n rename · esc close"
 	}
 	return append(content, line(cDim+keys+cReset))
@@ -177,6 +175,8 @@ func (m *Model) agentStateWord(h agentHandle) string {
 	switch {
 	case m.agentLive(h.v, h.sess):
 		return "live"
+	case h.v.webOnly():
+		return glyphCloud + " web"
 	case m.agentCloud(h.v, h.sess):
 		return glyphCloud + " hosted"
 	case h.sess.SessionID == "":

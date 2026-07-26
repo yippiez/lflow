@@ -135,11 +135,14 @@ up; everything that existed before lm39 is down. `/priority:up` /
 
 ## Agentic coding sessions
 
-A coding session with a CLI agent is an inline CHIP — and only a chip, so it can
-be dropped into whatever note it belongs to instead of owning a row. One variant
-per CLI — claude / pi / opencode — in one table in `pkg/tui/editor/agent.go`;
-adding a CLI is one entry there and nothing else. There is deliberately no agent
-NODE type: `nodes.type` stays free of it.
+A coding session with an agent is an inline CHIP — and only a chip, so it can be
+dropped into whatever note it belongs to instead of owning a row. One variant per
+agent in one table in `pkg/tui/editor/agent.go` — claude ✳, codex ✺, gemini ✦,
+grok ✕, pi Π, opencode ▢, and ChatGPT ❋ as a WEB-only service (no `bin`: ⌥r opens
+the chat in a browser instead of suspending lflow). Adding an agent is one entry
+there and nothing else; each glyph is plain Unicode a mono font really draws, and
+each wears its own color. There is deliberately no agent NODE type: `nodes.type`
+stays free of it.
 
 - The chip reads as one token: the agent's glyph and the session's NAME on the
   agent's color, in whatever ink contrasts with that fill (`contrastInk`), plus a
@@ -155,7 +158,10 @@ NODE type: `nodes.type` stays free of it.
   conversation belongs to the CLI.
 - `alt+o` opens a hosted session in the browser; there is no local process to
   attach to. What makes a session hosted is the CLI's own record of it (Claude
-  Code's `~/.claude/sessions/<pid>.json` entry point), or a claude.ai/code link.
+  Code's `~/.claude/sessions/<pid>.json` entry point), or a chat link. Each
+  variant declares its `webHost`, so a conversation URL sitting in a row (a
+  claude.ai/code, chatgpt.com/c, gemini.google.com/app or grok.com/chat link) is
+  adopted by a chip dropped on that row.
 - `/agent` (and `/insert → agent`) drops a chip: a fresh session, or one that
   already exists in a CLI's store. `/agents` lists every session chip in the
   outline, live first, done ones muted below; `alt+enter` on the row marks done.

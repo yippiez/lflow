@@ -39,7 +39,7 @@ import (
 type agentVariant struct {
 	id    string // the id stored in a chip's value, and what the picker calls it
 	label string // picker label
-	bin   string // the CLI binary — probed so a missing one is said out loud
+	bin   string // the CLI binary; "" = a WEB service with no terminal to hand over
 	glyph string // the agent's mark, worn by every chip of this variant
 	color string // /style color name; the variant's own theming
 
@@ -65,15 +65,31 @@ type agentVariant struct {
 	// name, whether it is live, and whether it is hosted rather than local.
 	registryRoots func() []string
 
-	// webURL renders the browser URL for a session hosted on the web; "" for a
-	// variant that has no remote surface.
-	webURL func(id string) string
+	// The web side of an agent, for the ones with a chat interface: webURL renders
+	// a session's own page, webNew opens a fresh chat, and webHost is the fragment
+	// that identifies one of this service's session links in a row's text — paste
+	// a conversation URL beside a chip and the chip adopts it. A CLI with no web
+	// surface leaves all three empty; a service with no CLI (bin "") lives here
+	// entirely, and ⌥r opens the browser instead of suspending lflow.
+	webURL  func(id string) string
+	webNew  string
+	webHost string
 }
 
-// agentVariants is the registry, in picker order.
+// webOnly reports a service lflow can only reach through the browser.
+func (v agentVariant) webOnly() bool { return v.bin == "" }
+
+// agentVariants is the registry, in picker order: the CLIs lflow can hand the
+// terminal to, then the services it can only open in a browser.
+//
+// Each glyph is the closest plain Unicode to the agent's own mark — Claude Code's
+// asterisk, OpenAI's blossom (twice: Codex and ChatGPT), Gemini's four-pointed
+// spark, xAI's cross, a squared O for opencode, a capital Pi for pi. All of them
+// are chosen from what a normal mono font actually draws: no emoji, no private
+// use, nothing that lands as an empty box in a terminal.
 var agentVariants = []agentVariant{
 	{
-		id: "claude", label: "Claude Code session", bin: "claude",
+		id: "claude", label: "Claude Code", bin: "claude",
 		glyph: "✳", color: "orange", assignsID: true,
 		args: func(s agentSession, resume bool) []string {
 			if resume {
@@ -86,10 +102,69 @@ var agentVariants = []agentVariant{
 		registryRoots: func() []string { return homeStores(".claude/sessions") },
 		exts:          []string{".jsonl"},
 		webURL:        func(id string) string { return "https://claude.ai/code/" + id },
+		webNew:        "https://claude.ai/code",
+		webHost:       "claude.ai/code/",
 	},
 	{
-		id: "pi", label: "Pi session", bin: "pi",
-		glyph: "π", color: "purple", assignsID: true,
+		id: "codex", label: "Codex", bin: "codex",
+		glyph: "✺", color: "green", assignsID: false,
+		args: func(s agentSession, resume bool) []string {
+			// codex mints its own ids and resumes by subcommand: `codex resume <id>`
+			if resume && s.SessionID != "" {
+				return []string{"resume", s.SessionID}
+			}
+			if resume {
+				return []string{"resume", "--last"}
+			}
+			return nil
+		},
+		sessionRoots: func() []string { return homeStores(".codex/sessions") },
+		exts:         []string{".jsonl"},
+		webURL:       func(id string) string { return "https://chatgpt.com/codex/tasks/" + id },
+		webNew:       "https://chatgpt.com/codex",
+		webHost:      "chatgpt.com/codex/",
+	},
+	{
+		id: "gemini", label: "Gemini CLI", bin: "gemini",
+		glyph: "✦", color: "blue", assignsID: false,
+		args: func(s agentSession, resume bool) []string {
+			if resume && s.SessionID != "" {
+				return []string{"--resume", s.SessionID}
+			}
+			if resume {
+				return []string{"--resume"} // the most recent session in this directory
+			}
+			return nil
+		},
+		// gemini keeps one chat directory per project hash under ~/.gemini/tmp
+		sessionRoots: func() []string { return homeStores(".gemini/tmp") },
+		exts:         []string{".json"},
+		sessionPath:  "/chats/",
+		webURL:       func(id string) string { return "https://gemini.google.com/app/" + id },
+		webNew:       "https://gemini.google.com/app",
+		webHost:      "gemini.google.com/app/",
+	},
+	{
+		id: "grok", label: "Grok CLI", bin: "grok",
+		glyph: "✕", color: "red", assignsID: false,
+		args: func(s agentSession, resume bool) []string {
+			switch {
+			case resume && s.SessionID != "":
+				return []string{"--resume", s.SessionID}
+			case resume:
+				return []string{"--continue"}
+			}
+			return nil
+		},
+		sessionRoots: func() []string { return homeStores(".grok/sessions", ".grok/history", "<data>/grok-cli/sessions") },
+		exts:         []string{".json", ".jsonl"},
+		webURL:       func(id string) string { return "https://grok.com/chat/" + id },
+		webNew:       "https://grok.com",
+		webHost:      "grok.com/chat/",
+	},
+	{
+		id: "pi", label: "Pi", bin: "pi",
+		glyph: "Π", color: "purple", assignsID: true,
 		args: func(s agentSession, _ bool) []string {
 			// pi's --session-id resumes an existing conversation and creates it when
 			// missing (see pkg/agent/pi.go), so new and resume are one command line.
@@ -99,11 +174,8 @@ var agentVariants = []agentVariant{
 		exts:         []string{".jsonl", ".json"},
 	},
 	{
-		// ❯ is the closest plain-Unicode stand-in for opencode's terminal mark —
-		// the shell prompt it lives at. One table entry to change if a better one
-		// turns up.
-		id: "opencode", label: "Opencode session", bin: "opencode",
-		glyph: "❯", color: "cyan", assignsID: false,
+		id: "opencode", label: "opencode", bin: "opencode",
+		glyph: "▢", color: "yellow", assignsID: false,
 		args: func(s agentSession, resume bool) []string {
 			switch {
 			case resume && s.SessionID != "":
@@ -122,6 +194,15 @@ var agentVariants = []agentVariant{
 		exts:         []string{".json"},
 		sessionPath:  "/session/",
 	},
+	{
+		// A WEB service: there is no terminal to hand over, so ⌥r opens the chat in
+		// the browser — a new one, or the conversation this chip was pointed at.
+		id: "chatgpt", label: "ChatGPT (web)",
+		glyph: "❋", color: "cyan", assignsID: false,
+		webURL:  func(id string) string { return "https://chatgpt.com/c/" + id },
+		webNew:  "https://chatgpt.com",
+		webHost: "chatgpt.com/c/",
+	},
 }
 
 // agentVariantByID returns the variant for a chip's value ("claude").
@@ -139,7 +220,9 @@ func agentVariantByID(id string) (agentVariant, bool) {
 func agentBins() []string {
 	out := make([]string, 0, len(agentVariants))
 	for _, v := range agentVariants {
-		out = append(out, v.bin)
+		if !v.webOnly() {
+			out = append(out, v.bin)
+		}
 	}
 	return out
 }
@@ -378,6 +461,10 @@ type agentClosedMsg struct {
 // session on the first open and resuming it on every later one. The editor is
 // released for the whole run and redraws when the CLI exits.
 func (m *Model) agentOpen(v agentVariant, id, cwd string) tea.Cmd {
+	if v.webOnly() {
+		// nothing to suspend into: the service lives in a browser tab
+		return m.agentOpenURL(id, m.agentWebURL(v, m.agentLoad(id)))
+	}
 	if !m.depOK(v.bin) {
 		m.flash = "Missing dependency: " + v.bin
 		return nil
@@ -502,20 +589,38 @@ func (m *Model) agentRename(id, name string) {
 
 // ── remote (browser) sessions ──────────────────────────────────────────────
 
-// agentRemoteURL finds a hosted Claude Code session link in text. A session
+// agentWebURL is where a session opens in a browser: the link it was pointed at,
+// then its own page once it has an id, then the service's fresh-chat page.
+func (m *Model) agentWebURL(v agentVariant, s agentSession) string {
+	if s.Remote != "" {
+		return s.Remote
+	}
+	if v.webURL != nil && s.SessionID != "" {
+		return v.webURL(s.SessionID)
+	}
+	return v.webNew
+}
+
+// agentRemoteURL finds a hosted session link in text. A session
 // opened on the web has no local process to attach to, so lflow treats such a
 // chip as a handle on the BROWSER.
-func agentRemoteURL(text string) string {
+func agentRemoteURL(text string, v agentVariant) string {
+	if v.webHost == "" {
+		return ""
+	}
+	hosts := []string{v.webHost}
+	if v.id == "claude" {
+		hosts = append(hosts, "claude.com/code/") // the same session, the other domain
+	}
 	for _, f := range strings.FieldsFunc(text, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '\n' || r == '(' || r == ')' || r == '[' || r == ']' || r == '<' || r == '>'
 	}) {
 		f = strings.TrimRight(f, ".,;")
 		low := strings.ToLower(f)
-		if !strings.Contains(low, "/code/") {
-			continue
-		}
-		if strings.Contains(low, "claude.ai") || strings.Contains(low, "claude.com") {
-			return f
+		for _, h := range hosts {
+			if strings.Contains(low, h) {
+				return f
+			}
 		}
 	}
 	return ""
@@ -524,11 +629,15 @@ func agentRemoteURL(text string) string {
 // agentOpenURL opens a hosted session in the host's browser, recording it as the
 // handle's remote target so later opens go straight there.
 func (m *Model) agentOpenURL(id, url string) tea.Cmd {
+	if url == "" {
+		m.flash = "no web session to open"
+		return nil
+	}
 	s := m.agentLoad(id)
 	if s.Remote != url {
 		s.Remote = url
-		if s.SessionID == "" {
-			s.SessionID = agentURLSessionID(url)
+		if v, ok := agentVariantByID(s.Variant); ok && s.SessionID == "" {
+			s.SessionID = agentURLSessionID(url, v)
 		}
 		m.agentSave(id, s)
 	}
@@ -538,17 +647,27 @@ func (m *Model) agentOpenURL(id, url string) tea.Cmd {
 	}
 }
 
-// agentURLSessionID pulls the session id out of a claude.ai/code/<id> link.
-func agentURLSessionID(url string) string {
-	i := strings.LastIndex(url, "/code/")
-	if i < 0 {
-		return ""
+// agentURLSessionID pulls the session id out of a chat link — whatever follows
+// the service's own path fragment (claude.ai/code/<id>, chatgpt.com/c/<id>, …).
+func agentURLSessionID(url string, v agentVariant) string {
+	low := strings.ToLower(url)
+	for _, h := range []string{v.webHost, "/code/", "/c/", "/chat/", "/app/"} {
+		if h == "" {
+			continue
+		}
+		i := strings.LastIndex(low, h)
+		if i < 0 {
+			continue
+		}
+		id := strings.TrimSuffix(url[i+len(h):], "/")
+		if j := strings.IndexAny(id, "?#"); j >= 0 {
+			id = id[:j]
+		}
+		if id != "" {
+			return id
+		}
 	}
-	id := strings.TrimSuffix(url[i+len("/code/"):], "/")
-	if j := strings.IndexAny(id, "?#"); j >= 0 {
-		id = id[:j]
-	}
-	return id
+	return ""
 }
 
 // agentOpenedMsg reports a browser open back to Update.
@@ -589,10 +708,16 @@ func (m *Model) insertAgentChip(cur *item, v agentVariant, attach agentStoreSess
 		return
 	}
 	id := anchorChipID(anchor)
-	if attach.id != "" {
+	switch {
+	case attach.id != "":
 		m.agentAttach(id, attach)
-	} else {
-		m.agentSave(id, agentSession{Variant: v.id, Cwd: processCWD()})
+	default:
+		s := agentSession{Variant: v.id, Cwd: processCWD()}
+		// a chat link already in this row is the session this chip points at
+		if url := agentRemoteURL(expandAnchors(cur.name, m.chips), v); url != "" {
+			s.Remote, s.SessionID = url, agentURLSessionID(url, v)
+		}
+		m.agentSave(id, s)
 	}
 	m.insertLiteralAt(cur, m.caret, anchor)
 	m.publishAgentLook(id, v)

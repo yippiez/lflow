@@ -79,13 +79,16 @@ func chipOn(t *testing.T, m *Model, uuid string, v agentVariant, attach agentSto
 // TestAgentVariantsRegistered: every CLI lflow can host is declared with the one
 // binary it shells out to, its own mark and its own color.
 func TestAgentVariantsRegistered(t *testing.T) {
-	want := map[string]string{"claude": "✳", "pi": "π", "opencode": "❯"}
+	want := map[string]string{
+		"claude": "✳", "codex": "✺", "gemini": "✦", "grok": "✕",
+		"pi": "Π", "opencode": "▢", "chatgpt": "❋",
+	}
 	for id, glyph := range want {
 		v := variant(t, id)
 		if v.glyph != glyph {
 			t.Errorf("%s glyph = %q, want %q", id, v.glyph, glyph)
 		}
-		if v.bin == "" || v.colorSGR() == "" || v.args == nil {
+		if v.colorSGR() == "" || (!v.webOnly() && v.args == nil) {
 			t.Errorf("%s is under-declared: %+v", id, v)
 		}
 	}
@@ -95,9 +98,13 @@ func TestAgentVariantsRegistered(t *testing.T) {
 			t.Errorf("%q is a node type; sessions are chips only", nt.key)
 		}
 	}
-	// their CLIs are still probed, so a missing one is said out loud
-	if got := agentBins(); len(got) != len(agentVariants) {
-		t.Errorf("agentBins() = %v", got)
+	// every agent wears its own color, so two chips never read as one agent
+	seen := map[string]string{}
+	for _, v := range agentVariants {
+		if other, dup := seen[v.color]; dup {
+			t.Errorf("%s and %s share the color %q", v.id, other, v.color)
+		}
+		seen[v.color] = v.id
 	}
 }
 
@@ -229,22 +236,72 @@ func TestAgentMetaPrefersStoreClock(t *testing.T) {
 	}
 }
 
-// TestAgentRemoteURL: a claude.ai/code link makes a session remote — there is no
-// local process to attach to, so it opens in the browser.
+// TestAgentRemoteURL: a chat link in the row is the session a chip points at —
+// each service recognizing its OWN links, and the id being whatever follows.
 func TestAgentRemoteURL(t *testing.T) {
+	c := variant(t, "claude")
 	cases := map[string]string{
 		"review the PR https://claude.ai/code/session_01ABCdef": "https://claude.ai/code/session_01ABCdef",
 		"(https://claude.com/code/session_9 ) later":            "https://claude.com/code/session_9",
 		"nothing remote here":                                   "",
 		"https://claude.ai/settings":                            "",
+		"someone else's https://chatgpt.com/c/abc":              "",
 	}
 	for text, want := range cases {
-		if got := agentRemoteURL(text); got != want {
-			t.Errorf("agentRemoteURL(%q) = %q, want %q", text, got, want)
+		if got := agentRemoteURL(text, c); got != want {
+			t.Errorf("agentRemoteURL(%q, claude) = %q, want %q", text, got, want)
 		}
 	}
-	if got := agentURLSessionID("https://claude.ai/code/session_01ABC?x=1"); got != "session_01ABC" {
-		t.Errorf("session id from URL = %q", got)
+	if got := agentURLSessionID("https://claude.ai/code/session_01ABC?x=1", c); got != "session_01ABC" {
+		t.Errorf("claude session id from URL = %q", got)
+	}
+	gpt := variant(t, "chatgpt")
+	if got := agentRemoteURL("draft https://chatgpt.com/c/68f0-aa11 here", gpt); got != "https://chatgpt.com/c/68f0-aa11" {
+		t.Errorf("chatgpt link = %q", got)
+	}
+	if got := agentURLSessionID("https://chatgpt.com/c/68f0-aa11", gpt); got != "68f0-aa11" {
+		t.Errorf("chatgpt session id = %q", got)
+	}
+	if got := agentURLSessionID("https://gemini.google.com/app/xyz789", variant(t, "gemini")); got != "xyz789" {
+		t.Errorf("gemini session id = %q", got)
+	}
+}
+
+// TestAgentWebServices: the services with a chat interface can be opened in a
+// browser, and the one with no CLI at all lives there entirely.
+func TestAgentWebServices(t *testing.T) {
+	for _, id := range []string{"claude", "codex", "gemini", "grok", "chatgpt"} {
+		v := variant(t, id)
+		if v.webURL == nil || v.webNew == "" || v.webHost == "" {
+			t.Errorf("%s has a chat interface but no web surface: %+v", id, v)
+		}
+	}
+	if !variant(t, "chatgpt").webOnly() {
+		t.Error("chatgpt has no CLI — it must be web-only")
+	}
+	for _, id := range []string{"claude", "codex", "gemini", "grok", "pi", "opencode"} {
+		if variant(t, id).webOnly() {
+			t.Errorf("%s is a CLI and must not be web-only", id)
+		}
+	}
+	// a web-only service is never reported as a missing binary
+	if got := agentBins(); len(got) != len(agentVariants)-1 {
+		t.Errorf("agentBins() = %v, want one entry per CLI", got)
+	}
+
+	// ⌥r on a web chip opens the browser instead of suspending lflow
+	gpt := variant(t, "chatgpt")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "draft https://chatgpt.com/c/68f0-aa11 "})
+	chip := chipOn(t, m, "note", gpt, agentStoreSession{})
+	s := m.agentLoad(chip.ID)
+	if s.Remote != "https://chatgpt.com/c/68f0-aa11" || s.SessionID != "68f0-aa11" {
+		t.Fatalf("the chip did not adopt the chat link in its row: %+v", s)
+	}
+	if m.agentWebURL(gpt, s) != s.Remote {
+		t.Errorf("web URL = %q, want the adopted link", m.agentWebURL(gpt, s))
+	}
+	if got := m.agentWebURL(gpt, agentSession{}); got != gpt.webNew {
+		t.Errorf("a fresh web chip opens %q, want the service's new-chat page", got)
 	}
 }
 
@@ -518,5 +575,51 @@ func TestAgentSessionDataStaysLocal(t *testing.T) {
 	}
 	if strings.Contains(stored[chip.ID].Value, "abc-123") {
 		t.Error("the session id leaked into the chip row")
+	}
+}
+
+// TestAgentRenameReplaces: n on a session still wearing the CLI's own name opens
+// an EMPTY field, so typing replaces the name instead of appending to it.
+func TestAgentRenameReplaces(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser)
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id})
+	m.focusAgentChip(chip)
+	it := m.tree.byUUID["note"]
+
+	(agentChipView{}).Key(m, it, key("n"))
+	if f := m.agentRenameState(chip.ID); f == nil || f.value != "" {
+		t.Fatalf("the field opened with %q, want it empty", f.value)
+	}
+	for _, r := range "flush fix" {
+		(agentChipView{}).Key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	(agentChipView{}).Key(m, it, key("enter"))
+	if s := m.agentLoad(chip.ID); s.Name != "flush fix" {
+		t.Fatalf("name = %q, want the typed name alone", s.Name)
+	}
+	// a session you already named opens with that name, ready to edit
+	(agentChipView{}).Key(m, it, key("n"))
+	if f := m.agentRenameState(chip.ID); f == nil || f.value != "flush fix" {
+		t.Errorf("re-opening the field gave %q, want the custom name", f.value)
+	}
+}
+
+// TestAgentsListRowDropsItsOwnChip: a /agents row shows the words around the
+// chip, not the chip again — the pill beside them already says which session.
+func TestAgentsListRowDropsItsOwnChip(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "sync flush loses edits "})
+	chipOn(t, m, "note", c, agentStoreSession{})
+	if _, err := m.tree.save(); err != nil {
+		t.Fatal(err)
+	}
+	rows := m.collectAgentRows()
+	if len(rows) != 1 {
+		t.Fatalf("collected %d rows", len(rows))
+	}
+	if rows[0].name != "sync flush loses edits" {
+		t.Errorf("row name = %q, want the row's own words without the chip", rows[0].name)
 	}
 }

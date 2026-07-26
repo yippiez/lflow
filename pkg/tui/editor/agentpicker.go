@@ -64,13 +64,17 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 		if ql != "" && !fuzzyMatch(strings.ToLower(v.label), ql) && !fuzzyMatch(v.id, ql) && !fuzzyMatch("new", ql) {
 			continue
 		}
-		missing := !m.depOK(v.bin)
+		missing := !v.webOnly() && !m.depOK(v.bin)
 		out = append(out, pickerItem{value: "new/" + v.id, render: func(bool) string {
 			if missing {
 				return cDim + fmt.Sprintf("%-2s new %-9s", v.glyph, v.id) + " · missing " + v.bin + cReset
 			}
+			what := " start a fresh session here"
+			if v.webOnly() {
+				what = " open a fresh chat in the browser"
+			}
 			return v.colorSGR() + fmt.Sprintf("%-2s ", v.glyph) + cReset +
-				cFG + fmt.Sprintf("new %-9s", v.id) + cReset + cDim + " start a fresh session here" + cReset
+				cFG + fmt.Sprintf("new %-9s", v.id) + cReset + cDim + what + cReset
 		}})
 	}
 
@@ -132,7 +136,7 @@ func (agentStartSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if !m.depOK(v.bin) {
+	if !v.webOnly() && !m.depOK(v.bin) {
 		m.flash = "Missing dependency: " + v.bin
 		return m, nil
 	}
@@ -195,9 +199,12 @@ func (m *Model) collectAgentRows() []agentRow {
 			if !ok {
 				continue
 			}
+			// the row's own words, with this chip cut out of them: the pill beside
+			// them already says which session it is
+			name := oneLine(displayAnchors(strings.ReplaceAll(n.Name, chipAnchor(c.ID), ""), m.chips))
 			rows = append(rows, agentRow{
 				uuid: n.UUID, id: c.ID, variant: v,
-				name: oneLine(displayAnchors(n.Name, m.chips)),
+				name: strings.TrimSpace(name),
 				sess: m.agentLoad(c.ID), done: n.CompletedAt > 0,
 			})
 		}
