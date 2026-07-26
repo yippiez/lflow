@@ -487,6 +487,33 @@ func TestVisibleWidthGraphemeCluster(t *testing.T) {
 	}
 }
 
+func TestVisibleWidthSkipsHyperlinkPayload(t *testing.T) {
+	// an OSC 8 target is not text: "ycombinator.com" carries three 'm's, and
+	// measuring the sequence as "runs to the next m" counted the rest of the URL
+	// as visible cells.
+	link := hyperlink("https://news.ycombinator.com/item?id=1", cFG+"Show HN"+cReset)
+	if w := visibleWidth(link); w != 7 {
+		t.Errorf("visibleWidth of a hyperlink = %d, want 7 (the label alone)", w)
+	}
+	if got := clip(link, 40); got != link {
+		t.Errorf("a line that fits must pass through unchanged: %q", got)
+	}
+}
+
+func TestClipClosesATruncatedHyperlink(t *testing.T) {
+	link := hyperlink("https://example.com/x", cFG+"a very long result title"+cReset)
+	got := clip(link, 10)
+	if w := visibleWidth(got); w > 10 {
+		t.Errorf("clipped width = %d, want <= 10", w)
+	}
+	if !strings.HasSuffix(got, oscLinkClose) {
+		t.Errorf("a cut hyperlink must be closed so it cannot bleed on: %q", got)
+	}
+	if strings.Contains(stripSGR(got), "example.com") {
+		t.Errorf("the target leaked into the visible text: %q", got)
+	}
+}
+
 func TestWrapLineFillsBulletLineBeforeRun(t *testing.T) {
 	// a bulleted node whose body is one long no-space run must fill the
 	// bullet line first, not strand "○" alone with the run on line 2

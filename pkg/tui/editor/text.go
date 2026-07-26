@@ -2,6 +2,7 @@ package editor
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
@@ -11,7 +12,55 @@ import (
 // tab-expansion, cluster and caret helpers. They are node-agnostic; the
 // node-body and band rendering that uses them lives in render.go.
 
-// visibleWidth returns the display width of s ignoring SGR sequences. Runs of
+// ansiEscapeEnd returns the byte just after one escape sequence starting at i.
+// A styled line carries more than SGR: an OSC 8 hyperlink (a URL chip, a search
+// hit) is ESC ] … BEL/ST, and its payload routinely contains an 'm' — measuring
+// it with the "runs to the next m" shortcut counts half a URL as visible text
+// and makes every width and clip past it wrong.
+func ansiEscapeEnd(s string, i int) int {
+	if i+1 >= len(s) {
+		return len(s)
+	}
+	switch s[i+1] {
+	case '[': // CSI: final byte is in 0x40..0x7e
+		for j := i + 2; j < len(s); j++ {
+			if s[j] >= 0x40 && s[j] <= 0x7e {
+				return j + 1
+			}
+		}
+		return len(s)
+	case ']': // OSC: BEL or ST (ESC \) terminates the payload
+		for j := i + 2; j < len(s); j++ {
+			if s[j] == '\a' {
+				return j + 1
+			}
+			if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
+				return j + 2
+			}
+		}
+		return len(s)
+	default:
+		return i + 2
+	}
+}
+
+// oscLinkOpen / oscLinkClose are the OSC 8 hyperlink brackets: everything
+// between them is clickable in terminals that support it (see hyperlink()).
+const (
+	oscLinkOpen  = "\x1b]8;;"
+	oscLinkClose = "\x1b]8;;\x1b\\"
+)
+
+// hyperlink wraps already-styled text in an OSC 8 hyperlink to url. Terminals
+// without OSC 8 ignore the brackets and show the text alone.
+func hyperlink(url, text string) string {
+	if url == "" {
+		return text
+	}
+	return oscLinkOpen + url + "\x1b\\" + text + oscLinkClose
+}
+
+// visibleWidth returns the display width of s ignoring escape sequences. Runs of
 // text between escapes are measured a grapheme cluster at a time so a ZWJ emoji
 // sequence counts as its true terminal width — StringWidth folds the cluster's
 // components into one cell-run — rather than the sum of its parts.
@@ -24,46 +73,42 @@ func visibleWidth(s string) int {
 			run.Reset()
 		}
 	}
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if r == 'm' {
-				inEsc = false
-			}
-			continue
-		}
-		if r == '\x1b' {
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
 			flush()
-			inEsc = true
+			i = ansiEscapeEnd(s, i)
 			continue
 		}
+		r, n := utf8.DecodeRuneInString(s[i:])
 		run.WriteRune(r)
+		i += n
 	}
 	flush()
 	return w
 }
 
-// clip truncates s (which may contain SGR sequences) to the given display width.
+// clip truncates s (which may carry SGR and OSC sequences) to the given display
+// width. A hyperlink cut in half is closed at the ellipsis, so the link never
+// bleeds onto whatever the renderer writes next.
 func clip(s string, width int) string {
 	if visibleWidth(s) <= width {
 		return s
 	}
 	var b strings.Builder
 	w := 0
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			b.WriteRune(r)
-			if r == 'm' {
-				inEsc = false
+	linked := false
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			j := ansiEscapeEnd(s, i)
+			seq := s[i:j]
+			b.WriteString(seq)
+			if strings.HasPrefix(seq, oscLinkOpen) {
+				linked = seq != oscLinkClose
 			}
+			i = j
 			continue
 		}
-		if r == '\x1b' {
-			b.WriteRune(r)
-			inEsc = true
-			continue
-		}
+		r, n := utf8.DecodeRuneInString(s[i:])
 		rw := runewidth.RuneWidth(r)
 		if w+rw > width-1 {
 			b.WriteString(cDim + "…")
@@ -71,6 +116,10 @@ func clip(s string, width int) string {
 		}
 		b.WriteRune(r)
 		w += rw
+		i += n
+	}
+	if linked {
+		b.WriteString(oscLinkClose)
 	}
 	return b.String()
 }

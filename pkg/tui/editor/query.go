@@ -735,35 +735,9 @@ func paintVisibleRanges(s string, ranges []queryRange) string {
 	return b.String()
 }
 
-// ansiEscapeEnd returns the byte just after one CSI/OSC escape. Query rows may
-// contain OSC 8 hyperlinks as well as SGR colors; neither occupies a visible
-// rune in paintVisibleRanges' coordinate space.
-func ansiEscapeEnd(s string, i int) int {
-	if i+1 >= len(s) {
-		return len(s)
-	}
-	switch s[i+1] {
-	case '[': // CSI: final byte is in 0x40..0x7e
-		for j := i + 2; j < len(s); j++ {
-			if s[j] >= 0x40 && s[j] <= 0x7e {
-				return j + 1
-			}
-		}
-		return len(s)
-	case ']': // OSC: BEL or ST (ESC \\) terminates the payload
-		for j := i + 2; j < len(s); j++ {
-			if s[j] == '\a' {
-				return j + 1
-			}
-			if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
-				return j + 2
-			}
-		}
-		return len(s)
-	default:
-		return i + 2
-	}
-}
+// Query rows may contain OSC 8 hyperlinks as well as SGR colors; neither
+// occupies a visible rune in paintVisibleRanges' coordinate space, which is why
+// it walks escapes with ansiEscapeEnd (text.go).
 
 // queryHitCount counts only actual hits, recursively; gray breadcrumb rows do
 // not inflate the suffix. Old flat mirrors (before lock bits) still count.
