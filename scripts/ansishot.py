@@ -29,6 +29,11 @@ SGR = re.compile(r"\x1b\[([0-9;]*)m")
 # without this the target would be painted into the shot as literal text.
 OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
+# An OSC sequence — ESC ] … terminated by BEL or ST (ESC \). It carries no cells
+# to paint: the editor emits OSC 8 hyperlinks around link and citation chips, and
+# without this the target would be painted as literal "]8;;https://…" text.
+OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
 
 class State:
     def __init__(self):
