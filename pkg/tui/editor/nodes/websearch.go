@@ -3,7 +3,6 @@ package nodes
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,9 +15,10 @@ import (
 
 // The websearch node: an outline row whose text IS a web search. alt+r asks
 // DuckDuckGo's keyless endpoints (see pkg/tui/websearch — no account, no API
-// key, nothing to configure) and hangs the first ten hits underneath the node
-// as bands: rank, title, host. alt+e opens the same ten with their URLs and
-// snippets in a scrollable view.
+// key, nothing to configure) and hangs the first ten hits underneath the node:
+// one "Last Updated: …" time chip, then ten titles, each a link to its result
+// and nothing more — no ranks, no URLs spelled out, no counts. alt+e opens the
+// same ten with their URLs and snippets in a scrollable view.
 //
 // The row stays an ordinary editable line — no Render override — so the query is
 // typed, chipped and colored like any other node; everything the search produces
@@ -62,6 +62,7 @@ type wsState struct {
 	query   string // the query the held results answer — not necessarily the row's text now
 	results []websearch.Result
 	errMsg  string
+	at      int64 // unix seconds of the last finished run — the time chip's stamp
 }
 
 func wsStateOf(h editor.NodeHost, uuid string) *wsState {
@@ -116,6 +117,7 @@ func (msg wsDoneMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 	st.busy, st.cancel = false, nil
 	delete(h.NodeStore(msg.uuid), "animating")
 	st.query, st.results, st.errMsg = msg.query, msg.results, msg.err
+	st.at = time.Now().Unix()
 	switch {
 	case msg.err != "":
 		h.NodeFlash("websearch · " + msg.err)
@@ -127,27 +129,15 @@ func (msg wsDoneMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 	return nil
 }
 
-// wsHost is the compact source shown next to a hit on the narrow preview band —
-// the domain, without the scheme or the "www." noise.
-func wsHost(rawURL string) string {
-	s := rawURL
-	if i := strings.Index(s, "://"); i >= 0 {
-		s = s[i+3:]
-	}
-	if i := strings.IndexAny(s, "/?#"); i >= 0 {
-		s = s[:i]
-	}
-	return strings.TrimPrefix(s, "www.")
+// wsStamp is the node's one piece of chrome: when these hits were fetched.
+func wsStamp(st *wsState) string {
+	return "Last Updated: " + editor.NodeRelTime(st.at)
 }
 
-// wsRank right-aligns the rank in two columns so the titles line up through ten.
-func wsRank(i int) string {
-	return fmt.Sprintf("%2s", strconv.Itoa(i+1))
-}
-
-// wsPreview hangs the results beneath the node — one line per hit, always on
-// once a search has run (the point of the type: run it, read the ten). It stays
-// out of the way while the alt+e view is open, which shows the same ten in full.
+// wsPreview hangs the results beneath the node — the time chip, then one linked
+// title per hit and nothing else. Always on once a search has run (the point of
+// the type: run it, read the ten); it steps aside while the alt+e view is open,
+// which shows the same ten in full.
 func wsPreview(h editor.NodeHost, n editor.NodeRef, rail string, maxLine int, focused bool) []string {
 	if focused {
 		return nil
@@ -161,21 +151,15 @@ func wsPreview(h editor.NodeHost, n editor.NodeRef, rail string, maxLine int, fo
 		return []string{line(editor.ShineText("searching the web…"))}
 	case st.errMsg != "":
 		return []string{line(th.Red + "websearch · " + st.errMsg + th.Reset)}
-	case len(st.results) == 0 && st.query != "":
+	case len(st.results) == 0 && st.at > 0:
 		return []string{line(th.Dim + "no results · ⌥r searches again" + th.Reset)}
 	case len(st.results) == 0:
 		return nil // never run — the row is just a line of text until ⌥r
 	}
 
-	head := fmt.Sprintf("%d results", len(st.results))
-	// the row is editable, so say plainly when the hits answer an older question
-	if strings.TrimSpace(n.Text()) != st.query {
-		head += " for “" + st.query + "” · ⌥r re-runs"
-	}
-	out := []string{line(th.Dim + head + " · ⌥e opens them" + th.Reset)}
-	for i, r := range st.results {
-		out = append(out, line(th.Dim+wsRank(i)+" "+th.Reset+th.FG+r.Title+th.Reset+
-			th.Dim+" · "+wsHost(r.URL)+th.Reset))
+	out := []string{line(th.Dim + wsStamp(st) + th.Reset)}
+	for _, r := range st.results {
+		out = append(out, line(editor.NodeLink(r.URL, r.Title)))
 	}
 	return out
 }
@@ -215,33 +199,30 @@ func (v wsView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, s
 	return editor.NodeWindowBands(content, scroll, winH)
 }
 
-// wsViewLines is the view's full content — one header plus three lines per hit
-// (title, url, snippet). Lines and Bands share it so the scroll clamp always
-// matches what is drawn.
+// wsViewLines is the view's full content — the time chip, then each hit as its
+// linked title over its url and snippet. Lines and Bands share it so the scroll
+// clamp always matches what is drawn.
 func wsViewLines(h editor.NodeHost, n editor.NodeRef, width int) []string {
 	th := editor.NodeTheme()
 	st := wsStateOf(h, n.UUID())
 
-	hdr := "  websearch · "
+	hdr := wsStamp(st)
 	switch {
 	case st.busy:
-		hdr += "searching…"
+		hdr = "searching…"
 	case st.errMsg != "":
-		hdr += st.errMsg
-	default:
-		hdr += fmt.Sprintf("%d results", len(st.results))
+		hdr = st.errMsg
+	case st.at == 0:
+		hdr = "nothing yet"
 	}
-	out := []string{th.Dim + hdr + " · ↑↓ scroll · ⌥r again · esc close" + th.Reset}
+	out := []string{th.Dim + "  " + hdr + " · ↑↓ scroll · ⌥r again · esc close" + th.Reset}
 	if len(st.results) == 0 {
-		return append(out, th.Dim+"  nothing yet · ⌥r searches the web for this row"+th.Reset)
+		return append(out, th.Dim+"  ⌥r searches the web for this row"+th.Reset)
 	}
-	for i, r := range st.results {
-		out = append(out,
-			th.Dim+"  "+wsRank(i)+" "+th.Reset+th.FG+r.Title+th.Reset,
-			th.Dim+"     "+r.URL+th.Reset,
-		)
+	for _, r := range st.results {
+		out = append(out, "  "+editor.NodeLink(r.URL, r.Title), th.Dim+"  "+r.URL+th.Reset)
 		if r.Snippet != "" {
-			out = append(out, th.Dim+"     "+r.Snippet+th.Reset)
+			out = append(out, th.Dim+"  "+r.Snippet+th.Reset)
 		}
 	}
 	return out

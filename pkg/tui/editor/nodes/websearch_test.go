@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/editor"
 	"github.com/lflow/lflow/pkg/tui/websearch"
 )
 
@@ -95,16 +96,17 @@ func TestWebSearchPreviewShowsTheTenHits(t *testing.T) {
 
 	bands := wsPreview(h, n, "", 120, false)
 	if len(bands) != 11 {
-		t.Fatalf("got %d bands, want a header plus 10 hits", len(bands))
+		t.Fatalf("got %d bands, want the time chip plus 10 hits", len(bands))
 	}
-	if !strings.Contains(ansi.Strip(bands[0]), "10 results") {
-		t.Errorf("header = %q", ansi.Strip(bands[0]))
+	// the chip is the node's only chrome — no counts, no key hints
+	if got := strings.TrimSpace(ansi.Strip(bands[0])); got != "Last Updated: just now" {
+		t.Errorf("time chip = %q", got)
 	}
-	first := ansi.Strip(bands[1])
-	if !strings.Contains(first, "1 Result a") || !strings.Contains(first, "a.example") {
-		t.Errorf("first hit band = %q, want its rank, title and host", first)
+	// a hit is its title and nothing else: no rank, no host, no url spelled out
+	if got := strings.TrimSpace(ansi.Strip(bands[1])); got != "Result a" {
+		t.Errorf("first hit band = %q, want the bare title", got)
 	}
-	if got := ansi.Strip(bands[10]); !strings.Contains(got, "10 Result j") {
+	if got := strings.TrimSpace(ansi.Strip(bands[10])); got != "Result j" {
 		t.Errorf("last hit band = %q", got)
 	}
 	if bands := wsPreview(h, n, "", 120, true); bands != nil {
@@ -112,16 +114,22 @@ func TestWebSearchPreviewShowsTheTenHits(t *testing.T) {
 	}
 }
 
-func TestWebSearchPreviewFlagsAnEditedQuery(t *testing.T) {
+func TestWebSearchHitsAreHyperlinks(t *testing.T) {
 	serveResults(t, resultPage(), http.StatusOK)
 	h := newFakeHost(t)
 	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
 	runToCompletion(t, h, n)
 
-	n.text = "go outliner tui"
-	head := ansi.Strip(wsPreview(h, n, "", 120, false)[0])
-	if !strings.Contains(head, "go outliner") || !strings.Contains(head, "⌥r re-runs") {
-		t.Errorf("header = %q, want the stale query named", head)
+	band := wsPreview(h, n, "", 120, false)[1]
+	if !strings.Contains(band, "\x1b]8;;https://www.a.example/page\x1b\\") {
+		t.Errorf("the title must open an OSC 8 link to its result: %q", band)
+	}
+	if !strings.HasSuffix(band, "\x1b]8;;\x1b\\") {
+		t.Errorf("the link must be closed at the end of the title: %q", band)
+	}
+	// the target rides in the escape, so it costs no visible columns
+	if w := editor.NodeVisibleWidth(band); w != len("  Result a") {
+		t.Errorf("visible width = %d, want %d", w, len("  Result a"))
 	}
 }
 

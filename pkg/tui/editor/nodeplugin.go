@@ -345,6 +345,17 @@ func NodeTheme() NodePalette {
 // NodeColor maps a /style color name (red, orange, …) to its themed SGR.
 func NodeColor(name string) string { return styleColorCode[name] }
 
+// NodeLink renders text as a link to url, exactly like a URL chip: the themed
+// link color (/settings link.color) wrapped in an OSC 8 hyperlink, so terminals
+// that support it make the text clickable and the rest just see styled text.
+func NodeLink(url, text string) string {
+	return hyperlink(url, linkChipColorCode()+text+cReset)
+}
+
+// NodeRelTime is the house "how long ago" wording for a unix-seconds stamp —
+// "just now", "5m ago", "3h ago", "2d ago".
+func NodeRelTime(ts int64) string { return relTime(ts) }
+
 // NodeFirstNonEmpty returns a unless it is empty.
 func NodeFirstNonEmpty(a, b string) string {
 	if a != "" {
