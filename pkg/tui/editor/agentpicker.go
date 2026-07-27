@@ -58,13 +58,29 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 	ql := strings.ToLower(strings.TrimSpace(q))
 	var out []pickerItem
 
-	// the "new session" rows: one per variant, in registry order
+	// the "new session" rows: one per CLI variant, in registry order. A WEB-only
+	// service has no session to start from here — there is no binary to hand the
+	// terminal to — so it appears only when this row already holds one of its
+	// conversations, as the link it would adopt.
+	row := ""
+	if cur := m.cursorItem(); cur != nil {
+		row = expandAnchors(cur.name, m.chips)
+	}
 	for _, v := range agentVariants {
 		v := v
 		if ql != "" && !fuzzyMatch(strings.ToLower(v.label), ql) && !fuzzyMatch(v.id, ql) && !fuzzyMatch("new", ql) {
 			continue
 		}
-		missing := !v.webOnly() && !m.depOK(v.bin)
+		if v.webOnly() {
+			if agentRemoteURL(row, v) == "" {
+				continue
+			}
+			out = append(out, pickerItem{value: "new/" + v.id, render: func(bool) string {
+				return v.colorSGR() + v.glyph + cReset + cDim + " conversation in this row" + cReset
+			}})
+			continue
+		}
+		missing := !m.depOK(v.bin)
 		// the icon in the agent's own color, "new session" in muted gray, and
 		// nothing else: the mark says which agent it is
 		out = append(out, pickerItem{value: "new/" + v.id, render: func(bool) string {

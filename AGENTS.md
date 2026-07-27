@@ -168,7 +168,10 @@ stays free of it.
 - `/agent` (and `/insert → agent`) drops a chip: a fresh session, or one that
   already exists in a CLI's store. A new-session row is the agent's mark in its own
   color and a muted `new session` — nothing else; an existing session is the pill it
-  is about to become, then `· cwd · when`. `/agents` lists every session chip in the
+  is about to become, then `· cwd · when`. Only CLI variants offer a new session:
+  a WEB-only service has no binary to hand the terminal to, so it shows up only on a
+  row that already holds one of its conversations, offering to adopt that link.
+  `/agents` lists every session chip in the
   outline, live first, done ones muted below; `alt+enter` on the row marks done.
 
 WARNING (invariant): lflow never copies a conversation into the outline. A chip

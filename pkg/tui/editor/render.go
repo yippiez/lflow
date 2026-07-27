@@ -3,6 +3,7 @@ package editor
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -75,17 +76,39 @@ const (
 	cInkLight = "\x1b[38;2;245;245;245m"
 )
 
-// contrastInk picks the ink for a fill given as a foreground SGR.
+// contrastInk picks the ink for a fill given as a foreground SGR: whichever of
+// the two inks actually contrasts MORE with it, by WCAG contrast ratio. There is
+// no knee to tune — a knee on raw channel values ignores sRGB gamma, and a
+// saturated red is exactly where that goes wrong: it looks dark to the arithmetic
+// while the eye reads it as light, so the glyph came out white-on-red and all but
+// vanished. Decoding gamma first puts that red on black ink, where it belongs.
 func contrastInk(fill string) string {
 	r, g, b, ok := sgrRGB(fill)
 	if !ok {
 		return cInkDark
 	}
-	// relative luminance; the 0.45 knee keeps mid-tone fills on dark ink
-	if (0.2126*float64(r)+0.7152*float64(g)+0.0722*float64(b))/255 > 0.45 {
+	l := relLuminance(r, g, b)
+	// contrast ratio is (lighter+0.05)/(darker+0.05); the fill sits between the
+	// two inks, so each side is one division
+	vsDark := (l + 0.05) / (relLuminance(18, 18, 18) + 0.05)
+	vsLight := (relLuminance(245, 245, 245) + 0.05) / (l + 0.05)
+	if vsDark >= vsLight {
 		return cInkDark
 	}
 	return cInkLight
+}
+
+// relLuminance is the WCAG relative luminance of an sRGB triple — channels
+// gamma-decoded to light before they are weighted.
+func relLuminance(r, g, b int) float64 {
+	lin := func(c int) float64 {
+		v := float64(c) / 255
+		if v <= 0.04045 {
+			return v / 12.92
+		}
+		return math.Pow((v+0.055)/1.055, 2.4)
+	}
+	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
 }
 
 // sgrRGB reads the channels out of a truecolor SGR sequence ("\x1b[38;2;r;g;bm").

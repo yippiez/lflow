@@ -311,6 +311,13 @@ func TestContrastInk(t *testing.T) {
 	if got := contrastInk(styleColorCode["orange"]); got != cInkDark {
 		t.Errorf("ink on orange = %q, want dark", got)
 	}
+	// every fill in the palette is one an eye reads as light: none of them may
+	// end up wearing white ink. Grok's red is the one that used to.
+	for name, code := range styleColorCode {
+		if got := contrastInk(code); got != cInkDark {
+			t.Errorf("ink on %s = %q, want dark — the mark washes out otherwise", name, got)
+		}
+	}
 	if got := contrastInk("\x1b[38;2;20;30;90m"); got != cInkLight {
 		t.Errorf("ink on a dark navy = %q, want light", got)
 	}
@@ -657,5 +664,40 @@ func TestAgentPickerRows(t *testing.T) {
 	}
 	if !strings.Contains(useRow, bgOf(c.colorSGR())) {
 		t.Error("an existing session must be drawn as the pill it becomes")
+	}
+}
+
+// TestAgentPickerSkipsWebOnly: a web-only service cannot be STARTED from the
+// picker — there is no binary to hand the terminal to. It appears only on a row
+// that already holds one of its conversations, offering to adopt that link.
+func TestAgentPickerSkipsWebOnly(t *testing.T) {
+	gpt := variant(t, "chatgpt")
+	has := func(m *Model) bool {
+		for _, it := range (agentStartSource{}).items(m, "") {
+			if it.value == "new/"+gpt.id {
+				return true
+			}
+		}
+		return false
+	}
+
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "plain notes "})
+	cursorOn(m, "note")
+	if has(m) {
+		t.Error("a web-only service must not offer a new session")
+	}
+
+	m2, _ := dbModel(t, database.Node{UUID: "chat", Name: "read https://chatgpt.com/c/abc-999 later"})
+	cursorOn(m2, "chat")
+	if !has(m2) {
+		t.Fatal("a row holding a chat link must offer to adopt it")
+	}
+	for _, it := range (agentStartSource{}).items(m2, "") {
+		if it.value != "new/"+gpt.id {
+			continue
+		}
+		if got := stripSGR(it.render(false)); got != gpt.glyph+" conversation in this row" {
+			t.Errorf("web row = %q, want the mark and what it adopts", got)
+		}
 	}
 }
