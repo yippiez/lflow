@@ -80,8 +80,8 @@ func chipOn(t *testing.T, m *Model, uuid string, v agentVariant, attach agentSto
 // binary it shells out to, its own mark and its own color.
 func TestAgentVariantsRegistered(t *testing.T) {
 	want := map[string]string{
-		"claude": "✳", "codex": "✺", "gemini": "✦", "grok": "✕",
-		"pi": "Π", "opencode": "▢", "chatgpt": "❋",
+		"claude": "✳", "codex": "✺", "gemini": "✦", "grok": "∅",
+		"pi": "ᴘɪ", "opencode": "▣", "chatgpt": "𖣐",
 	}
 	for id, glyph := range want {
 		v := variant(t, id)
@@ -621,5 +621,41 @@ func TestAgentsListRowDropsItsOwnChip(t *testing.T) {
 	}
 	if rows[0].name != "sync flush loses edits" {
 		t.Errorf("row name = %q, want the row's own words without the chip", rows[0].name)
+	}
+}
+
+// TestAgentPickerRows: the start/attach list is two shapes and no more — a NEW
+// row is the agent's colored mark plus "new session" in muted gray; an EXISTING
+// row is its pill, then its directory and age behind middle dots.
+func TestAgentPickerRows(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	cursorOn(m, "note")
+	m.agentStore = []agentStoreSession{{
+		variant: c.id, id: "abc-12345678", title: "flush fix",
+		cwd: "/home/dev/lflow", updated: time.Now().Add(-2 * time.Hour),
+	}}
+
+	items := (agentStartSource{}).items(m, "")
+	var newRow, useRow string
+	for _, it := range items {
+		if it.value == "new/claude" {
+			newRow = it.render(false)
+		}
+		if strings.HasPrefix(it.value, "use/claude/") {
+			useRow = it.render(false)
+		}
+	}
+	if got := stripSGR(newRow); got != "✳ new session" {
+		t.Errorf("new row = %q, want the mark and \"new session\" alone", got)
+	}
+	if !strings.HasPrefix(newRow, c.colorSGR()) {
+		t.Error("the mark must be drawn in the agent's own color")
+	}
+	if got := stripSGR(useRow); got != " ✳ flush fix  · /home/dev/lflow · 2h ago" {
+		t.Errorf("existing row = %q, want chip · dir · date", got)
+	}
+	if !strings.Contains(useRow, bgOf(c.colorSGR())) {
+		t.Error("an existing session must be drawn as the pill it becomes")
 	}
 }

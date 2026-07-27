@@ -82,11 +82,13 @@ func (v agentVariant) webOnly() bool { return v.bin == "" }
 // agentVariants is the registry, in picker order: the CLIs lflow can hand the
 // terminal to, then the services it can only open in a browser.
 //
-// Each glyph is the closest plain Unicode to the agent's own mark — Claude Code's
-// asterisk, OpenAI's blossom (twice: Codex and ChatGPT), Gemini's four-pointed
-// spark, xAI's cross, a squared O for opencode, a capital Pi for pi. All of them
-// are chosen from what a normal mono font actually draws: no emoji, no private
-// use, nothing that lands as an empty box in a terminal.
+// Each glyph is the closest plain Unicode to the agent's own mark: Claude Code's
+// asterisk, Codex's blossom, Gemini's four-pointed spark, an empty set for Grok,
+// small-caps ᴘɪ, a squared O for opencode, and ChatGPT's ᴋɴᴏᴛ (U+168D0, the mark
+// that shape is borrowed from). No emoji — a chip has to paint in one cell — but
+// the last two ask more of a font than the rest: U+168D0 needs Bamum coverage
+// (a Nerd Font or Noto Sans Bamum) and ᴘ needs the phonetic block, so a terminal
+// font without them draws a box. Everything else here is plain BMP.
 var agentVariants = []agentVariant{
 	{
 		id: "claude", label: "Claude Code", bin: "claude",
@@ -146,7 +148,7 @@ var agentVariants = []agentVariant{
 	},
 	{
 		id: "grok", label: "Grok CLI", bin: "grok",
-		glyph: "✕", color: "red", assignsID: false,
+		glyph: "∅", color: "red", assignsID: false,
 		args: func(s agentSession, resume bool) []string {
 			switch {
 			case resume && s.SessionID != "":
@@ -164,7 +166,7 @@ var agentVariants = []agentVariant{
 	},
 	{
 		id: "pi", label: "Pi", bin: "pi",
-		glyph: "Π", color: "purple", assignsID: true,
+		glyph: "ᴘɪ", color: "purple", assignsID: true,
 		args: func(s agentSession, _ bool) []string {
 			// pi's --session-id resumes an existing conversation and creates it when
 			// missing (see pkg/agent/pi.go), so new and resume are one command line.
@@ -175,7 +177,7 @@ var agentVariants = []agentVariant{
 	},
 	{
 		id: "opencode", label: "opencode", bin: "opencode",
-		glyph: "▢", color: "yellow", assignsID: false,
+		glyph: "▣", color: "yellow", assignsID: false,
 		args: func(s agentSession, resume bool) []string {
 			switch {
 			case resume && s.SessionID != "":
@@ -198,7 +200,7 @@ var agentVariants = []agentVariant{
 		// A WEB service: there is no terminal to hand over, so ⌥r opens the chat in
 		// the browser — a new one, or the conversation this chip was pointed at.
 		id: "chatgpt", label: "ChatGPT (web)",
-		glyph: "❋", color: "cyan", assignsID: false,
+		glyph: "𖣐", color: "cyan", assignsID: false,
 		webURL:  func(id string) string { return "https://chatgpt.com/c/" + id },
 		webNew:  "https://chatgpt.com",
 		webHost: "chatgpt.com/c/",

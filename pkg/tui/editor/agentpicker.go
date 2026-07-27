@@ -65,16 +65,13 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 			continue
 		}
 		missing := !v.webOnly() && !m.depOK(v.bin)
+		// the icon in the agent's own color, "new session" in muted gray, and
+		// nothing else: the mark says which agent it is
 		out = append(out, pickerItem{value: "new/" + v.id, render: func(bool) string {
 			if missing {
-				return cDim + fmt.Sprintf("%-2s new %-9s", v.glyph, v.id) + " · missing " + v.bin + cReset
+				return cDim + v.glyph + " new session · missing " + v.bin + cReset
 			}
-			what := " start a fresh session here"
-			if v.webOnly() {
-				what = " open a fresh chat in the browser"
-			}
-			return v.colorSGR() + fmt.Sprintf("%-2s ", v.glyph) + cReset +
-				cFG + fmt.Sprintf("new %-9s", v.id) + cReset + cDim + what + cReset
+			return v.colorSGR() + v.glyph + cReset + cDim + " new session" + cReset
 		}})
 	}
 
@@ -98,7 +95,8 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 			color = v.colorSGR()
 		}
 		out = append(out, pickerItem{value: "use/" + v.id + "/" + s.id, render: func(bool) string {
-			// an existing session is drawn as the pill it will become
+			// an existing session reads as chip · directory · when it last moved,
+			// drawn as the pill it is about to become
 			meta := []string{}
 			if s.cwd != "" {
 				meta = append(meta, tildePath(s.cwd))
@@ -108,7 +106,7 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 			}
 			row := bgOf(color) + contrastInk(color) + " " + v.glyph + " " + clipStr(label, 40) + " " + cReset
 			if len(meta) > 0 {
-				row += cDim + " " + strings.Join(meta, " · ") + cReset
+				row += cDim + " · " + strings.Join(meta, " · ") + cReset
 			}
 			return row
 		}})
