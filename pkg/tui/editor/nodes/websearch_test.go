@@ -3,6 +3,8 @@ package nodes
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -37,7 +39,7 @@ func serveResults(t *testing.T, body string, status int) {
 		w.Write([]byte(body))
 	}))
 	prev := wsClient
-	wsClient = websearch.Client{Endpoints: []string{srv.URL}}
+	wsClient = websearch.Client{Endpoints: []websearch.Endpoint{{URL: srv.URL}}}
 	t.Cleanup(func() {
 		wsClient = prev
 		srv.Close()
@@ -130,6 +132,48 @@ func TestWebSearchHitsAreHyperlinks(t *testing.T) {
 	// the target rides in the escape, so it costs no visible columns
 	if w := editor.NodeVisibleWidth(band); w != len("  Result a") {
 		t.Errorf("visible width = %d, want %d", w, len("  Result a"))
+	}
+}
+
+// The node reads the configured backend from the host's config dir on every
+// run, so naming a SearxNG instance in credentials.json takes effect without a
+// restart — and that instance is where the query goes.
+func TestWebSearchUsesTheConfiguredSearxNGInstance(t *testing.T) {
+	var asked string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		asked = r.URL.Path + "?" + r.Form.Encode()
+		w.Write([]byte(`{"results":[{"url":"https://searx.hit/","title":"From the instance","content":"a"}]}`))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "lflow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"searxng": {"url": "` + srv.URL + `"}}`
+	if err := os.WriteFile(filepath.Join(dir, "lflow", "credentials.json"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	prev := wsClient
+	wsClient = websearch.Client{}
+	t.Cleanup(func() { wsClient = prev })
+
+	h := newFakeHost(t)
+	h.configDir = dir
+	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
+	runToCompletion(t, h, n)
+
+	st := wsStateOf(h, n.uuid)
+	if st.errMsg != "" {
+		t.Fatalf("search failed: %s", st.errMsg)
+	}
+	if !strings.Contains(asked, "/search?") || !strings.Contains(asked, "format=json") {
+		t.Errorf("asked %q, want the instance's json search endpoint", asked)
+	}
+	if len(st.results) != 1 || st.results[0].Title != "From the instance" {
+		t.Fatalf("results = %+v", st.results)
 	}
 }
 

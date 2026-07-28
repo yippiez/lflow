@@ -13,12 +13,13 @@ import (
 	"github.com/lflow/lflow/pkg/tui/websearch"
 )
 
-// The websearch node: an outline row whose text IS a web search. alt+r asks
-// DuckDuckGo's keyless endpoints (see pkg/tui/websearch — no account, no API
-// key, nothing to configure) and hangs the first ten hits underneath the node:
-// one "Last Updated: …" time chip, then ten titles, each a link to its result
-// and nothing more — no ranks, no URLs spelled out, no counts. alt+e opens the
-// same ten with their URLs and snippets in a scrollable view.
+// The websearch node: an outline row whose text IS a web search. alt+r asks a
+// keyless endpoint (see pkg/tui/websearch — DuckDuckGo out of the box, a
+// SearxNG instance when one is configured; no account, no API key either way)
+// and hangs the first ten hits underneath the node: one "Last Updated: …" time
+// chip, then ten titles, each a link to its result and nothing more — no ranks,
+// no URLs spelled out, no counts. alt+e opens the same ten with their URLs and
+// snippets in a scrollable view.
 //
 // The row stays an ordinary editable line — no Render override — so the query is
 // typed, chipped and colored like any other node; everything the search produces
@@ -36,11 +37,17 @@ const (
 // wsClient is the shared backend; tests point it at a local server.
 var wsClient websearch.Client
 
+// wsGlyph is the node's mark: ⊕, the astronomical symbol for Earth — a globe
+// drawn in the plain Unicode the outline is made of (no emoji, house rule), and
+// nothing like the query node's ⌕ magnifier: one searches the web, the other
+// searches your own outline.
+func wsGlyph() (string, string) { return "⊕", editor.NodeTheme().Cyan }
+
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
 		Key: database.TypeWebSearch, Label: "Web Search",
 		InlineEditable: true, // the row is the query — edit it inline
-		Glyph:          func() (string, string) { return "⌕", editor.NodeTheme().Cyan },
+		Glyph:          wsGlyph,
 		Run:            runWebSearch,
 		Preview:        wsPreview,
 		View:           wsView{},
@@ -95,6 +102,9 @@ func runWebSearch(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 		h.NodeFlash("websearch · type what to search first")
 		return nil
 	}
+	// re-read each run, so naming a SearxNG instance in credentials.json takes
+	// effect without a restart
+	wsClient.ConfigDir = h.NodeConfigDir()
 	ctx, cancel := context.WithTimeout(context.Background(), wsTimeout)
 	st.busy, st.cancel = true, cancel
 	st.query, st.results, st.errMsg = query, nil, ""

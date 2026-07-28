@@ -105,6 +105,9 @@ type NodeHost interface {
 	NodeStore(uuid string) map[string]any
 	// NodeDB is the live database handle (nil in the ephemeral temp tree).
 	NodeDB() *database.DB
+	// NodeConfigDir is the user's config root — local-only service config lives
+	// under it at lflow/credentials.json. Never the DB, never synced.
+	NodeConfigDir() string
 	// NodeFlash shows a transient message in the bar.
 	NodeFlash(msg string)
 	// NodeDepOK reports a CLI binary's availability (NodeCLIDeps; judged by
@@ -278,6 +281,7 @@ func (a nodePluginViewAdapter) Leave(m *Model, it *item) {
 
 func (m *Model) NodeStore(uuid string) map[string]any { return m.nodeStore(uuid) }
 func (m *Model) NodeDB() *database.DB                 { return m.db }
+func (m *Model) NodeConfigDir() string                { return m.ctx.Paths.Config }
 func (m *Model) NodeFlash(msg string)                 { m.flash = msg }
 func (m *Model) NodeDepOK(bin string) bool            { return m.depOK(bin) }
 func (m *Model) NodeScroll() int                      { return m.focusScroll }

@@ -15,12 +15,13 @@ import (
 
 // fakeHost implements editor.NodeHost for plugin tests.
 type fakeHost struct {
-	db      *database.DB
-	stores  map[string]map[string]any
-	flash   string
-	deps    map[string]bool
-	scroll  int
-	compute func() <-chan compute.Event
+	db        *database.DB
+	stores    map[string]map[string]any
+	flash     string
+	deps      map[string]bool
+	configDir string
+	scroll    int
+	compute   func() <-chan compute.Event
 }
 
 func newFakeHost(t *testing.T) *fakeHost {
@@ -33,8 +34,9 @@ func (f *fakeHost) NodeStore(uuid string) map[string]any {
 	}
 	return f.stores[uuid]
 }
-func (f *fakeHost) NodeDB() *database.DB { return f.db }
-func (f *fakeHost) NodeFlash(msg string) { f.flash = msg }
+func (f *fakeHost) NodeDB() *database.DB  { return f.db }
+func (f *fakeHost) NodeConfigDir() string { return f.configDir }
+func (f *fakeHost) NodeFlash(msg string)  { f.flash = msg }
 func (f *fakeHost) NodeDepOK(b string) bool {
 	if f.deps == nil {
 		return true
