@@ -125,17 +125,29 @@ or resumable external coding-session reference.
 ## Web search
 
 The websearch node (`pkg/tui/editor/nodes/websearch.go`) is an ordinary editable
-row whose text IS the query: alt+r asks DuckDuckGo's **keyless** result pages
-(`pkg/tui/websearch` — html.duckduckgo.com/html/, falling back to
-lite.duckduckgo.com/lite/; no account, no API key, nothing in
-`credentials.json`) and hangs the first ten hits beneath the node as bands: one
-dim `Last Updated: …` time chip, then ten titles, each an OSC 8 hyperlink to its
-result in the themed link color and nothing else — no ranks, no hosts, no
-counts. alt+e opens the same ten with their URLs and snippets in a scrollable
-view. `LFLOW_SEARCH_URL` points the client at one other
-endpoint (a self-hosted mirror, or a mock for tests and demos). The hits are run
+row whose text IS the query, marked with ⊕ — the astronomical Earth symbol, a
+globe in plain Unicode (no emoji), deliberately unlike the query node's ⌕
+magnifier: one searches the web, the other searches your own outline. alt+r
+hangs the first ten hits beneath the node as bands: one dim `Last Updated: …`
+time chip, then ten titles, each an OSC 8 hyperlink to its result in the themed
+link color and nothing else — no ranks, no hosts, no counts. alt+e opens the
+same ten with their URLs and snippets in a scrollable view. The hits are run
 output: they live in the ephemeral node store only, never in the DB and never in
 sync.
+
+Two **keyless** backends behind it (`pkg/tui/websearch`):
+
+- **DuckDuckGo**, the default — html.duckduckgo.com/html/, falling back to
+  lite.duckduckgo.com/lite/. No account, no API key, nothing to configure.
+  `LFLOW_SEARCH_URL` points the client at one other DDG-shaped endpoint (a
+  mirror, or a mock for tests and demos).
+- **SearxNG**, when an instance is named — `{"searxng":{"url":"https://…"}}` in
+  `~/.config/lflow/credentials.json`, or `LFLOW_SEARXNG_URL` for a shell-scoped
+  override. It is asked for `format=json` (the instance must list `json` in its
+  `search.formats` — a 403 says so in the error), and a named instance is used
+  **exclusively**: the point of pointing lflow at your own metasearch is that
+  the query does not also go to DuckDuckGo, so there is no silent fallback.
+  Config is re-read per run, so naming an instance needs no restart.
 
 ## Demo videos
 
@@ -159,5 +171,5 @@ Remaining doc-level rules:
 
 - Never auto-run runnable nodes (alt+r only).
 - Secrets live in local config — Pi in `~/.pi/agent/settings.json`, service keys
-  in `~/.config/lflow/credentials.json` (e.g. `{"workflowy":{"api_key":"…"}}`).
-  Never synced, never written into the DB.
+  in `~/.config/lflow/credentials.json` (e.g. `{"workflowy":{"api_key":"…"}}`,
+  `{"searxng":{"url":"…"}}`). Never synced, never written into the DB.
