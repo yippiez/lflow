@@ -128,7 +128,7 @@ func TestSearchFallsThroughToTheNextEndpoint(t *testing.T) {
 	}))
 	defer good.Close()
 
-	c := &Client{Endpoints: []string{empty.URL, good.URL}}
+	c := &Client{Endpoints: []Endpoint{{URL: empty.URL}, {URL: good.URL}}}
 	got, err := c.Search(context.Background(), " go docs ", DefaultLimit)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -146,7 +146,7 @@ func TestSearchReportsFailure(t *testing.T) {
 		http.Error(w, "nope", http.StatusTooManyRequests)
 	}))
 	defer down.Close()
-	c := &Client{Endpoints: []string{down.URL}}
+	c := &Client{Endpoints: []Endpoint{{URL: down.URL}}}
 	if _, err := c.Search(context.Background(), "go", DefaultLimit); err == nil {
 		t.Fatal("want an error when every endpoint fails")
 	}

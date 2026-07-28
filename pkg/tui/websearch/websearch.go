@@ -1,12 +1,19 @@
 // Package websearch is the free web-search backend behind the websearch node
-// type: it asks DuckDuckGo's KEYLESS result endpoints for a query and parses
-// their HTML into plain (title, url, snippet) triples.
+// type: it asks a keyless search endpoint for a query and parses the answer
+// into plain (title, url, snippet) triples.
 //
-// DuckDuckGo has no official search API, but it serves two no-JavaScript result
-// pages that need no account, no key and no cookie — html.duckduckgo.com/html/
-// and lite.duckduckgo.com/lite/. Both are tried in order (the lite page is the
-// fallback when the html one answers with an empty/interstitial page), and the
-// parser reads either shape, so the node works out of the box for everyone.
+// Two backends, both without an account or an API key:
+//
+//   - DuckDuckGo, the default. It has no official API, but it serves two
+//     no-JavaScript result pages that need no key and no cookie —
+//     html.duckduckgo.com/html/ and lite.duckduckgo.com/lite/, tried in that
+//     order (the lite page covers the html one answering an interstitial). The
+//     HTML parser reads either shape, so the node works out of the box.
+//   - SearxNG, when the user names an instance (credentials.json searxng.url or
+//     LFLOW_SEARXNG_URL). It is asked for `format=json` and its JSON results are
+//     read straight through. A named instance is used EXCLUSIVELY — the whole
+//     point of pointing lflow at your own metasearch is that the query does not
+//     also go to DuckDuckGo, so there is no silent fallback.
 //
 // Nothing here touches the database: results are ephemeral, exactly like every
 // other lflow run output.
@@ -52,24 +59,40 @@ type Result struct {
 	Snippet string
 }
 
-// Client queries the endpoints. The zero value is usable; Endpoints and HTTP
-// exist so tests point it at a local server speaking the same HTML.
+// Endpoint is one place to ask. SearxNG changes both the request (it is asked
+// for JSON) and the policy (a named instance is never a step in a fallback
+// chain that ends at DuckDuckGo).
+type Endpoint struct {
+	URL     string
+	SearxNG bool
+}
+
+// Client queries the endpoints. The zero value is usable; ConfigDir points at
+// the user's config root (credentials.json lives under it), and Endpoints/HTTP
+// exist so tests point the client at a local server.
 type Client struct {
-	Endpoints []string
+	Endpoints []Endpoint
+	ConfigDir string
 	HTTP      *http.Client
 }
 
-// endpoints resolves the list to query: an explicit override, then the
-// LFLOW_SEARCH_URL escape hatch (a self-hosted SearxNG/DDG mirror, or a mock
-// during a demo), then the two DuckDuckGo pages.
-func (c *Client) endpoints() []string {
+// endpoints resolves where to ask, in precedence order:
+//
+//	explicit Endpoints (tests)
+//	LFLOW_SEARXNG_URL / credentials.json searxng.url — that instance, alone
+//	LFLOW_SEARCH_URL — one DuckDuckGo-shaped endpoint (a mirror, or a mock)
+//	the two DuckDuckGo pages
+func (c *Client) endpoints() []Endpoint {
 	if len(c.Endpoints) > 0 {
 		return c.Endpoints
 	}
-	if u := strings.TrimSpace(os.Getenv("LFLOW_SEARCH_URL")); u != "" {
-		return []string{u}
+	if u := searxngURL(c.ConfigDir); u != "" {
+		return []Endpoint{{URL: u, SearxNG: true}}
 	}
-	return []string{HTMLEndpoint, LiteEndpoint}
+	if u := strings.TrimSpace(os.Getenv("LFLOW_SEARCH_URL")); u != "" {
+		return []Endpoint{{URL: u}}
+	}
+	return []Endpoint{{URL: HTMLEndpoint}, {URL: LiteEndpoint}}
 }
 
 func (c *Client) http() *http.Client {
@@ -100,10 +123,15 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Result,
 			lastErr = err
 			continue
 		}
-		if hits := Parse(body, limit); len(hits) > 0 {
+		hits, err := parseAny(body, limit)
+		if err != nil {
+			lastErr = errors.Wrapf(err, "reading %s", hostOf(ep.URL))
+			continue
+		}
+		if len(hits) > 0 {
 			return hits, nil
 		}
-		lastErr = errors.Errorf("no results from %s", hostOf(ep))
+		lastErr = errors.Errorf("no results from %s", hostOf(ep.URL))
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no results")
@@ -111,27 +139,49 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Result,
 	return nil, lastErr
 }
 
-// fetch POSTs the query as a form — the shape both endpoints expect.
-func (c *Client) fetch(ctx context.Context, endpoint, query string) (string, error) {
+// parseAny reads whichever answer arrived: a SearxNG JSON document, or a
+// DuckDuckGo result page. Sniffing the body rather than trusting the endpoint's
+// declared kind means a mirror that answers JSON works too.
+func parseAny(body string, limit int) ([]Result, error) {
+	if strings.HasPrefix(strings.TrimSpace(body), "{") {
+		return ParseSearxNG(body, limit)
+	}
+	return Parse(body, limit), nil
+}
+
+// fetch POSTs the query as a form — the shape every endpoint here expects. A
+// SearxNG instance is additionally asked for its JSON output.
+func (c *Client) fetch(ctx context.Context, ep Endpoint, query string) (string, error) {
 	form := url.Values{"q": {query}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	accept := "text/html"
+	if ep.SearxNG {
+		form.Set("format", "json")
+		accept = "application/json"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", errors.Wrap(err, "building the search request")
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Accept", accept)
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return "", errors.Wrapf(err, "calling %s", hostOf(endpoint))
+		return "", errors.Wrapf(err, "calling %s", hostOf(ep.URL))
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
-		return "", errors.Wrapf(err, "reading %s", hostOf(endpoint))
+		return "", errors.Wrapf(err, "reading %s", hostOf(ep.URL))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", errors.Errorf("%s: %s", hostOf(endpoint), resp.Status)
+		// the usual searxng misconfiguration: json is not in search.formats, and
+		// the instance answers 403 to the format=json form field
+		if ep.SearxNG && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotAcceptable) {
+			return "", errors.Errorf("%s: %s — add json to the instance's search.formats",
+				hostOf(ep.URL), resp.Status)
+		}
+		return "", errors.Errorf("%s: %s", hostOf(ep.URL), resp.Status)
 	}
 	return string(body), nil
 }
