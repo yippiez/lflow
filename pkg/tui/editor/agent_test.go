@@ -81,7 +81,7 @@ func chipOn(t *testing.T, m *Model, uuid string, v agentVariant, attach agentSto
 func TestAgentVariantsRegistered(t *testing.T) {
 	want := map[string]string{
 		"claude": "✳", "codex": "✺", "gemini": "✦", "grok": "∅",
-		"pi": "ᴘɪ", "opencode": "▣", "chatgpt": "𖣐",
+		"pi": "ᴘɪ", "opencode": "▣", "chatgpt": "𖣐", "t3code": "ᴛ3",
 	}
 	for id, glyph := range want {
 		v := variant(t, id)
@@ -98,13 +98,18 @@ func TestAgentVariantsRegistered(t *testing.T) {
 			t.Errorf("%q is a node type; sessions are chips only", nt.key)
 		}
 	}
-	// every agent wears its own color, so two chips never read as one agent
+	// every agent wears its own MARK — that is what tells two chips apart. Color
+	// can collide (the palette is smaller than the registry) but must never be the
+	// gray a DONE session fills with.
 	seen := map[string]string{}
 	for _, v := range agentVariants {
-		if other, dup := seen[v.color]; dup {
-			t.Errorf("%s and %s share the color %q", v.id, other, v.color)
+		if other, dup := seen[v.glyph]; dup {
+			t.Errorf("%s and %s share the mark %q", v.id, other, v.glyph)
 		}
-		seen[v.color] = v.id
+		seen[v.glyph] = v.id
+		if v.color == "gray" {
+			t.Errorf("%s wears the done-gray fill", v.id)
+		}
 	}
 }
 
@@ -272,12 +277,14 @@ func TestAgentRemoteURL(t *testing.T) {
 func TestAgentWebServices(t *testing.T) {
 	for _, id := range []string{"claude", "codex", "gemini", "grok", "chatgpt"} {
 		v := variant(t, id)
-		if v.webURL == nil || v.webNew == "" || v.webHost == "" {
+		if v.webURL == nil || v.webNew == "" || len(v.webHosts) == 0 {
 			t.Errorf("%s has a chat interface but no web surface: %+v", id, v)
 		}
 	}
-	if !variant(t, "chatgpt").webOnly() {
-		t.Error("chatgpt has no CLI — it must be web-only")
+	for _, id := range []string{"chatgpt", "t3code"} {
+		if !variant(t, id).webOnly() {
+			t.Errorf("%s has no CLI — it must be web-only", id)
+		}
 	}
 	for _, id := range []string{"claude", "codex", "gemini", "grok", "pi", "opencode"} {
 		if variant(t, id).webOnly() {
@@ -285,7 +292,7 @@ func TestAgentWebServices(t *testing.T) {
 		}
 	}
 	// a web-only service is never reported as a missing binary
-	if got := agentBins(); len(got) != len(agentVariants)-1 {
+	if got := agentBins(); len(got) != len(agentVariants)-2 {
 		t.Errorf("agentBins() = %v, want one entry per CLI", got)
 	}
 
@@ -664,6 +671,47 @@ func TestAgentPickerRows(t *testing.T) {
 	}
 	if !strings.Contains(useRow, bgOf(c.colorSGR())) {
 		t.Error("an existing session must be drawn as the pill it becomes")
+	}
+}
+
+// TestT3CodeAdoptsAnyHost: T3 Code is SELF-HOSTED, so a thread link wears
+// whatever host it is served on. The route is what identifies it — and a pairing
+// link, which carries a token, is not one.
+func TestT3CodeAdoptsAnyHost(t *testing.T) {
+	v := variant(t, "t3code")
+	for _, u := range []string{
+		"http://localhost:8080/env-4f2a91c0/thr-77b3ce10",
+		"https://app.t3.codes/env-4f2a91c0/thr-77b3ce10",
+		"https://box.tailnet.ts.net/env-4f2a91c0/thr-77b3ce10/",
+	} {
+		if got := agentRemoteURL("see "+u+" later", v); got != strings.TrimSuffix(u, "/") && got != u {
+			t.Errorf("did not adopt %q, got %q", u, got)
+		}
+	}
+	for _, u := range []string{
+		"https://app.t3.codes/pair?host=https://backend.example.com:3773#token=PAIRCODE",
+		"https://app.t3.codes",
+		"https://example.com/docs/getting-started",
+		"https://chatgpt.com/c/68f0-aa11",
+	} {
+		if got := agentRemoteURL("see "+u+" later", v); got != "" {
+			t.Errorf("adopted %q, which is not a thread link", got)
+		}
+	}
+	// the thread id is the last segment, so the chip has a handle on the thread
+	if got := agentURLSessionID("http://localhost:8080/env-4f2a91c0/thr-77b3ce10", v); got != "thr-77b3ce10" {
+		t.Errorf("t3code session id = %q, want the thread segment", got)
+	}
+
+	// dropped on a row holding a thread link, the chip points at that thread
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "wip http://localhost:8080/env-4f2a91c0/thr-77b3ce10 "})
+	chip := chipOn(t, m, "note", v, agentStoreSession{})
+	s := m.agentLoad(chip.ID)
+	if s.Remote != "http://localhost:8080/env-4f2a91c0/thr-77b3ce10" {
+		t.Fatalf("the chip did not adopt the thread in its row: %+v", s)
+	}
+	if m.agentWebURL(v, s) != s.Remote {
+		t.Errorf("⌥r must open the adopted thread, got %q", m.agentWebURL(v, s))
 	}
 }
 

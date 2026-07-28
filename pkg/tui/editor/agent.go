@@ -66,14 +66,19 @@ type agentVariant struct {
 	registryRoots func() []string
 
 	// The web side of an agent, for the ones with a chat interface: webURL renders
-	// a session's own page, webNew opens a fresh chat, and webHost is the fragment
-	// that identifies one of this service's session links in a row's text — paste
-	// a conversation URL beside a chip and the chip adopts it. A CLI with no web
-	// surface leaves all three empty; a service with no CLI (bin "") lives here
-	// entirely, and ⌥r opens the browser instead of suspending lflow.
-	webURL  func(id string) string
-	webNew  string
-	webHost string
+	// a session's own page, webNew opens a fresh chat, and webHosts are the
+	// fragments that identify one of this service's session links in a row's
+	// text — paste a conversation URL beside a chip and the chip adopts it. A CLI
+	// with no web surface leaves them empty; a service with no CLI (bin "") lives
+	// here entirely, and ⌥r opens the browser instead of suspending lflow.
+	//
+	// webAny is for a SELF-HOSTED service, whose links wear whatever host you
+	// happen to serve it on: there is no fragment to look for, so it recognizes a
+	// session link by its SHAPE instead.
+	webURL   func(id string) string
+	webNew   string
+	webHosts []string
+	webAny   func(url string) bool
 }
 
 // webOnly reports a service lflow can only reach through the browser.
@@ -84,11 +89,16 @@ func (v agentVariant) webOnly() bool { return v.bin == "" }
 //
 // Each glyph is the closest plain Unicode to the agent's own mark: Claude Code's
 // asterisk, Codex's blossom, Gemini's four-pointed spark, an empty set for Grok,
-// small-caps ᴘɪ, a squared O for opencode, and ChatGPT's ᴋɴᴏᴛ (U+168D0, the mark
-// that shape is borrowed from). No emoji — a chip has to paint in one cell — but
-// the last two ask more of a font than the rest: U+168D0 needs Bamum coverage
-// (a Nerd Font or Noto Sans Bamum) and ᴘ needs the phonetic block, so a terminal
-// font without them draws a box. Everything else here is plain BMP.
+// small-caps ᴘɪ and ᴛ3, a squared O for opencode, and ChatGPT's ᴋɴᴏᴛ (U+168D0,
+// the mark that shape is borrowed from). No emoji — a chip has to paint in one
+// cell — but three of them ask more of a font than the rest: U+168D0 needs Bamum
+// coverage (a Nerd Font or Noto Sans Bamum), and ᴘ / ᴛ need the phonetic block,
+// so a terminal font without them draws a box. Everything else here is plain BMP.
+//
+// Two variants share purple: Pi and T3 Code, which is the palette's doing — it
+// carries eight swatches, gray is the DONE fill and cannot theme a live agent,
+// and there are more agents than the seven that leaves. The marks are what tell
+// two chips apart; swap either entry's color if the pair reads as one.
 var agentVariants = []agentVariant{
 	{
 		id: "claude", label: "Claude Code", bin: "claude",
@@ -105,7 +115,7 @@ var agentVariants = []agentVariant{
 		exts:          []string{".jsonl"},
 		webURL:        func(id string) string { return "https://claude.ai/code/" + id },
 		webNew:        "https://claude.ai/code",
-		webHost:       "claude.ai/code/",
+		webHosts:      []string{"claude.ai/code/", "claude.com/code/"}, // one session, two domains
 	},
 	{
 		id: "codex", label: "Codex", bin: "codex",
@@ -124,7 +134,7 @@ var agentVariants = []agentVariant{
 		exts:         []string{".jsonl"},
 		webURL:       func(id string) string { return "https://chatgpt.com/codex/tasks/" + id },
 		webNew:       "https://chatgpt.com/codex",
-		webHost:      "chatgpt.com/codex/",
+		webHosts:     []string{"chatgpt.com/codex/"},
 	},
 	{
 		id: "gemini", label: "Gemini CLI", bin: "gemini",
@@ -144,7 +154,7 @@ var agentVariants = []agentVariant{
 		sessionPath:  "/chats/",
 		webURL:       func(id string) string { return "https://gemini.google.com/app/" + id },
 		webNew:       "https://gemini.google.com/app",
-		webHost:      "gemini.google.com/app/",
+		webHosts:     []string{"gemini.google.com/app/"},
 	},
 	{
 		id: "grok", label: "Grok CLI", bin: "grok",
@@ -162,7 +172,7 @@ var agentVariants = []agentVariant{
 		exts:         []string{".json", ".jsonl"},
 		webURL:       func(id string) string { return "https://grok.com/chat/" + id },
 		webNew:       "https://grok.com",
-		webHost:      "grok.com/chat/",
+		webHosts:     []string{"grok.com/chat/"},
 	},
 	{
 		id: "pi", label: "Pi", bin: "pi",
@@ -201,10 +211,65 @@ var agentVariants = []agentVariant{
 		// the browser — a new one, or the conversation this chip was pointed at.
 		id: "chatgpt", label: "ChatGPT (web)",
 		glyph: "𖣐", color: "cyan", assignsID: false,
-		webURL:  func(id string) string { return "https://chatgpt.com/c/" + id },
-		webNew:  "https://chatgpt.com",
-		webHost: "chatgpt.com/c/",
+		webURL:   func(id string) string { return "https://chatgpt.com/c/" + id },
+		webNew:   "https://chatgpt.com",
+		webHosts: []string{"chatgpt.com/c/"},
 	},
+	{
+		// A SELF-HOSTED web GUI, and the reason webAny exists: `t3` serves T3 Code
+		// on your own machine (app.t3.codes only fronts a backend you paired), so
+		// its links wear whatever host you run it on and there is no fragment to
+		// look for. There is also no terminal to hand over — T3 Code drives Claude
+		// Code, Codex and the rest itself — so a chip is a handle on the thread's
+		// URL and ⌥r opens it in the browser.
+		id: "t3code", label: "T3 Code (web)",
+		glyph: "ᴛ3", color: "purple", assignsID: false,
+		webNew: "https://app.t3.codes",
+		webAny: t3ThreadURL,
+	},
+}
+
+// t3ThreadURL reports a T3 Code thread link by its SHAPE, since the host is
+// whatever you serve it on. What is constant is the route: a thread lives at
+// /<environmentId>/<threadId> and nothing else does.
+//
+// A /pair link is deliberately NOT a thread. It carries a pairing token in its
+// hash, and a chip must never become somewhere a credential is kept — the single
+// path segment already excludes it, and it stays excluded on purpose.
+func t3ThreadURL(u string) bool {
+	rest, ok := strings.CutPrefix(u, "https://")
+	if !ok {
+		if rest, ok = strings.CutPrefix(u, "http://"); !ok {
+			return false
+		}
+	}
+	if i := strings.IndexAny(rest, "?#"); i >= 0 {
+		rest = rest[:i]
+	}
+	segs := strings.Split(strings.TrimSuffix(rest, "/"), "/")
+	if len(segs) != 3 || segs[0] == "" { // a host and exactly two path segments
+		return false
+	}
+	return agentIDish(segs[1]) && agentIDish(segs[2])
+}
+
+// agentIDish reports a path segment that reads as a generated id rather than a
+// word: long enough, alphanumeric with dashes, and carrying at least one digit.
+func agentIDish(s string) bool {
+	if len(s) < 8 {
+		return false
+	}
+	digit := false
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			digit = true
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return digit
 }
 
 // agentVariantByID returns the variant for a chip's value ("claude").
@@ -607,22 +672,21 @@ func (m *Model) agentWebURL(v agentVariant, s agentSession) string {
 // opened on the web has no local process to attach to, so lflow treats such a
 // chip as a handle on the BROWSER.
 func agentRemoteURL(text string, v agentVariant) string {
-	if v.webHost == "" {
+	if len(v.webHosts) == 0 && v.webAny == nil {
 		return ""
-	}
-	hosts := []string{v.webHost}
-	if v.id == "claude" {
-		hosts = append(hosts, "claude.com/code/") // the same session, the other domain
 	}
 	for _, f := range strings.FieldsFunc(text, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '\n' || r == '(' || r == ')' || r == '[' || r == ']' || r == '<' || r == '>'
 	}) {
 		f = strings.TrimRight(f, ".,;")
 		low := strings.ToLower(f)
-		for _, h := range hosts {
+		for _, h := range v.webHosts {
 			if strings.Contains(low, h) {
 				return f
 			}
+		}
+		if v.webAny != nil && v.webAny(low) {
+			return f
 		}
 	}
 	return ""
@@ -651,9 +715,12 @@ func (m *Model) agentOpenURL(id, url string) tea.Cmd {
 
 // agentURLSessionID pulls the session id out of a chat link — whatever follows
 // the service's own path fragment (claude.ai/code/<id>, chatgpt.com/c/<id>, …).
+// A self-hosted service has no such fragment, so the LAST path segment is the
+// fallback: T3 Code's /<environmentId>/<threadId> ends in the thread.
 func agentURLSessionID(url string, v agentVariant) string {
 	low := strings.ToLower(url)
-	for _, h := range []string{v.webHost, "/code/", "/c/", "/chat/", "/app/"} {
+	frags := append(append([]string{}, v.webHosts...), "/code/", "/c/", "/chat/", "/app/")
+	for _, h := range frags {
 		if h == "" {
 			continue
 		}
@@ -661,15 +728,33 @@ func agentURLSessionID(url string, v agentVariant) string {
 		if i < 0 {
 			continue
 		}
-		id := strings.TrimSuffix(url[i+len(h):], "/")
-		if j := strings.IndexAny(id, "?#"); j >= 0 {
-			id = id[:j]
-		}
-		if id != "" {
+		if id := agentURLTail(url[i+len(h):]); id != "" {
 			return id
 		}
 	}
+	if v.webAny != nil && v.webAny(low) {
+		if i := strings.LastIndex(strings.TrimSuffix(agentURLPath(url), "/"), "/"); i >= 0 {
+			return agentURLTail(url[i+1:])
+		}
+	}
 	return ""
+}
+
+// agentURLTail is the id in a URL remainder, with any query or fragment and a
+// trailing slash cut away.
+func agentURLTail(rest string) string {
+	if j := strings.IndexAny(rest, "?#"); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.TrimSuffix(rest, "/")
+}
+
+// agentURLPath is the URL with its query and fragment cut away.
+func agentURLPath(url string) string {
+	if j := strings.IndexAny(url, "?#"); j >= 0 {
+		return url[:j]
+	}
+	return url
 }
 
 // agentOpenedMsg reports a browser open back to Update.

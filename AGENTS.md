@@ -138,13 +138,15 @@ up; everything that existed before lm39 is down. `/priority:up` /
 A coding session with an agent is an inline CHIP — and only a chip, so it can be
 dropped into whatever note it belongs to instead of owning a row. One variant per
 agent in one table in `pkg/tui/editor/agent.go` — claude ✳, codex ✺, gemini ✦,
-grok ∅, pi ᴘɪ, opencode ▣, and ChatGPT 𖣐 as a WEB-only service (no `bin`: ⌥r opens
-the chat in a browser instead of suspending lflow). Adding an agent is one entry
-there and nothing else; each glyph is plain Unicode, and each wears its own color.
-Two of the marks ask more of a font than the rest: `ᴘ` (U+1D18) is absent from
-DejaVu Sans Mono but present in Liberation/Free Mono and most modern terminal
-fonts, and `𖣐` (U+168D0, Bamum) needs a font that carries the block (a Nerd Font
-or Noto Sans Bamum) — swap the entry's `glyph` if your terminal draws a box. There is deliberately no agent NODE type: `nodes.type`
+grok ∅, pi ᴘɪ, opencode ▣, plus ChatGPT 𖣐 and T3 Code ᴛ3 as WEB-only services (no
+`bin`: ⌥r opens the chat in a browser instead of suspending lflow). Adding an agent
+is one entry there and nothing else; each glyph is plain Unicode. Colors come from
+the eight-swatch palette, gray is the DONE fill, so with more agents than swatches
+Pi and T3 Code share purple — the marks are what tell chips apart. Three marks ask
+more of a font than the rest: `ᴘ`/`ᴛ` (U+1D18/U+1D1B) are absent from DejaVu Sans
+Mono but present in Liberation/Free Mono and most modern terminal fonts, and `𖣐`
+(U+168D0, Bamum) needs a font that carries the block (a Nerd Font or Noto Sans
+Bamum) — swap the entry's `glyph` if your terminal draws a box. There is deliberately no agent NODE type: `nodes.type`
 stays free of it.
 
 - The chip reads as one token: the agent's glyph and the session's NAME on the
@@ -162,9 +164,12 @@ stays free of it.
 - `alt+o` opens a hosted session in the browser; there is no local process to
   attach to. What makes a session hosted is the CLI's own record of it (Claude
   Code's `~/.claude/sessions/<pid>.json` entry point), or a chat link. Each
-  variant declares its `webHost`, so a conversation URL sitting in a row (a
+  variant declares its `webHosts`, so a conversation URL sitting in a row (a
   claude.ai/code, chatgpt.com/c, gemini.google.com/app or grok.com/chat link) is
-  adopted by a chip dropped on that row.
+  adopted by a chip dropped on that row. A SELF-HOSTED service has no fixed host
+  to look for and declares `webAny` instead, matching a link by its shape: T3 Code
+  runs wherever `t3` serves it, so a chip adopts `<host>/<environmentId>/<threadId>`
+  on any host — and never a `/pair` link, which carries a pairing token.
 - `/agent` (and `/insert → agent`) drops a chip: a fresh session, or one that
   already exists in a CLI's store. A new-session row is the agent's mark in its own
   color and a muted `new session` — nothing else; an existing session is the pill it
