@@ -24,6 +24,10 @@ fonts = {
 }
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
+# An OSC sequence carries no glyphs — a terminal consumes it whole. The editor
+# emits OSC 8 hyperlinks around URL link chips ("\x1b]8;;<url>\x1b\\"), so
+# without this the target would be painted into the shot as literal text.
+OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 class State:
@@ -72,6 +76,7 @@ def apply(state, params):
 
 def parse_line(line):
     """Yield (char, snapshot-of-state) cells for one line."""
+    line = OSC.sub("", line)
     state = State()
     cells = []
     pos = 0
