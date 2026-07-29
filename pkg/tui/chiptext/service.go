@@ -6,21 +6,22 @@ import (
 )
 
 // Services a link can point at. A link chip whose target is a known service —
-// today the Google suite — carries that service's identity, so it renders with
-// the service's unicode mark and title instead of the plain "→name" link (the
-// editor also paints it in the service's color).
+// today the Google suite — carries that service's unicode mark beside its name:
+// "→▦ Q3 budget" instead of "→Q3 budget". The mark is the only difference; a
+// service link keeps the same arrow, color, underline and gestures as every
+// other link.
 //
 // The service is DERIVED from the target URL and never stored: no new chip kind,
 // no column, no migration. A Google link made long before this file existed
-// dresses itself the moment it is rendered, and retargeting a chip redresses it.
-// This file is the colorless half — recognition, glyph, title — shared by the
-// editor and the CLI; the colors live in pkg/tui/editor/service.go.
+// picks up its mark the moment it is rendered, and retargeting a chip remarks
+// it. Recognition lives here, beside the other shared chip vocabulary, so the
+// editor and the CLI show the same thing.
 
 // Service is one recognized web service.
 type Service struct {
-	Key   string // stable key ("sheets"); the editor's color table keys on it
+	Key   string // stable key ("sheets")
 	Label string // human name, and the title of a chip that has none of its own
-	Glyph string // the unicode mark drawn before the title
+	Glyph string // the unicode mark shown beside the title
 
 	hosts []string // the target's host must equal one of these (or be a subdomain)
 	path  string   // path prefix the target must carry; "" matches any path
@@ -28,8 +29,7 @@ type Service struct {
 
 // Services is the ordered registry: ServiceFor returns the first entry whose
 // host AND path prefix match (the docs.google.com family is told apart by path
-// alone, so order is only a tiebreak). Adding a service is one entry here plus
-// its color in the editor.
+// alone, so order is only a tiebreak). Adding a service is one entry here.
 var Services = []Service{
 	// the doc family shares one host and splits by path
 	{Key: "docs", Label: "Docs", Glyph: "▤",
@@ -73,12 +73,21 @@ func ServiceFor(target string) (Service, bool) {
 	return Service{}, false
 }
 
-// ServiceDisplay is a service chip's colorless display: the glyph and the chip's
-// title, which falls back to the service's own name so a fresh chip is never
-// blank. Every surface (editor render, CLI list/grep) shows this same text; only
-// the editor adds the brand color behind it.
+// serviceIconAfterTitle places the service mark: false puts it in FRONT of the
+// title (right after the editor's "→"), true puts it after the title. One flag,
+// one line, so the placement is a decision and not a scattering of + operators.
+const serviceIconAfterTitle = false
+
+// ServiceDisplay is a service link's display text: the chip's title, which falls
+// back to the service's own name so a fresh link is never blank, plus the
+// service's mark. Nothing else about the link changes — the editor still draws
+// its "→" and the ordinary link styling around this.
 func ServiceDisplay(s Service, label string) string {
-	return s.Glyph + " " + ServiceTitle(s, label)
+	title := ServiceTitle(s, label)
+	if serviceIconAfterTitle {
+		return title + " " + s.Glyph
+	}
+	return s.Glyph + " " + title
 }
 
 // ServiceTitle is the chip's title — an arbitrary, user-renamed name, defaulting

@@ -200,10 +200,10 @@ func linkChipColorCode() string {
 // its label (the arbitrary name), not its target.
 func chipDisplay(c database.Chip) string {
 	if c.Kind == chipKindLink {
-		// a link to a known service (Google Sheets/Docs/Drive …) shows its glyph
-		// and title instead of the generic → name; see service.go
+		// a link to a known service (Google Sheets/Docs/Drive …) adds that
+		// service's mark to its name — same arrow, same styling; see service.go
 		if svc, ok := linkService(c); ok {
-			return chiptext.ServiceDisplay(svc, c.Label)
+			return "→" + chiptext.ServiceDisplay(svc, c.Label)
 		}
 		return "→" + linkChipLabel(c)
 	}

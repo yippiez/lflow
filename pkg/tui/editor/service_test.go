@@ -12,12 +12,13 @@ func pasteMsg(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s), Paste: true}
 }
 
-// TestServiceLinkDisplay: a link chip pointing at a service shows its glyph and
-// title instead of the generic "→name"; an ordinary URL link is untouched.
+// TestServiceLinkDisplay: a link chip pointing at a service carries that
+// service's mark beside its name — same arrow, everything else untouched; an
+// ordinary URL link is unchanged.
 func TestServiceLinkDisplay(t *testing.T) {
 	sheet := database.Chip{Kind: chipKindLink, Value: "https://docs.google.com/spreadsheets/d/1abc/edit", Label: "Q3 budget"}
-	if got := chipDisplay(sheet); got != "▦ Q3 budget" {
-		t.Errorf("display = %q, want ▦ Q3 budget", got)
+	if got := chipDisplay(sheet); got != "→▦ Q3 budget" {
+		t.Errorf("display = %q, want →▦ Q3 budget", got)
 	}
 	// the machine-readable form is unchanged — a service chip IS a link chip
 	if got := chipExpand(sheet); got != "[Q3 budget](https://docs.google.com/spreadsheets/d/1abc/edit)" {
@@ -33,36 +34,34 @@ func TestServiceLinkDisplay(t *testing.T) {
 	}
 }
 
-// TestServiceLinkRendersInBrandColor: the chip is painted in the service's own
-// color (Sheets green, Docs blue), not the neutral link color.
-func TestServiceLinkRendersInBrandColor(t *testing.T) {
+// TestServiceLinkKeepsLinkStyling: a service link stays a link — same underline,
+// same OSC 8 target — and only trades the neutral link color for its service's
+// muted hue. An unrecognized link is untouched.
+func TestServiceLinkKeepsLinkStyling(t *testing.T) {
 	chips := map[string]database.Chip{
 		"s": {ID: "s", Kind: chipKindLink, Value: "https://docs.google.com/spreadsheets/d/1abc", Label: "Budget"},
-		"d": {ID: "d", Kind: chipKindLink, Value: "https://docs.google.com/document/d/1abc", Label: "Spec"},
 		"p": {ID: "p", Kind: chipKindLink, Value: "https://example.com", Label: "Plain"},
 	}
 	it := &item{typ: database.TypeBullets}
 
 	sheets := renderBody(it, chipAnchor("s"), -1, false, chips, false)
-	if !strings.Contains(sheets, serviceColors["sheets"]) {
-		t.Errorf("sheets link not painted green: %q", sheets)
+	plain := renderBody(it, chipAnchor("p"), -1, false, chips, false)
+	if !strings.Contains(sheets, serviceColors["sheets"]+cUnderline) {
+		t.Errorf("sheets link is not in its muted green: %q", sheets)
+	}
+	if !strings.Contains(plain, linkChipColorCode()) {
+		t.Errorf("an unrecognized link must keep the ordinary link color: %q", plain)
+	}
+	for key, col := range serviceColors {
+		if strings.Contains(plain, col) {
+			t.Errorf("a plain link took the %s hue: %q", key, plain)
+		}
 	}
 	// (stripSGR only removes SGR, not the OSC 8 hyperlink wrapper, so assert on
 	// the visible run itself)
-	if !strings.Contains(sheets, "▦ Budget") {
+	if !strings.Contains(sheets, "→▦ Budget") {
 		t.Errorf("sheets chip text missing: %q", sheets)
 	}
-	docs := renderBody(it, chipAnchor("d"), -1, false, chips, false)
-	if !strings.Contains(docs, serviceColors["docs"]) {
-		t.Errorf("docs link not painted blue: %q", docs)
-	}
-	plain := renderBody(it, chipAnchor("p"), -1, false, chips, false)
-	for key, col := range serviceColors {
-		if strings.Contains(plain, col) {
-			t.Errorf("a plain link took the %s color: %q", key, plain)
-		}
-	}
-	// still a link: the OSC 8 hyperlink target survives the new styling
 	if !strings.Contains(sheets, "\x1b]8;;https://docs.google.com/spreadsheets/d/1abc") {
 		t.Errorf("service link lost its OSC 8 target: %q", sheets)
 	}
@@ -85,8 +84,8 @@ func TestPasteServiceLinkChips(t *testing.T) {
 		t.Errorf("chip = %+v", c)
 	}
 	here := m.tree.byUUID["here"]
-	if got := displayAnchors(here.name, m.chips); got != "see ▦ Sheets" {
-		t.Errorf("rendered = %q, want \"see ▦ Sheets\"", got)
+	if got := displayAnchors(here.name, m.chips); got != "see →▦ Sheets" {
+		t.Errorf("rendered = %q, want \"see →▦ Sheets\"", got)
 	}
 	// persisted at once, like every chip
 	if got, err := database.GetChip(m.db, c.ID); err != nil || got.Label != "Sheets" {
@@ -148,8 +147,8 @@ func TestServiceLinkRenamedLikeAHyperlink(t *testing.T) {
 	if c.Label != "Design spec" {
 		t.Fatalf("title = %q, want Design spec", c.Label)
 	}
-	if got := chipDisplay(c); got != "▤ Design spec" {
-		t.Errorf("renamed display = %q, want ▤ Design spec", got)
+	if got := chipDisplay(c); got != "→▤ Design spec" {
+		t.Errorf("renamed display = %q, want →▤ Design spec", got)
 	}
 }
 

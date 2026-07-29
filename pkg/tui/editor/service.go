@@ -7,37 +7,50 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// Service links are the same link chip, dressed for the target it points at. A
+// Service links are the same link chip, marked for the target it points at. A
 // link to a known service — the Google suite today (registry:
-// pkg/tui/chiptext/service.go) — swaps the generic "→name" for the service's
-// unicode mark and paints the chip in the service's own color: a Sheets link is
-// a dark-green "▦ Q3 budget", a Docs link a blue "▤ spec". Everything else about
-// it is unchanged — it is still a link chip, renamed with ⌥e, opened with ⌥g/⌥r.
+// pkg/tui/chiptext/service.go) — carries that service's unicode mark beside its
+// name: "→▦ Q3 budget" instead of "→Q3 budget". Nothing else changes. Same
+// arrow, same link color and underline, same ⌥e rename, same ⌥g/⌥r open.
 //
-// Nothing new is stored: the service is DERIVED from the chip's target, so links
-// made long before this existed light up on sight, and retargeting a chip in the
-// ⌥e editor redresses it. This file is the editor half — the colors; the
-// recognition and the glyph are shared with the CLI in chiptext.
+// Nothing new is stored either: the service is DERIVED from the chip's target,
+// so links made long before this existed pick up their mark on sight, and
+// retargeting a chip in the ⌥e editor remarks it. This file is the editor half;
+// the recognition and the marks are shared with the CLI in chiptext.
 
-// serviceColors keys each service's text color by registry key. Google's own
-// brand values, nudged only where a color would be illegible as FOREGROUND on a
-// dark terminal. Drive's tri-color triangle has no single brand color, so the
-// container takes Google's neutral gray and stays distinct from the document
-// types it holds.
+// serviceColors keys each service's link color by registry key. These are MUTED
+// tints, not brand values: a link chip is deliberately quiet (dim gray by
+// default, see linkChipColorCode), and a service link keeps exactly that weight
+// — it only trades the gray for the service's own hue. Full-saturation brand
+// colors would make a row of links shout over the text they sit in.
 //
-// These are the one palette /theme does NOT reseed (see theme.go's invariant on
-// what a theme owns): a brand color is identity, not palette — Sheets is green
-// in every theme. The neutral link chip, which carries no identity, still
-// follows the theme and the /settings link.color preference.
+// The hues are spread so eight services stay apart at a glance; Drive, a
+// container rather than a document, takes a neutral steel that reads calm next
+// to the doc types it holds.
+//
+// This is the one palette /theme does not reseed (see theme.go's invariant on
+// what a theme owns): the hue identifies the service, so Sheets is green in
+// every theme. Links to anything unrecognized still follow the theme and the
+// /settings link.color preference.
 var serviceColors = map[string]string{
-	"docs":     fg(66, 133, 244),  // #4285f4 blue
-	"sheets":   fg(15, 157, 88),   // #0f9d58 dark green
-	"slides":   fg(244, 180, 0),   // #f4b400 yellow
-	"forms":    fg(145, 104, 214), // #9168d6 purple (lifted off #7248b9 to read on dark)
-	"drive":    fg(154, 160, 166), // #9aa0a6 gray
-	"calendar": fg(26, 115, 232),  // #1a73e8 deep blue
-	"gmail":    fg(234, 67, 53),   // #ea4335 red
-	"meet":     fg(0, 172, 155),   // #00ac9b teal (lifted off #00897b to read on dark)
+	"docs":     fg(111, 143, 181), // #6f8fb5 blue
+	"sheets":   fg(107, 154, 114), // #6b9a72 green
+	"slides":   fg(176, 154, 92),  // #b09a5c gold
+	"forms":    fg(144, 128, 181), // #9080b5 violet
+	"drive":    fg(138, 148, 166), // #8a94a6 steel
+	"calendar": fg(127, 136, 192), // #7f88c0 indigo
+	"gmail":    fg(181, 127, 122), // #b57f7a brick
+	"meet":     fg(111, 160, 140), // #6fa08c teal
+}
+
+// serviceChipColor is the SGR a service link renders in: its muted hue, still
+// underlined like every other link. A service with no color yet falls back to
+// the ordinary link styling.
+func serviceChipColor(s chiptext.Service) string {
+	if col, ok := serviceColors[s.Key]; ok {
+		return col + cUnderline
+	}
+	return linkChipColorCode()
 }
 
 // linkService returns the service a link chip points at. A node link
@@ -52,21 +65,10 @@ func linkService(c database.Chip) (chiptext.Service, bool) {
 	return chiptext.ServiceFor(c.Value)
 }
 
-// serviceChipColor is the SGR a service link renders in: the brand color, still
-// underlined so the chip reads as a link like every other one (the /settings
-// link.color preference only governs the neutral links it does not recognize).
-// A service with no color yet falls back to that neutral styling.
-func serviceChipColor(s chiptext.Service) string {
-	if col, ok := serviceColors[s.Key]; ok {
-		return col + cUnderline
-	}
-	return linkChipColorCode()
-}
-
-// pasteServiceLink turns a pasted service URL into its dressed link chip at the
+// pasteServiceLink turns a pasted service URL into a marked link chip at the
 // caret, returning whether it consumed the paste. Only a RECOGNIZED service
 // chips this way: every other URL still pastes as plain text, so the gesture
-// gives a face to the links that have one and changes nothing else.
+// gives a name to the links that have one and changes nothing else.
 func (m *Model) pasteServiceLink(cur *item, text string) bool {
 	if cur == nil || !chipsEnabled(cur) {
 		return false
