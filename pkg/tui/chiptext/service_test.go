@@ -13,7 +13,12 @@ func TestServiceForRecognizesTheSuite(t *testing.T) {
 		{"https://mail.google.com/mail/u/0/#inbox/abc", "gmail"},
 		{"https://colab.research.google.com/drive/1aBcD", "colab"},
 		{"https://colab.google/", "colab"},
+		// the assistants: a shared conversation link marks itself too
 		{"https://gemini.google.com/app/1a2b", "gemini"},
+		{"https://claude.ai/chat/1a2b", "claude"},
+		{"https://claude.com/share/1a2b", "claude"},
+		{"https://chatgpt.com/c/1a2b", "chatgpt"},
+		{"https://chat.openai.com/share/1a2b", "chatgpt"},
 		// a scheme is optional — a bare paste is recognized the same way
 		{"docs.google.com/spreadsheets/d/1abc", "sheets"},
 		// www. is stripped before matching

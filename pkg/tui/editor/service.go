@@ -24,21 +24,23 @@ import (
 // only trades the gray for the service's own hue. Full-strength brand colors
 // would make a row of links shout over the text they sit in.
 //
-// The hues are spread so nine services stay apart at a glance; Drive, a
-// container rather than a document, takes a neutral steel that reads calm next
-// to the doc types it holds.
+// The hues are spread so the services stay apart at a glance, and each sits
+// where its own brand does: Sheets green, Drive light blue, Colab amber,
+// Claude clay, Gemini orchid, ChatGPT teal.
 //
 // This is the one palette /theme does not reseed (see theme.go's invariant on
 // what a theme owns): the hue identifies the service, so Sheets is green in
 // every theme. Links to anything unrecognized still follow the theme and the
 // /settings link.color preference.
 var serviceColors = map[string]string{
-	"sheets": fg(107, 154, 114), // #6b9a72 green
-	"slides": fg(176, 154, 92),  // #b09a5c gold
-	"drive":  fg(138, 148, 166), // #8a94a6 steel
-	"colab":  fg(196, 135, 79),  // #c4874f amber
-	"gemini": fg(181, 143, 196), // #b58fc4 orchid
-	"gmail":  fg(181, 127, 122), // #b57f7a brick
+	"sheets":  fg(107, 154, 114), // #6b9a72 green
+	"slides":  fg(176, 154, 92),  // #b09a5c gold
+	"drive":   fg(139, 184, 222), // #8bb8de light blue
+	"colab":   fg(196, 135, 79),  // #c4874f amber
+	"gmail":   fg(181, 127, 122), // #b57f7a brick
+	"claude":  fg(198, 129, 103), // #c68167 clay
+	"gemini":  fg(181, 143, 196), // #b58fc4 orchid
+	"chatgpt": fg(111, 160, 140), // #6fa08c teal
 }
 
 // serviceChipColor is the SGR a service link renders in: its muted hue, still

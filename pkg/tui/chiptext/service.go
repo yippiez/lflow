@@ -6,10 +6,10 @@ import (
 )
 
 // Services a link can point at. A link chip whose target is a known service —
-// today the Google suite — carries that service's unicode mark beside its name:
-// "→▦ Q3 budget" instead of "→Q3 budget". The mark is the only difference; a
-// service link keeps the same arrow, color, underline and gestures as every
-// other link.
+// the Google suite and the assistants — carries that service's unicode mark
+// beside its name: "→▦ Q3 budget" instead of "→Q3 budget". The mark is the only
+// difference; a service link keeps the same arrow, color, underline and gestures
+// as every other link.
 //
 // The service is DERIVED from the target URL and never stored: no new chip kind,
 // no column, no migration. A Google link made long before this file existed
@@ -42,11 +42,16 @@ var Services = []Service{
 	{Key: "slides", Label: "Slides", Glyph: "▭",
 		hosts: []string{"docs.google.com", "slides.google.com"}, path: "/presentation"},
 	{Key: "drive", Label: "Drive", Glyph: "▲", hosts: []string{"drive.google.com"}},
-	// Colab wears the infinity its own logo is built from, Gemini the spark
+	// Colab wears the infinity its own logo is built from
 	{Key: "colab", Label: "Colab", Glyph: "∞",
 		hosts: []string{"colab.research.google.com", "colab.google", "colab.sandbox.google.com"}},
-	{Key: "gemini", Label: "Gemini", Glyph: "✦", hosts: []string{"gemini.google.com"}},
 	{Key: "gmail", Label: "Mail", Glyph: "✉", hosts: []string{"mail.google.com"}},
+	// the assistants: a shared conversation is a link worth spotting, and each
+	// takes the mark its own logo suggests — Claude's petal (the same ✽ the icon
+	// catalog uses), Gemini's spark, a spoked star for ChatGPT
+	{Key: "claude", Label: "Claude", Glyph: "✽", hosts: []string{"claude.ai", "claude.com"}},
+	{Key: "gemini", Label: "Gemini", Glyph: "✦", hosts: []string{"gemini.google.com"}},
+	{Key: "chatgpt", Label: "ChatGPT", Glyph: "✳", hosts: []string{"chatgpt.com", "chat.openai.com"}},
 }
 
 // ServiceFor returns the service a link target belongs to, ok=false for any
