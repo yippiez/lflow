@@ -37,6 +37,13 @@ const (
 	// complex ones fan out into a child tree and the operator row shows a dim
 	// linear preview of its whole subtree. See editor/math.go.
 	TypeMath = "math"
+	// TypeTable reads an ordinary subtree AS a grid: the table's first-level
+	// children are its columns (their text is the header), each column's children
+	// are that column's cells top to bottom (so row n is the nth child of every
+	// column), and a cell's own children are the outline inside that cell. No node
+	// moves when a node becomes a table — it is a reading, so any node converts and
+	// the grid ⇄ nodes toggle is lossless. See editor/table.go.
+	TypeTable = "table"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -67,6 +74,7 @@ var TypeOrder = []string{
 	TypeImage,
 	TypeNLPCompute,
 	TypeMath,
+	TypeTable,
 	TypeWF,
 }
 
