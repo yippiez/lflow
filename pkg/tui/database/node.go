@@ -37,6 +37,9 @@ const (
 	// complex ones fan out into a child tree and the operator row shows a dim
 	// linear preview of its whole subtree. See editor/math.go.
 	TypeMath = "math"
+	// TypeThinking is a plain muted-gray marker node — Claude Code's thinking
+	// glyph and nothing else (no special editor behavior).
+	TypeThinking = "thinking"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -68,6 +71,7 @@ var TypeOrder = []string{
 	TypeNLPCompute,
 	TypeMath,
 	TypeWF,
+	TypeThinking,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.
