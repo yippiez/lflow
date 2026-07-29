@@ -3,6 +3,7 @@ package editor
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -355,7 +356,14 @@ func agentPidAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return p.Signal(syscall.Signal(0)) == nil
+	err = p.Signal(syscall.Signal(0))
+	if err == nil {
+		return true
+	}
+	// EPERM is not "gone": the process is THERE and simply not ours to signal.
+	// A session running as another user is still a running session, and reading
+	// it as dead would quietly mark a live chip idle.
+	return errors.Is(err, syscall.EPERM)
 }
 
 // agentSessionPath locates the record file (or directory) for a session id under
