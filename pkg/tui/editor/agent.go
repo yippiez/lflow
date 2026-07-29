@@ -41,7 +41,10 @@ type agentVariant struct {
 	label string // picker label
 	bin   string // the CLI binary; "" = a WEB service with no terminal to hand over
 	glyph string // the agent's mark, worn by every chip of this variant
-	color string // /style color name; the variant's own theming
+	// color is the variant's own theming: a /style swatch name, which follows the
+	// active theme, or a #rrggbb literal for an agent whose mark the eight-swatch
+	// palette cannot name.
+	color string
 
 	// assignsID reports whether the CLI accepts a session id lflow chooses. When
 	// it does, the first launch pins the id and every later launch resumes exactly
@@ -158,7 +161,11 @@ var agentVariants = []agentVariant{
 	},
 	{
 		id: "grok", label: "Grok CLI", bin: "grok",
-		glyph: "∅", color: "red", assignsID: false,
+		// Grok's mark is a black glyph on white, and no swatch names that. Filling
+		// the pill black instead would punch an opaque rectangle through a
+		// transparent terminal and flip this one chip to light ink; white keeps
+		// the brand AND the dark ink every other pill wears.
+		glyph: "∅", color: "#e9e9e9", assignsID: false,
 		args: func(s agentSession, resume bool) []string {
 			switch {
 			case resume && s.SessionID != "":
@@ -294,7 +301,10 @@ func agentBins() []string {
 	return out
 }
 
-func (v agentVariant) colorSGR() string { return styleColorCode[v.color] }
+// colorSGR is the variant's fill. It goes through the same reader a session's
+// own recorded color does, so an agent whose mark the palette cannot name may
+// declare a literal instead of a swatch.
+func (v agentVariant) colorSGR() string { return agentColorSGR(v.color) }
 
 func (v agentVariant) sessionDirs() []string {
 	if v.sessionRoots != nil {

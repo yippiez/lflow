@@ -113,6 +113,26 @@ func TestAgentVariantsRegistered(t *testing.T) {
 	}
 }
 
+// TestAgentVariantLiteralColor: an agent whose mark the eight-swatch palette
+// cannot name declares a literal instead. Grok's is a black glyph on WHITE —
+// filling it black would punch an opaque hole through a transparent terminal and
+// make it the one pill in light ink.
+func TestAgentVariantLiteralColor(t *testing.T) {
+	g := variant(t, "grok")
+	if got := g.colorSGR(); got != "\x1b[38;2;233;233;233m" {
+		t.Errorf("grok fill = %q, want the #e9e9e9 truecolor sequence", got)
+	}
+	if got := contrastInk(g.colorSGR()); got != cInkDark {
+		t.Errorf("ink on grok's white = %q, want the dark ink every pill wears", got)
+	}
+	// a literal is not a special case: every variant resolves to a real fill
+	for _, v := range agentVariants {
+		if bgOf(v.colorSGR()) == "" {
+			t.Errorf("%s resolves to no fill at all: color %q", v.id, v.color)
+		}
+	}
+}
+
 // TestAgentVariantArgs: a first open CREATES the session and every later one
 // RESUMES it, for a CLI that lets lflow choose the id.
 func TestAgentVariantArgs(t *testing.T) {
