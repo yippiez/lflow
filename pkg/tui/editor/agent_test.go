@@ -115,18 +115,17 @@ func TestAgentVariantsRegistered(t *testing.T) {
 
 // TestAgentMonoVariants: an agent whose mark is black on white has no brand color
 // to wear, and lflow does not invent one — Codex, Grok, OpenCode and T3 Code all
-// share the mono fill and are told apart by their glyphs. It is WHITE, not black:
-// black would punch an opaque hole through a transparent terminal and make those
-// the only chips in light ink.
+// share the mono fill and are told apart by their glyphs. The pill IS that mark:
+// a black fill, and the white ink contrastInk arrives at on its own.
 func TestAgentMonoVariants(t *testing.T) {
 	mono := map[string]bool{"codex": true, "grok": true, "opencode": true, "t3code": true}
 	for id := range mono {
 		v := variant(t, id)
-		if got := v.colorSGR(); got != "\x1b[38;2;233;233;233m" {
-			t.Errorf("%s fill = %q, want the #e9e9e9 truecolor sequence", id, got)
+		if got := v.colorSGR(); got != "\x1b[38;2;0;0;0m" {
+			t.Errorf("%s fill = %q, want the black truecolor sequence", id, got)
 		}
-		if got := contrastInk(v.colorSGR()); got != cInkDark {
-			t.Errorf("ink on %s = %q, want the dark ink every pill wears", id, got)
+		if got := contrastInk(v.colorSGR()); got != cInkLight {
+			t.Errorf("ink on %s = %q, want white on the black fill", id, got)
 		}
 	}
 	// the agents that DO have a color keep it, and it stays a themed swatch

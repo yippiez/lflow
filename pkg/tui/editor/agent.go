@@ -87,12 +87,12 @@ type agentVariant struct {
 // webOnly reports a service lflow can only reach through the browser.
 func (v agentVariant) webOnly() bool { return v.bin == "" }
 
-// agentMono is the fill for an agent whose mark is BLACK ON WHITE and whose brand
-// therefore names no color. It is white rather than black on purpose: a black pill
-// would punch an opaque rectangle through a transparent terminal, and would flip
-// those chips to light ink while every other pill wears dark. Being a literal, it
-// does not follow the active theme — that is the point, since it is not a swatch.
-const agentMono = "#e9e9e9"
+// agentMono is the fill for an agent whose brand names no color — a black mark on
+// white. The pill is that mark: black fill, white ink, which contrastInk arrives
+// at on its own. Being a literal it does not follow the active theme, which is the
+// point: it is the agent's color, not one of ours. On a terminal whose background
+// is already pure black the pill's edge will not be visible; the white ink is.
+const agentMono = "#000000"
 
 // agentVariants is the registry, in picker order: the CLIs lflow can hand the
 // terminal to, then the services it can only open in a browser.
@@ -110,6 +110,7 @@ const agentMono = "#e9e9e9"
 // white, so all four share agentMono and are told apart by their glyphs, the way
 // they are told apart on their own sites. Only the agents that really do have a
 // color get one — Claude's orange, Gemini's blue, Pi's purple, ChatGPT's teal.
+// Those four are themed swatches; the mono fill is a literal and is not.
 var agentVariants = []agentVariant{
 	{
 		id: "claude", label: "Claude Code", bin: "claude",
