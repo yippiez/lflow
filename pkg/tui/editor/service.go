@@ -38,6 +38,7 @@ var serviceColors = map[string]string{
 	"slides":   fg(176, 154, 92),  // #b09a5c gold
 	"forms":    fg(144, 128, 181), // #9080b5 violet
 	"drive":    fg(138, 148, 166), // #8a94a6 steel
+	"colab":    fg(196, 135, 79),  // #c4874f amber
 	"calendar": fg(127, 136, 192), // #7f88c0 indigo
 	"gmail":    fg(181, 127, 122), // #b57f7a brick
 	"meet":     fg(111, 160, 140), // #6fa08c teal

@@ -41,6 +41,9 @@ var Services = []Service{
 	{Key: "forms", Label: "Forms", Glyph: "☑",
 		hosts: []string{"docs.google.com"}, path: "/forms"},
 	{Key: "drive", Label: "Drive", Glyph: "▲", hosts: []string{"drive.google.com"}},
+	// Colab wears the infinity its own logo is built from
+	{Key: "colab", Label: "Colab", Glyph: "∞",
+		hosts: []string{"colab.research.google.com", "colab.google", "colab.sandbox.google.com"}},
 	{Key: "calendar", Label: "Calendar", Glyph: "◷", hosts: []string{"calendar.google.com"}},
 	{Key: "gmail", Label: "Mail", Glyph: "✉", hosts: []string{"mail.google.com"}},
 	{Key: "meet", Label: "Meet", Glyph: "▷", hosts: []string{"meet.google.com"}},
