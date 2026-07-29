@@ -140,12 +140,15 @@ dropped into whatever note it belongs to instead of owning a row. One variant pe
 agent in one table in `pkg/tui/editor/agent.go` — claude ✳, codex ✺, gemini ✦,
 grok ∅, pi ᴘɪ, opencode ▣, plus ChatGPT 𖣐 and T3 Code ᴛ3 as WEB-only services (no
 `bin`: ⌥r opens the chat in a browser instead of suspending lflow). Adding an agent
-is one entry there and nothing else; each glyph is plain Unicode. Colors come from
-the eight-swatch palette and follow the active theme, except where an agent's mark
-is not a color the palette names — Grok declares the literal `#e9e9e9`, since its
-mark is black on WHITE and a black fill would punch an opaque rectangle through a
-transparent terminal. Gray is the DONE fill, so with more agents than swatches Pi
-and T3 Code share purple — the marks are what tell chips apart. Three marks ask
+is one entry there and nothing else; each glyph is plain Unicode. A variant wears
+its agent's OWN color and never an invented one: Claude's orange, Gemini's blue,
+Pi's purple and ChatGPT's teal are themed swatches, while Codex, Grok, OpenCode and
+T3 Code have no brand color at all — their marks are black on white, so all four
+share the `agentMono` literal `#e9e9e9` and their glyphs are what tell them apart.
+It is white rather than black on purpose: a black pill would punch an opaque
+rectangle through a transparent terminal and would flip those four to light ink
+while every other pill wears dark. A literal does not follow the active theme;
+a swatch does. Three marks ask
 more of a font than the rest: `ᴘ`/`ᴛ` (U+1D18/U+1D1B) are absent from DejaVu Sans
 Mono but present in Liberation/Free Mono and most modern terminal fonts, and `𖣐`
 (U+168D0, Bamum) needs a font that carries the block (a Nerd Font or Noto Sans

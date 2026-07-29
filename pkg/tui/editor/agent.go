@@ -87,6 +87,13 @@ type agentVariant struct {
 // webOnly reports a service lflow can only reach through the browser.
 func (v agentVariant) webOnly() bool { return v.bin == "" }
 
+// agentMono is the fill for an agent whose mark is BLACK ON WHITE and whose brand
+// therefore names no color. It is white rather than black on purpose: a black pill
+// would punch an opaque rectangle through a transparent terminal, and would flip
+// those chips to light ink while every other pill wears dark. Being a literal, it
+// does not follow the active theme — that is the point, since it is not a swatch.
+const agentMono = "#e9e9e9"
+
 // agentVariants is the registry, in picker order: the CLIs lflow can hand the
 // terminal to, then the services it can only open in a browser.
 //
@@ -98,10 +105,11 @@ func (v agentVariant) webOnly() bool { return v.bin == "" }
 // coverage (a Nerd Font or Noto Sans Bamum), and ᴘ / ᴛ need the phonetic block,
 // so a terminal font without them draws a box. Everything else here is plain BMP.
 //
-// Two variants share purple: Pi and T3 Code, which is the palette's doing — it
-// carries eight swatches, gray is the DONE fill and cannot theme a live agent,
-// and there are more agents than the seven that leaves. The marks are what tell
-// two chips apart; swap either entry's color if the pair reads as one.
+// A variant wears its agent's OWN color and never an invented one. Codex, Grok,
+// OpenCode and T3 Code have no brand color to wear: their marks are black on
+// white, so all four share agentMono and are told apart by their glyphs, the way
+// they are told apart on their own sites. Only the agents that really do have a
+// color get one — Claude's orange, Gemini's blue, Pi's purple, ChatGPT's teal.
 var agentVariants = []agentVariant{
 	{
 		id: "claude", label: "Claude Code", bin: "claude",
@@ -122,7 +130,7 @@ var agentVariants = []agentVariant{
 	},
 	{
 		id: "codex", label: "Codex", bin: "codex",
-		glyph: "✺", color: "green", assignsID: false,
+		glyph: "✺", color: agentMono, assignsID: false,
 		args: func(s agentSession, resume bool) []string {
 			// codex mints its own ids and resumes by subcommand: `codex resume <id>`
 			if resume && s.SessionID != "" {
@@ -161,11 +169,7 @@ var agentVariants = []agentVariant{
 	},
 	{
 		id: "grok", label: "Grok CLI", bin: "grok",
-		// Grok's mark is a black glyph on white, and no swatch names that. Filling
-		// the pill black instead would punch an opaque rectangle through a
-		// transparent terminal and flip this one chip to light ink; white keeps
-		// the brand AND the dark ink every other pill wears.
-		glyph: "∅", color: "#e9e9e9", assignsID: false,
+		glyph: "∅", color: agentMono, assignsID: false,
 		args: func(s agentSession, resume bool) []string {
 			switch {
 			case resume && s.SessionID != "":
@@ -194,7 +198,7 @@ var agentVariants = []agentVariant{
 	},
 	{
 		id: "opencode", label: "opencode", bin: "opencode",
-		glyph: "▣", color: "yellow", assignsID: false,
+		glyph: "▣", color: agentMono, assignsID: false,
 		args: func(s agentSession, resume bool) []string {
 			switch {
 			case resume && s.SessionID != "":
@@ -230,7 +234,7 @@ var agentVariants = []agentVariant{
 		// Code, Codex and the rest itself — so a chip is a handle on the thread's
 		// URL and ⌥r opens it in the browser.
 		id: "t3code", label: "T3 Code (web)",
-		glyph: "ᴛ3", color: "purple", assignsID: false,
+		glyph: "ᴛ3", color: agentMono, assignsID: false,
 		webNew: "https://app.t3.codes",
 		webAny: t3ThreadURL,
 	},
