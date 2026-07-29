@@ -51,9 +51,10 @@ func agentColorOptions() []string {
 	return append([]string{"default"}, styleColorOrder...)
 }
 
+// items are the same swatch rows /style draws — a dot in the color and its
+// name — so picking a color reads the same everywhere in the editor.
 func (agentColorSource) items(m *Model, q string) []pickerItem {
 	v, _ := agentVariantByID(m.chips[m.agentColorChip].Value)
-	label := m.agentTitle(m.agentColorChip, v, m.agentLoad(m.agentColorChip))
 	var out []pickerItem
 	for _, name := range agentColorOptions() {
 		name := name
@@ -61,15 +62,11 @@ func (agentColorSource) items(m *Model, q string) []pickerItem {
 			continue
 		}
 		out = append(out, pickerItem{value: name, render: func(bool) string {
-			// every row is the pill it would make, so the choice is the preview
-			fill := styleColorCode[name]
-			suffix := " " + styleColorCode[name] + name + cReset
 			if name == "default" {
-				fill = v.colorSGR()
-				suffix = cDim + " default · " + v.label + "'s own" + cReset
+				return v.colorSGR() + "●" + cReset + cDim + " default · " + v.label + "'s own" + cReset
 			}
-			pill := bgOf(fill) + contrastInk(fill) + " " + v.glyph + " " + clipStr(label, 28) + " " + cReset
-			return pill + suffix
+			swatch := styleColorCode[name] + "●" + cReset
+			return swatch + " " + styleColorCode[name] + name + cReset
 		}})
 	}
 	return out

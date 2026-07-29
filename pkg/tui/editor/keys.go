@@ -47,7 +47,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.mode {
 	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert,
-		modeAgentPick, modeAgents:
+		modeAgentPick, modeAgents, modeAgentColor:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})

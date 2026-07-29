@@ -156,14 +156,21 @@ func agentReadMeta(variant, path string) agentStoreSession {
 	if st, err := os.Stat(path); err == nil {
 		s.modAt, s.updated = st.ModTime(), st.ModTime()
 	}
+	// Every record in a JSONL transcript carries its OWN id — pi stamps one on
+	// each message — so the session's id is taken once and never overwritten,
+	// and an explicit session-id key always beats a bare "id".
+	named, anyID := false, false
 	for _, rec := range agentReadRecords(path, agentMetaCap) {
 		// a store that keeps its own clock (opencode's session index) is more
 		// truthful than the file's mtime, which a copy or a sync would reset
 		if t := agentTime(rec); !t.IsZero() {
 			s.updated = t
 		}
-		if id := agentString(rec, "sessionId", "session_id", "sessionID", "id"); id != "" && looksLikeSessionID(id) {
-			s.id = id
+		if id := agentString(rec, "sessionId", "session_id", "sessionID"); id != "" && looksLikeSessionID(id) && !named {
+			s.id, named, anyID = id, true, true
+		}
+		if id := agentString(rec, "id"); id != "" && looksLikeSessionID(id) && !anyID {
+			s.id, anyID = id, true
 		}
 		if s.cwd == "" {
 			s.cwd = agentString(rec, "cwd", "directory", "workingDirectory", "worktree", "path")

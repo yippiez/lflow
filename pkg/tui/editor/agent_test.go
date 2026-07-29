@@ -646,3 +646,38 @@ func TestAgentReadMetaSkipsToARealPrompt(t *testing.T) {
 		t.Errorf("title = %q, want the first real prompt", meta.title)
 	}
 }
+
+// TestAgentReadMetaTakesTheSessionID: every record in a JSONL transcript carries
+// its own id — pi stamps one on each message — so the session id must be taken
+// once, from the session's own record, and never overwritten by a later message.
+// Resuming with a message id resumes nothing.
+func TestAgentReadMetaTakesTheSessionID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "2026-04-13T10-07-26-229Z_2df7f7da-071f-4b6c-94bc-283217a48518.jsonl")
+	body := `{"type":"session","version":3,"id":"2df7f7da-071f-4b6c-94bc-283217a48518","cwd":"/home/dev/boing"}
+{"type":"model_change","id":"a10f8e84"}
+{"type":"thinking_level_change","id":"fbc6811b"}
+{"type":"message","id":"953acb8f","role":"user","content":"add a widget"}
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	meta := agentReadMeta("pi", path)
+	if meta.id != "2df7f7da-071f-4b6c-94bc-283217a48518" {
+		t.Errorf("session id = %q, want the session record's own id", meta.id)
+	}
+	if meta.cwd != "/home/dev/boing" {
+		t.Errorf("cwd = %q", meta.cwd)
+	}
+
+	// an explicit sessionId key beats a bare id, wherever it appears
+	p2 := filepath.Join(dir, "x.jsonl")
+	if err := os.WriteFile(p2, []byte(
+		`{"id":"aaaaaaaa-1111","type":"meta"}`+"\n"+
+			`{"sessionId":"bbbbbbbb-2222","type":"user"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := agentReadMeta("claude", p2).id; got != "bbbbbbbb-2222" {
+		t.Errorf("id = %q, want the explicit sessionId", got)
+	}
+}
