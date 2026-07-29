@@ -30,27 +30,23 @@ type Service struct {
 // Services is the ordered registry: ServiceFor returns the first entry whose
 // host AND path prefix match (the docs.google.com family is told apart by path
 // alone, so order is only a tiebreak). Adding a service is one entry here.
+//
+// This is a short list on purpose — a mark earns its place by being worth
+// spotting in a wall of rows. docs.google.com paths that are not listed (a
+// document, a form) stay ordinary links, which is exactly what an unrecognized
+// target should look like.
 var Services = []Service{
-	// the doc family shares one host and splits by path
-	{Key: "docs", Label: "Docs", Glyph: "▤",
-		hosts: []string{"docs.google.com"}, path: "/document"},
+	// docs.google.com hosts several apps and splits by path
 	{Key: "sheets", Label: "Sheets", Glyph: "▦",
 		hosts: []string{"docs.google.com", "sheets.google.com"}, path: "/spreadsheets"},
 	{Key: "slides", Label: "Slides", Glyph: "▭",
 		hosts: []string{"docs.google.com", "slides.google.com"}, path: "/presentation"},
-	{Key: "forms", Label: "Forms", Glyph: "☑",
-		hosts: []string{"docs.google.com"}, path: "/forms"},
 	{Key: "drive", Label: "Drive", Glyph: "▲", hosts: []string{"drive.google.com"}},
 	// Colab wears the infinity its own logo is built from, Gemini the spark
 	{Key: "colab", Label: "Colab", Glyph: "∞",
 		hosts: []string{"colab.research.google.com", "colab.google", "colab.sandbox.google.com"}},
 	{Key: "gemini", Label: "Gemini", Glyph: "✦", hosts: []string{"gemini.google.com"}},
-	{Key: "calendar", Label: "Calendar", Glyph: "◷", hosts: []string{"calendar.google.com"}},
 	{Key: "gmail", Label: "Mail", Glyph: "✉", hosts: []string{"mail.google.com"}},
-	{Key: "meet", Label: "Meet", Glyph: "▷", hosts: []string{"meet.google.com"}},
-	// Google's own short link for a published form: no path, so the host is the
-	// whole signal.
-	{Key: "forms", Label: "Forms", Glyph: "☑", hosts: []string{"forms.gle"}},
 }
 
 // ServiceFor returns the service a link target belongs to, ok=false for any

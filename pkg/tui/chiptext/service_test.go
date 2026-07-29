@@ -6,16 +6,11 @@ import "testing"
 // host, the standalone services by host, and everything else is not a service.
 func TestServiceForRecognizesTheSuite(t *testing.T) {
 	cases := []struct{ url, key string }{
-		{"https://docs.google.com/document/d/1abc/edit", "docs"},
 		{"https://docs.google.com/spreadsheets/d/1abc/edit#gid=0", "sheets"},
 		{"https://docs.google.com/presentation/d/1abc/edit", "slides"},
-		{"https://docs.google.com/forms/d/1abc/viewform", "forms"},
-		{"https://forms.gle/abc123", "forms"},
 		{"https://drive.google.com/drive/folders/1abc", "drive"},
 		{"https://drive.google.com/file/d/1abc/view", "drive"},
-		{"https://calendar.google.com/calendar/u/0/r/eventedit/abc", "calendar"},
 		{"https://mail.google.com/mail/u/0/#inbox/abc", "gmail"},
-		{"https://meet.google.com/abc-defg-hij", "meet"},
 		{"https://colab.research.google.com/drive/1aBcD", "colab"},
 		{"https://colab.google/", "colab"},
 		{"https://gemini.google.com/app/1a2b", "gemini"},
@@ -42,6 +37,11 @@ func TestServiceForRecognizesTheSuite(t *testing.T) {
 func TestServiceForIgnoresEverythingElse(t *testing.T) {
 	for _, s := range []string{
 		"https://docs.google.com/",
+		// unlisted docs.google.com apps stay ordinary links
+		"https://docs.google.com/document/d/1abc/edit",
+		"https://docs.google.com/forms/d/1abc/viewform",
+		"https://calendar.google.com/calendar/u/0/r/eventedit/abc",
+		"https://meet.google.com/abc-defg-hij",
 		"https://docs.google.com.evil.example/spreadsheets/d/1",
 		"https://example.com/spreadsheets/d/1",
 		"lflow://node/abc-123",

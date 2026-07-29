@@ -131,7 +131,7 @@ func TestServiceLinkRenamedLikeAHyperlink(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "here", Name: ""})
 	cursorOn(m, "here")
 	m.caret = 0
-	m.insertLinkChip("https://docs.google.com/document/d/1abc/edit", "Docs")
+	m.insertLinkChip("https://docs.google.com/presentation/d/1abc/edit", "Slides")
 
 	m.feed(altRune('e'))
 	if m.mode != modeLinkEdit {
@@ -147,8 +147,8 @@ func TestServiceLinkRenamedLikeAHyperlink(t *testing.T) {
 	if c.Label != "Design spec" {
 		t.Fatalf("title = %q, want Design spec", c.Label)
 	}
-	if got := chipDisplay(c); got != "→▤ Design spec" {
-		t.Errorf("renamed display = %q, want →▤ Design spec", got)
+	if got := chipDisplay(c); got != "→▭ Design spec" {
+		t.Errorf("renamed display = %q, want →▭ Design spec", got)
 	}
 }
 

@@ -33,16 +33,12 @@ import (
 // every theme. Links to anything unrecognized still follow the theme and the
 // /settings link.color preference.
 var serviceColors = map[string]string{
-	"docs":     fg(111, 143, 181), // #6f8fb5 blue
-	"sheets":   fg(107, 154, 114), // #6b9a72 green
-	"slides":   fg(176, 154, 92),  // #b09a5c gold
-	"forms":    fg(144, 128, 181), // #9080b5 violet
-	"drive":    fg(138, 148, 166), // #8a94a6 steel
-	"colab":    fg(196, 135, 79),  // #c4874f amber
-	"gemini":   fg(181, 143, 196), // #b58fc4 orchid
-	"calendar": fg(127, 136, 192), // #7f88c0 indigo
-	"gmail":    fg(181, 127, 122), // #b57f7a brick
-	"meet":     fg(111, 160, 140), // #6fa08c teal
+	"sheets": fg(107, 154, 114), // #6b9a72 green
+	"slides": fg(176, 154, 92),  // #b09a5c gold
+	"drive":  fg(138, 148, 166), // #8a94a6 steel
+	"colab":  fg(196, 135, 79),  // #c4874f amber
+	"gemini": fg(181, 143, 196), // #b58fc4 orchid
+	"gmail":  fg(181, 127, 122), // #b57f7a brick
 }
 
 // serviceChipColor is the SGR a service link renders in: its muted hue, still
