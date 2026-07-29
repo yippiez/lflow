@@ -151,8 +151,10 @@ stays free of it.
 
 - The chip reads as one token: the agent's glyph and the session's NAME on the
   agent's color, in whatever ink contrasts with that fill (`contrastInk`), plus a
-  cloud mark when the session is hosted. `n` in the panel gives a session your own
-  name, like a link chip's; clearing it hands the name back to the CLI.
+  cloud mark when the session is hosted. A completed row's strikethrough runs
+  THROUGH the pill — the chip keeps its color, and the line is what says done.
+  `n` in the panel gives a session your own name, like a link chip's; clearing it
+  hands the name back to the CLI.
 - `alt+r` hands the terminal over: lflow suspends itself (`tea.ExecProcess`) and
   the CLI takes the screen in the session's pinned directory. The first open
   CREATES the session (`--session-id` for the CLIs that take one) and every later

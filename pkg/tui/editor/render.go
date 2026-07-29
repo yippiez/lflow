@@ -511,7 +511,12 @@ func renderCmdChip(c database.Chip, caretOn bool) string {
 // session carries the cloud mark inside the pill (see refreshAgentChip). Like
 // the cmd chip this owns its whole look, so the generic chip-color path in
 // renderBody steps aside for it.
-func renderAgentChip(c database.Chip, caretOn bool) string {
+//
+// struck carries the completed row's strikethrough INTO the pill. The pill keeps
+// its color when the row is done — a finished session is still the agent it was —
+// so the line through it is what says finished, and it is drawn in the pill's own
+// ink, which contrastInk keeps dark against every fill in the palette.
+func renderAgentChip(c database.Chip, caretOn, struck bool) string {
 	glyph, col := "◈", cDim
 	if v, ok := agentVariantByID(c.Value); ok {
 		glyph = v.glyph
@@ -529,7 +534,11 @@ func renderAgentChip(c database.Chip, caretOn bool) string {
 	if caretOn {
 		b.WriteString(cInvert)
 	}
-	b.WriteString(bgOf(col) + contrastInk(col) + " " + glyph + " " + label + " " + cReset)
+	b.WriteString(bgOf(col) + contrastInk(col))
+	if struck {
+		b.WriteString(cStrike)
+	}
+	b.WriteString(" " + glyph + " " + label + " " + cReset)
 	return b.String()
 }
 
@@ -706,9 +715,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				continue
 			}
 			// a session chip is a filled pill in the agent's (or the session's)
-			// own color — it owns its whole look, like the cmd chip's code cell
+			// own color — it owns its whole look, like the cmd chip's code cell.
+			// The row's strike is the one attribute that carries into it: a chip
+			// in a finished row is a finished session.
 			if c, ok := chips[sp.id]; ok && c.Kind == chipKindAgent {
-				b.WriteString(renderAgentChip(c, caret == sp.start))
+				b.WriteString(renderAgentChip(c, caret == sp.start, strings.Contains(attrs, cStrike)))
 				cur = ""
 				i = sp.end
 				continue

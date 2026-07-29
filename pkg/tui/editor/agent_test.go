@@ -341,7 +341,7 @@ func TestAgentChipPill(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, title: "fix the flaky sync test"})
 
-	pill := renderAgentChip(m.chips[chip.ID], false)
+	pill := renderAgentChip(m.chips[chip.ID], false, false)
 	if !strings.Contains(pill, cInkDark) {
 		t.Error("a light fill must be written in dark ink")
 	}
@@ -671,6 +671,32 @@ func TestAgentPickerRows(t *testing.T) {
 	}
 	if !strings.Contains(useRow, bgOf(c.colorSGR())) {
 		t.Error("an existing session must be drawn as the pill it becomes")
+	}
+}
+
+// TestAgentChipStrikesWhenDone: a completed row strikes through its words, and
+// the pill is one of those words. The chip keeps its color — a finished session
+// is still the agent it was — so the line is what reads as done, drawn in the
+// dark ink the fill already contrasts with.
+func TestAgentChipStrikesWhenDone(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "ship it "})
+	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: "abc-12345678", title: "flush fix"})
+
+	it := m.tree.byUUID["note"]
+	if got := renderBody(it, it.name, -1, false, m.chips, false); strings.Contains(got, cStrike) {
+		t.Fatalf("an open row must not strike anything: %q", got)
+	}
+	it.completedAt = time.Now().UnixNano()
+	done := renderBody(it, it.name, -1, false, m.chips, false)
+	pill := renderAgentChip(m.chips[chip.ID], false, true)
+	if !strings.Contains(done, pill) {
+		t.Errorf("the chip in a done row is not struck through:\n got %q\nwant %q inside", done, pill)
+	}
+	// struck, but still filled and still in dark ink — not greyed out
+	if !strings.Contains(pill, cStrike) || !strings.Contains(pill, cInkDark) ||
+		!strings.Contains(pill, bgOf(c.colorSGR())) {
+		t.Errorf("a done pill = %q, want the strike over its own fill in dark ink", pill)
 	}
 }
 
