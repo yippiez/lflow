@@ -607,3 +607,42 @@ func TestAgentChipStrikesWhenDone(t *testing.T) {
 		t.Errorf("a done pill = %q, want the strike over its own fill in dark ink", pill)
 	}
 }
+
+// TestAgentPromptTextSkipsInjectedBlocks: a CLI's harness writes caveats, hook
+// output and slash-command echoes into the user turn. They are not what anyone
+// typed, so they must never become a session's name — a chip reading
+// "<system-reminder> The user named this s…" is a name nobody can search for.
+func TestAgentPromptTextSkipsInjectedBlocks(t *testing.T) {
+	junk := []string{
+		"<local-command-caveat>Caveat: The messages below were generated…</local-command-caveat>",
+		"<command-name>/model</command-name>\n<command-message>model</command-message>",
+		"<task-notification>\n<task-id>abc</task-id>\n</task-notification>",
+		"<system-reminder>The user named this session</system-reminder>",
+		"<some-future-wrapper>whatever it holds",
+	}
+	for _, j := range junk {
+		if got := agentPromptText(j); got != "" {
+			t.Errorf("agentPromptText(%.40q) = %q, want it skipped", j, got)
+		}
+	}
+	// a wrapper in FRONT of a real prompt leaves the prompt
+	if got := agentPromptText("<system-reminder>noise</system-reminder>\n\nport the parser"); got != "port the parser" {
+		t.Errorf("prompt behind a wrapper = %q", got)
+	}
+	if got := agentPromptText("  make the sync flush resumable  "); got != "make the sync flush resumable" {
+		t.Errorf("plain prompt = %q", got)
+	}
+}
+
+// TestAgentReadMetaSkipsToARealPrompt: a transcript whose first user records are
+// all harness noise is named by the first thing the user actually asked.
+func TestAgentReadMetaSkipsToARealPrompt(t *testing.T) {
+	noise := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<local-command-caveat>Caveat: blah</local-command-caveat>"}]}}`
+	real := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"add a retry backoff"}]}}`
+	id := claudeStore(t, noise, real)
+	c := variant(t, "claude")
+	meta := agentReadMeta(c.id, agentSessionPath(c.sessionDirs(), c.exts, id))
+	if meta.title != "add a retry backoff" {
+		t.Errorf("title = %q, want the first real prompt", meta.title)
+	}
+}

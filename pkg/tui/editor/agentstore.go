@@ -184,6 +184,53 @@ func agentReadMeta(variant, path string) agentStoreSession {
 	return s
 }
 
+// agentInjectedTags are the wrapper blocks a CLI's own harness writes INTO a user
+// turn: caveats, hook output, slash-command echoes, task notifications, IDE
+// context. They arrive as user records but they are not what the user typed, so
+// they must never name a session — "<system-reminder> The user named this s…" is
+// not a name anyone can search for.
+var agentInjectedTags = []string{
+	"system-reminder", "local-command-caveat", "local-command-stdout",
+	"command-name", "command-message", "command-args", "command-contents",
+	"task-notification", "user-prompt-submit-hook", "session-start-hook",
+	"ide-selection", "ide-opened-file",
+}
+
+// agentPromptText strips those wrappers and returns what the user actually wrote,
+// or "" when the record was entirely machine-inserted — in which case the caller
+// keeps looking at later records for a real prompt.
+func agentPromptText(text string) string {
+	s := strings.TrimSpace(text)
+	for range agentInjectedTags { // bounded: one turn carries a handful of wrappers
+		tag := ""
+		for _, t := range agentInjectedTags {
+			if strings.HasPrefix(s, "<"+t+">") {
+				tag = t
+				break
+			}
+		}
+		if tag == "" {
+			break
+		}
+		j := strings.Index(s, "</"+tag+">")
+		if j < 0 {
+			return "" // unterminated: the wrapper IS the whole record
+		}
+		s = strings.TrimSpace(s[j+len(tag)+3:])
+	}
+	// a wrapper this list has not learned yet: same machinery, newer tag. The
+	// convention is a bare lowercase-with-hyphens element, which prose does not
+	// open with; a session named for one would be unsearchable anyway.
+	if strings.HasPrefix(s, "<") {
+		if i := strings.Index(s, ">"); i > 1 {
+			if head := s[1:i]; head == strings.ToLower(head) && !strings.ContainsAny(head, " \t=\"/") {
+				return ""
+			}
+		}
+	}
+	return s
+}
+
 // agentFirstPrompt returns a record's user text, when it holds one — the fallback
 // name for a session its CLI never titled. Deliberately shallow: it reads the
 // shapes these stores actually write and gives up on anything else.
@@ -204,7 +251,7 @@ func agentFirstPrompt(rec map[string]any) string {
 	}
 	switch c := content.(type) {
 	case string:
-		return c
+		return agentPromptText(c)
 	case []any:
 		for _, item := range c {
 			part, ok := item.(map[string]any)
@@ -212,7 +259,7 @@ func agentFirstPrompt(rec map[string]any) string {
 				continue
 			}
 			if strings.EqualFold(agentString(part, "type"), "text") {
-				if t := agentString(part, "text"); strings.TrimSpace(t) != "" {
+				if t := agentPromptText(agentString(part, "text")); t != "" {
 					return t
 				}
 			}
