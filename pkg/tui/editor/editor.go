@@ -67,14 +67,13 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/agent", "Insert a coding-session chip — a new session, or one you already have"},
 	{"/agents", "List every coding session — live ones first, done ones after"},
 	{"/backlinks", "Show nodes that mirror or link to this one"},
 	{"/complete", "Toggle done (alt+enter)"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
 	{"/hide:complete", "Hide or show completed nodes"},
-	{"/insert", "Insert at caret: cmd, date, icon, link, path, tag"},
+	{"/insert", "Insert at caret: agent, cmd, date, icon, link, path, tag"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
 	{"/mirror:from", "Mirror another node here"},
@@ -1591,10 +1590,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	}
 
 	switch name {
-	case "/agent":
-		// drop a coding-session chip at the caret: pick the CLI, or attach a
-		// session that already exists in that CLI's own store
-		m.openAgentPicker()
 	case "/agents":
 		// the index of every session in the outline (live first, done after)
 		m.openAgentsList()

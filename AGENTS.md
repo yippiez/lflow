@@ -143,9 +143,11 @@ opencode ▣. (Web services are deliberately not here yet.)
 lflow does not START conversations. A chip is a handle on one its CLI already
 made, so the whole vocabulary is four verbs:
 
-- **search** — `/agent` lists every session found across all three stores, newest
-  first, filtered as you type. A session is searched by its NAME first, then by
-  which agent it is and the directory it ran in.
+- **search** — `/insert → agent` lists every session found across all three
+  stores, newest first, filtered as you type. A session is searched by its NAME
+  first, then by which agent it is and the directory it ran in. That is the only
+  way in: a session chip is one of the things `/insert` splices, not a command of
+  its own, so there is no `/agent`.
 - **add** — enter files the highlighted session as a chip at the caret. There is
   no create path in the picker.
 - **open** — `⌥r` suspends lflow (`tea.ExecProcess`) and the CLI resumes that

@@ -681,3 +681,38 @@ func TestAgentReadMetaTakesTheSessionID(t *testing.T) {
 		t.Errorf("id = %q, want the explicit sessionId", got)
 	}
 }
+
+// TestAgentHasNoSlashCommand: a session chip is one of the things /insert
+// splices, not a command of its own — /agent must not exist. /agents, the index
+// of what is already in the outline, is a different thing and stays.
+func TestAgentHasNoSlashCommand(t *testing.T) {
+	var names []string
+	for _, c := range slashCommands {
+		names = append(names, c.name)
+		if c.name == "/agent" {
+			t.Error("/agent is back; the chip belongs to /insert alone")
+		}
+	}
+	if !contains(names, "/agents") {
+		t.Error("/agents went missing; it lists the outline, it does not insert")
+	}
+	// and /insert still offers it
+	found := false
+	for _, k := range insertKinds {
+		if k.value == "agent" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("/insert no longer offers a session chip — there is now no way in")
+	}
+}
+
+func contains(hay []string, needle string) bool {
+	for _, h := range hay {
+		if h == needle {
+			return true
+		}
+	}
+	return false
+}
