@@ -37,6 +37,8 @@ func (m *Model) listSource() pickerSource {
 		return agentStartSource{}
 	case modeAgents:
 		return agentListSource{}
+	case modeAgentColor:
+		return agentColorSource{}
 	}
 	return nil
 }

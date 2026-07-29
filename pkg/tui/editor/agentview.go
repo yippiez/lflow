@@ -108,7 +108,7 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	switch k.String() {
-	case "n":
+	case "n", "alt+n":
 		// a session still wearing the CLI's own name opens an EMPTY field: typing
 		// replaces rather than appends, and an empty field already means "follow
 		// the CLI". A session you named before opens with that name to edit.
@@ -122,11 +122,8 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 			cwd = processCWD()
 		}
 		return m.agentOpen(h.v, h.id, cwd), true
-	case "alt+o":
-		if url := m.agentWebURL(h.v, h.sess); url != "" {
-			return m.agentOpenURL(h.id, url), true
-		}
-		m.flash = "local session · no browser view"
+	case "alt+c":
+		m.openAgentColor(m.chips[h.id])
 		return nil, true
 	}
 	return nil, false
@@ -161,13 +158,7 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 	}
 	content = append(content, line("  "+cDim+strings.Join(meta, " · ")+cReset))
 
-	keys := "  ⌥r open · n rename · esc close"
-	if h.v.webOnly() {
-		keys = "  ⌥r open in browser · n rename · esc close"
-	} else if h.v.webURL != nil || h.sess.Remote != "" {
-		keys = "  ⌥r open · ⌥o browser · n rename · esc close"
-	}
-	return append(content, line(cDim+keys+cReset))
+	return append(content, line(cDim+"  ⌥r open · ⌥n rename · ⌥c color · esc close"+cReset))
 }
 
 // agentStateWord is what the session is doing right now, in one word.
@@ -175,12 +166,8 @@ func (m *Model) agentStateWord(h agentHandle) string {
 	switch {
 	case m.agentLive(h.v, h.sess):
 		return "live"
-	case h.v.webOnly():
-		return glyphCloud + " web"
-	case m.agentCloud(h.v, h.sess):
-		return glyphCloud + " hosted"
 	case h.sess.SessionID == "":
-		return "not started"
+		return "no session attached"
 	default:
 		return "idle"
 	}

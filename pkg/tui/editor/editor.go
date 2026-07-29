@@ -33,18 +33,19 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm   // inline delete confirmation for nodes with children
-	modeType      // the /type picker: choose one of the node types
-	modeStyle     // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme     // the /theme picker: choose a color palette
-	modeSettings  // the /settings picker: global preferences (theme, image preview, …)
-	modeComplete  // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit  // the alt+e link-chip editor: edit a link's name and target
-	modeFlash     // flash jump/act: every visible row's actions get a typed label (see flash.go)
-	modeTagColor  // the alt+e tag color picker: assign a pill color to a tag
-	modeInsert    // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
-	modeAgentPick // /agent: start a coding session here, or attach one from a CLI's own store
-	modeAgents    // /agents: every coding session in the outline, live ones first
+	modeConfirm    // inline delete confirmation for nodes with children
+	modeType       // the /type picker: choose one of the node types
+	modeStyle      // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme      // the /theme picker: choose a color palette
+	modeSettings   // the /settings picker: global preferences (theme, image preview, …)
+	modeComplete   // the inline completer: "#" tags, ":" query commands
+	modeLinkEdit   // the alt+e link-chip editor: edit a link's name and target
+	modeFlash      // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeTagColor   // the alt+e tag color picker: assign a pill color to a tag
+	modeInsert     // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
+	modeAgentPick  // /agent: start a coding session here, or attach one from a CLI's own store
+	modeAgents     // /agents: every coding session in the outline, live ones first
+	modeAgentColor // ⌥c on a session chip: its color
 )
 
 type finderAction int
@@ -193,6 +194,8 @@ type Model struct {
 	// typed in.
 	agentStore []agentStoreSession
 	agentRows  []agentRow
+	// agentColorChip is the chip ⌥c is picking a color for.
+	agentColorChip string
 
 	// live cmd-chip draft gate: where the last text edit left the caret.
 	// activeCmdDraftRange is purely positional, so without this gate merely
@@ -854,13 +857,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the CLI lflow suspended for has exited — record the session and repaint
 		m.handleAgentClosed(msg)
 		m.refreshRows()
-		return m, nil
-	case agentOpenedMsg:
-		if msg.err != nil {
-			m.flash = "agent: " + msg.err.Error()
-		} else {
-			m.flash = "opened " + msg.url
-		}
 		return m, nil
 	}
 	return m, nil

@@ -79,16 +79,16 @@ func chipOn(t *testing.T, m *Model, uuid string, v agentVariant, attach agentSto
 // TestAgentVariantsRegistered: every CLI lflow can host is declared with the one
 // binary it shells out to, its own mark and its own color.
 func TestAgentVariantsRegistered(t *testing.T) {
-	want := map[string]string{
-		"claude": "✳", "codex": "✺", "gemini": "✦", "grok": "∅",
-		"pi": "ᴘɪ", "opencode": "▣", "chatgpt": "𖣐", "t3code": "ᴛ3",
+	want := map[string]string{"claude": "✽", "pi": "ᴘɪ", "opencode": "▣"}
+	if len(agentVariants) != len(want) {
+		t.Fatalf("registry has %d variants, want just the three CLIs", len(agentVariants))
 	}
 	for id, glyph := range want {
 		v := variant(t, id)
 		if v.glyph != glyph {
 			t.Errorf("%s glyph = %q, want %q", id, v.glyph, glyph)
 		}
-		if v.colorSGR() == "" || (!v.webOnly() && v.args == nil) {
+		if v.colorSGR() == "" || v.args == nil || v.bin == "" {
 			t.Errorf("%s is under-declared: %+v", id, v)
 		}
 	}
@@ -118,7 +118,7 @@ func TestAgentVariantsRegistered(t *testing.T) {
 // share the mono fill and are told apart by their glyphs. The pill IS that mark:
 // a black fill, and the white ink contrastInk arrives at on its own.
 func TestAgentMonoVariants(t *testing.T) {
-	mono := map[string]bool{"codex": true, "grok": true, "opencode": true, "t3code": true}
+	mono := map[string]bool{"opencode": true}
 	for id := range mono {
 		v := variant(t, id)
 		if got := v.colorSGR(); got != "\x1b[38;2;0;0;0m" {
@@ -145,28 +145,18 @@ func TestAgentMonoVariants(t *testing.T) {
 	}
 }
 
-// TestAgentVariantArgs: a first open CREATES the session and every later one
-// RESUMES it, for a CLI that lets lflow choose the id.
+// TestAgentVariantArgs: every launch RESUMES. lflow never starts a session, so
+// each variant has exactly one command line and it always carries an id.
 func TestAgentVariantArgs(t *testing.T) {
-	c := variant(t, "claude")
-	s := agentSession{SessionID: "abc-123"}
-	if got := strings.Join(c.args(s, false), " "); got != "--session-id abc-123" {
-		t.Errorf("claude first open args = %q", got)
+	want := map[string]string{
+		"claude":   "--resume abc-123",
+		"pi":       "--session-id abc-123",
+		"opencode": "--session abc-123",
 	}
-	if got := strings.Join(c.args(s, true), " "); got != "--resume abc-123" {
-		t.Errorf("claude resume args = %q", got)
-	}
-	// a CLI that names its own sessions resumes by the id lflow adopted, and
-	// falls back to continuing the directory's last one when it has none
-	o := variant(t, "opencode")
-	if got := strings.Join(o.args(agentSession{SessionID: "ses_9"}, true), " "); got != "--session ses_9" {
-		t.Errorf("opencode resume args = %q", got)
-	}
-	if got := strings.Join(o.args(agentSession{}, true), " "); got != "--continue" {
-		t.Errorf("opencode idless resume args = %q", got)
-	}
-	if got := o.args(agentSession{}, false); len(got) != 0 {
-		t.Errorf("opencode first open args = %v, want none", got)
+	for id, argv := range want {
+		if got := strings.Join(variant(t, id).args("abc-123"), " "); got != argv {
+			t.Errorf("%s args = %q, want %q", id, got, argv)
+		}
 	}
 }
 
@@ -202,31 +192,6 @@ func TestAgentReadMetaFallsBackToFirstPrompt(t *testing.T) {
 	}
 	if meta.color != "" {
 		t.Errorf("color = %q, want none", meta.color)
-	}
-}
-
-// TestAgentNewestSince: a CLI that names its own sessions has its id ADOPTED
-// from whatever its run touched.
-func TestAgentNewestSince(t *testing.T) {
-	dir := t.TempDir()
-	old := filepath.Join(dir, "ses_old_00000001.json")
-	fresh := filepath.Join(dir, "ses_new_00000002.json")
-	for _, p := range []string{old, fresh} {
-		if err := os.WriteFile(p, []byte("{}"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	since := time.Now().Add(-time.Minute)
-	past := since.Add(-time.Hour)
-	if err := os.Chtimes(old, past, past); err != nil {
-		t.Fatal(err)
-	}
-	if got := agentNewestSince([]string{dir}, []string{".json"}, since); got != "ses_new_00000002" {
-		t.Errorf("adopted session id = %q", got)
-	}
-	// nothing written during the run: no id is invented
-	if got := agentNewestSince([]string{dir}, []string{".json"}, time.Now().Add(time.Minute)); got != "" {
-		t.Errorf("adopted %q from a run that wrote nothing", got)
 	}
 }
 
@@ -273,77 +238,6 @@ func TestAgentMetaPrefersStoreClock(t *testing.T) {
 	}
 }
 
-// TestAgentRemoteURL: a chat link in the row is the session a chip points at —
-// each service recognizing its OWN links, and the id being whatever follows.
-func TestAgentRemoteURL(t *testing.T) {
-	c := variant(t, "claude")
-	cases := map[string]string{
-		"review the PR https://claude.ai/code/session_01ABCdef": "https://claude.ai/code/session_01ABCdef",
-		"(https://claude.com/code/session_9 ) later":            "https://claude.com/code/session_9",
-		"nothing remote here":                                   "",
-		"https://claude.ai/settings":                            "",
-		"someone else's https://chatgpt.com/c/abc":              "",
-	}
-	for text, want := range cases {
-		if got := agentRemoteURL(text, c); got != want {
-			t.Errorf("agentRemoteURL(%q, claude) = %q, want %q", text, got, want)
-		}
-	}
-	if got := agentURLSessionID("https://claude.ai/code/session_01ABC?x=1", c); got != "session_01ABC" {
-		t.Errorf("claude session id from URL = %q", got)
-	}
-	gpt := variant(t, "chatgpt")
-	if got := agentRemoteURL("draft https://chatgpt.com/c/68f0-aa11 here", gpt); got != "https://chatgpt.com/c/68f0-aa11" {
-		t.Errorf("chatgpt link = %q", got)
-	}
-	if got := agentURLSessionID("https://chatgpt.com/c/68f0-aa11", gpt); got != "68f0-aa11" {
-		t.Errorf("chatgpt session id = %q", got)
-	}
-	if got := agentURLSessionID("https://gemini.google.com/app/xyz789", variant(t, "gemini")); got != "xyz789" {
-		t.Errorf("gemini session id = %q", got)
-	}
-}
-
-// TestAgentWebServices: the services with a chat interface can be opened in a
-// browser, and the one with no CLI at all lives there entirely.
-func TestAgentWebServices(t *testing.T) {
-	for _, id := range []string{"claude", "codex", "gemini", "grok", "chatgpt"} {
-		v := variant(t, id)
-		if v.webURL == nil || v.webNew == "" || len(v.webHosts) == 0 {
-			t.Errorf("%s has a chat interface but no web surface: %+v", id, v)
-		}
-	}
-	for _, id := range []string{"chatgpt", "t3code"} {
-		if !variant(t, id).webOnly() {
-			t.Errorf("%s has no CLI — it must be web-only", id)
-		}
-	}
-	for _, id := range []string{"claude", "codex", "gemini", "grok", "pi", "opencode"} {
-		if variant(t, id).webOnly() {
-			t.Errorf("%s is a CLI and must not be web-only", id)
-		}
-	}
-	// a web-only service is never reported as a missing binary
-	if got := agentBins(); len(got) != len(agentVariants)-2 {
-		t.Errorf("agentBins() = %v, want one entry per CLI", got)
-	}
-
-	// ⌥r on a web chip opens the browser instead of suspending lflow
-	gpt := variant(t, "chatgpt")
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "draft https://chatgpt.com/c/68f0-aa11 "})
-	chip := chipOn(t, m, "note", gpt, agentStoreSession{})
-	s := m.agentLoad(chip.ID)
-	if s.Remote != "https://chatgpt.com/c/68f0-aa11" || s.SessionID != "68f0-aa11" {
-		t.Fatalf("the chip did not adopt the chat link in its row: %+v", s)
-	}
-	if m.agentWebURL(gpt, s) != s.Remote {
-		t.Errorf("web URL = %q, want the adopted link", m.agentWebURL(gpt, s))
-	}
-	if got := m.agentWebURL(gpt, agentSession{}); got != gpt.webNew {
-		t.Errorf("a fresh web chip opens %q, want the service's new-chat page", got)
-	}
-}
-
 // TestContrastInk: a filled pill writes in whatever ink contrasts with the
 // fill — dark on Claude Code's orange, light on a dark session color.
 func TestContrastInk(t *testing.T) {
@@ -381,7 +275,7 @@ func TestAgentChipPill(t *testing.T) {
 	if !strings.Contains(pill, "\x1b[48;2;78;201;176m") {
 		t.Errorf("pill = %q, want the session's own #4ec9b0 fill", pill)
 	}
-	if got := stripSGR(pill); got != " ✳ fix the flaky sync test " {
+	if got := stripSGR(pill); got != " ✽ fix the flaky sync test " {
 		t.Errorf("pill reads %q, want the glyph and the session's name", got)
 	}
 }
@@ -396,14 +290,14 @@ func TestAgentChipCustomName(t *testing.T) {
 	cur := m.tree.byUUID["note"]
 
 	m.agentRename(chip.ID, "flush fix")
-	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✳ flush fix") {
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ flush fix") {
 		t.Errorf("renamed chip reads %q", got)
 	}
 	if s := m.agentLoad(chip.ID); s.Name != "flush fix" {
 		t.Errorf("stored name = %q", s.Name)
 	}
 	m.agentRename(chip.ID, "")
-	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✳ fix the flaky sync test") {
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ fix the flaky sync test") {
 		t.Errorf("cleared name reads %q, want the CLI's own name back", got)
 	}
 
@@ -433,30 +327,8 @@ func TestAgentChipTracksSessionName(t *testing.T) {
 	}
 	delete(m.nodeStore(chip.ID), "agentMeta")
 	m.refreshAgentChip(chip.ID)
-	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✳ land the retry fix") {
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ land the retry fix") {
 		t.Errorf("renamed session reads %q", got)
-	}
-}
-
-// TestAgentCloudMark: a session the CLI recorded as started from the web wears
-// the cloud mark, and the CLI's own name for it wins over the store's summary.
-func TestAgentCloudMark(t *testing.T) {
-	id := claudeStore(t, recSummary, recUser)
-	claudeRegistry(t, id, "lflow-c1", "remote_mobile")
-	c := variant(t, "claude")
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
-	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id})
-	cur := m.tree.byUUID["note"]
-
-	if !m.agentCloud(c, m.agentLoad(chip.ID)) {
-		t.Error("a session started from a phone must read as hosted")
-	}
-	got := displayAnchors(cur.name, m.chips)
-	if !strings.Contains(got, glyphCloud) {
-		t.Errorf("chip reads %q, want the cloud mark", got)
-	}
-	if !strings.Contains(got, "lflow-c1") {
-		t.Errorf("chip reads %q, want the name the CLI gave the session", got)
 	}
 }
 
@@ -475,7 +347,7 @@ func TestAgentAttachExistingSession(t *testing.T) {
 	if s.Runs == 0 {
 		t.Error("an attached session already exists — the next open must resume it")
 	}
-	if got := strings.Join(c.args(s, s.Runs > 0), " "); got != "--resume abc-123" {
+	if got := strings.Join(c.args(s.SessionID), " "); got != "--resume abc-123" {
 		t.Errorf("next open = %q, want a resume", got)
 	}
 }
@@ -512,7 +384,7 @@ func TestAgentPanelIsSmall(t *testing.T) {
 		t.Fatalf("the panel is %d lines, want 3:\n%s", len(bands), strings.Join(bands, "\n"))
 	}
 	joined := stripSGR(strings.Join(bands, "\n"))
-	for _, want := range []string{"✳ flush-resume", "/home/dev/repo", "live", "⌥r open", "n rename"} {
+	for _, want := range []string{"✽ flush-resume", "/home/dev/repo", "live", "⌥r open", "n rename"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("panel is missing %q:\n%s", want, joined)
 		}
@@ -670,9 +542,9 @@ func TestAgentsListRowDropsItsOwnChip(t *testing.T) {
 	}
 }
 
-// TestAgentPickerRows: the start/attach list is two shapes and no more — a NEW
-// row is the agent's colored mark plus "new session" in muted gray; an EXISTING
-// row is its pill, then its directory and age behind middle dots.
+// TestAgentPickerRows: /agent is a SEARCH over the sessions the CLIs already
+// have. There is no "new session" row — lflow never starts one — and a row is the
+// pill it is about to become, then where it ran and when.
 func TestAgentPickerRows(t *testing.T) {
 	c := variant(t, "claude")
 	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
@@ -680,29 +552,33 @@ func TestAgentPickerRows(t *testing.T) {
 	m.agentStore = []agentStoreSession{{
 		variant: c.id, id: "abc-12345678", title: "flush fix",
 		cwd: "/home/dev/lflow", updated: time.Now().Add(-2 * time.Hour),
+	}, {
+		variant: "opencode", id: "ses_9", title: "rank math",
+		cwd: "/home/dev/lflow", updated: time.Now().Add(-time.Hour),
 	}}
 
-	items := (agentStartSource{}).items(m, "")
-	var newRow, useRow string
-	for _, it := range items {
-		if it.value == "new/claude" {
-			newRow = it.render(false)
+	rows := (agentStartSource{}).items(m, "")
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want one per session and nothing else", len(rows))
+	}
+	for _, it := range rows {
+		if !strings.HasPrefix(it.value, "use/") {
+			t.Errorf("row %q is not an attach — the picker has no create path", it.value)
 		}
-		if strings.HasPrefix(it.value, "use/claude/") {
-			useRow = it.render(false)
-		}
 	}
-	if got := stripSGR(newRow); got != "✳ new session" {
-		t.Errorf("new row = %q, want the mark and \"new session\" alone", got)
+	if got := stripSGR(rows[0].render(false)); got != " ✽ flush fix  · /home/dev/lflow · 2h ago" {
+		t.Errorf("row = %q, want chip · dir · date", got)
 	}
-	if !strings.HasPrefix(newRow, c.colorSGR()) {
-		t.Error("the mark must be drawn in the agent's own color")
+	if !strings.Contains(rows[0].render(false), bgOf(c.colorSGR())) {
+		t.Error("a session must be drawn as the pill it becomes")
 	}
-	if got := stripSGR(useRow); got != " ✳ flush fix  · /home/dev/lflow · 2h ago" {
-		t.Errorf("existing row = %q, want chip · dir · date", got)
+	// searching by NAME is the point: it is how you find a session again
+	if hits := (agentStartSource{}).items(m, "rank"); len(hits) != 1 ||
+		!strings.Contains(stripSGR(hits[0].render(false)), "rank math") {
+		t.Errorf("name search found %d rows, want just the opencode one", len(hits))
 	}
-	if !strings.Contains(useRow, bgOf(c.colorSGR())) {
-		t.Error("an existing session must be drawn as the pill it becomes")
+	if hits := (agentStartSource{}).items(m, "opencode"); len(hits) != 1 {
+		t.Errorf("agent search found %d rows, want one", len(hits))
 	}
 }
 
@@ -729,81 +605,5 @@ func TestAgentChipStrikesWhenDone(t *testing.T) {
 	if !strings.Contains(pill, cStrike) || !strings.Contains(pill, cInkDark) ||
 		!strings.Contains(pill, bgOf(c.colorSGR())) {
 		t.Errorf("a done pill = %q, want the strike over its own fill in dark ink", pill)
-	}
-}
-
-// TestT3CodeAdoptsAnyHost: T3 Code is SELF-HOSTED, so a thread link wears
-// whatever host it is served on. The route is what identifies it — and a pairing
-// link, which carries a token, is not one.
-func TestT3CodeAdoptsAnyHost(t *testing.T) {
-	v := variant(t, "t3code")
-	for _, u := range []string{
-		"http://localhost:8080/env-4f2a91c0/thr-77b3ce10",
-		"https://app.t3.codes/env-4f2a91c0/thr-77b3ce10",
-		"https://box.tailnet.ts.net/env-4f2a91c0/thr-77b3ce10/",
-	} {
-		if got := agentRemoteURL("see "+u+" later", v); got != strings.TrimSuffix(u, "/") && got != u {
-			t.Errorf("did not adopt %q, got %q", u, got)
-		}
-	}
-	for _, u := range []string{
-		"https://app.t3.codes/pair?host=https://backend.example.com:3773#token=PAIRCODE",
-		"https://app.t3.codes",
-		"https://example.com/docs/getting-started",
-		"https://chatgpt.com/c/68f0-aa11",
-	} {
-		if got := agentRemoteURL("see "+u+" later", v); got != "" {
-			t.Errorf("adopted %q, which is not a thread link", got)
-		}
-	}
-	// the thread id is the last segment, so the chip has a handle on the thread
-	if got := agentURLSessionID("http://localhost:8080/env-4f2a91c0/thr-77b3ce10", v); got != "thr-77b3ce10" {
-		t.Errorf("t3code session id = %q, want the thread segment", got)
-	}
-
-	// dropped on a row holding a thread link, the chip points at that thread
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "wip http://localhost:8080/env-4f2a91c0/thr-77b3ce10 "})
-	chip := chipOn(t, m, "note", v, agentStoreSession{})
-	s := m.agentLoad(chip.ID)
-	if s.Remote != "http://localhost:8080/env-4f2a91c0/thr-77b3ce10" {
-		t.Fatalf("the chip did not adopt the thread in its row: %+v", s)
-	}
-	if m.agentWebURL(v, s) != s.Remote {
-		t.Errorf("⌥r must open the adopted thread, got %q", m.agentWebURL(v, s))
-	}
-}
-
-// TestAgentPickerSkipsWebOnly: a web-only service cannot be STARTED from the
-// picker — there is no binary to hand the terminal to. It appears only on a row
-// that already holds one of its conversations, offering to adopt that link.
-func TestAgentPickerSkipsWebOnly(t *testing.T) {
-	gpt := variant(t, "chatgpt")
-	has := func(m *Model) bool {
-		for _, it := range (agentStartSource{}).items(m, "") {
-			if it.value == "new/"+gpt.id {
-				return true
-			}
-		}
-		return false
-	}
-
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "plain notes "})
-	cursorOn(m, "note")
-	if has(m) {
-		t.Error("a web-only service must not offer a new session")
-	}
-
-	m2, _ := dbModel(t, database.Node{UUID: "chat", Name: "read https://chatgpt.com/c/abc-999 later"})
-	cursorOn(m2, "chat")
-	if !has(m2) {
-		t.Fatal("a row holding a chat link must offer to adopt it")
-	}
-	for _, it := range (agentStartSource{}).items(m2, "") {
-		if it.value != "new/"+gpt.id {
-			continue
-		}
-		if got := stripSGR(it.render(false)); got != gpt.glyph+" conversation in this row" {
-			t.Errorf("web row = %q, want the mark and what it adopts", got)
-		}
 	}
 }

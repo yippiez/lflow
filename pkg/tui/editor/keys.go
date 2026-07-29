@@ -617,18 +617,26 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// open the cursor node in the HOST's own app — outside the terminal
 		// (image → the desktop image viewer). Types without the hook ignore it.
 		if cur := m.cursorItem(); cur != nil {
-			if c, ok := m.agentChipAtCaret(cur); ok {
-				// a session chip on a hosted session opens it in the browser
-				s := m.agentLoad(c.ID)
-				if s.Remote != "" {
-					return m, m.agentOpenURL(c.ID, s.Remote)
-				}
-				if v, ok := agentVariantByID(c.Value); ok && v.webURL != nil && s.SessionID != "" {
-					return m, m.agentOpenURL(c.ID, v.webURL(s.SessionID))
-				}
-			}
 			if open := typeOf(cur.typ).openHost; open != nil {
 				return m, open(m, cur)
+			}
+		}
+		return m, nil
+	case "alt+n":
+		// rename the session chip at the caret, in place
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipAtCaret(cur); ok {
+				m.openAgentRename(c)
+				return m, nil
+			}
+		}
+		return m, nil
+	case "alt+c":
+		// recolor the session chip at the caret
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipAtCaret(cur); ok {
+				m.openAgentColor(c)
+				return m, nil
 			}
 		}
 		return m, nil

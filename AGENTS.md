@@ -136,60 +136,51 @@ up; everything that existed before lm39 is down. `/priority:up` /
 ## Agentic coding sessions
 
 A coding session with an agent is an inline CHIP — and only a chip, so it can be
-dropped into whatever note it belongs to instead of owning a row. One variant per
-agent in one table in `pkg/tui/editor/agent.go` — claude ✳, codex ✺, gemini ✦,
-grok ∅, pi ᴘɪ, opencode ▣, plus ChatGPT 𖣐 and T3 Code ᴛ3 as WEB-only services (no
-`bin`: ⌥r opens the chat in a browser instead of suspending lflow). Adding an agent
-is one entry there and nothing else; each glyph is plain Unicode. A variant wears
-its agent's OWN color and never an invented one: Claude's orange, Gemini's blue,
-Pi's purple and ChatGPT's teal are themed swatches, while Codex, Grok, OpenCode and
-T3 Code have no brand color at all — their marks are black on white, so all four
-share the `agentMono` literal `#000000` and their glyphs are what tell them apart;
-`contrastInk` puts white ink on that fill. On a terminal whose background is
-already pure black the pill's edge will not be visible, only the white ink. A
-literal does not follow the active theme; a swatch does. Three marks ask
-more of a font than the rest: `ᴘ`/`ᴛ` (U+1D18/U+1D1B) are absent from DejaVu Sans
-Mono but present in Liberation/Free Mono and most modern terminal fonts, and `𖣐`
-(U+168D0, Bamum) needs a font that carries the block (a Nerd Font or Noto Sans
-Bamum) — swap the entry's `glyph` if your terminal draws a box. There is deliberately no agent NODE type: `nodes.type`
-stays free of it.
+dropped into whatever note it belongs to instead of owning a row. Three CLIs, one
+entry each in one table in `pkg/tui/editor/agent.go`: Claude Code ✽, Pi ᴘɪ,
+opencode ▣. (Web services are deliberately not here yet.)
 
-- The chip reads as one token: the agent's glyph and the session's NAME on the
-  agent's color, in whatever ink contrasts with that fill (`contrastInk`), plus a
-  cloud mark when the session is hosted. A completed row's strikethrough runs
-  THROUGH the pill — the chip keeps its color, and the line is what says done.
-  `n` in the panel gives a session your own name, like a link chip's; clearing it
-  hands the name back to the CLI.
-- `alt+r` hands the terminal over: lflow suspends itself (`tea.ExecProcess`) and
-  the CLI takes the screen in the session's pinned directory. The first open
-  CREATES the session (`--session-id` for the CLIs that take one) and every later
-  one RESUMES it; a CLI that names its own sessions has its id adopted from what
-  its run touched. A session whose directory is gone refuses to open.
-- `alt+e` opens a THREE-LINE panel: the session, where it runs and its state, and
-  the keys. Nothing else — no transcript, no tool log, no counters. The
-  conversation belongs to the CLI.
-- `alt+o` opens a hosted session in the browser; there is no local process to
-  attach to. What makes a session hosted is the CLI's own record of it (Claude
-  Code's `~/.claude/sessions/<pid>.json` entry point), or a chat link. Each
-  variant declares its `webHosts`, so a conversation URL sitting in a row (a
-  claude.ai/code, chatgpt.com/c, gemini.google.com/app or grok.com/chat link) is
-  adopted by a chip dropped on that row. A SELF-HOSTED service has no fixed host
-  to look for and declares `webAny` instead, matching a link by its shape: T3 Code
-  runs wherever `t3` serves it, so a chip adopts `<host>/<environmentId>/<threadId>`
-  on any host — and never a `/pair` link, which carries a pairing token.
-- `/agent` (and `/insert → agent`) drops a chip: a fresh session, or one that
-  already exists in a CLI's store. A new-session row is the agent's mark in its own
-  color and a muted `new session` — nothing else; an existing session is the pill it
-  is about to become, then `· cwd · when`. Only CLI variants offer a new session:
-  a WEB-only service has no binary to hand the terminal to, so it shows up only on a
-  row that already holds one of its conversations, offering to adopt that link.
-  `/agents` lists every session chip in the
-  outline, live first, done ones muted below; `alt+enter` on the row marks done.
+lflow does not START conversations. A chip is a handle on one its CLI already
+made, so the whole vocabulary is four verbs:
+
+- **search** — `/agent` lists every session found across all three stores, newest
+  first, filtered as you type. A session is searched by its NAME first, then by
+  which agent it is and the directory it ran in.
+- **add** — enter files the highlighted session as a chip at the caret. There is
+  no create path in the picker.
+- **open** — `⌥r` suspends lflow (`tea.ExecProcess`) and the CLI resumes that
+  session in its pinned directory. A session whose directory is gone refuses to
+  open. `⌥r` is the only way a CLI is ever launched.
+- **rename** — `⌥n` opens the name field on the chip. `⌥c` recolors it.
+
+Names and colors come from the CLIs themselves, and what each one actually
+exposes was checked against real stores, not assumed:
+
+| | name | color | renamable by lflow |
+|---|---|---|---|
+| Claude Code | `~/.claude/sessions/<pid>.json` `.name`, live registry only | none | no |
+| Pi | none — the first prompt names it | none | no |
+| opencode | `.title` in its session record | none | **yes** |
+
+So a rename is ALWAYS stored locally on the chip and always wins; `opencodeRename`
+additionally writes the new title into opencode's own record, atomically and
+round-tripping every other key. The other two have no name field lflow may write:
+Claude Code's lives in a registry keyed by the pid of a running process, and Pi's
+records carry none. No CLI exposes a session color today, so `⌥c` is what colors a
+chip — the variant's default until you pick otherwise.
+
+Colors: Claude's orange and Pi's purple are themed swatches; opencode's mark is
+black on white and takes the `agentMono` literal `#000000`, with white ink from
+`contrastInk`. A completed row's strikethrough runs THROUGH the pill.
+
+`/agents` lists every session chip in the outline, live first, done ones muted
+below; `alt+enter` on the row marks done. `⌥e` opens a three-line panel — the
+session, where it runs and its state, and the keys — and nothing else.
 
 WARNING (invariant): lflow never copies a conversation into the outline. A chip
-stores only `{variant, cwd, session id}` in LOCAL `node_output` — never in the
-chip row, never synced — and the name, color and state are always read back out
-of the CLI's own store (`agentstore.go`).
+stores only `{variant, cwd, session id}` plus your own name and color in LOCAL
+`node_output` — never in the chip row, never synced — and everything else is read
+back out of the CLI's own store (`agentstore.go`) on demand.
 
 ## NLPCompute code generation
 

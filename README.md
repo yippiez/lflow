@@ -1,7 +1,6 @@
 lflow is a fork of [dnote](https://github.com/dnote/dnote) reworked into a local-first terminal outline editor: your whole tree lives in one SQLite file, every command is one-shot and pipe-friendly, and `lflow node open` drops you into an inline editor that draws in the terminal scrollback rather than the alternate screen. Nodes can be bullets, headings, todos, code, quotes and mirrors, and any row can
-carry an agentic coding session chip that opens or resumes a Claude Code, Codex,
-Gemini, Grok, Pi or opencode session in your terminal — or points at a ChatGPT or
-T3 Code conversation in your browser.
+carry an agentic coding session chip: search the sessions your Claude Code, Pi or
+opencode CLI already has, file one on a row, and resume it in your terminal.
 
 ## Examples
 

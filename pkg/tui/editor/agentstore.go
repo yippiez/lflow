@@ -25,7 +25,12 @@ import (
 // Every reader here is deliberately TOLERANT. Each CLI writes its own record
 // shape, and those shapes move between releases; a record we cannot read is
 // skipped, a store we cannot find degrades to "no session found", and nothing
-// here ever fails a render. The one thing we never do is write into a CLI's store.
+// here ever fails a render.
+//
+// One writer lives here and only one: opencodeRename, which edits the "title" of
+// an opencode session record because that store is a single small JSON object and
+// that field is exactly what its own UI edits. Nothing else writes into a CLI's
+// store, and no writer ever touches a conversation.
 
 const (
 	agentScanCap   = 400                 // most session files one discovery scan reads
@@ -49,15 +54,14 @@ type agentStoreSession struct {
 }
 
 // agentReg is one entry of a CLI's LIVE session registry (Claude Code writes
-// ~/.claude/sessions/<pid>.json while a session runs): the session's own name,
-// whether it is running right now, and whether it is a hosted one.
+// ~/.claude/sessions/<pid>.json while a session runs): the session's own name and
+// whether it is running right now. It is the ONLY place Claude Code keeps a
+// session name, which is why a chip reads it every frame.
 type agentReg struct {
-	id         string
-	name       string
-	cwd        string
-	entrypoint string
-	live       bool
-	cloud      bool
+	id   string
+	name string
+	cwd  string
+	live bool
 }
 
 // homeStores resolves store paths written relative to the user's home dir,
@@ -299,9 +303,10 @@ func agentInt(rec map[string]any, keys ...string) int {
 }
 
 // agentRegistry reads a CLI's live-session registry: which sessions are running
-// right now, the names the CLI gave them, and whether they are hosted rather
-// than local. Claude Code writes one file per running session; a CLI without a
-// registry contributes nothing and every session simply reads as local.
+// right now and the names the CLI gave them. Claude Code writes one file per
+// running session, and that file is the only place its session names live; a CLI
+// without a registry contributes nothing and its sessions are named from the
+// store instead.
 func agentRegistry(roots []string) map[string]agentReg {
 	out := map[string]agentReg{}
 	for _, root := range roots {
@@ -318,32 +323,16 @@ func agentRegistry(roots []string) map[string]agentReg {
 				if id == "" {
 					continue
 				}
-				entry := agentString(rec, "entrypoint", "kind", "origin")
-				reg := agentReg{
-					id:         id,
-					name:       agentString(rec, "name", "title"),
-					cwd:        agentString(rec, "cwd", "directory"),
-					entrypoint: entry,
-					live:       agentPidAlive(agentInt(rec, "pid")),
-					cloud:      agentCloudEntry(entry),
+				out[id] = agentReg{
+					id:   id,
+					name: agentString(rec, "name", "title"),
+					cwd:  agentString(rec, "cwd", "directory"),
+					live: agentPidAlive(agentInt(rec, "pid")),
 				}
-				out[id] = reg
 			}
 		}
 	}
 	return out
-}
-
-// agentCloudEntry reports whether a registry entrypoint names a HOSTED session
-// — one started from the web or a phone rather than this terminal.
-func agentCloudEntry(entry string) bool {
-	e := strings.ToLower(entry)
-	for _, k := range []string{"remote", "mobile", "web", "cloud"} {
-		if strings.Contains(e, k) {
-			return true
-		}
-	}
-	return false
 }
 
 // agentPidAlive reports whether a registry entry's process is still running —
@@ -404,39 +393,6 @@ func agentSessionPath(roots []string, exts []string, id string) string {
 		}
 	}
 	return ""
-}
-
-// agentNewestSince returns the session id of the newest record touched at or
-// after `since` under roots — how lflow ADOPTS the id of a session a CLI minted
-// itself (opencode names its own sessions; see agentVariant.assignsID).
-func agentNewestSince(roots []string, exts []string, since time.Time) string {
-	best, bestMod := "", since.Add(-time.Second)
-	for _, root := range roots {
-		rootDepth := strings.Count(filepath.Clean(root), string(filepath.Separator))
-		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return nil //nolint:nilerr // unreadable corners are skipped
-			}
-			if d.IsDir() {
-				if strings.Count(filepath.Clean(path), string(filepath.Separator))-rootDepth > agentScanDepth {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !hasExt(path, exts) {
-				return nil
-			}
-			info, err := d.Info()
-			if err != nil || !info.ModTime().After(bestMod) {
-				return nil
-			}
-			if id := agentIDFromPath(path); looksLikeSessionID(id) {
-				best, bestMod = id, info.ModTime()
-			}
-			return nil
-		})
-	}
-	return best
 }
 
 // agentString returns the first non-empty string field among keys.
@@ -547,4 +503,41 @@ func parseHexColor(v string) (int, int, int, bool) {
 		rgb[i] = n
 	}
 	return rgb[0], rgb[1], rgb[2], true
+}
+
+// opencodeRename writes a new title into an opencode session record — the one
+// store of the three whose format makes that safe: a single small JSON object
+// with a "title" field, which is exactly what its own UI edits.
+//
+// The write is atomic (temp file then rename) and preserves every other key by
+// round-tripping the object, so a field lflow does not know about survives. The
+// other two CLIs have no such field — Claude Code's name lives in its LIVE
+// registry, keyed by the pid of a running process and owned by it, and Pi's
+// records carry no name at all — so for those a rename stays local to the chip.
+func opencodeRename(path, name string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var rec map[string]any
+	if err := json.Unmarshal(b, &rec); err != nil {
+		return fmt.Errorf("unreadable session record")
+	}
+	if _, ok := rec["title"]; !ok {
+		return fmt.Errorf("no title to rename")
+	}
+	rec["title"] = name
+	out, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".lflow.tmp"
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }

@@ -54,44 +54,12 @@ func (m *Model) discoverAgentSessions() []agentStoreSession {
 
 type agentStartSource struct{}
 
+// items lists the sessions found across ALL THREE stores, newest first, filtered
+// by the query. There are no "new session" rows: lflow attaches to conversations
+// their CLI already made, so this list IS the picker.
 func (agentStartSource) items(m *Model, q string) []pickerItem {
 	ql := strings.ToLower(strings.TrimSpace(q))
 	var out []pickerItem
-
-	// the "new session" rows: one per CLI variant, in registry order. A WEB-only
-	// service has no session to start from here — there is no binary to hand the
-	// terminal to — so it appears only when this row already holds one of its
-	// conversations, as the link it would adopt.
-	row := ""
-	if cur := m.cursorItem(); cur != nil {
-		row = expandAnchors(cur.name, m.chips)
-	}
-	for _, v := range agentVariants {
-		v := v
-		if ql != "" && !fuzzyMatch(strings.ToLower(v.label), ql) && !fuzzyMatch(v.id, ql) && !fuzzyMatch("new", ql) {
-			continue
-		}
-		if v.webOnly() {
-			if agentRemoteURL(row, v) == "" {
-				continue
-			}
-			out = append(out, pickerItem{value: "new/" + v.id, render: func(bool) string {
-				return v.colorSGR() + v.glyph + cReset + cDim + " conversation in this row" + cReset
-			}})
-			continue
-		}
-		missing := !m.depOK(v.bin)
-		// the icon in the agent's own color, "new session" in muted gray, and
-		// nothing else: the mark says which agent it is
-		out = append(out, pickerItem{value: "new/" + v.id, render: func(bool) string {
-			if missing {
-				return cDim + v.glyph + " new session · missing " + v.bin + cReset
-			}
-			return v.colorSGR() + v.glyph + cReset + cDim + " new session" + cReset
-		}})
-	}
-
-	// then the sessions already in the CLIs' stores — attach one to a new chip
 	for _, s := range m.agentStore {
 		s := s
 		v, ok := agentVariantByID(s.variant)
@@ -102,6 +70,7 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 		if label == "" {
 			label = "session " + agentShortID(s.id)
 		}
+		// searched by NAME first, then by which agent it is and where it ran
 		if ql != "" && !fuzzyMatch(strings.ToLower(label), ql) && !fuzzyMatch(v.id, ql) &&
 			!fuzzyMatch(strings.ToLower(tildePath(s.cwd)), ql) {
 			continue
@@ -111,8 +80,8 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 			color = v.colorSGR()
 		}
 		out = append(out, pickerItem{value: "use/" + v.id + "/" + s.id, render: func(bool) string {
-			// an existing session reads as chip · directory · when it last moved,
-			// drawn as the pill it is about to become
+			// a session reads as the pill it is about to become, then where it ran
+			// and when it last moved
 			meta := []string{}
 			if s.cwd != "" {
 				meta = append(meta, tildePath(s.cwd))
@@ -134,7 +103,7 @@ func (agentStartSource) header(m *Model, p *listPicker) string {
 	if p.query != "" {
 		return " " + cDim + "agent: " + cReset + cFG + p.query + cReset
 	}
-	return " " + cDim + "start or attach a coding session · type to search" + cReset
+	return " " + cDim + "search your coding sessions · enter files one here" + cReset
 }
 
 func (agentStartSource) initialSel(*Model) int { return 0 }
@@ -146,22 +115,18 @@ func (agentStartSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	parts := strings.SplitN(it.value, "/", 3)
+	if len(parts) != 3 {
+		return m, nil
+	}
 	v, ok := agentVariantByID(parts[1])
 	if !ok {
 		return m, nil
 	}
-	if !v.webOnly() && !m.depOK(v.bin) {
-		m.flash = "Missing dependency: " + v.bin
-		return m, nil
-	}
-
 	var attach agentStoreSession
-	if parts[0] == "use" && len(parts) == 3 {
-		for _, s := range m.agentStore {
-			if s.variant == v.id && s.id == parts[2] {
-				attach = s
-				break
-			}
+	for _, s := range m.agentStore {
+		if s.variant == v.id && s.id == parts[2] {
+			attach = s
+			break
 		}
 	}
 	m.insertAgentChip(cur, v, attach)
@@ -262,9 +227,6 @@ func (m *Model) agentListRow(r agentRow, title string) string {
 	pill := bgOf(fill) + contrastInk(fill) + " " + r.variant.glyph + " " + clipStr(title, 32) + " " + cReset
 
 	meta := []string{clipStr(r.name, 30)} // the row the chip is filed in
-	if m.agentCloud(r.variant, r.sess) {
-		meta = append(meta, glyphCloud+" hosted")
-	}
 	if m.agentLive(r.variant, r.sess) {
 		meta = append(meta, "live")
 	}
