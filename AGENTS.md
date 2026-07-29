@@ -144,11 +144,10 @@ is one entry there and nothing else; each glyph is plain Unicode. A variant wear
 its agent's OWN color and never an invented one: Claude's orange, Gemini's blue,
 Pi's purple and ChatGPT's teal are themed swatches, while Codex, Grok, OpenCode and
 T3 Code have no brand color at all — their marks are black on white, so all four
-share the `agentMono` literal `#e9e9e9` and their glyphs are what tell them apart.
-It is white rather than black on purpose: a black pill would punch an opaque
-rectangle through a transparent terminal and would flip those four to light ink
-while every other pill wears dark. A literal does not follow the active theme;
-a swatch does. Three marks ask
+share the `agentMono` literal `#000000` and their glyphs are what tell them apart;
+`contrastInk` puts white ink on that fill. On a terminal whose background is
+already pure black the pill's edge will not be visible, only the white ink. A
+literal does not follow the active theme; a swatch does. Three marks ask
 more of a font than the rest: `ᴘ`/`ᴛ` (U+1D18/U+1D1B) are absent from DejaVu Sans
 Mono but present in Liberation/Free Mono and most modern terminal fonts, and `𖣐`
 (U+168D0, Bamum) needs a font that carries the block (a Nerd Font or Noto Sans
