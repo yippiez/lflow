@@ -143,7 +143,7 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 
 	// the rename field takes the session's line while it is open
 	if f := m.agentRenameState(h.id); f != nil {
-		hint := "   enter save · esc cancel"
+		hint := " · ⏎ save ⎋ cancel"
 		head := "  " + cDim + "name  " + cReset + withCaret(f.value, f.caret) + cDim + hint + cReset
 		return []string{line(head), line(cDim + "  " + tildePath(h.sess.Cwd) + cReset), line(cDim + agentPanelKeys + cReset)}
 	}
@@ -170,4 +170,4 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 }
 
 // agentPanelKeys is the panel's last line: everything you can do to a session.
-const agentPanelKeys = "  ⌥r open · ⌥n rename · ⌥c color · esc close"
+const agentPanelKeys = "  ⌥r open · ⌥n rename · ⌥c color · ⎋ close"
