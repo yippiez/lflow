@@ -701,13 +701,10 @@ func (t *tree) indent(it *item) bool {
 	}
 	it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
 	it.parent = prev
-	// the landing slot honors the target's priority: up keeps the node adjacent
-	// to the new parent line, down appends below its existing children
-	if prev.priority == database.PriorityUp {
-		prev.children = append([]*item{it}, prev.children...)
-	} else {
-		prev.children = append(prev.children, it)
-	}
+	// Tab always lands the indented node below the target's existing children —
+	// priority only steers where OTHER move-in actions (/move:to, mv,
+	// /mirror:from) land, not a direct Tab indent.
+	prev.children = append(prev.children, it)
 	prev.collapsed = false
 	if t.db != nil {
 		_ = database.SetCollapsed(t.db, prev.uuid, false) // persist the auto-expand
@@ -810,8 +807,19 @@ func (t *tree) move(it *item, delta int, viewRoot *item) bool {
 }
 
 // reparent moves the item under a new parent, landing where the target's
-// priority points: up → top of its children, down → bottom.
+// priority points: up → top of its children, down → bottom. Used by
+// /move:to, mv, and /mirror:from — actions distinct from a Tab indent.
 func (t *tree) reparent(it *item, newParent *item) bool {
+	if newParent == nil {
+		return false
+	}
+	return t.reparentPlaced(it, newParent, newParent.priority == database.PriorityUp)
+}
+
+// reparentPlaced is the shared move primitive: it detaches it from its
+// current parent and attaches it under newParent, landing on top when top is
+// true or at the bottom otherwise.
+func (t *tree) reparentPlaced(it *item, newParent *item, top bool) bool {
 	if it == nil || newParent == nil || it.structureLocked || newParent.structureLocked {
 		return false
 	}
@@ -827,7 +835,7 @@ func (t *tree) reparent(it *item, newParent *item) bool {
 	}
 	it.parent.children = append(it.parent.children[:idx], it.parent.children[idx+1:]...)
 	it.parent = newParent
-	if newParent.priority == database.PriorityUp {
+	if top {
 		newParent.children = append([]*item{it}, newParent.children...)
 	} else {
 		newParent.children = append(newParent.children, it)
@@ -837,7 +845,8 @@ func (t *tree) reparent(it *item, newParent *item) bool {
 
 // reparentAll moves the items under dest preserving the block's own order:
 // dest's priority lands each node on top (up) or at the bottom (down), so the
-// walk runs reversed under an up target and forward under a down one.
+// walk runs reversed under an up target and forward under a down one. Used by
+// /move:to — a group Tab indent uses indentAll instead.
 func (t *tree) reparentAll(items []*item, dest *item) bool {
 	moved := false
 	if dest.priority == database.PriorityUp {
@@ -850,6 +859,19 @@ func (t *tree) reparentAll(items []*item, dest *item) bool {
 	}
 	for _, it := range items {
 		if t.reparent(it, dest) {
+			moved = true
+		}
+	}
+	return moved
+}
+
+// indentAll moves items under dest for a group Tab (the multi-select form of
+// indent), always landing at the bottom of dest's children like a
+// single-item Tab — priority only steers /move:to, mv, and /mirror:from.
+func (t *tree) indentAll(items []*item, dest *item) bool {
+	moved := false
+	for _, it := range items {
+		if t.reparentPlaced(it, dest, false) {
 			moved = true
 		}
 	}
