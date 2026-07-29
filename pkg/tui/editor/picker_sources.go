@@ -124,6 +124,7 @@ var insertKinds = []struct{ value, label, desc string }{
 	{"date", "date", "today as a date chip"},
 	{"icon", "icon", "an icon or emoji via shortcode"},
 	{"link", "link", "a link chip"},
+	{"molecule", "mol", "a ⌬ molecule chip"},
 	{"tag", "tag", "a #tag chip"},
 }
 
@@ -137,8 +138,17 @@ func (insertSource) items(m *Model, q string) []pickerItem {
 		if ql != "" && !fuzzyMatch(k.label, ql) && !fuzzyMatch(strings.ToLower(k.desc), ql) {
 			continue
 		}
+		desc := k.desc
+		// when the caret already sits after a molecule, the entry offers to fold
+		// THAT notation into a chip instead of landing an empty one — the detection
+		// is what turns a pasted SMILES into a one-key conversion.
+		if k.value == chipKindMol {
+			if tok, _, _, ok := molTokenBeforeCaret(m.cursorItem(), m.caret); ok {
+				desc = "convert " + molChipDisplay(tok)
+			}
+		}
 		out = append(out, pickerItem{value: k.value, render: func(bool) string {
-			return cFG + fmt.Sprintf("%-6s", k.label) + cDim + " " + k.desc + cReset
+			return cFG + fmt.Sprintf("%-6s", k.label) + cDim + " " + desc + cReset
 		}})
 	}
 	return out
@@ -195,6 +205,14 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 		m.insertLiteralAt(cur, m.caret, "$")
 		m.markCmdDraft(cur)
 		m.flash = "type the command · double space lands the $ chip"
+	case chipKindMol:
+		// convert the detected notation in place, else land an empty chip to fill in
+		if m.molConvertBeforeCaret(cur) {
+			m.flash = "molecule → ⌬ chip"
+		} else if anchor := m.createChip(chipKindMol, ""); anchor != "" {
+			m.insertLiteralAt(cur, m.caret, anchor)
+			m.flash = "empty ⌬ chip · no molecule found before the caret"
+		}
 	}
 	return m, nil
 }

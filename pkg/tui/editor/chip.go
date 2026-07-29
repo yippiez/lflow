@@ -132,6 +132,7 @@ const (
 	// session itself in local node_output keyed by the chip id. alt+r opens or
 	// resumes it, alt+e shows its transcript (see agent.go).
 	chipKindAgent = "agent"
+	chipKindMol   = "molecule"
 )
 
 var chipKinds = map[string]chipKind{
@@ -186,6 +187,15 @@ var chipKinds = map[string]chipKind{
 		key:     chipKindIcon,
 		color:   cFG,
 		display: func(v string) string { return v },
+		expand:  func(v string) string { return v },
+	},
+	// a molecule chip is a structure inline in prose: value is the full SMILES/
+	// SELFIES notation, shown compactly as ⌬ + a truncated formula. expand gives
+	// the notation back whole, so CLI, export and search still see the chemistry.
+	chipKindMol: {
+		key:     chipKindMol,
+		color:   cGreen,
+		display: molChipDisplay,
 		expand:  func(v string) string { return v },
 	},
 }
