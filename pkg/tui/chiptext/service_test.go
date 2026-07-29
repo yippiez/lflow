@@ -18,6 +18,7 @@ func TestServiceForRecognizesTheSuite(t *testing.T) {
 		{"https://meet.google.com/abc-defg-hij", "meet"},
 		{"https://colab.research.google.com/drive/1aBcD", "colab"},
 		{"https://colab.google/", "colab"},
+		{"https://gemini.google.com/app/1a2b", "gemini"},
 		// a scheme is optional — a bare paste is recognized the same way
 		{"docs.google.com/spreadsheets/d/1abc", "sheets"},
 		// www. is stripped before matching

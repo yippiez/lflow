@@ -57,8 +57,8 @@ func TestServiceLinkKeepsLinkStyling(t *testing.T) {
 			t.Errorf("a plain link took the %s hue: %q", key, plain)
 		}
 	}
-	// (stripSGR only removes SGR, not the OSC 8 hyperlink wrapper, so assert on
-	// the visible run itself)
+	// no filled cell: the whole chip is one colored run (stripSGR would not help
+	// here — it removes SGR but not the OSC 8 hyperlink wrapper)
 	if !strings.Contains(sheets, "→▦ Budget") {
 		t.Errorf("sheets chip text missing: %q", sheets)
 	}

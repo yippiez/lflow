@@ -20,11 +20,11 @@ import (
 
 // serviceColors keys each service's link color by registry key. These are MUTED
 // tints, not brand values: a link chip is deliberately quiet (dim gray by
-// default, see linkChipColorCode), and a service link keeps exactly that weight
-// — it only trades the gray for the service's own hue. Full-saturation brand
-// colors would make a row of links shout over the text they sit in.
+// default, see linkChipColorCode), and a service link keeps that weight — it
+// only trades the gray for the service's own hue. Full-strength brand colors
+// would make a row of links shout over the text they sit in.
 //
-// The hues are spread so eight services stay apart at a glance; Drive, a
+// The hues are spread so nine services stay apart at a glance; Drive, a
 // container rather than a document, takes a neutral steel that reads calm next
 // to the doc types it holds.
 //
@@ -39,14 +39,16 @@ var serviceColors = map[string]string{
 	"forms":    fg(144, 128, 181), // #9080b5 violet
 	"drive":    fg(138, 148, 166), // #8a94a6 steel
 	"colab":    fg(196, 135, 79),  // #c4874f amber
+	"gemini":   fg(181, 143, 196), // #b58fc4 orchid
 	"calendar": fg(127, 136, 192), // #7f88c0 indigo
 	"gmail":    fg(181, 127, 122), // #b57f7a brick
 	"meet":     fg(111, 160, 140), // #6fa08c teal
 }
 
 // serviceChipColor is the SGR a service link renders in: its muted hue, still
-// underlined like every other link. A service with no color yet falls back to
-// the ordinary link styling.
+// underlined like every other link — the whole chip, arrow included, is one run
+// of colored text with no filled cell behind it. A service with no color yet
+// falls back to the ordinary link styling.
 func serviceChipColor(s chiptext.Service) string {
 	if col, ok := serviceColors[s.Key]; ok {
 		return col + cUnderline
