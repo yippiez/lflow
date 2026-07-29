@@ -146,8 +146,8 @@ made, so the whole vocabulary is four verbs:
 - **search** — `/insert → agent` lists every session found across all three
   stores, newest first, filtered as you type. A session is searched by its NAME
   first, then by which agent it is and the directory it ran in. That is the only
-  way in: a session chip is one of the things `/insert` splices, not a command of
-  its own, so there is no `/agent`.
+  agent surface: there is no `/agent` and no `/agents`, because a chip belongs to
+  the row it sits in and the outline is already the index of them.
 - **add** — enter files the highlighted session as a chip at the caret. There is
   no create path in the picker.
 - **open** — `⌥r` suspends lflow (`tea.ExecProcess`) and the CLI resumes that
@@ -175,9 +175,17 @@ Colors: Claude's orange and Pi's purple are themed swatches; opencode's mark is
 black on white and takes the `agentMono` literal `#000000`, with white ink from
 `contrastInk`. A completed row's strikethrough runs THROUGH the pill.
 
-`/agents` lists every session chip in the outline, live first, done ones muted
-below; `alt+enter` on the row marks done. `⌥e` opens a three-line panel — the
-session, where it runs and its state, and the keys — and nothing else.
+`⌥e` opens a panel showing the session's name IN FULL (wrapped — a session named
+by its first prompt is a sentence, and clipping is what makes two of them look
+alike) and the directory it is pinned to. Nothing else, on purpose: everything
+further lflow could say it would be guessing at. It used to print a state word
+and a "last opened" time; "idle" was only ever the absence of a live registry,
+which Pi and opencode do not have at all, and the timestamp was a store file's
+mtime relabelled as an open. Neither was real, so both are gone.
+
+`⌥r` / `⌥e` / `⌥n` / `⌥c` act on the chip under the caret, falling back to the
+row's only session when the row wraps and the caret lands past it; a row with
+several says so rather than guessing.
 
 WARNING (invariant): lflow never copies a conversation into the outline. A chip
 stores only `{variant, cwd, session id}` plus your own name and color in LOCAL

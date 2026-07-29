@@ -44,7 +44,6 @@ const (
 	modeTagColor   // the alt+e tag color picker: assign a pill color to a tag
 	modeInsert     // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
 	modeAgentPick  // /agent: start a coding session here, or attach one from a CLI's own store
-	modeAgents     // /agents: every coding session in the outline, live ones first
 	modeAgentColor // ⌥c on a session chip: its color
 )
 
@@ -67,7 +66,6 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/agents", "List every coding session — live ones first, done ones after"},
 	{"/backlinks", "Show nodes that mirror or link to this one"},
 	{"/complete", "Toggle done (alt+enter)"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
@@ -188,11 +186,10 @@ type Model struct {
 
 	// the agentic coding session pickers (/agent, /agents). agentStore is the
 	// sessions discovered in the CLIs' own stores when the start/attach picker
-	// opened; agentRows is the outline's own session chips when /agents opened.
+	// opened.
 	// Both are snapshots — a picker never re-walks a store while it is being
 	// typed in.
 	agentStore []agentStoreSession
-	agentRows  []agentRow
 	// agentColorChip is the chip ⌥c is picking a color for.
 	agentColorChip string
 
@@ -1590,9 +1587,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	}
 
 	switch name {
-	case "/agents":
-		// the index of every session in the outline (live first, done after)
-		m.openAgentsList()
 	case "/type":
 		// open the picker; pre-select the type already in effect (see typeSource)
 		m.mode = modeType

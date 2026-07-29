@@ -37,6 +37,7 @@ const (
 	agentScanDepth = 7                   // how deep a store walk goes below its root
 	agentMetaCap   = 64 << 10            // bytes read from a record file: its head names the session
 	agentScanAge   = 90 * 24 * time.Hour // sessions older than this are not offered
+	agentTitleCap  = 200                 // sanity bound on a session name, not a display width
 )
 
 // agentStoreSession is one session discovered in a CLI's own store: what lflow
@@ -47,7 +48,6 @@ type agentStoreSession struct {
 	id      string
 	title   string    // the CLI's own title/summary for the session; "" = untitled
 	cwd     string    // the directory the session ran in, when the store records it
-	color   string    // an SGR color the CLI assigned the session; "" = none
 	updated time.Time // when the session itself last moved (the store's clock, else the file's)
 	modAt   time.Time // the record file's mtime — what a cache checks to skip a re-read
 	path    string    // the file (or directory) the session was read from
@@ -175,16 +175,17 @@ func agentReadMeta(variant, path string) agentStoreSession {
 		if s.cwd == "" {
 			s.cwd = agentString(rec, "cwd", "directory", "workingDirectory", "worktree", "path")
 		}
-		if s.color == "" {
-			s.color = agentColorSGR(agentString(rec, "color", "sessionColor", "labelColor"))
-		}
+		// the name is kept WHOLE here and clipped only where it is drawn: the
+		// panel shows all of it, wrapped, and only the pill and the picker row
+		// shorten it. agentTitleCap is a sanity bound, not a display width — a
+		// first prompt can be an entire pasted file.
 		if s.title == "" {
-			s.title = clipStr(oneLine(agentString(rec, "summary", "title", "name", "description")), 60)
+			s.title = clipStr(oneLine(agentString(rec, "summary", "title", "name", "description")), agentTitleCap)
 		}
 		if s.title == "" {
 			// no titled record: the first thing asked of the session names it
 			if p := agentFirstPrompt(rec); p != "" {
-				s.title = clipStr(oneLine(p), 60)
+				s.title = clipStr(oneLine(p), agentTitleCap)
 			}
 		}
 	}

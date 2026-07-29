@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 )
@@ -176,9 +177,6 @@ func TestAgentReadMeta(t *testing.T) {
 	if meta.cwd != "/home/dev/repo" {
 		t.Errorf("cwd = %q", meta.cwd)
 	}
-	if !strings.Contains(meta.color, "78;201;176") {
-		t.Errorf("session color = %q, want the #4ec9b0 truecolor sequence", meta.color)
-	}
 }
 
 // TestAgentReadMetaFallsBackToFirstPrompt: an untitled session is named by what
@@ -189,9 +187,6 @@ func TestAgentReadMetaFallsBackToFirstPrompt(t *testing.T) {
 	meta := agentReadMeta(c.id, agentSessionPath(c.sessionDirs(), c.exts, id))
 	if meta.title != "the sync test is flaky" {
 		t.Errorf("title = %q, want the first prompt", meta.title)
-	}
-	if meta.color != "" {
-		t.Errorf("color = %q, want none", meta.color)
 	}
 }
 
@@ -271,9 +266,9 @@ func TestAgentChipPill(t *testing.T) {
 	if !strings.Contains(pill, cInkDark) {
 		t.Error("a light fill must be written in dark ink")
 	}
-	// the CLI's store gave this session a color: the pill is filled with it
-	if !strings.Contains(pill, "\x1b[48;2;78;201;176m") {
-		t.Errorf("pill = %q, want the session's own #4ec9b0 fill", pill)
+	// no CLI records a color for a session, so the fill is the variant's own
+	if !strings.Contains(pill, bgOf(c.colorSGR())) {
+		t.Errorf("pill = %q, want Claude Code's own fill", pill)
 	}
 	if got := stripSGR(pill); got != " ✽ fix the flaky sync test " {
 		t.Errorf("pill reads %q, want the glyph and the session's name", got)
@@ -344,9 +339,6 @@ func TestAgentAttachExistingSession(t *testing.T) {
 	if s.SessionID != "abc-123" || s.Title != "port the parser" || s.Cwd != "/home/dev/repo" {
 		t.Fatalf("attached session = %+v", s)
 	}
-	if s.Runs == 0 {
-		t.Error("an attached session already exists — the next open must resume it")
-	}
 	if got := strings.Join(c.args(s.SessionID), " "); got != "--resume abc-123" {
 		t.Errorf("next open = %q, want a resume", got)
 	}
@@ -359,7 +351,7 @@ func TestAgentOpenRefusesGoneCwd(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
 	chip := chipOn(t, m, "note", c, agentStoreSession{})
 	gone := filepath.Join(t.TempDir(), "removed-repo")
-	m.agentSave(chip.ID, agentSession{Variant: c.id, SessionID: "abc-123", Cwd: gone, Runs: 1})
+	m.agentSave(chip.ID, agentSession{Variant: c.id, SessionID: "abc-123", Cwd: gone})
 
 	if cmd := m.agentOpen(c, chip.ID, gone); cmd != nil {
 		t.Error("a session whose directory is gone must not launch the CLI")
@@ -369,8 +361,12 @@ func TestAgentOpenRefusesGoneCwd(t *testing.T) {
 	}
 }
 
-// TestAgentPanelIsSmall: ⌥e shows the session, where it runs and its keys — and
-// nothing else. No transcript, no tool calls, no counters.
+// TestAgentPanelIsSmall: ⌥e shows the session's name IN FULL and the directory
+// it is pinned to. Nothing else. Everything lflow could add — a state word, a
+// "last opened" — it would be guessing at, and the panel does not guess: two of
+// the three CLIs keep no live registry, so "idle" would only ever mean "we do not
+// know", and the timestamp that was there read a store's mtime and called it an
+// open.
 func TestAgentPanelIsSmall(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser)
 	claudeRegistry(t, id, "flush-resume", "cli")
@@ -384,14 +380,42 @@ func TestAgentPanelIsSmall(t *testing.T) {
 		t.Fatalf("the panel is %d lines, want 3:\n%s", len(bands), strings.Join(bands, "\n"))
 	}
 	joined := stripSGR(strings.Join(bands, "\n"))
-	for _, want := range []string{"✽ flush-resume", "/home/dev/repo", "live", "⌥r open", "n rename"} {
+	for _, want := range []string{"✽ flush-resume", "/home/dev/repo", "⌥r open", "⌥n rename", "⌥c color"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("panel is missing %q:\n%s", want, joined)
 		}
 	}
-	for _, unwanted := range []string{"tokens", "Bash", "turns", "branch", "model"} {
+	// nothing invented, and nothing borrowed from the conversation
+	for _, unwanted := range []string{"idle", "opened", "live", "tokens", "Bash", "turns", "branch", "model"} {
 		if strings.Contains(joined, unwanted) {
-			t.Errorf("panel leaks %q — it is meant to be small:\n%s", unwanted, joined)
+			t.Errorf("panel says %q — it does not know that:\n%s", unwanted, joined)
+		}
+	}
+}
+
+// TestAgentPanelWrapsLongName: a session named by its first prompt is a
+// sentence. The panel shows all of it, wrapped, because clipping is what makes
+// two sessions look alike.
+func TestAgentPanelWrapsLongName(t *testing.T) {
+	long := "add a retry backoff to the sync flush so a dropped feed reconnects and resyncs wholesale"
+	id := claudeStore(t, `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"`+long+`"}]}}`)
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, cwd: "/home/dev/repo"})
+	m.focusAgentChip(chip)
+
+	bands := (agentChipView{}).Bands(m, m.tree.byUUID["note"], "", 48, 0, 20, true)
+	joined := stripSGR(strings.Join(bands, "\n"))
+	if len(bands) < 4 {
+		t.Fatalf("a long name did not wrap; panel is %d lines:\n%s", len(bands), joined)
+	}
+	flat := strings.Join(strings.Fields(joined), " ")
+	if !strings.Contains(flat, long) {
+		t.Errorf("the name was clipped instead of wrapped:\n%s", joined)
+	}
+	for _, b := range bands {
+		if w := runewidth.StringWidth(stripSGR(b)); w > 48 {
+			t.Errorf("line is %d wide, over the panel's 48:\n%s", w, stripSGR(b))
 		}
 	}
 }
@@ -425,43 +449,6 @@ func TestAgentRenameInPanel(t *testing.T) {
 	(agentChipView{}).Key(m, it, key("esc"))
 	if m.agentRenameState(chip.ID) != nil {
 		t.Error("esc must close the field")
-	}
-}
-
-// TestAgentsListRanksLiveFirst: /agents lists the outline's session chips, live
-// ones first, done ones muted below — each drawn as the pill the outline draws.
-func TestAgentsListRanksLiveFirst(t *testing.T) {
-	c := variant(t, "claude")
-	p := variant(t, "pi")
-	m, _ := dbModel(t,
-		database.Node{UUID: "done", Name: "shipped work ", CompletedAt: time.Now().Unix()},
-		database.Node{UUID: "live", Name: "current work "},
-	)
-	doneChip := chipOn(t, m, "done", c, agentStoreSession{})
-	liveChip := chipOn(t, m, "live", p, agentStoreSession{})
-	m.agentSave(doneChip.ID, agentSession{Variant: c.id, SessionID: "d1", OpenedAt: time.Now().Unix()})
-	m.agentSave(liveChip.ID, agentSession{Variant: p.id, SessionID: "l1", OpenedAt: time.Now().Add(-time.Hour).Unix()})
-	if _, err := m.tree.save(); err != nil {
-		t.Fatal(err)
-	}
-
-	rows := m.collectAgentRows()
-	if len(rows) != 2 {
-		t.Fatalf("collected %d rows, want 2", len(rows))
-	}
-	if rows[0].uuid != "live" || rows[1].uuid != "done" {
-		t.Fatalf("order = %s,%s — live sessions rank first", rows[0].uuid, rows[1].uuid)
-	}
-	doneRow := m.agentListRow(rows[1], "shipped")
-	if !strings.HasPrefix(doneRow, bgOf(cDim)) || !strings.Contains(stripSGR(doneRow), "done") {
-		t.Errorf("done row = %q, want a gray-filled pill marked done", doneRow)
-	}
-	liveRow := m.agentListRow(rows[0], "current")
-	if !strings.Contains(liveRow, bgOf(p.colorSGR())) {
-		t.Errorf("live row = %q, want a pill filled with the agent's own color", liveRow)
-	}
-	if !strings.Contains(stripSGR(liveRow), "current work") {
-		t.Errorf("live row = %q, want the row the chip is filed in", stripSGR(liveRow))
 	}
 }
 
@@ -521,24 +508,6 @@ func TestAgentRenameReplaces(t *testing.T) {
 	(agentChipView{}).Key(m, it, key("n"))
 	if f := m.agentRenameState(chip.ID); f == nil || f.value != "flush fix" {
 		t.Errorf("re-opening the field gave %q, want the custom name", f.value)
-	}
-}
-
-// TestAgentsListRowDropsItsOwnChip: a /agents row shows the words around the
-// chip, not the chip again — the pill beside them already says which session.
-func TestAgentsListRowDropsItsOwnChip(t *testing.T) {
-	c := variant(t, "claude")
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "sync flush loses edits "})
-	chipOn(t, m, "note", c, agentStoreSession{})
-	if _, err := m.tree.save(); err != nil {
-		t.Fatal(err)
-	}
-	rows := m.collectAgentRows()
-	if len(rows) != 1 {
-		t.Fatalf("collected %d rows", len(rows))
-	}
-	if rows[0].name != "sync flush loses edits" {
-		t.Errorf("row name = %q, want the row's own words without the chip", rows[0].name)
 	}
 }
 
@@ -682,21 +651,15 @@ func TestAgentReadMetaTakesTheSessionID(t *testing.T) {
 	}
 }
 
-// TestAgentHasNoSlashCommand: a session chip is one of the things /insert
-// splices, not a command of its own — /agent must not exist. /agents, the index
-// of what is already in the outline, is a different thing and stays.
-func TestAgentHasNoSlashCommand(t *testing.T) {
-	var names []string
+// TestAgentHasNoSlashCommands: a session chip is one of the things /insert
+// splices, and that is the only way in. Neither /agent nor /agents exists — a
+// chip belongs to the row it sits in, and the outline is already the index.
+func TestAgentHasNoSlashCommands(t *testing.T) {
 	for _, c := range slashCommands {
-		names = append(names, c.name)
-		if c.name == "/agent" {
-			t.Error("/agent is back; the chip belongs to /insert alone")
+		if c.name == "/agent" || c.name == "/agents" {
+			t.Errorf("%s is back; the chip belongs to /insert alone", c.name)
 		}
 	}
-	if !contains(names, "/agents") {
-		t.Error("/agents went missing; it lists the outline, it does not insert")
-	}
-	// and /insert still offers it
 	found := false
 	for _, k := range insertKinds {
 		if k.value == "agent" {
@@ -708,11 +671,34 @@ func TestAgentHasNoSlashCommand(t *testing.T) {
 	}
 }
 
-func contains(hay []string, needle string) bool {
-	for _, h := range hay {
-		if h == needle {
-			return true
-		}
+// TestAgentKeysFindTheChipOnAWrappedRow: a row wide enough to wrap puts End on
+// the end of a visual line, not after the chip, so the exact-caret test misses.
+// The keys still find the row's only session; a row with several says so rather
+// than guessing.
+func TestAgentKeysFindTheChipOnAWrappedRow(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: "abc-12345678"})
+	cur := m.tree.byUUID["note"]
+
+	m.caret = 0 // nowhere near the chip
+	if _, ok := m.agentChipAtCaret(cur); ok {
+		t.Fatal("the exact test should miss here — that is the premise")
 	}
-	return false
+	got, ok := m.agentChipForKeys(cur)
+	if !ok || got.ID != chip.ID {
+		t.Errorf("the keys did not fall back to the row's only session")
+	}
+
+	// a second session makes the caret ambiguous: say so, do not guess
+	m.caret = len([]rune(cur.name))
+	second := chipOn(t, m, "note", variant(t, "pi"), agentStoreSession{variant: "pi", id: "def-87654321"})
+	m.caret = 0
+	if _, ok := m.agentChipForKeys(m.tree.byUUID["note"]); ok {
+		t.Error("two sessions and an ambiguous caret must not pick one")
+	}
+	if !strings.Contains(m.flash, "put the caret on a session chip") {
+		t.Errorf("no explanation given, flash = %q", m.flash)
+	}
+	_ = second
 }

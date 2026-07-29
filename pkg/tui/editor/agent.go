@@ -2,6 +2,7 @@ package editor
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -159,9 +160,7 @@ type agentSession struct {
 	Variant   string `json:"variant"`
 	Cwd       string `json:"cwd,omitempty"`
 	SessionID string `json:"session,omitempty"`
-	Runs      int    `json:"runs,omitempty"`
-	OpenedAt  int64  `json:"opened,omitempty"` // unix seconds of the last open
-	Title     string `json:"title,omitempty"`  // last name read from the CLI's store
+	Title     string `json:"title,omitempty"` // last name read from the CLI's store
 	// Name is the user's OWN name for this session, like a link chip's name: set
 	// it and the chip reads that instead of whatever the CLI calls the session.
 	// Empty = follow the CLI's live name.
@@ -277,23 +276,14 @@ func (m *Model) agentRegOf(v agentVariant, sessionID string) (agentReg, bool) {
 	return reg, ok
 }
 
-// agentLive reports whether the session's CLI is running right now.
-func (m *Model) agentLive(v agentVariant, s agentSession) bool {
-	reg, ok := m.agentRegOf(v, s.SessionID)
-	return ok && reg.live
-}
-
-// agentColorFor is the color a chip is drawn in, in priority order: the color YOU
-// picked with ⌥c, then one the CLI stamped on the session itself, then the
-// variant's default. Pure — it is called from the render path.
+// agentColorFor is the color a chip is drawn in: the one YOU picked with ⌥c, else
+// the variant's default. No CLI of the three records a color for a session, so
+// there is nothing else to read. Pure — it is called from the render path.
 func (m *Model) agentColorFor(id string, v agentVariant, s agentSession) string {
 	if s.Color != "" {
 		if c := agentColorSGR(s.Color); c != "" {
 			return c
 		}
-	}
-	if meta := m.agentMeta(id, v, s); meta.color != "" {
-		return meta.color
 	}
 	return v.colorSGR()
 }
@@ -420,8 +410,6 @@ func (m *Model) handleAgentClosed(msg agentClosedMsg) {
 	}
 	s := m.agentLoad(msg.id)
 	s.Variant = v.id
-	s.Runs++
-	s.OpenedAt = time.Now().Unix()
 	if meta := agentReadMeta(v.id, agentSessionPath(v.sessionDirs(), v.exts, s.SessionID)); meta.title != "" {
 		s.Title = meta.title
 	}
@@ -451,10 +439,6 @@ func (m *Model) agentAttach(id string, sess agentStoreSession) {
 	if s.Cwd == "" {
 		s.Cwd = processCWD()
 	}
-	if !sess.updated.IsZero() {
-		s.OpenedAt = sess.updated.Unix()
-	}
-	s.Runs++ // an attached session already exists: the next open resumes it
 	m.agentSave(id, s)
 	delete(m.nodeStore(id), "agentMeta")
 	m.refreshAgentChip(id)
@@ -531,6 +515,37 @@ func (m *Model) insertAgentChip(cur *item, v agentVariant, attach agentStoreSess
 	m.publishAgentLook(id, v)
 	m.refreshAgentChip(id)
 	m.flash = v.label + " · ⌥r opens · ⌥n renames · ⌥c recolors"
+}
+
+// agentChipForKeys is what ⌥r / ⌥e / ⌥n / ⌥c act on. It prefers the chip the
+// caret is exactly on, and falls back to the row's chip when the row has only
+// one — a row wide enough to WRAP puts End on the end of a visual line rather
+// than after the chip, and a key that silently does nothing there reads as a
+// broken key rather than a missed target.
+//
+// A row with several sessions and an ambiguous caret is left alone on purpose:
+// guessing which one you meant is worse than saying so.
+func (m *Model) agentChipForKeys(cur *item) (database.Chip, bool) {
+	if c, ok := m.agentChipAtCaret(cur); ok {
+		return c, true
+	}
+	if cur == nil {
+		return database.Chip{}, false
+	}
+	var only database.Chip
+	n := 0
+	for _, sp := range anchorSpans([]rune(cur.name)) {
+		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindAgent {
+			only, n = c, n+1
+		}
+	}
+	if n == 1 {
+		return only, true
+	}
+	if n > 1 {
+		m.flash = fmt.Sprintf("put the caret on a session chip · this row has %d", n)
+	}
+	return database.Chip{}, false
 }
 
 // anchorChipID recovers the chip id from an anchor built by createChip.

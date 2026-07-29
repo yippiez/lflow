@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 )
@@ -129,7 +130,10 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// agentBandContent renders the panel: the session, where it runs, and its keys.
+// agentBandContent renders the panel: the session's full name, wrapped, and the
+// directory it is pinned to. Nothing else — every other thing lflow could say
+// about a session it would be GUESSING at (see agent.go on what the three stores
+// actually expose), and a panel that guesses is worse than a short one.
 func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string {
 	if width <= 0 {
 		width = 1 << 20
@@ -137,38 +141,33 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 	color := m.agentColorFor(h.id, h.v, h.sess)
 	line := func(s string) string { return clip(rail+cReset+s, width) }
 
-	// the session's line: its pill, or the rename field in its place
-	var head string
+	// the rename field takes the session's line while it is open
 	if f := m.agentRenameState(h.id); f != nil {
 		hint := "   enter save · esc cancel · empty = the CLI's own name"
-		head = "  " + cDim + "name  " + cReset + withCaret(f.value, f.caret) + cDim + hint + cReset
-	} else {
-		head = "  " + bgOf(color) + contrastInk(color) + " " + h.v.glyph + " " +
-			m.agentTitle(h.id, h.v, h.sess) + " " + cReset
+		head := "  " + cDim + "name  " + cReset + withCaret(f.value, f.caret) + cDim + hint + cReset
+		return []string{line(head), line(cDim + "  " + tildePath(h.sess.Cwd) + cReset), line(cDim + agentPanelKeys + cReset)}
 	}
-	content := []string{line(head)}
 
-	var meta []string
+	// the name in full: a session named by its first prompt is a sentence, and
+	// clipping it to the pill's width is what makes two sessions look alike
+	ink := bgOf(color) + contrastInk(color)
+	body := width - 6 // the rail, the indent, and the pill's own two spaces
+	if body < 8 {
+		body = 8
+	}
+	var content []string
+	for i, chunk := range wrapPlain(h.v.glyph+" "+m.agentTitle(h.id, h.v, h.sess), body) {
+		pad := ""
+		if i > 0 {
+			pad = strings.Repeat(" ", runewidth.StringWidth(h.v.glyph)+1)
+		}
+		content = append(content, line("  "+ink+" "+pad+chunk+" "+cReset))
+	}
 	if h.sess.Cwd != "" {
-		meta = append(meta, tildePath(h.sess.Cwd))
+		content = append(content, line(cDim+"  "+tildePath(h.sess.Cwd)+cReset))
 	}
-	meta = append(meta, m.agentStateWord(h))
-	if h.sess.OpenedAt > 0 {
-		meta = append(meta, "opened "+relTime(h.sess.OpenedAt))
-	}
-	content = append(content, line("  "+cDim+strings.Join(meta, " · ")+cReset))
-
-	return append(content, line(cDim+"  ⌥r open · ⌥n rename · ⌥c color · esc close"+cReset))
+	return append(content, line(cDim+agentPanelKeys+cReset))
 }
 
-// agentStateWord is what the session is doing right now, in one word.
-func (m *Model) agentStateWord(h agentHandle) string {
-	switch {
-	case m.agentLive(h.v, h.sess):
-		return "live"
-	case h.sess.SessionID == "":
-		return "no session attached"
-	default:
-		return "idle"
-	}
-}
+// agentPanelKeys is the panel's last line: everything you can do to a session.
+const agentPanelKeys = "  ⌥r open · ⌥n rename · ⌥c color · esc close"
