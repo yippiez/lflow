@@ -12,8 +12,8 @@ import (
 // An inline completer is the popup behind "#" (tags) and ":" (icons on normal
 // nodes / query commands on query nodes). Like the slash menu
 // it types into the node text and shows a filtered list above the status bar.
-// Query commands may chain into a value picker — :type: offers types, while
-// :in: opens the node finder. Icons land as plain unicode (see icon.go).
+// Query commands may chain into a value picker — type: offers types, while
+// in: opens the node finder. Icons land as plain unicode (see icon.go).
 
 type complKind int
 
@@ -41,14 +41,19 @@ type complItem struct {
 // queryCmdItems is the fixed menu for ":" in a query node — the filters and
 // display flags the query matcher understands (see querytime.go).
 var queryCmdItems = []complItem{
-	{label: ":after:", value: ":after:", desc: "dated/created on or after"},
-	{label: ":before:", value: ":before:", desc: "dated/created on or before"},
-	{label: ":since:", value: ":since:", desc: "alias of :after:"},
-	{label: ":until:", value: ":until:", desc: "alias of :before:"},
-	{label: ":type:", value: ":type:", desc: "node type (todo, log, …)"},
-	{label: ":in:", value: ":in:", desc: "select subtree to search (root by default)"},
-	{label: ":breadcrumb:", value: ":breadcrumb:", desc: "nest hits in a locked ancestor tree"},
-	{label: ":list:", value: ":list:", desc: "flat hit list (default)"},
+	{label: "type:", value: "type:", desc: "node type (todo, log, …)"},
+	{label: "in:", value: "in:", desc: "select subtree to search (root by default)"},
+	{label: "after:", value: "after:", desc: "dated/created on or after"},
+	{label: "before:", value: "before:", desc: "dated/created on or before"},
+	{label: "since:", value: "since:", desc: "alias of after:"},
+	{label: "until:", value: "until:", desc: "alias of before:"},
+	{label: "is:starred", value: "is:starred", desc: "pinned with /star"},
+	{label: "is:done", value: "is:done", desc: "completed todos"},
+	{label: "is:open", value: "is:open", desc: "not completed"},
+	{label: "has:note", value: "has:note", desc: "carries a note"},
+	{label: "has:children", value: "has:children", desc: "has child nodes"},
+	{label: "as:tree", value: "as:tree", desc: "nest hits in a locked ancestor tree"},
+	{label: "as:list", value: "as:list", desc: "flat hit list (default)"},
 }
 
 // existingTags is every distinct tag in the outline, sorted. It unions the chip
@@ -129,8 +134,8 @@ func (m *Model) openCompleter(cur *item, kind complKind, trigger string) (tea.Mo
 }
 
 // applyCompletion replaces the active token. It returns true when selecting
-// :type: chained directly into its value picker, keeping modeComplete open;
-// :in: instead moves directly into the node finder.
+// type: chained directly into its value picker, keeping modeComplete open;
+// in: instead moves directly into the node finder.
 func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 	if cur == nil {
 		return false
@@ -147,12 +152,12 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(chosen.value))
 		m.unsaved = true
-		if strings.EqualFold(chosen.value, ":type:") {
+		if strings.EqualFold(chosen.value, "type:") {
 			m.compl = complState{kind: complQueryType, start: m.caret}
 			m.list = listPicker{searchable: true}
 			return true
 		}
-		if strings.EqualFold(chosen.value, ":in:") {
+		if strings.EqualFold(chosen.value, "in:") {
 			m.openFinder(actQueryScope)
 		}
 		return false
@@ -210,6 +215,33 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 	m.caret = m.compl.start + len([]rune(anchor))
 	m.unsaved = true
 	return false
+}
+
+// typedQueryCmd reports the qualifier a user has finished typing INTO the open
+// completer ("type:", "is:"), so the popup can react the same way Enter on the
+// matching row does.
+func typedQueryCmd(typed string) (string, bool) {
+	key, _, ok := splitQualifier(strings.ToLower(typed))
+	if !ok || !strings.HasSuffix(typed, ":") {
+		return "", false
+	}
+	return key, true
+}
+
+// dropCompleterTrigger removes the ":" that opened the completer. Typing a
+// qualifier out by hand must land the same flat "type:" text that picking it
+// from the popup does, not the legacy ":type:" sandwich.
+func (m *Model) dropCompleterTrigger(cur *item) {
+	runes := []rune(cur.name)
+	at := m.compl.start
+	if cur == nil || at < 0 || at >= len(runes) || runes[at] != ':' {
+		return
+	}
+	cur.name = string(runes[:at]) + string(runes[at+1:])
+	if m.caret > at {
+		m.caret--
+	}
+	m.unsaved = true
 }
 
 // delCharBeforeCaret removes one rune left of the caret (the completer's

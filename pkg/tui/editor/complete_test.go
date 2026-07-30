@@ -9,16 +9,16 @@ import (
 func TestComplItemsQueryCmdFilter(t *testing.T) {
 	m := &Model{compl: complState{kind: complQueryCmd}}
 	items := m.complItems("aft")
-	if len(items) != 1 || items[0].value != ":after:" {
-		t.Fatalf("query-cmd filter 'aft' = %v, want [:after:]", items)
+	if len(items) != 1 || items[0].value != "after:" {
+		t.Fatalf("query-cmd filter 'aft' = %v, want [after:]", items)
 	}
 	items = m.complItems("in")
 	foundIn := false
 	for _, it := range items {
-		foundIn = foundIn || it.value == ":in:"
+		foundIn = foundIn || it.value == "in:"
 	}
 	if !foundIn {
-		t.Fatalf("query-cmd filter 'in' = %v, want it to include [:in:]", items)
+		t.Fatalf("query-cmd filter 'in' = %v, want it to include [in:]", items)
 	}
 }
 
@@ -45,10 +45,10 @@ func TestApplyCompletionQueryCmd(t *testing.T) {
 	m.compl = complState{kind: complQueryCmd, start: len([]rune("deploy "))}
 	items := m.complItems("af")
 	m.applyCompletion(it, pickerItem{value: items[0].value})
-	if it.name != "deploy :after:" {
-		t.Fatalf("name = %q, want %q", it.name, "deploy :after:")
+	if it.name != "deploy after:" {
+		t.Fatalf("name = %q, want %q", it.name, "deploy after:")
 	}
-	if m.caret != len([]rune("deploy :after:")) {
+	if m.caret != len([]rune("deploy after:")) {
 		t.Errorf("caret = %d, want end of token", m.caret)
 	}
 }
@@ -57,10 +57,10 @@ func TestQueryTypeCompletionChainsToValues(t *testing.T) {
 	it := &item{uuid: "n", typ: database.TypeQuery, name: ":ty"}
 	m := &Model{tree: &tree{byUUID: map[string]*item{"n": it}}, caret: 3,
 		compl: complState{kind: complQueryCmd, start: 0}}
-	if !m.applyCompletion(it, pickerItem{value: ":type:"}) {
-		t.Fatal("selecting :type: must keep completion open for its value")
+	if !m.applyCompletion(it, pickerItem{value: "type:"}) {
+		t.Fatal("selecting type: must keep completion open for its value")
 	}
-	if m.compl.kind != complQueryType || m.compl.start != len([]rune(":type:")) {
+	if m.compl.kind != complQueryType || m.compl.start != len([]rune("type:")) {
 		t.Fatalf("type value completion state = %+v", m.compl)
 	}
 	items := m.complItems("to")
@@ -68,7 +68,7 @@ func TestQueryTypeCompletionChainsToValues(t *testing.T) {
 		t.Fatalf("type values for 'to' = %v", items)
 	}
 	m.applyCompletion(it, pickerItem{value: database.TypeTodo})
-	if it.name != ":type:todo" {
+	if it.name != "type:todo" {
 		t.Fatalf("completed query = %q", it.name)
 	}
 }

@@ -1,0 +1,215 @@
+package editor
+
+import (
+	"fmt"
+	"sort"
+	"testing"
+	"time"
+
+	"github.com/lflow/lflow/pkg/tui/database"
+)
+
+// semanticCtx builds a candidate context straight from name text, bypassing the
+// tree so these tests exercise the matcher and nothing else.
+func semanticCtx(docs map[string]string) *qCtx {
+	var keys []string
+	for k := range docs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // fixed candidate order keeps failures reproducible
+	ctx := &qCtx{parent: map[string]string{}, byUUID: map[string]*qCand{}}
+	for _, k := range keys {
+		ctx.cands = append(ctx.cands, qCand{uuid: k, searchName: docs[k]})
+	}
+	return ctx
+}
+
+func semanticSet(ctx *qCtx, phrase string) []string {
+	var out []string
+	for u := range semanticHits(ctx, phrase) {
+		out = append(out, u)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// authCorpus is the standard vocabulary-mismatch fixture: D2 describes the same
+// trouble as D1 without sharing a single word with it, and D4 is the node whose
+// vocabulary bridges them.
+func authCorpus() *qCtx {
+	return semanticCtx(map[string]string{
+		"D1": "fix the login bug in the auth service",
+		"D2": "authentication service crashes on signin flow",
+		"D3": "grocery list milk eggs bread",
+		"D4": "auth service handles authentication and signin",
+	})
+}
+
+// TestSemanticFindsVocabularyMismatch is the promise of the quoted atom: a node
+// that shares NO word with the phrase still comes back, reached through the
+// outline's own co-occurrence evidence.
+func TestSemanticFindsVocabularyMismatch(t *testing.T) {
+	got := semanticSet(authCorpus(), "auth bug")
+	if !contains(got, "D2") {
+		t.Errorf(`"auth bug" = %v, want it to reach D2 — the paraphrase is the point`, got)
+	}
+	if !contains(got, "D1") {
+		t.Errorf(`"auth bug" = %v, want the literal match D1 as well`, got)
+	}
+	if contains(got, "D3") {
+		t.Errorf(`"auth bug" = %v, want the unrelated grocery node left out`, got)
+	}
+}
+
+// TestSemanticEmptyWhenNothingRelates: an absolute floor is what separates
+// "everything is weak" from "everything is weak next to one strong hit". With
+// no evidence at all the honest answer is no hits, not the top of the noise.
+func TestSemanticEmptyWhenNothingRelates(t *testing.T) {
+	if got := semanticSet(authCorpus(), "quarterly revenue forecast"); len(got) != 0 {
+		t.Errorf(`unrelated phrase = %v, want no hits`, got)
+	}
+}
+
+// TestSemanticLiteralPhraseAlwaysQualifies: fusion must never let a merely
+// related node crowd out one that literally says it.
+func TestSemanticLiteralPhraseAlwaysQualifies(t *testing.T) {
+	ctx := semanticCtx(map[string]string{
+		"exact": "the deployment pipeline is broken",
+		"near":  "release tooling needs attention",
+		"far":   "water the plants on friday",
+	})
+	got := semanticSet(ctx, "deployment pipeline broken")
+	if !contains(got, "exact") {
+		t.Fatalf("literal match = %v, want the exact node", got)
+	}
+	if contains(got, "far") {
+		t.Errorf("literal match = %v, want the unrelated node left out", got)
+	}
+}
+
+// TestSemanticTrigramBridgesMorphology covers the channel that carries a fresh
+// outline, where no co-occurrence evidence exists yet: "auth" must still reach
+// "authentication" on shared character shingles alone.
+func TestSemanticTrigramBridgesMorphology(t *testing.T) {
+	ctx := semanticCtx(map[string]string{
+		"a": "authentication rewrite",
+		"b": "gardening notes",
+	})
+	got := semanticSet(ctx, "auth")
+	if !contains(got, "a") {
+		t.Fatalf(`"auth" = %v, want the authentication node`, got)
+	}
+	if contains(got, "b") {
+		t.Errorf(`"auth" = %v, want the unrelated node left out`, got)
+	}
+}
+
+func TestSemanticStemFoldsInflections(t *testing.T) {
+	cases := map[string]string{
+		"deploying": "deploy", "deployed": "deploy", "deploys": "deploy",
+		"shopping": "shop", // Porter undoubling — "shopp" would share nothing with "shop"
+		"tries":    "try",
+		"was":      "was", // too short to strip: stemming it would produce noise
+		"pass":     "pass",
+	}
+	for in, want := range cases {
+		if got := semanticStem(in); got != want {
+			t.Errorf("semanticStem(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestSemanticIsDeterministic: index vectors are derived from node uuids rather
+// than drawn at random, so a query cannot reshuffle its own results between two
+// presses of alt+r.
+func TestSemanticIsDeterministic(t *testing.T) {
+	first := semanticSet(authCorpus(), "auth bug")
+	for i := 0; i < 5; i++ {
+		got := semanticSet(authCorpus(), "auth bug")
+		if len(got) != len(first) {
+			t.Fatalf("run %d = %v, want the stable %v", i, got, first)
+		}
+		for j := range got {
+			if got[j] != first[j] {
+				t.Fatalf("run %d = %v, want the stable %v", i, got, first)
+			}
+		}
+	}
+}
+
+// TestSemanticCapsResults keeps a fuzzy atom from returning the whole outline
+// when every node is plausibly on-topic.
+func TestSemanticCapsResults(t *testing.T) {
+	docs := map[string]string{}
+	for i := 0; i < 200; i++ {
+		docs[fmt.Sprintf("n%03d", i)] = fmt.Sprintf("deploy the release pipeline stage %d", i)
+	}
+	if got := semanticSet(semanticCtx(docs), "deploy release pipeline"); len(got) > semanticMaxHits {
+		t.Fatalf("hits = %d, want at most %d", len(got), semanticMaxHits)
+	}
+}
+
+// TestSemanticModelMemoizedPerContext: a streamed run re-evaluates after every
+// database batch, so a query with two quoted atoms must not build the space twice.
+func TestSemanticModelMemoizedPerContext(t *testing.T) {
+	ctx := authCorpus()
+	if first, second := ctx.semanticModel(), ctx.semanticModel(); first != second {
+		t.Fatal("semanticModel rebuilt for an unchanged candidate set")
+	}
+	ctx.cands = append(ctx.cands, qCand{uuid: "D5", searchName: "a new node arrived"})
+	if rebuilt := ctx.semanticModel(); len(rebuilt.docs) != 5 {
+		t.Fatalf("model has %d docs after a batch grew the set, want 5", len(rebuilt.docs))
+	}
+}
+
+// TestSemanticRunsInsideOneFrame: a quoted atom is evaluated on the UI goroutine
+// after every streamed batch, so the whole space has to build faster than a
+// terminal repaint.
+func TestSemanticRunsInsideOneFrame(t *testing.T) {
+	docs := map[string]string{}
+	for i := 0; i < 500; i++ { // StreamLiveNodes caps a scan at 500 candidates
+		docs[fmt.Sprintf("n%03d", i)] = fmt.Sprintf(
+			"node %d about deploying the release pipeline and its auth service", i)
+	}
+	ctx := semanticCtx(docs)
+	start := time.Now()
+	semanticHits(ctx, "why the build keeps failing")
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("semantic search over 500 nodes took %v, want well under a frame", elapsed)
+	}
+}
+
+// TestQuerySemanticAtomEndToEnd drives a quoted phrase through the real query
+// node, proving the atom is wired into evaluation and not just into the parser.
+func TestQuerySemanticAtomEndToEnd(t *testing.T) {
+	root := &item{uuid: database.RootUUID, name: "Root"}
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root,
+		name: `"login is broken"`}
+	hit := &item{uuid: "hit", name: "authentication service keeps rejecting signin", parent: root}
+	bridge := &item{uuid: "bridge", name: "login authentication signin service", parent: root}
+	miss := &item{uuid: "miss", name: "water the plants on friday", parent: root}
+	root.children = []*item{q, hit, bridge, miss}
+	m := &Model{tree: &tree{root: root, snapshots: map[string]snapshot{}, externalNames: map[string]string{},
+		byUUID: map[string]*item{database.RootUUID: root, "q": q,
+			"hit": hit, "bridge": bridge, "miss": miss}}}
+
+	var got []string
+	for _, n := range m.queryMatches(q) {
+		got = append(got, n.UUID)
+	}
+	if !contains(got, "hit") {
+		t.Errorf("quoted query = %v, want the paraphrased node", got)
+	}
+	if contains(got, "miss") {
+		t.Errorf("quoted query = %v, want the unrelated node left out", got)
+	}
+}
+
+func contains(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}

@@ -508,12 +508,21 @@ func (completerSource) onRune(m *Model, p *listPicker, r []rune) bool {
 		m.caret += len(ins)
 		m.unsaved = true
 	}
-	// Typing the command rather than picking it reaches the same chained value
-	// picker as Enter on :type:; the caret is already immediately after the colon.
-	if m.compl.kind == complQueryCmd && strings.EqualFold(p.query, "type:") {
-		m.compl = complState{kind: complQueryType, start: m.caret}
+	// Typing the qualifier rather than picking it reaches the same chained value
+	// picker as Enter on type:. Dropping the trigger colon first keeps hand-typed
+	// text on the flat spelling; the caret then sits right after "type:".
+	if key, done := typedQueryCmd(p.query); done && m.compl.kind == complQueryCmd {
+		m.dropCompleterTrigger(m.cursorItem())
 		p.query = ""
 		p.sel = 0
+		if key == "type" {
+			m.compl = complState{kind: complQueryType, start: m.caret}
+			return false
+		}
+		// Every other qualifier takes a free-form value (a date, a state word) —
+		// there is nothing left to pick, so hand the keyboard back to the outline.
+		m.mode = modeOutline
+		return true
 	}
 	return false // the completer never auto-closes on typing (allows a brand-new tag)
 }

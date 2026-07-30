@@ -3,22 +3,36 @@ package editor
 import (
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// Query language (live-query node name):
+// Query language (live-query node name). Every filter is a flat `key:value`
+// qualifier — one colon, no `:sandwich:` — so the grammar reads like the search
+// bars people already know:
 //
-//	atoms:  bare words (substring on name/note), #tag (exact tag),
-//	        :type:<key>, :after:/:since:<date>, :before:/:until:<date>
-//	ops:    ||  or   ·  &&  and (also implicit between adjacent atoms)  ·  >  under
-//	parens: ( … ) for grouping
-//	flags:  :breadcrumb: nest hits in a locked gray ancestor tree (default :list:)
-//	scope:  :in: followed by a picked node link limits results to its subtree
+//	words           deploy notes            substring on name/note (adjacent words glue)
+//	"phrase"        "why the build broke"   SEMANTIC match — meaning, not letters
+//	#tag            #urgent                 exact tag
+//	type:todo                               node type
+//	after:2026-06-01 · since:               dated/created on or after
+//	before:2026-06-20 · until:              dated/created on or before
+//	is:starred · is:done · is:open          node state
+//	has:note · has:children                 node shape
+//	in:<node link>                          limit results to a subtree (default: root)
+//	as:tree · as:list                       display (default list)
+//	-x                                      negate the atom that follows
+//	ops:            ||   &&   >   ( … )
 //
 // "A > B" keeps nodes matching B that sit under a node matching A (strict
 // descendants). Time bounds that share an AND combine into one window so a
 // node needs any one of its dates inside [after, before].
+//
+// WARNING (invariant): the legacy `:key:value` spellings (`:type:todo`,
+// `:after:…`, `:breadcrumb:`) still tokenize. Query text is persisted node text,
+// so queries written before the flat syntax must keep matching what they always
+// matched — the old forms are aliases, never errors.
 
 // parsedQuery is a compiled query: the match expression plus display flags.
 type parsedQuery struct {
@@ -39,14 +53,24 @@ type qExpr interface {
 type qOr struct{ kids []qExpr }
 type qAnd struct{ kids []qExpr }
 type qPipe struct{ stages []qExpr } // A > B > C
+type qNot struct{ kid qExpr }       // -x
 type qText struct {
 	s     string
 	isTag bool
 }
+
+// qSemantic is a "quoted" atom: it matches by MEANING rather than by letters,
+// so a hit need not contain any of the phrase's words (see semantic.go).
+type qSemantic struct{ phrase string }
+
 type qType struct{ key string }
 type qTime struct {
 	after, before *time.Time
 }
+
+// qState is an is:/has: predicate — a boolean fact about the node itself rather
+// than about its text.
+type qState struct{ key string }
 
 func (e *qOr) eval(ctx *qCtx) map[string]bool {
 	out := map[string]bool{}
@@ -151,6 +175,67 @@ func (e *qText) eval(ctx *qCtx) map[string]bool {
 	return out
 }
 
+// eval on qNot complements the candidate universe. The universe is the SCOPED
+// candidate set, so "-#done" inside an in:<node> query still means "everything
+// in that subtree without the tag" rather than everything in the outline.
+func (e *qNot) eval(ctx *qCtx) map[string]bool {
+	if e.kid == nil {
+		return map[string]bool{}
+	}
+	hit := e.kid.eval(ctx)
+	out := map[string]bool{}
+	for _, c := range ctx.cands {
+		if !hit[c.uuid] {
+			out[c.uuid] = true
+		}
+	}
+	return out
+}
+
+func (e *qSemantic) eval(ctx *qCtx) map[string]bool {
+	return semanticHits(ctx, e.phrase)
+}
+
+func (e *qState) eval(ctx *qCtx) map[string]bool {
+	out := map[string]bool{}
+	for _, c := range ctx.cands {
+		if ctx.stateHolds(e.key, c) {
+			out[c.uuid] = true
+		}
+	}
+	return out
+}
+
+// stateHolds answers one is:/has: predicate for a candidate. Unknown keys match
+// nothing rather than everything: a typo must not silently widen the result set.
+func (ctx *qCtx) stateHolds(key string, c qCand) bool {
+	switch key {
+	case "starred":
+		return c.starred
+	case "unstarred":
+		return !c.starred
+	case "done", "complete", "completed":
+		return c.completedAt > 0
+	case "open", "todo", "incomplete":
+		return c.completedAt == 0
+	case "note":
+		return strings.TrimSpace(c.searchNote) != ""
+	case "tag", "tagged":
+		return len(tagsIn(c.searchName)) > 0 || len(tagsIn(c.searchNote)) > 0
+	case "children", "child":
+		// Derived from the parent map rather than a stored count, so it stays
+		// true for the candidates actually loaded — the same universe every other
+		// atom sees.
+		for _, k := range ctx.cands {
+			if ctx.parent[k.uuid] == c.uuid {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
 func (e *qType) eval(ctx *qCtx) map[string]bool {
 	out := map[string]bool{}
 	key := strings.ToLower(e.key)
@@ -196,6 +281,7 @@ type qCand struct {
 	// materialized mirror still renders the source's real chips.
 	searchName, searchNote string
 	addedOn                int64
+	completedAt            int64
 	starred                bool
 }
 
@@ -207,6 +293,10 @@ type qCtx struct {
 	byUUID map[string]*qCand
 	parent map[string]string // uuid → parent uuid
 	seen   map[string]bool   // merged candidate UUIDs, including empty structural nodes
+	// semantic vector space for "quoted" atoms, memoized across the atoms of one
+	// run and rebuilt only when a streamed batch grows the candidate set.
+	sem  *semanticModel
+	semN int
 }
 
 // underAny reports whether uuid is a strict descendant of any node in roots.
@@ -249,118 +339,194 @@ const (
 	tokAnd
 	tokOr
 	tokPipe
+	tokNot
 	tokLParen
 	tokRParen
 	tokType
 	tokAfter
 	tokBefore
 	tokTag
+	tokState    // is:/has: predicate
+	tokSemantic // "quoted phrase"
 )
 
 type qTok struct {
 	kind qTokKind
-	text string // word / type key / tag / date operand
+	text string // word / type key / tag / date operand / phrase
 }
 
-// splitQueryFields splits on whitespace and peels leading/trailing parens into
-// their own fields so "(project || release)" tokenizes cleanly.
-func splitQueryFields(raw string) []string {
-	var out []string
-	for _, f := range strings.Fields(raw) {
-		// peel leading (
-		for strings.HasPrefix(f, "(") {
-			out = append(out, "(")
-			f = f[1:]
+// qField is one lexical field of a query: its text plus whether the user wrote
+// it inside "double quotes". Quoting is the semantic-search trigger, so it has
+// to survive tokenization as a flag rather than as literal quote characters.
+type qField struct {
+	text   string
+	quoted bool
+}
+
+// splitQueryFields scans raw into fields. Quoted runs stay whole (spaces and
+// all), parens and a leading "-" become their own fields, and everything else
+// splits on whitespace.
+func splitQueryFields(raw string) []qField {
+	var out []qField
+	runes := []rune(raw)
+	for i := 0; i < len(runes); {
+		switch {
+		case unicode.IsSpace(runes[i]):
+			i++
+		case runes[i] == '(' || runes[i] == ')':
+			out = append(out, qField{text: string(runes[i])})
+			i++
+		case runes[i] == '-' && i+1 < len(runes) && !unicode.IsSpace(runes[i+1]) &&
+			(i == 0 || unicode.IsSpace(runes[i-1]) || runes[i-1] == '('):
+			// only a word-leading "-" negates; an interior one is just a hyphen,
+			// which keeps "2026-06-01" and "re-run" intact.
+			out = append(out, qField{text: "-"})
+			i++
+		case runes[i] == '"':
+			j := i + 1
+			for j < len(runes) && runes[j] != '"' {
+				j++
+			}
+			// An unterminated quote still searches: the phrase runs to end of text,
+			// so the atom is live while the user is still typing the closing quote.
+			if phrase := strings.TrimSpace(string(runes[i+1 : j])); phrase != "" {
+				out = append(out, qField{text: phrase, quoted: true})
+			}
+			if j < len(runes) {
+				j++ // consume the closing quote
+			}
+			i = j
+		default:
+			j := i
+			for j < len(runes) && !unicode.IsSpace(runes[j]) &&
+				runes[j] != '(' && runes[j] != ')' && runes[j] != '"' {
+				j++
+			}
+			out = append(out, qField{text: string(runes[i:j])})
+			i = j
 		}
-		// peel trailing ) (may be several)
-		var trail []string
-		for strings.HasSuffix(f, ")") && f != "" {
-			trail = append(trail, ")")
-			f = f[:len(f)-1]
-		}
-		if f != "" {
-			out = append(out, f)
-		}
-		out = append(out, trail...)
 	}
 	return out
 }
 
-// tokenizeQuery splits raw into operator/filter/word tokens. Display flags
-// (:breadcrumb: / :list:) are stripped and reported separately. Legacy :tree:
-// is ignored so old text does not break the parse.
+// queryFilterKeys maps a `key:` qualifier to the token it produces. The flat
+// `type:todo` spelling and the legacy `:type:todo` one both resolve here.
+var queryFilterKeys = map[string]qTokKind{
+	"type":   tokType,
+	"after":  tokAfter,
+	"since":  tokAfter,
+	"before": tokBefore,
+	"until":  tokBefore,
+	"is":     tokState,
+	"has":    tokState,
+}
+
+// queryDisplayFields maps whole fields that only affect display (never
+// matching) to their breadcrumb setting. "as:tree" is the current spelling;
+// the rest are the legacy flags kept alive by the compatibility invariant.
+var queryDisplayFields = map[string]bool{
+	"as:tree": true, "as:breadcrumb": true, "as:list": false,
+	":breadcrumb:": true, ":breadcrumb": true,
+	":list:": false, ":list": false,
+}
+
+// splitQualifier peels "key:value" off a field, tolerating the legacy
+// ":key:value" wrapper. ok is false when the field carries no known key, in
+// which case it is ordinary search text — "ratio:1.5" stays a word.
+func splitQualifier(field string) (key, value string, ok bool) {
+	f := strings.TrimPrefix(field, ":") // legacy ":type:todo" → "type:todo"
+	i := strings.Index(f, ":")
+	if i <= 0 {
+		return "", "", false
+	}
+	key = strings.ToLower(f[:i])
+	if _, known := queryFilterKeys[key]; !known && key != "in" {
+		return "", "", false
+	}
+	return key, f[i+1:], true
+}
+
+// tokenizeQuery splits raw into operator/filter/word tokens. Display-only
+// fields are stripped and reported through breadcrumb. Legacy :tree: is ignored
+// so old text does not break the parse.
 func tokenizeQuery(raw string, now time.Time) (toks []qTok, breadcrumb bool, ok bool) {
 	ok = true
-	fields := splitQueryFields(raw)
-	for i := 0; i < len(fields); i++ {
-		f := fields[i]
-		lf := strings.ToLower(f)
-		switch {
-		case f == "&&":
-			toks = append(toks, qTok{kind: tokAnd})
-		case f == "||":
-			toks = append(toks, qTok{kind: tokOr})
-		case f == ">":
-			toks = append(toks, qTok{kind: tokPipe})
-		case f == "(":
-			toks = append(toks, qTok{kind: tokLParen})
-		case f == ")":
-			toks = append(toks, qTok{kind: tokRParen})
-		case lf == ":breadcrumb:" || lf == ":breadcrumb":
-			breadcrumb = true
-		case lf == ":list:" || lf == ":list":
-			breadcrumb = false
-		case lf == ":tree:" || lf == ":tree":
-			// removed — ignore so old text does not break the parse
+	for _, f := range splitQueryFields(raw) {
+		if f.quoted {
+			toks = append(toks, qTok{kind: tokSemantic, text: f.text})
 			continue
-		case strings.HasPrefix(lf, ":type:"):
-			key := lf[len(":type:"):]
-			if key != "" {
-				toks = append(toks, qTok{kind: tokType, text: key})
-			}
-		case hasAnyPrefix(lf, ":after:", ":since:"):
-			rest := cutPref(lf, ":after:", ":since:")
-			if t, _, pok := parseQueryDate(rest, now); pok {
-				toks = append(toks, qTok{kind: tokAfter, text: t.Format(time.RFC3339Nano)})
-			}
-		case hasAnyPrefix(lf, ":before:", ":until:"):
-			rest := cutPref(lf, ":before:", ":until:")
-			if t, hasTime, pok := parseQueryDate(rest, now); pok {
-				hi := t
-				if !hasTime {
-					hi = time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, t.Location())
-				}
-				toks = append(toks, qTok{kind: tokBefore, text: hi.Format(time.RFC3339Nano)})
-			}
-		default:
-			// a bare "#tag" is a tag atom; otherwise words (keep original case for
-			// display-less matching — we lower at match time)
-			if tag, is := tagQuery(f); is {
-				toks = append(toks, qTok{kind: tokTag, text: tag})
-			} else {
-				toks = append(toks, qTok{kind: tokWord, text: f})
-			}
 		}
+		lf := strings.ToLower(f.text)
+		if v, isDisplay := queryDisplayFields[lf]; isDisplay {
+			breadcrumb = v
+			continue
+		}
+		switch lf {
+		case "&&", "and":
+			toks = append(toks, qTok{kind: tokAnd})
+			continue
+		case "||", "or":
+			toks = append(toks, qTok{kind: tokOr})
+			continue
+		case ">":
+			toks = append(toks, qTok{kind: tokPipe})
+			continue
+		case "-", "not":
+			toks = append(toks, qTok{kind: tokNot})
+			continue
+		case "(":
+			toks = append(toks, qTok{kind: tokLParen})
+			continue
+		case ")":
+			toks = append(toks, qTok{kind: tokRParen})
+			continue
+		case ":tree:", ":tree":
+			continue // removed display flag — ignore rather than search for it
+		}
+		if key, value, isFilter := splitQualifier(f.text); isFilter {
+			toks = append(toks, filterToken(key, value, now)...)
+			continue
+		}
+		// a bare "#tag" is a tag atom; otherwise a word (case is kept for display,
+		// matching lowers both sides).
+		if tag, is := tagQuery(f.text); is {
+			toks = append(toks, qTok{kind: tokTag, text: tag})
+			continue
+		}
+		toks = append(toks, qTok{kind: tokWord, text: f.text})
 	}
 	return toks, breadcrumb, ok
 }
 
-func hasAnyPrefix(s string, prefixes ...string) bool {
-	for _, p := range prefixes {
-		if strings.HasPrefix(s, p) {
-			return true
+// filterToken compiles one resolved qualifier. A qualifier with an unusable
+// value (bare "type:", an unparseable date) yields no token at all, so a
+// half-typed filter simply does not constrain the query yet.
+func filterToken(key, value string, now time.Time) []qTok {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	switch queryFilterKeys[key] {
+	case tokType:
+		return []qTok{{kind: tokType, text: strings.ToLower(value)}}
+	case tokState:
+		return []qTok{{kind: tokState, text: strings.ToLower(value)}}
+	case tokAfter:
+		if t, _, pok := parseQueryDate(strings.ToLower(value), now); pok {
+			return []qTok{{kind: tokAfter, text: t.Format(time.RFC3339Nano)}}
+		}
+	case tokBefore:
+		if t, hasTime, pok := parseQueryDate(strings.ToLower(value), now); pok {
+			hi := t
+			if !hasTime {
+				hi = time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, t.Location())
+			}
+			return []qTok{{kind: tokBefore, text: hi.Format(time.RFC3339Nano)}}
 		}
 	}
-	return false
-}
-
-func cutPref(s string, prefixes ...string) string {
-	for _, p := range prefixes {
-		if strings.HasPrefix(s, p) {
-			return s[len(p):]
-		}
-	}
-	return s
+	// "in:" is consumed by queryTextAndScope before parsing; drop any residue so
+	// a scope selector never leaks into text matching.
+	return nil
 }
 
 // parseQuery compiles raw into an expression + display flags.
@@ -380,7 +546,7 @@ func parseQuery(raw string, now time.Time) parsedQuery {
 //	and  = pipe ( '&&' pipe )*
 //	pipe = implicit ( '>' implicit )*
 //	implicit = primary+          // adjacent primaries AND together; words glue
-//	primary  = '(' or ')' | atom
+//	primary  = '-'* ( '(' or ')' | atom )
 type qParser struct {
 	toks []qTok
 	pos  int
@@ -501,44 +667,14 @@ func (p *qParser) parseImplicitAnd() qExpr {
 		case tokOr, tokAnd, tokPipe, tokRParen:
 			flushWords()
 			goto done
-		case tokLParen:
-			flushWords()
-			p.take()
-			inner := p.parseOr()
-			if t2, ok2 := p.peek(); ok2 && t2.kind == tokRParen {
-				p.take()
-			}
-			if inner != nil {
-				kids = append(kids, inner)
-			}
 		case tokWord:
 			p.take()
 			words = append(words, t.text)
-		case tokTag:
-			flushWords()
-			p.take()
-			kids = append(kids, &qText{s: t.text, isTag: true})
-		case tokType:
-			flushWords()
-			p.take()
-			kids = append(kids, &qType{key: t.text})
-		case tokAfter:
-			flushWords()
-			p.take()
-			if tm, err := time.Parse(time.RFC3339Nano, t.text); err == nil {
-				lo := tm
-				kids = append(kids, &qTime{after: &lo})
-			}
-		case tokBefore:
-			flushWords()
-			p.take()
-			if tm, err := time.Parse(time.RFC3339Nano, t.text); err == nil {
-				hi := tm
-				kids = append(kids, &qTime{before: &hi})
-			}
 		default:
 			flushWords()
-			p.take()
+			if atom := p.parsePrimary(); atom != nil {
+				kids = append(kids, atom)
+			}
 		}
 	}
 done:
@@ -552,17 +688,50 @@ done:
 	return &qAnd{kids: kids}
 }
 
-// --- legacy helpers kept for tests / shared date scanning --------------------
-
-// cutAnyPrefix returns s with the first matching prefix removed, or false.
-func cutAnyPrefix(s string, prefixes ...string) (string, bool) {
-	for _, p := range prefixes {
-		if strings.HasPrefix(s, p) {
-			return s[len(p):], true
+// parsePrimary reads one non-word atom, including any "-" negations in front of
+// it. A trailing "-" with nothing after it is dropped rather than negating the
+// whole rest of the query — the user is still typing.
+func (p *qParser) parsePrimary() qExpr {
+	t, ok := p.take()
+	if !ok {
+		return nil
+	}
+	switch t.kind {
+	case tokNot:
+		inner := p.parsePrimary()
+		if inner == nil {
+			return nil
+		}
+		return &qNot{kid: inner}
+	case tokLParen:
+		inner := p.parseOr()
+		if t2, ok2 := p.peek(); ok2 && t2.kind == tokRParen {
+			p.take()
+		}
+		return inner
+	case tokTag:
+		return &qText{s: t.text, isTag: true}
+	case tokSemantic:
+		return &qSemantic{phrase: t.text}
+	case tokType:
+		return &qType{key: t.text}
+	case tokState:
+		return &qState{key: t.text}
+	case tokAfter:
+		if tm, err := time.Parse(time.RFC3339Nano, t.text); err == nil {
+			lo := tm
+			return &qTime{after: &lo}
+		}
+	case tokBefore:
+		if tm, err := time.Parse(time.RFC3339Nano, t.text); err == nil {
+			hi := tm
+			return &qTime{before: &hi}
 		}
 	}
-	return "", false
+	return nil
 }
+
+// --- legacy helpers kept for tests / shared date scanning --------------------
 
 // parseQueryDate resolves a time operand to its time, whether it carried an
 // explicit clock time, and ok. The leftmost recognised date wins.
@@ -618,12 +787,16 @@ func parseTimeQuery(raw string, now time.Time) timeQuery {
 			for _, k := range v.stages {
 				walk(k)
 			}
+		case *qNot:
+			walk(v.kid)
 		case *qText:
 			if !v.isTag {
 				words = append(words, v.s)
 			} else {
 				words = append(words, "#"+v.s)
 			}
+		case *qSemantic:
+			words = append(words, v.phrase)
 		case *qType:
 			tq.types = append(tq.types, v.key)
 		case *qTime:

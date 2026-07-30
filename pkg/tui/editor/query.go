@@ -45,11 +45,12 @@ type queryLoadMsg struct {
 // persisted :in: parameter, whose omitted value is the outline root.
 func queryPrefix(*item) string { return cDim + "⌕" + cReset + " " }
 
-// queryTextAndScope removes :in: selectors from q's searchable expression and
+// queryTextAndScope removes in: selectors from q's searchable expression and
 // returns their selected subtree root. An omitted selector means the permanent
 // outline root. The picker stores a selected node as a link chip, preserving its
-// UUID even when the node is renamed; :in:<uuid> and :in:root also work in plain
-// text for scripts and old hand-written queries.
+// UUID even when the node is renamed; in:<uuid> and in:root also work in plain
+// text for scripts and hand-written queries. The legacy :in: spelling still
+// parses (see the compatibility invariant in querytime.go).
 func (m *Model) queryTextAndScope(q *item) (string, string) {
 	if q == nil {
 		return "", database.RootUUID
@@ -64,13 +65,13 @@ func (m *Model) queryTextAndScope(q *item) (string, string) {
 	scope := database.RootUUID
 	var out []rune
 	for i := 0; i < len(runes); {
-		if !strings.HasPrefix(strings.ToLower(string(runes[i:])), ":in:") ||
-			(i > 0 && !unicode.IsSpace(runes[i-1])) {
+		marker := queryScopeMarker(runes[i:])
+		if marker == 0 || (i > 0 && !unicode.IsSpace(runes[i-1]) && runes[i-1] != '(') {
 			out = append(out, runes[i])
 			i++
 			continue
 		}
-		j := i + len(":in:")
+		j := i + marker
 		for j < len(runes) && unicode.IsSpace(runes[j]) {
 			j++
 		}
@@ -97,6 +98,39 @@ func (m *Model) queryTextAndScope(q *item) (string, string) {
 		i = end
 	}
 	return strings.TrimSpace(database.ExpandAnchors(string(out), m.chips)), scope
+}
+
+// queryScopeMarker returns the rune length of the scope selector starting at
+// runes, or 0 when there is none. Both the flat "in:" spelling and the legacy
+// ":in:" one are recognized.
+func queryScopeMarker(runes []rune) int {
+	head := strings.ToLower(string(runes[:min(len(runes), 4)]))
+	switch {
+	case strings.HasPrefix(head, ":in:"):
+		return 4
+	case strings.HasPrefix(head, "in:"):
+		return 3
+	}
+	return 0
+}
+
+// querySpanColor tints the semantic-search delimiters. A "quoted" phrase is the
+// query language's one operator that changes HOW matching works, so — as with
+// the math node's yellow operators — the marks carry the color and the phrase
+// inside stays ordinary text. An unterminated opening quote is tinted too: the
+// atom is already live while the closing quote is still being typed.
+func querySpanColor(_ *item, runes []rune) map[int]string {
+	var quotes []int
+	for i, r := range runes {
+		if r == '"' {
+			quotes = append(quotes, i)
+		}
+	}
+	out := make(map[int]string, len(quotes))
+	for _, i := range quotes {
+		out[i] = cYellow
+	}
+	return out
 }
 
 func runQuery(m *Model, it *item) tea.Cmd {
@@ -193,7 +227,7 @@ func (m *Model) handleQueryLoad(msg queryLoadMsg) tea.Cmd {
 			continue
 		}
 		load.ctx.add(q, qCand{uuid: n.UUID, name: n.Name, note: n.Note, typ: n.Type,
-			parent: n.ParentUUID, addedOn: n.AddedOn, starred: n.Starred})
+			parent: n.ParentUUID, addedOn: n.AddedOn, completedAt: n.CompletedAt, starred: n.Starred})
 	}
 	if len(msg.nodes) > 0 {
 		m.reconcileQueryMirrors(q, m.queryMatchesInCtx(q, load.parsed, load.scope, load.ctx))
@@ -305,7 +339,7 @@ func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
 		for _, n := range nodes {
 			if n.MirrorOf == "" {
 				ctx.add(q, qCand{uuid: n.UUID, name: n.Name, note: n.Note, typ: n.Type,
-					parent: n.ParentUUID, addedOn: n.AddedOn, starred: n.Starred})
+					parent: n.ParentUUID, addedOn: n.AddedOn, completedAt: n.CompletedAt, starred: n.Starred})
 			}
 		}
 		return true
@@ -332,7 +366,7 @@ func (m *Model) buildQueryCtxMemory(q *item, now time.Time) *qCtx {
 			parent = it.parent.uuid
 		}
 		ctx.add(q, qCand{uuid: uuid, name: it.name, note: it.note, typ: it.typ,
-			parent: parent, addedOn: it.addedOn, starred: it.starred})
+			parent: parent, addedOn: it.addedOn, completedAt: it.completedAt, starred: it.starred})
 	}
 	return ctx
 }
@@ -349,7 +383,11 @@ func (ctx *qCtx) add(q *item, c qCand) {
 	if c.parent != "" {
 		ctx.parent[c.uuid] = c.parent
 	}
-	if c.name == "" {
+	// An empty structural node has no text to match. The forest root is chrome
+	// the same way it is chrome in a breadcrumb path: it is every node's
+	// ancestor, so returning it as a hit says nothing. Both still contributed
+	// their parent link above, which is what `>` and in: scoping actually need.
+	if c.name == "" || c.uuid == database.RootUUID || c.parent == "" {
 		return
 	}
 	ctx.cands = append(ctx.cands, c)
