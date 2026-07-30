@@ -22,6 +22,28 @@ import (
 // The graph then comes from the SAME parser the typed form uses, so the inline
 // preview and the rendered structure can never disagree.
 
+// molAtomText is a node's contribution to the flattened notation: its text with
+// any chip anchors removed.
+//
+// WARNING (invariant): a name may carry chip anchors, and every surface that
+// reads a name must resolve them first. An anchor is a sentinel-delimited uuid,
+// never chemistry, so an atom node drops it — otherwise the sentinel and id leak
+// into both the row preview and the parsed graph.
+func molAtomText(name string) string {
+	if hasAnchor(name) {
+		runes := []rune(name)
+		var b strings.Builder
+		i := 0
+		for _, sp := range anchorSpans(runes) {
+			b.WriteString(string(runes[i:sp.start]))
+			i = sp.end
+		}
+		b.WriteString(string(runes[i:]))
+		name = b.String()
+	}
+	return strings.TrimSpace(name)
+}
+
 // molTreeSMILES flattens a molecule subtree into one SMILES string. Pure and
 // recursive: the node's own text is a fragment, each child is a branch, and the
 // last child continues the main chain unparenthesized.
@@ -30,7 +52,7 @@ func molTreeSMILES(it *item) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(strings.TrimSpace(it.name))
+	b.WriteString(molAtomText(it.name))
 	kids := it.children
 	for i, c := range kids {
 		sub := molTreeSMILES(c)

@@ -1,6 +1,9 @@
 package editor
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // node builds a molecule item tree for the tests: name plus children.
 func molNode(name string, kids ...*item) *item {
@@ -119,4 +122,21 @@ func contains(s, sub string) bool {
 		}
 		return false
 	})()
+}
+
+// A molecule node's name may carry chip anchors (a ⌬ chip pasted into an atom
+// row). An anchor is a sentinel-delimited uuid, never chemistry — it must never
+// reach the preview or the parsed graph.
+func TestMolTreeSMILESDropsChipAnchors(t *testing.T) {
+	tree := molNode("C"+chipAnchor("1c38af6c-83ff-4a75-a0c4-ce442e73e777"), molNode("O"))
+	got := molTreeSMILES(tree)
+	if got != "CO" {
+		t.Fatalf("molTreeSMILES = %q, want CO (anchor dropped)", got)
+	}
+	if strings.ContainsRune(got, chipSentinel) {
+		t.Fatalf("flattened notation %q still carries a chip sentinel", got)
+	}
+	if _, err := moleculeGraphOf(tree); err != nil {
+		t.Fatalf("graph from anchored tree: %v", err)
+	}
 }
