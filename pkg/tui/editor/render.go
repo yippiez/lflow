@@ -605,6 +605,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				// can't jump inside the app — so they get no OSC 8.
 				if c.Kind == chipKindLink {
 					col = linkChipColorCode() // /settings link.color: blue or gray
+					// a link to a known service swaps that gray for the
+					// service's own muted hue — same weight (see service.go)
+					if svc, ok := linkService(c); ok {
+						col = serviceChipColor(svc)
+					}
 					if _, isNode := nodeLinkUUID(c.Value); !isNode {
 						osc8 = c.Value
 					}

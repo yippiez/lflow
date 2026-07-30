@@ -554,6 +554,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
 			}
+			// running a link chip IS opening it — the browser for a URL (a Google
+			// Sheets/Docs chip lands in the host browser), a jump for a node link.
+			// Same action as alt+g, reached from the key every other inline chip
+			// is run with.
+			if c, ok := m.linkChipAtCaret(cur); ok {
+				return m.followLink(c)
+			}
 			if run := typeOf(cur.typ).run; run != nil {
 				if bin, missing := m.typeDepMissing(cur.typ); missing {
 					m.flash = "Missing dependency: " + bin
@@ -914,6 +921,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				text = lines[0]
 			} else {
 				text = ""
+			}
+			// a pasted service URL (Google Sheets/Docs/Drive …) lands as its
+			// branded chip instead of a wall of URL; every other paste is text
+			// exactly as before (see service.go)
+			if m.pasteServiceLink(cur, text) {
+				return m, nil
 			}
 		}
 

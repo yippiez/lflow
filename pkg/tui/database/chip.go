@@ -34,6 +34,11 @@ func ChipDisplay(c Chip) string {
 	case "tag":
 		return "#" + c.Value
 	case "link":
+		// a link to a known service (Google Sheets/Docs/Drive …) shows its glyph
+		// and title; the editor adds the service's color on top
+		if svc, ok := chiptext.ServiceFor(c.Value); ok {
+			return chiptext.ServiceDisplay(svc, c.Label)
+		}
 		return linkLabel(c)
 	case "cmd":
 		return "$" + c.Value

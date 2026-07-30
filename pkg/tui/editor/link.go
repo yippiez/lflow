@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/pkg/tui/chiptext"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/utils/browser"
 )
@@ -11,7 +12,8 @@ import (
 // A link chip points at a node or a website. Its target is stored in the chip
 // value — "lflow://node/<uuid>" for a node, a URL otherwise — and its arbitrary
 // display name in the chip label. Create one with "[[" (or /link), follow it with
-// alt+g.
+// alt+g or alt+r. A target pointing at a known service (Google Sheets/Docs/…)
+// renders as that service's branded chip; see service.go.
 
 const nodeLinkScheme = "lflow://node/"
 
@@ -82,22 +84,25 @@ func (m *Model) followLink(c database.Chip) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// insertLinkChip splices a new link chip (target + name) in at the caret.
-func (m *Model) insertLinkChip(value, label string) {
+// insertLinkChip splices a new link chip (target + name) in at the caret and
+// returns its chip id ("" when nothing was inserted) — the /insert service flow
+// reopens the fresh chip in the link editor.
+func (m *Model) insertLinkChip(value, label string) string {
 	cur := m.cursorItem()
 	if cur == nil {
-		return
+		return ""
 	}
 	m.pushUndo("")
 	anchor := m.createLabeledChip(chipKindLink, value, label)
 	if anchor == "" {
-		return
+		return ""
 	}
 	runes := []rune(cur.name)
 	m.boundCaret(len(runes))
 	cur.name = string(runes[:m.caret]) + anchor + string(runes[m.caret:])
 	m.caret += len([]rune(anchor))
 	m.unsaved = true
+	return strings.Trim(anchor, string(chipSentinel))
 }
 
 // insertURLLink inserts a link chip pointing at a typed/pasted URL, its name
@@ -105,7 +110,12 @@ func (m *Model) insertLinkChip(value, label string) {
 func (m *Model) insertURLLink(raw string) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	url := browser.Normalize(raw)
-	m.insertLinkChip(url, browser.Host(url))
+	label := browser.Host(url)
+	// a known service names itself ("Sheets"), not "docs.google.com"
+	if svc, ok := chiptext.ServiceFor(url); ok {
+		label = svc.Label
+	}
+	m.insertLinkChip(url, label)
 	m.flash = "linked → " + clipStr(url, 32)
 	m.refreshRows()
 	return m, nil
