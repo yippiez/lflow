@@ -97,3 +97,29 @@ func TestBacklinksSlashOpensFinder(t *testing.T) {
 		t.Fatalf("finder.act = %v, want actBacklinks", got.finder.act)
 	}
 }
+
+// TestBacklinksFlushesPendingEditBeforeSearching: /backlinks queries the DB
+// directly, so a link chip spliced into another node's name earlier in the
+// same session — still sitting unflushed in memory, since auto-sync is
+// debounced ~1s — must not read as "no matches". Running /backlinks flushes
+// first.
+func TestBacklinksFlushesPendingEditBeforeSearching(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "a", Name: "Target"},
+		database.Node{UUID: "b", Name: "see "},
+	)
+	cursorOn(m, "b")
+	m.caret = len([]rune("see "))
+	m.press("[")
+	m.press("[")
+	m.press("Target")
+	m.press("enter")
+	// deliberately no explicit save here — /backlinks itself must flush
+
+	cursorOn(m, "a")
+	mm, _ := m.runSlash("/backlinks")
+	got := mm.(*Model)
+	if len(got.finder.hits) != 1 || got.finder.hits[0].node.UUID != "b" {
+		t.Fatalf("want 1 hit (b), got %d: %v", len(got.finder.hits), got.finder.hits)
+	}
+}
