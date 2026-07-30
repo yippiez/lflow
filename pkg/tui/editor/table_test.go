@@ -323,3 +323,23 @@ func TestTableTypingMaterializesARaggedCell(t *testing.T) {
 		t.Errorf("column header = %q, want %q — typing must not leak into the header", got, "notes")
 	}
 }
+
+// TestTableFocusedCellKeepsItsFirstRune: the block caret parks past the last
+// rune, so a column sized flush to its widest cell would scroll that cell
+// sideways the moment the cursor landed on it — dropping its first character.
+func TestTableFocusedCellKeepsItsFirstRune(t *testing.T) {
+	m, tbl := newTableModel(80, []string{"fruit", "apples"}, []string{"dairy", "milk"})
+	v := tableView{}
+	v.Enter(m, tbl) // opens on the header, caret at the end of "fruit"
+
+	lines, _ := m.tableLines(tbl, 60, &tableSel{col: 0, row: -1, caret: len("fruit")})
+	joined := stripSGR(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "fruit") {
+		t.Errorf("focused header lost a rune:\n%s", joined)
+	}
+	// and the same for the widest cell in the column
+	lines, _ = m.tableLines(tbl, 60, &tableSel{col: 0, row: 0, caret: len("apples")})
+	if joined = stripSGR(strings.Join(lines, "\n")); !strings.Contains(joined, "apples") {
+		t.Errorf("focused cell lost a rune:\n%s", joined)
+	}
+}

@@ -226,6 +226,11 @@ func (m *Model) tableColWidths(g tableGrid, avail int) []int {
 				}
 			}
 		}
+		// one cell more than the content: the block caret parks PAST the last
+		// rune, and a box flush with its text would scroll the focused cell
+		// sideways to make room — the widest cell in a column losing its first
+		// character the moment the cursor lands on it.
+		w[i]++
 		if w[i] > tableColMax {
 			w[i] = tableColMax
 		}
