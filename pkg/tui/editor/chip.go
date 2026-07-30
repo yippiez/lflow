@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -66,8 +65,20 @@ func chipsEnabled(it *item) bool {
 	return it != nil && !typeOf(it.typ).disableChips
 }
 
-// Path chips are created by the ">" fuzzy picker (see file.go), not by typing a
-// marker — so "#" stays tags-only. The chip's display marker is "›" (see chipKinds).
+// insertLiteralAt splices plain text s into cur.name at caret (no chip) and parks
+// the caret after it.
+func (m *Model) insertLiteralAt(cur *item, caret int, s string) {
+	runes := []rune(cur.name)
+	if caret > len(runes) {
+		caret = len(runes)
+	}
+	if caret < 0 {
+		caret = 0
+	}
+	cur.name = string(runes[:caret]) + s + string(runes[caret:])
+	m.caret = caret + len([]rune(s))
+	m.unsaved = true
+}
 
 // spanStartingAt returns the anchor beginning exactly at rune index i, or nil.
 func spanStartingAt(spans []anchorSpan, i int) *anchorSpan {
@@ -112,7 +123,6 @@ type chipKind struct {
 }
 
 const (
-	chipKindPath = "path"
 	chipKindTag  = "tag"
 	chipKindDate = "date"
 	chipKindLink = "link"
@@ -121,18 +131,6 @@ const (
 )
 
 var chipKinds = map[string]chipKind{
-	chipKindPath: {
-		key:   chipKindPath,
-		color: cCyan,
-		display: func(v string) string {
-			base := filepath.Base(v)
-			if base == "" || base == "." || base == string(filepath.Separator) {
-				base = v
-			}
-			return "›" + base
-		},
-		expand: func(v string) string { return v },
-	},
 	// tag/date kinds make the chip model uniform (see the chip-kind design). Their
 	// display equals their value, so nothing is hidden; legacy plain-text #tags and
 	// dates still render via inlineSpans until they are backfilled into chips.

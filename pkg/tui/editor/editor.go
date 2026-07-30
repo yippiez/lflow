@@ -777,18 +777,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case wfDoneMsg:
 		m.handleWFDone(msg)
 		return m, nil
-	case fzfPickedMsg:
-		if it := m.tree.byUUID[msg.uuid]; it != nil {
-			switch {
-			case msg.path != "":
-				m.insertPathChip(it, msg.caret, absolutizePath(msg.path))
-			case msg.onCancel != "":
-				// dismissed without a pick: the ">" that opened the picker types
-				// literally, so a bash redirect (or any literal ">") still works.
-				m.insertLiteralAt(it, msg.caret, msg.onCancel)
-			}
-		}
-		return m, nil
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
 		return m, nil
@@ -894,18 +882,9 @@ func (m *Model) mirrorContext() mirrorContext {
 	}
 }
 
-// pathChipTrigger reports whether ">" should open the file picker on this type.
-// Every inline-editable type gets it — including bash/code/query where ">" is real
-// syntax — because the picker is cancelable and dismissing it types a literal ">"
-// instead, so file chips work in any node without losing the literal character.
-func pathChipTrigger(typ string) bool {
-	nt := typeOf(typ)
-	return nt.inlineEditable && !nt.disableChips
-}
-
 // linkChipTrigger reports whether "[[" should open the link picker on this type.
-// Unlike the file picker it has no cancel-to-literal path, so it stays off where
-// "[" is real syntax (bash test brackets, code, query, quote, json).
+// It has no cancel-to-literal path, so it stays off where "[" is real syntax
+// (bash test brackets, code, query, quote, json).
 func linkChipTrigger(typ string) bool {
 	if typeOf(typ).disableChips {
 		return false
