@@ -192,6 +192,38 @@ stores only `{variant, cwd, session id}` plus your own name and color in LOCAL
 `node_output` — never in the chip row, never synced — and everything else is read
 back out of the CLI's own store (`agentstore.go`) on demand.
 
+## Query nodes
+
+A Query node's name IS its search; `alt+r` runs it and reconciles the hits as
+mirror children. The language is flat `key:value` qualifiers — never a
+`:key:value` sandwich — plus bare words, `#tag`, `&&`/`||`/`>`/parens, and `-x`
+to negate:
+
+```
+buy type:todo is:open                    todos still open that mention "buy"
+project > type:todo after:2026-06-01     dated todos under a "project" node
+#urgent -is:done in:<picked node>        open urgent work inside one subtree
+"why the build keeps failing" as:tree    semantic search, nested under ancestors
+```
+
+Qualifiers: `type:` `in:` `after:`/`since:` `before:`/`until:` `is:` (starred,
+unstarred, done, open, note-bearing) `has:` (note, children) `as:` (tree/list).
+The `:` completer in a query node inserts the flat spelling; typing one out by
+hand lands the same text. Every legacy `:key:value` form still parses — query
+text is persisted node text, so old queries must keep matching (invariant noted
+in `querytime.go`).
+
+**A `"quoted phrase"` is a SEMANTIC atom** (`semantic.go`): it matches by meaning,
+so it can return a node sharing no word with the phrase. The quote marks render
+yellow like a math operator; the phrase inside stays ordinary text. The model is
+built from the outline itself on every run — random indexing over the candidate
+set, fused by Reciprocal Rank Fusion with BM25 and character-trigram Dice — so
+there is no model file, no download, and no network call. Quality is bounded by
+what the outline itself makes available: with no co-occurrence evidence linking
+two vocabularies, the honest answer is no hits, and the matcher returns none
+rather than the top of the noise. Swapping in static embeddings later changes
+only the vector channel, not the fusion or the syntax.
+
 ## NLPCompute code generation
 
 NLPCompute is the only in-editor Pi surface. `alt+r` sends its natural-language
