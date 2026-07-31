@@ -32,15 +32,15 @@ func clipCapture(t *testing.T) func() string {
 	}
 }
 
-// TestCopyCutTextSelection: with a horizontal selection live, alt+c takes just
-// that run and leaves the node alone; ctrl+x takes it and splices it out.
+// TestCopyCutTextSelection: with a horizontal selection live, alt+y yanks just
+// that run and leaves the node alone; alt+x takes it and splices it out.
 func TestCopyCutTextSelection(t *testing.T) {
 	clip := clipCapture(t)
 	m, n := spanModel(t) // "paint some words here"
 
 	m.caret = len("paint ")
 	m.press("shift+right") // "some"
-	m.press("alt+c")
+	m.press("alt+y")
 	if got := clip(); got != "some" {
 		t.Fatalf("copied %q, want %q", got, "some")
 	}
@@ -51,7 +51,7 @@ func TestCopyCutTextSelection(t *testing.T) {
 		t.Fatal("copy must keep the selection alive")
 	}
 
-	m.press("ctrl+x")
+	m.press("alt+x")
 	if got := clip(); got != "some" {
 		t.Fatalf("cut %q, want %q", got, "some")
 	}
@@ -64,6 +64,14 @@ func TestCopyCutTextSelection(t *testing.T) {
 	if m.textSelOn {
 		t.Fatal("cut must release the selection")
 	}
+
+	// ctrl+x is the cut twin, for terminals that swallow the alt chord
+	m.caret = 0
+	m.press("shift+right")
+	m.press("ctrl+x")
+	if n.name != "  words here" { // "paint" gone; both cuts left their separators
+		t.Fatalf("ctrl+x must cut like alt+x, got %q", n.name)
+	}
 }
 
 // TestCutRunKeepsStyledRunsAligned: cutting text before a styled run slides the
@@ -75,7 +83,7 @@ func TestCutRunKeepsStyledRunsAligned(t *testing.T) {
 
 	m.caret = 6
 	m.press("shift+right") // "some"
-	m.press("ctrl+x")
+	m.press("alt+x")
 	sp := nodeSpans["p1"]
 	if len(sp) != 1 || sp[0].Start != 7 || sp[0].End != 12 {
 		t.Fatalf("styled run after cut = %+v, want [7,12)", sp)
@@ -85,7 +93,7 @@ func TestCutRunKeepsStyledRunsAligned(t *testing.T) {
 	}
 }
 
-// TestCopyNodesIndentsSubtree: with no selection, copy takes the cursor node and
+// TestCopyNodesIndentsSubtree: with no selection, yank takes the cursor node and
 // everything under it, two spaces per level.
 func TestCopyNodesIndentsSubtree(t *testing.T) {
 	clip := clipCapture(t)
@@ -102,12 +110,12 @@ func TestCopyNodesIndentsSubtree(t *testing.T) {
 	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
 	m.refreshRows()
 
-	m.press("alt+c")
+	m.press("alt+y")
 	want := "alpha\n  beta\n    gamma\n"
 	if got := clip(); got != want {
 		t.Fatalf("copied %q, want %q", got, want)
 	}
-	if !strings.Contains(m.flash, "3 nodes") {
+	if !strings.Contains(m.flash, "yanked 3 nodes") {
 		t.Fatalf("flash = %q, want the node count", m.flash)
 	}
 }
@@ -130,7 +138,7 @@ func TestCutRowSelectionRemovesNodes(t *testing.T) {
 	m.refreshRows()
 
 	m.press("shift+down") // alpha..beta
-	m.press("ctrl+x")
+	m.press("alt+x")
 	if got, want := clip(), "alpha\nbeta\n  beta one\n"; got != want {
 		t.Fatalf("cut %q, want %q", got, want)
 	}
@@ -154,7 +162,7 @@ func TestCopyFallsBackWhenNoClipboard(t *testing.T) {
 	m, n := spanModel(t)
 	m.caret = 6
 	m.press("shift+right")
-	m.press("ctrl+x")
+	m.press("alt+x")
 	if n.name != "paint some words here" {
 		t.Fatalf("a failed copy must not cut: %q", n.name)
 	}
@@ -173,7 +181,7 @@ type errClip string
 
 func (e errClip) Error() string { return string(e) }
 
-// TestCutAndPasteRoundTripsSubtree: a subtree cut with ctrl+x and pasted back
+// TestCutAndPasteRoundTripsSubtree: a subtree cut with alt+x and pasted back
 // lands as a tree again — the paste fan-out reads the copy's indentation as
 // depth instead of leaving spaces in the names.
 func TestCutAndPasteRoundTripsSubtree(t *testing.T) {
@@ -192,7 +200,7 @@ func TestCutAndPasteRoundTripsSubtree(t *testing.T) {
 	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
 	m.refreshRows()
 
-	m.press("ctrl+x") // the whole alpha subtree
+	m.press("alt+x") // the whole alpha subtree
 	if len(root.children) != 1 {
 		t.Fatalf("cut left %d roots, want only keep", len(root.children))
 	}

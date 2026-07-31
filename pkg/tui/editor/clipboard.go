@@ -9,9 +9,10 @@ import (
 	"strings"
 )
 
-// Copy and cut: alt+c and ctrl+x act on whatever is selected — the horizontal
+// Yank and cut: alt+y and alt+x act on whatever is selected — the horizontal
 // run (shift+←/→), else the selected rows (shift+↑/↓), else the cursor node's
-// own subtree. ctrl+c stays quit, so alt+c is copy.
+// own subtree. ctrl+c is quit, so yank is alt+y; ctrl+x stays as the cut twin
+// for terminals that swallow alt chords.
 //
 // The text goes to the HOST clipboard the way the image node grabs one (see
 // image.go): probe the platform's tool, first hit wins. On top of that it always
@@ -75,11 +76,11 @@ func osc52(text string) bool {
 	return err == nil
 }
 
-// copyCut is alt+c / ctrl+x. It picks the target the same way /style does — the
+// copyCut is alt+y / alt+x. It picks the target the same way /style does — the
 // horizontal selection first, then the row selection, then the cursor node —
 // copies it as plain text and, when cutting, removes it.
 func (m *Model) copyCut(cut bool) {
-	verb := "copied"
+	verb := "yanked" // the key is alt+y, so the status line says yanked
 	if cut {
 		verb = "cut"
 	}
@@ -132,7 +133,7 @@ func (m *Model) copyCutRun(cur *item, lo, hi int, cut bool, verb string) {
 		if cur.mirrorOf != "" || cur.readonly || !typeOf(cur.typ).inlineEditable {
 			// a mirror reference is edited at its source, json/code only in their
 			// own editor — the copy stands, the cut does not happen
-			m.flash = "copied · this node's text is not cut here"
+			m.flash = "yanked · this node's text is not cut here"
 			return
 		}
 		m.pushUndo("")

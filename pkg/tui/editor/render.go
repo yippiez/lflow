@@ -219,7 +219,7 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		lines = append(lines, clip(rail+cReset+"  "+styleOutLine(l), maxLine))
 	}
 	if running {
-		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥x stop"+cReset, maxLine))
+		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥k stop"+cReset, maxLine))
 	}
 	return lines
 }

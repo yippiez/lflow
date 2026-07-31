@@ -176,8 +176,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.textSelOn {
 			switch key {
 			// the style picker (and the menus that reach it) style the run;
-			// copy/cut take it to the clipboard (see clipboard.go)
-			case "/", "alt+P", "alt+a", "alt+y", "alt+c", "ctrl+x":
+			// yank/cut take it to the clipboard (see clipboard.go)
+			case "/", "alt+P", "alt+a", "alt+c", "alt+y", "alt+x", "ctrl+x":
 			default:
 				m.clearTextSel()
 			}
@@ -188,8 +188,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
 				"/", "alt+P", "alt+a", // the slash menu may apply /type //style //move to the selection
-				"alt+t", "alt+y", // the type/style pickers retype/re-style the whole selection
-				"alt+c", "ctrl+x": // copy/cut take the whole selection
+				"alt+t", "alt+c", // the type/style pickers retype/re-style the whole selection
+				"alt+y", "alt+x", "ctrl+x": // yank/cut take the whole selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -655,11 +655,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+t":
 		// open the type picker directly (same as /type)
 		return m.runSlash("/type")
-	case "alt+y":
-		// open the style picker directly (same as /style)
+	case "alt+c":
+		// open the style picker directly (same as /style) — c for colors; alt+y
+		// is the yank key, so the picker moved off it
 		return m.runSlash("/style")
-	case "alt+x":
-		// stop a running command, keeping what was captured; when nothing is
+	case "alt+k":
+		// kill: stop a running command, keeping what was captured; when nothing is
 		// running, clear the output band. A cmd chip under the caret takes the
 		// key (its band is keyed by chip id); otherwise the node's own band.
 		if cur := m.cursorItem(); cur != nil {
@@ -680,11 +681,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case "alt+c", "ctrl+x":
-		// copy / cut, acting on the horizontal selection, else the row selection,
-		// else the cursor node's subtree (see clipboard.go). ctrl+c is quit, so
-		// copy is alt+c; ctrl+x is free and keeps the familiar cut key.
-		m.copyCut(key == "ctrl+x")
+	case "alt+y", "alt+x", "ctrl+x":
+		// yank / cut, acting on the horizontal selection, else the row selection,
+		// else the cursor node's subtree (see clipboard.go). alt+y yanks and
+		// alt+x cuts; ctrl+x is kept as the cut twin for terminals that swallow
+		// the alt chord.
+		m.copyCut(key != "alt+y")
 		return m, nil
 	case "alt+s":
 		// flash: label every visible row's actions (jump / run / expand / fold) and

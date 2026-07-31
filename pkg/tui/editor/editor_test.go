@@ -181,6 +181,12 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t"), Alt: true}
 	case "alt+y":
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y"), Alt: true}
+	case "alt+c":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c"), Alt: true}
+	case "alt+x":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x"), Alt: true}
+	case "alt+k":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k"), Alt: true}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "left":
@@ -1741,18 +1747,19 @@ func TestAltTOpensTypePicker(t *testing.T) {
 	}
 }
 
-// TestAltYOpensStylePicker: alt+y is the /style shortcut — it lands in the
-// style picker (toggles + colors) for the cursor node.
-func TestAltYOpensStylePicker(t *testing.T) {
+// TestAltCOpensStylePicker: alt+c is the /style shortcut — it lands in the
+// style picker (toggles + colors) for the cursor node. (alt+y is the yank key,
+// so the picker moved off it.)
+func TestAltCOpensStylePicker(t *testing.T) {
 	m := newTestModel(40, "task")
 	m.cursor = 0
 
-	m.press("alt+y")
+	m.press("alt+c")
 	if m.mode != modeStyle {
-		t.Fatalf("alt+y should open the style picker, mode=%v", m.mode)
+		t.Fatalf("alt+c should open the style picker, mode=%v", m.mode)
 	}
 	if len((styleSource{}).items(m, "")) == 0 {
-		t.Fatal("alt+y style picker should have items")
+		t.Fatal("alt+c style picker should have items")
 	}
 }
 

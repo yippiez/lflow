@@ -1006,7 +1006,7 @@ func sanitizeName(text string) string {
 // continues the current row at the caret, every following line becomes a new
 // node below it. LEADING SPACES ARE DEPTH — a line indented past the one above
 // it lands as its child — so an indented list, or a subtree copied out with
-// alt+c (see clipboard.go), comes back as a tree instead of rows whose names
+// alt+y (see clipboard.go), comes back as a tree instead of rows whose names
 // start with spaces. Lines are already sanitized by pasteLines; a line that
 // sanitized to empty (only C0/DEL bytes) creates no node so the paste never
 // leaves a ghost empty-named node between two real lines.

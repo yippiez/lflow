@@ -116,9 +116,9 @@ func TestPersistRunOutByteBudget(t *testing.T) {
 	}
 }
 
-// TestAltXStopsThenClears: alt+x on a running node stops it (output kept);
-// alt+x again clears the band.
-func TestAltXStopsThenClears(t *testing.T) {
+// TestAltKStopsThenClears: alt+k on a running node stops it (output kept);
+// alt+k again clears the band. (alt+x is the cut key, so kill moved off it.)
+func TestAltKStopsThenClears(t *testing.T) {
 	m := newTestModel(80, "yes")
 	it := m.tree.root.children[0]
 	it.uuid = "u1"
@@ -133,27 +133,27 @@ func TestAltXStopsThenClears(t *testing.T) {
 	r.dropped = 42
 	r.pwd = "/tmp/project"
 
-	altX := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x"), Alt: true}
-	m.handleKey(altX)
+	altK := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k"), Alt: true}
+	m.handleKey(altK)
 	if !stopped {
-		t.Fatal("alt+x did not cancel the running command")
+		t.Fatal("alt+k did not cancel the running command")
 	}
 	if rs := m.run("u1"); rs != nil && rs.cancel != nil {
-		t.Fatal("alt+x left the run marked running")
+		t.Fatal("alt+k left the run marked running")
 	}
 	if len(m.run("u1").out) != 1 {
-		t.Fatal("alt+x stop discarded the captured output")
+		t.Fatal("alt+k stop discarded the captured output")
 	}
 
-	m.handleKey(altX)
+	m.handleKey(altK)
 	if len(m.run("u1").out) != 0 {
-		t.Fatal("second alt+x did not clear the band")
+		t.Fatal("second alt+k did not clear the band")
 	}
 	if m.run("u1").dropped != 0 {
-		t.Fatal("second alt+x did not reset the dropped counter")
+		t.Fatal("second alt+k did not reset the dropped counter")
 	}
 	if m.run("u1").pwd != "" {
-		t.Fatal("second alt+x did not clear the captured pwd")
+		t.Fatal("second alt+k did not clear the captured pwd")
 	}
 }
 
