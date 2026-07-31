@@ -1,56 +1,46 @@
-// Package websearch is the free web-search backend behind the websearch node
-// type: it asks a keyless search endpoint for a query and parses the answer
-// into plain (title, url, snippet) triples.
+// Package websearch is the search backend behind the websearch node type: it
+// asks a SearxNG instance for a query and hands back plain (title, url) pairs.
 //
-// Two backends, both without an account or an API key:
+// SearxNG is the only backend, deliberately. It is the user's own metasearch —
+// self-hosted or one they trust — so the query goes exactly where they pointed
+// it and nowhere else, its JSON output is a real contract rather than scraped
+// markup, and it needs no account and no API key. There is no fallback engine:
+// if no instance can be found, a run says so instead of quietly asking someone
+// else.
 //
-//   - DuckDuckGo, the default. It has no official API, but it serves two
-//     no-JavaScript result pages that need no key and no cookie —
-//     html.duckduckgo.com/html/ and lite.duckduckgo.com/lite/, tried in that
-//     order (the lite page covers the html one answering an interstitial). The
-//     HTML parser reads either shape, so the node works out of the box.
-//   - SearxNG, when the user names an instance (credentials.json searxng.url or
-//     LFLOW_SEARXNG_URL). It is asked for `format=json` and its JSON results are
-//     read straight through. A named instance is used EXCLUSIVELY — the whole
-//     point of pointing lflow at your own metasearch is that the query does not
-//     also go to DuckDuckGo, so there is no silent fallback.
+// The instance is named once, in ~/.config/lflow/credentials.json:
 //
-// Nothing here touches the database: results are ephemeral, exactly like every
-// other lflow run output.
+//	{"searxng": {"url": "https://searx.example.org"}}
+//
+// or through LFLOW_SEARXNG_URL for a shell-scoped override. With neither set the
+// client tries the conventional local instance (localhost:8888) and, when
+// nothing answers there either, reports that nothing is configured.
 package websearch
 
 import (
 	"context"
-	"html"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 )
 
-// The keyless result endpoints, tried in this order.
-const (
-	HTMLEndpoint = "https://html.duckduckgo.com/html/"
-	LiteEndpoint = "https://lite.duckduckgo.com/lite/"
-)
+// LocalInstance is where a locally-run SearxNG lands by default (its own
+// docker-compose and every install guide use this port), so a user running one
+// on the same machine needs no configuration at all.
+const LocalInstance = "http://localhost:8888/search"
 
 // DefaultLimit is how many hits a search keeps — the first page's top ten.
 const DefaultLimit = 10
 
-// maxBody caps a response read so a hostile or broken endpoint cannot balloon
-// memory; a result page is ~100KB.
+// maxBody caps a response read so a hostile or broken instance cannot balloon
+// memory; a JSON answer is ~100KB.
 const maxBody = 4 << 20
 
-// userAgent is a plain desktop-browser string. The endpoints answer an empty
-// page to an obviously scripted client, so the request has to look like a
-// browser to get results at all.
-const userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-	"(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+const userAgent = "lflow/websearch"
 
 // Result is one web hit.
 type Result struct {
@@ -59,40 +49,33 @@ type Result struct {
 	Snippet string
 }
 
-// Endpoint is one place to ask. SearxNG changes both the request (it is asked
-// for JSON) and the policy (a named instance is never a step in a fallback
-// chain that ends at DuckDuckGo).
-type Endpoint struct {
-	URL     string
-	SearxNG bool
-}
-
-// Client queries the endpoints. The zero value is usable; ConfigDir points at
-// the user's config root (credentials.json lives under it), and Endpoints/HTTP
-// exist so tests point the client at a local server.
+// Client queries one SearxNG instance. The zero value is usable; ConfigDir
+// points at the user's config root (credentials.json lives under it), and
+// Instance/HTTP exist so tests point the client at a local server.
 type Client struct {
-	Endpoints []Endpoint
+	Instance  string
 	ConfigDir string
 	HTTP      *http.Client
 }
 
-// endpoints resolves where to ask, in precedence order:
-//
-//	explicit Endpoints (tests)
-//	LFLOW_SEARXNG_URL / credentials.json searxng.url — that instance, alone
-//	LFLOW_SEARCH_URL — one DuckDuckGo-shaped endpoint (a mirror, or a mock)
-//	the two DuckDuckGo pages
-func (c *Client) endpoints() []Endpoint {
-	if len(c.Endpoints) > 0 {
-		return c.Endpoints
+// ErrNoInstance is what a run gets when no instance is configured and none is
+// listening locally — the node turns it into the "here is how to name one"
+// message rather than searching somewhere the user did not choose.
+var ErrNoInstance = errors.New("no SearxNG instance · add {\"searxng\": {\"url\": \"https://…\"}} to " +
+	"~/.config/lflow/credentials.json (or set LFLOW_SEARXNG_URL)")
+
+// instance resolves where to ask: an explicit override (tests), the environment,
+// credentials.json, and finally the conventional local instance. configured
+// reports whether the user actually named it — a local instance that refuses the
+// connection is "none found", not "your instance is broken".
+func (c *Client) instance() (endpoint string, configured bool) {
+	if c.Instance != "" {
+		return searchPath(c.Instance), true
 	}
 	if u := searxngURL(c.ConfigDir); u != "" {
-		return []Endpoint{{URL: u, SearxNG: true}}
+		return u, true
 	}
-	if u := strings.TrimSpace(os.Getenv("LFLOW_SEARCH_URL")); u != "" {
-		return []Endpoint{{URL: u}}
-	}
-	return []Endpoint{{URL: HTMLEndpoint}, {URL: LiteEndpoint}}
+	return LocalInstance, false
 }
 
 func (c *Client) http() *http.Client {
@@ -103,8 +86,6 @@ func (c *Client) http() *http.Client {
 }
 
 // Search returns at most limit hits for query (limit <= 0 means DefaultLimit).
-// Endpoints are tried in order and the first one that yields hits wins; an
-// endpoint that errors or answers with no results falls through to the next.
 func (c *Client) Search(ctx context.Context, query string, limit int) ([]Result, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -113,75 +94,53 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Result,
 	if limit <= 0 {
 		limit = DefaultLimit
 	}
-	var lastErr error
-	for _, ep := range c.endpoints() {
-		body, err := c.fetch(ctx, ep, query)
-		if err != nil {
-			if ctx.Err() != nil { // canceled/timed out — do not try the next one
-				return nil, err
-			}
-			lastErr = err
-			continue
+	endpoint, configured := c.instance()
+	body, err := c.fetch(ctx, endpoint, query)
+	if err != nil {
+		if !configured && ctx.Err() == nil {
+			// nothing was named and nothing answered on the local port: the user
+			// has no instance, which is a setup message, not a search failure
+			return nil, ErrNoInstance
 		}
-		hits, err := parseAny(body, limit)
-		if err != nil {
-			lastErr = errors.Wrapf(err, "reading %s", hostOf(ep.URL))
-			continue
-		}
-		if len(hits) > 0 {
-			return hits, nil
-		}
-		lastErr = errors.Errorf("no results from %s", hostOf(ep.URL))
+		return nil, err
 	}
-	if lastErr == nil {
-		lastErr = errors.New("no results")
+	hits, err := ParseSearxNG(body, limit)
+	if err != nil {
+		return nil, errors.Wrapf(err, "reading %s", hostOf(endpoint))
 	}
-	return nil, lastErr
+	if len(hits) == 0 {
+		return nil, errors.Errorf("no results from %s", hostOf(endpoint))
+	}
+	return hits, nil
 }
 
-// parseAny reads whichever answer arrived: a SearxNG JSON document, or a
-// DuckDuckGo result page. Sniffing the body rather than trusting the endpoint's
-// declared kind means a mirror that answers JSON works too.
-func parseAny(body string, limit int) ([]Result, error) {
-	if strings.HasPrefix(strings.TrimSpace(body), "{") {
-		return ParseSearxNG(body, limit)
-	}
-	return Parse(body, limit), nil
-}
-
-// fetch POSTs the query as a form — the shape every endpoint here expects. A
-// SearxNG instance is additionally asked for its JSON output.
-func (c *Client) fetch(ctx context.Context, ep Endpoint, query string) (string, error) {
-	form := url.Values{"q": {query}}
-	accept := "text/html"
-	if ep.SearxNG {
-		form.Set("format", "json")
-		accept = "application/json"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, strings.NewReader(form.Encode()))
+// fetch POSTs the query to the instance and asks for its JSON output.
+func (c *Client) fetch(ctx context.Context, endpoint, query string) (string, error) {
+	form := url.Values{"q": {query}, "format": {"json"}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", errors.Wrap(err, "building the search request")
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", accept)
+	req.Header.Set("Accept", "application/json")
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return "", errors.Wrapf(err, "calling %s", hostOf(ep.URL))
+		return "", errors.Wrapf(err, "calling %s", hostOf(endpoint))
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
-		return "", errors.Wrapf(err, "reading %s", hostOf(ep.URL))
+		return "", errors.Wrapf(err, "reading %s", hostOf(endpoint))
 	}
 	if resp.StatusCode != http.StatusOK {
-		// the usual searxng misconfiguration: json is not in search.formats, and
-		// the instance answers 403 to the format=json form field
-		if ep.SearxNG && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotAcceptable) {
+		// the usual misconfiguration: json is not in the instance's search.formats,
+		// so it refuses the format=json field
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotAcceptable {
 			return "", errors.Errorf("%s: %s — add json to the instance's search.formats",
-				hostOf(ep.URL), resp.Status)
+				hostOf(endpoint), resp.Status)
 		}
-		return "", errors.Errorf("%s: %s", hostOf(ep.URL), resp.Status)
+		return "", errors.Errorf("%s: %s", hostOf(endpoint), resp.Status)
 	}
 	return string(body), nil
 }
@@ -191,122 +150,4 @@ func hostOf(endpoint string) string {
 		return u.Host
 	}
 	return endpoint
-}
-
-// An opening <a>/<td> tag. Both result pages mark their parts with classes
-// rather than structure (result__a / result-link for the hit, result__snippet /
-// result-snippet for its blurb), so a flat scan of opening tags in document
-// order is enough to pair a snippet with the hit above it — and it survives the
-// layout churn a DOM-shaped parser would not. Tags are scanned independently
-// (rather than as element pairs) so a hit wrapped in a same-classed cell still
-// reaches its own anchor, where the href lives.
-var openTagRe = regexp.MustCompile(`(?is)<(a|td)\s([^>]*)>`)
-
-var attrRe = regexp.MustCompile(`(?is)([a-zA-Z0-9_:-]+)\s*=\s*("[^"]*"|'[^']*'|[^\s">]+)`)
-
-var tagRe = regexp.MustCompile(`(?s)<[^>]*>`)
-
-// Parse extracts up to limit results from a DuckDuckGo result page (either the
-// html or the lite shape). It is exported so the parsing contract is testable
-// against captured pages without a network.
-func Parse(body string, limit int) []Result {
-	if limit <= 0 {
-		limit = DefaultLimit
-	}
-	var out []Result
-	seen := map[string]bool{}
-	lower := strings.ToLower(body)
-	// a skipped hit (an ad, a bare wrapper cell) also swallows its own snippet,
-	// so a blurb never lands on the unrelated result above it
-	dropSnippet := false
-	for _, loc := range openTagRe.FindAllStringSubmatchIndex(body, -1) {
-		name := strings.ToLower(body[loc[2]:loc[3]])
-		attrs := parseAttrs(body[loc[4]:loc[5]])
-		class := attrs["class"]
-		if !isResultLink(class) && !isResultSnippet(class) {
-			continue
-		}
-		inner := body[loc[1]:]
-		if end := strings.Index(lower[loc[1]:], "</"+name+">"); end >= 0 {
-			inner = inner[:end]
-		}
-		switch {
-		case isResultLink(class):
-			if len(out) >= limit {
-				return out
-			}
-			link, title := resolveURL(attrs["href"]), cleanText(inner)
-			if link == "" || title == "" || seen[link] {
-				dropSnippet = true
-				continue
-			}
-			seen[link] = true
-			dropSnippet = false
-			out = append(out, Result{Title: title, URL: link})
-		case len(out) > 0 && !dropSnippet:
-			if last := &out[len(out)-1]; last.Snippet == "" {
-				last.Snippet = cleanText(inner)
-			}
-		}
-	}
-	return out
-}
-
-func isResultLink(class string) bool {
-	return strings.Contains(class, "result__a") || strings.Contains(class, "result-link")
-}
-
-func isResultSnippet(class string) bool {
-	return strings.Contains(class, "result__snippet") || strings.Contains(class, "result-snippet")
-}
-
-func parseAttrs(s string) map[string]string {
-	out := map[string]string{}
-	for _, m := range attrRe.FindAllStringSubmatch(s, -1) {
-		v := m[2]
-		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') {
-			v = v[1 : len(v)-1]
-		}
-		out[strings.ToLower(m[1])] = v
-	}
-	return out
-}
-
-// resolveURL turns a result href into the destination. The html page wraps
-// every hit in its own redirector (//duckduckgo.com/l/?uddg=<escaped>&rut=…),
-// so the real target is unwrapped from the uddg parameter; the lite page links
-// straight out. Sponsored rows (the y.js tracker) and non-http schemes are
-// dropped by returning "".
-func resolveURL(href string) string {
-	href = html.UnescapeString(strings.TrimSpace(href))
-	if href == "" {
-		return ""
-	}
-	if strings.HasPrefix(href, "//") {
-		href = "https:" + href
-	}
-	u, err := url.Parse(href)
-	if err != nil {
-		return ""
-	}
-	if target := u.Query().Get("uddg"); target != "" {
-		if u, err = url.Parse(target); err != nil {
-			return ""
-		}
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return ""
-	}
-	if strings.Contains(u.Path, "y.js") { // an ad slot, not a result
-		return ""
-	}
-	return u.String()
-}
-
-// cleanText flattens result HTML (the <b> match highlights) to plain text —
-// stored node text carries no markup, and neither does what we show.
-func cleanText(s string) string {
-	s = tagRe.ReplaceAllString(s, "")
-	s = html.UnescapeString(s)
-	return strings.Join(strings.Fields(s), " ")
 }

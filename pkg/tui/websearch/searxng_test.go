@@ -53,7 +53,7 @@ func TestSearchAsksSearxNGForJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &Client{Endpoints: []Endpoint{{URL: srv.URL, SearxNG: true}}}
+	c := &Client{Instance: srv.URL}
 	got, err := c.Search(context.Background(), "go docs", DefaultLimit)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -77,54 +77,48 @@ func TestSearchNamesTheSearxNGFormatMisconfiguration(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &Client{Endpoints: []Endpoint{{URL: srv.URL, SearxNG: true}}}
+	c := &Client{Instance: srv.URL}
 	_, err := c.Search(context.Background(), "go docs", DefaultLimit)
 	if err == nil || !strings.Contains(err.Error(), "search.formats") {
 		t.Fatalf("err = %v, want the settings.yml hint", err)
 	}
 }
 
-// A configured instance is the ONLY place asked: a private metasearch that goes
-// down must not silently hand the query to DuckDuckGo.
-func TestConfiguredSearxNGIsExclusive(t *testing.T) {
+// Where the query goes, in precedence order — and whether the user actually
+// named the place, which is what separates "your instance is down" from "you
+// have no instance".
+func TestInstanceResolution(t *testing.T) {
 	dir := t.TempDir()
-	writeCredentials(t, dir, `{"searxng": {"url": "https://searx.example.org"}}`)
-	c := &Client{ConfigDir: dir}
 
-	eps := c.endpoints()
-	if len(eps) != 1 {
-		t.Fatalf("endpoints = %+v, want the instance alone", eps)
+	// nothing named: the conventional local instance, and not "configured"
+	c := &Client{ConfigDir: dir}
+	if ep, configured := c.instance(); ep != LocalInstance || configured {
+		t.Fatalf("default = %q configured=%v, want the local instance, unnamed", ep, configured)
 	}
-	if !eps[0].SearxNG || eps[0].URL != "https://searx.example.org/search" {
-		t.Errorf("endpoint = %+v, want the instance's /search completed", eps[0])
+
+	// credentials.json: a bare root is completed to its /search endpoint
+	writeCredentials(t, dir, `{"searxng": {"url": "https://searx.example.org"}}`)
+	if ep, configured := c.instance(); ep != "https://searx.example.org/search" || !configured {
+		t.Fatalf("from file = %q configured=%v", ep, configured)
+	}
+
+	// the environment wins over the file, and a url that already names a path
+	// keeps it, query string and all
+	t.Setenv("LFLOW_SEARXNG_URL", "https://from-env.example/search?engines=google")
+	if ep, _ := c.instance(); ep != "https://from-env.example/search?engines=google" {
+		t.Errorf("from env = %q, want the configured url untouched", ep)
 	}
 }
 
-func TestEndpointPrecedence(t *testing.T) {
-	dir := t.TempDir()
-
-	// no config at all: the two duckduckgo pages
-	c := &Client{ConfigDir: dir}
-	if eps := c.endpoints(); len(eps) != 2 || eps[0].URL != HTMLEndpoint || eps[1].URL != LiteEndpoint {
-		t.Fatalf("default endpoints = %+v", eps)
-	}
-
-	// LFLOW_SEARCH_URL: one duckduckgo-shaped endpoint
-	t.Setenv("LFLOW_SEARCH_URL", "http://127.0.0.1:9/mirror")
-	if eps := c.endpoints(); len(eps) != 1 || eps[0].URL != "http://127.0.0.1:9/mirror" || eps[0].SearxNG {
-		t.Fatalf("mirror endpoints = %+v", eps)
-	}
-
-	// the environment's instance wins over both, and over the file
-	writeCredentials(t, dir, `{"searxng": {"url": "https://from-file.example"}}`)
-	t.Setenv("LFLOW_SEARXNG_URL", "https://from-env.example/search?engines=google")
-	eps := c.endpoints()
-	if len(eps) != 1 || !eps[0].SearxNG {
-		t.Fatalf("endpoints = %+v, want the env instance alone", eps)
-	}
-	// a url that already names a path keeps it, query string and all
-	if eps[0].URL != "https://from-env.example/search?engines=google" {
-		t.Errorf("endpoint = %q, want the configured url untouched", eps[0].URL)
+// With no instance anywhere, a run is a setup message — never a search sent to
+// some other engine.
+func TestSearchWithoutAnInstance(t *testing.T) {
+	t.Setenv("LFLOW_SEARXNG_URL", "")
+	// the local default is not listening in the test environment
+	c := &Client{ConfigDir: t.TempDir()}
+	_, err := c.Search(context.Background(), "go docs", DefaultLimit)
+	if err == nil || !strings.Contains(err.Error(), "no SearxNG instance") {
+		t.Fatalf("err = %v, want the setup message", err)
 	}
 }
 
@@ -139,7 +133,7 @@ func TestSearxNGConfigIsOptional(t *testing.T) {
 	}
 	writeCredentials(t, dir, `{ not json`)
 	if got := searxngURL(dir); got != "" {
-		t.Errorf("a malformed file → %q, want the duckduckgo default", got)
+		t.Errorf("a malformed file → %q, want no instance", got)
 	}
 }
 

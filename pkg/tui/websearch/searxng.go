@@ -2,9 +2,11 @@ package websearch
 
 import (
 	"encoding/json"
+	"html"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -72,6 +74,31 @@ func searchPath(raw string) string {
 	}
 	if p := strings.Trim(u.Path, "/"); p == "" {
 		u.Path = "/search"
+	}
+	return u.String()
+}
+
+var tagRe = regexp.MustCompile(`(?s)<[^>]*>`)
+
+// cleanText flattens a result field to plain text: an engine that slipped
+// markup or entities through never reaches a node's name, because stored text
+// carries no markup.
+func cleanText(s string) string {
+	s = tagRe.ReplaceAllString(s, "")
+	s = html.UnescapeString(s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// resolveURL keeps http(s) targets and drops everything else — a result is a
+// page to open, never a javascript: or data: payload.
+func resolveURL(raw string) string {
+	raw = html.UnescapeString(strings.TrimSpace(raw))
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return ""
 	}
 	return u.String()
 }
