@@ -669,8 +669,8 @@ func (m *Model) cursorItem() *item {
 // persistCollapsed writes an item's fold state to the DB. Collapse is local
 // view-state.
 func (m *Model) persistCollapsed(it *item) {
-	if it == nil {
-		return
+	if it == nil || m.db == nil {
+		return // no database behind this tree (the ephemeral temp tree, tests)
 	}
 	if err := database.SetCollapsed(m.db, it.uuid, it.collapsed); err != nil {
 		m.err = err

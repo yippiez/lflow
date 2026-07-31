@@ -69,7 +69,8 @@ per-feature column — and no scattered `switch typ`:
    `pkg/tui/editor/registry.go` — that slice drives the `/type` picker, and the
    field doc-comments there list every hook (`sign`, `glyph`, `render`,
    `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e,
-   and `toContext`/`toContextM` for structured XML context).
+   `onType` to land on a face right after /type, and `toContext`/`toContextM`
+   for structured XML context).
 3. Put the behavior in its own file. PLUGGABLE types live in
    `pkg/tui/editor/nodes/<type>.go` — ONE file per node — registered at init
    via `editor.RegisterNodePlugin` (see `editor/nodeplugin.go`): the editor
@@ -101,6 +102,27 @@ per-feature column — and no scattered `switch typ`:
 
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
+
+## Tables
+
+The Table node (`pkg/tui/editor/table.go`) is a grid READING of an ordinary
+subtree, not a storage shape: the table's children are its **columns** (their
+text is the header), each column's children are that column's **cells** top to
+bottom (row n = the nth child of every column), and a cell's own children are the
+outline **inside** that cell. Nothing moves on conversion, so any node becomes a
+table with `/type` and every node under it stays an ordinary node. Cells are
+ragged in the outline and square on screen; typing into an empty slot
+materializes it.
+
+The two faces are the FOLD STATE — folded draws the grid as a band under the row,
+open is the plain outline — so ctrl+space / alt+↑ / alt+↓ toggle table ⇄ nodes
+with no extra state and the choice persists like any fold. alt+e opens the grid
+editor (arrows/⇥ walk the cells, typing edits the real cell node, ⏎ adds a row
+across every column, ⌥n appends a column, ⌥d twice drops a row, ⌥→ zooms into a
+cell's own outline). Structural work the grid does not cover — deleting a column,
+reordering, retyping a cell — happens in the nodes face, which is the point of
+the toggle. A cell holding a chip is edited there too: a chip renders collapsed,
+so a caret index in the grid is not an index into the stored text.
 
 ## Node priority
 

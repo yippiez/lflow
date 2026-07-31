@@ -266,6 +266,11 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 				} else {
 					t.typ = it.value
 				}
+				// a type may want to land on its own face right away (the Table
+				// folds to its grid) — one hook, no per-type branch here
+				if h := typeOf(t.typ).onType; h != nil {
+					h(m, t)
+				}
 			}
 			m.unsaved = true
 		}

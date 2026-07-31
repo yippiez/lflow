@@ -60,6 +60,10 @@ type nodeType struct {
 	// continueOnEnter makes Enter from this type open another node of the same type
 	// — the todo-list continuation, where a fresh sibling stays a todo.
 	continueOnEnter bool
+	// onType runs right after /type has set this type on a node — the hook a type
+	// uses to land on its own face instead of leaving the picker on a row that
+	// looks unchanged (the Table folds to its grid face). nil → nothing.
+	onType func(m *Model, it *item)
 
 	// granular look hooks: an editable type keeps caret editing while these
 	// decide its look (glyph, prefix, muted tail) — see the log type.
@@ -226,6 +230,20 @@ var nodeTypes = []nodeType{
 		run:          runMathLatex, // alt+r: export this subtree's LaTeX to the run band
 		flashActions: mathFlashActions,
 		toContext:    mathToContext,
+	},
+	// a table is an ordinary subtree READ as a grid (see table.go): columns are
+	// the children, rows are their children, and a cell's children are the
+	// outline inside it. The face IS the fold state — a folded table draws its
+	// grid, an open one is the plain outline — so ctrl+space / alt+↑↓ toggle
+	// table ⇄ nodes, and alt+e opens the grid editor.
+	{
+		key: database.TypeTable, label: "Table", inlineEditable: true,
+		glyph:        tableGlyph,
+		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.tableBandLines(r, below, maxLine) },
+		view:         tableView{},
+		flashActions: tableFlashActions,
+		onType:       tableOnType,
+		toContextM:   tableToContext,
 	},
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see
