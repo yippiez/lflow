@@ -317,16 +317,16 @@ func (styleSource) items(m *Model, q string) []pickerItem {
 
 func (styleSource) header(m *Model, p *listPicker) string {
 	if m.selOn {
-		// a multi-select styles whole nodes; painting a text portion needs a
-		// single node, so p is not offered
 		return " " + cDim + "enter apply to selection" + cReset
 	}
-	// p paints a portion only while nothing is typed (see onKey); once a search
-	// query starts, p is a filter rune, so the hint drops away.
+	if _, _, _, ok := m.textSelection(); ok {
+		// a horizontal selection narrows the target to that run of the text
+		return " " + cDim + "enter style the selected text" + cReset
+	}
 	if p.query != "" {
 		return " " + cDim + "style: " + cReset + cFG + p.query + cReset
 	}
-	return " " + cDim + "enter apply to all · p paint a portion · type to filter" + cReset
+	return " " + cDim + "enter apply to all · shift+←/→ first styles a portion · type to filter" + cReset
 }
 
 func (styleSource) initialSel(m *Model) int {
@@ -349,6 +349,15 @@ func (styleSource) initialSel(m *Model) int {
 }
 
 func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
+	// a horizontal selection (shift+←/→) narrows the target to that run of the
+	// node's text: the style lands on the selected words only, never the line
+	if cur, lo, hi, ok := m.textSelection(); ok && it.value != "" {
+		m.applyStyleToSpan(cur, lo, hi, it.value)
+		m.clearTextSel()
+		m.mode = modeOutline
+		m.refreshRows()
+		return m, nil
+	}
 	targets := m.selectedItems() // multi-select: restyle the whole range
 	if len(targets) == 0 {
 		if cur := m.cursorItem(); cur != nil {
@@ -377,22 +386,6 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeOutline
 	return m, nil
-}
-
-// onKey: p inside /style takes the HIGHLIGHTED style into the painter — a
-// window over the node's text picks where that style lands (see paint.go).
-// Not with a multi-select: painting targets one node's text. Only while the
-// search query is empty, so a typed filter (e.g. "purple") keeps every rune.
-func (styleSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
-	if key == "p" && !m.selOn && p.query == "" {
-		value := ""
-		if p.sel >= 0 && p.sel < len(items) {
-			value = items[p.sel].value
-		}
-		m.enterPaint(value)
-		return true
-	}
-	return false
 }
 
 // --- /theme ----------------------------------------------------------------

@@ -28,7 +28,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// (there esc defocuses; handled in the focused block below)
 	if m.mode == modeOutline && key == "esc" && !m.focused {
 		if m.selOn {
-			m.clearSel() // first esc releases the multi-selection
+			m.clearSel() // first esc releases the row selection
+			return m, nil
+		}
+		if m.textSelOn {
+			m.clearTextSel() // …and the horizontal one
 			return m, nil
 		}
 		if m.escPending {
@@ -50,8 +54,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleLinkEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
-	case modePaint:
-		return m.handlePaintKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
 	case modeSettings:
@@ -138,22 +140,46 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// snapshot the tree before a mutating outline key so /undo can reverse it
 	m.snapshotForKey(key, k)
 
-	// multi-select lifecycle: shift+arrows grow the selection; any other plain
-	// movement, typing or esc drops it (structural ops below act on it instead)
+	// selection lifecycle: shift+arrows grow a selection — ↑/↓ by row
+	// (multisel.go), ←/→ by word inside the node's own text (textsel.go), with
+	// ctrl/alt+shift+←/→ adjusting that run one rune at a time. Any other plain
+	// movement, typing or esc drops it (the ops below act on it instead).
 	if m.mode == modeOutline {
 		switch key {
 		case "shift+up":
+			m.clearTextSel()
 			m.startOrExtendSel()
 			if m.cursor > 0 {
 				m.cursor--
 			}
 			return m, nil
 		case "shift+down":
+			m.clearTextSel()
 			m.startOrExtendSel()
 			if m.cursor < len(m.rows)-1 {
 				m.cursor++
 			}
 			return m, nil
+		case "shift+left":
+			m.extendTextSel(-1, true)
+			return m, nil
+		case "shift+right":
+			m.extendTextSel(1, true)
+			return m, nil
+		case "ctrl+shift+left", "alt+shift+left":
+			m.extendTextSel(-1, false)
+			return m, nil
+		case "ctrl+shift+right", "alt+shift+right":
+			m.extendTextSel(1, false)
+			return m, nil
+		}
+		if m.textSelOn {
+			switch key {
+			// the style picker (and the menus that reach it) style the run
+			case "/", "alt+P", "alt+a", "alt+y":
+			default:
+				m.clearTextSel()
+			}
 		}
 		if m.selOn {
 			switch key {

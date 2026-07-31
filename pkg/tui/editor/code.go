@@ -21,7 +21,7 @@ import (
 // draws through it too, so both wear the same borderless gray block.
 
 // cWhite is the code block's vertical rule — white is white, never themed (like
-// the painter bar).
+// the horizontal selection bar).
 const cWhite = "\x1b[38;2;255;255;255m"
 
 // codeBlockLines renders code as the borderless block CONTENT (no tree rail — the

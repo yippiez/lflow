@@ -408,7 +408,7 @@ func clampIdx(i, n int) int {
 }
 
 // reloadAux refreshes the render-support stores an aux event flags: chips,
-// tag colors, painter spans. All tiny, reloaded wholesale.
+// tag colors, styled text runs. All tiny, reloaded wholesale.
 func (m *Model) reloadAux() {
 	if m.db == nil {
 		return

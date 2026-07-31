@@ -42,7 +42,6 @@ const (
 	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
 	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
 	modeTagColor // the alt+e tag color picker: assign a pill color to a tag
-	modePaint    // the painter: a window over the node's text places a /style choice (p inside /style)
 	modeInsert   // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
 )
 
@@ -83,7 +82,7 @@ var slashCommands = []slashCommand{
 	{"/reborn", "Reset this node's creation date to now"},
 	{"/settings", "Editor preferences: theme, image preview"},
 	{"/star", "Star this node — ranks first in pickers and search hits"},
-	{"/style", "Set this node's text style or color"},
+	{"/style", "Style this node — or just the text selected with shift+←/→"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
 }
@@ -274,6 +273,11 @@ type Model struct {
 	// anchor; structural ops act on the selection roots
 	selOn     bool
 	selAnchor int
+
+	// horizontal selection (see textsel.go): shift+left/right grows a run of the
+	// cursor node's text from the anchor caret; /style paints exactly that run
+	textSelOn     bool
+	textSelAnchor int
 
 	// /undo: snapshots of the tree taken before each action
 	undoStack []undoState
@@ -1732,7 +1736,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		tagColors = tc // package var, like linkColorMode: the render path is Model-free
 	}
 	if sp, err := database.AllNodeSpans(ctx.DB); err == nil {
-		nodeSpans = sp // painter runs (see paint.go)
+		nodeSpans = sp // styled text runs (see spans.go)
 	}
 
 	m := &Model{
