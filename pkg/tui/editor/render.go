@@ -402,13 +402,14 @@ type spanFlags struct {
 	date    bool   // part of a canonical YYYY-MM-DD[ HH:MM] date, painted as a chip
 	tag     bool   // part of a #tag, painted muted gray or its assigned pill color
 	tagWord string // the tag's word (no '#'), for the per-tag color lookup
+	url     bool   // part of a bare URL not yet committed into a link chip
 	mute    bool   // forced muted gray (log node's "· description" tail)
 	kwColor string // animated magic-keyword foreground (ultracode/ultraloop), "" = none
 }
 
-// inlineSpans marks the runes inside a canonical date or a #tag so renderBody
-// can paint them specially. Detection is purely by format — the stored text has
-// no brackets or markers.
+// inlineSpans marks the runes inside a canonical date, a #tag or a bare URL so
+// renderBody can paint them specially. Detection is purely by format — the
+// stored text has no brackets or markers.
 func inlineSpans(runes []rune) []spanFlags {
 	flags := make([]spanFlags, len(runes))
 	name := string(runes)
@@ -422,6 +423,11 @@ func inlineSpans(runes []rune) []spanFlags {
 		for k := span[0]; k < span[1] && k < len(flags); k++ {
 			flags[k].tag = true
 			flags[k].tagWord = word
+		}
+	}
+	for _, span := range detectURLSpans(name) {
+		for k := span[0]; k < span[1] && k < len(flags); k++ {
+			flags[k].url = true
 		}
 	}
 	return flags
@@ -579,6 +585,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 		if f.date {
 			fg = cFG
+		}
+		// a bare URL not yet committed into a link chip previews in the same
+		// color+underline the committed chip will wear (see linkChipColorCode).
+		if f.url {
+			fg = linkChipColorCode()
 		}
 		s := cReset + fg + attrs
 		if f.date {

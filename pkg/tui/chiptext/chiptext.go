@@ -10,6 +10,7 @@
 package chiptext
 
 import (
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -83,6 +84,72 @@ func DateSpans(name string) [][2]int {
 		spans = append(spans, [2]int{utf8.RuneCountInString(name[:loc[0]]), utf8.RuneCountInString(name[:loc[1]])})
 	}
 	return spans
+}
+
+// ReURL matches a bare web address: an explicit scheme ("https://…") or a
+// "www." host, greedily up to the next whitespace. The `\b` anchor keeps it off
+// a scheme glued to a preceding letter/digit; trailing sentence punctuation
+// ("see https://x.com.") is trimmed separately in URLSpans.
+var ReURL = regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`)
+
+// URLSpans returns the rune ranges [start,end) of every bare URL in name, with
+// trailing sentence punctuation trimmed off. A URL that is the target of a
+// markdown-style "[label](target)" link is left for LinkSpans to own —
+// Chipify's earliest-span-wins overlap rule keeps that link intact.
+func URLSpans(name string) [][2]int {
+	var spans [][2]int
+	for _, loc := range ReURL.FindAllStringIndex(name, -1) {
+		start, end := loc[0], loc[1]
+		trimmed := trimURLPunct(name[start:end])
+		end = start + len(trimmed)
+		if end <= start {
+			continue
+		}
+		spans = append(spans, [2]int{utf8.RuneCountInString(name[:start]), utf8.RuneCountInString(name[:end])})
+	}
+	return spans
+}
+
+// trimURLPunct strips trailing characters that almost always read as sentence
+// punctuation rather than URL syntax. A trailing ')' is only trimmed when it
+// closes no '(' held earlier in the match, so a wiki-style
+// "https://x.com/Foo_(bar)" survives whole.
+func trimURLPunct(s string) string {
+	for len(s) > 0 {
+		last := s[len(s)-1]
+		if last == ')' {
+			if strings.Count(s, "(") >= strings.Count(s, ")") {
+				break
+			}
+			s = s[:len(s)-1]
+			continue
+		}
+		if strings.ContainsRune(".,;:!?'\"", rune(last)) {
+			s = s[:len(s)-1]
+			continue
+		}
+		break
+	}
+	return s
+}
+
+// normalizeURL canonicalizes a detected URL into a chip-ready target: a bare
+// "www.example.com" gets an "https://" scheme so it is directly openable; a
+// URL that already carries a scheme is returned unchanged.
+func normalizeURL(s string) string {
+	if strings.HasPrefix(strings.ToLower(s), "www.") {
+		return "https://" + s
+	}
+	return s
+}
+
+// urlHost returns a URL's host for a compact default chip label ("example.com"
+// from "https://example.com/x"), falling back to the input when unparseable.
+func urlHost(s string) string {
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return s
 }
 
 // LinkSpan is one "[label](target)" match in rune offsets, with its parts.
@@ -165,6 +232,14 @@ func Chipify(name string, mk func(kind, value, label string) string) string {
 	}
 	for _, sp := range LinkSpans(name) {
 		spans = append(spans, span{sp.Start, sp.End, KindLink, sp.Target, sp.Label})
+	}
+	for _, sp := range URLSpans(name) {
+		value := normalizeURL(string(runes[sp[0]:sp[1]]))
+		label := urlHost(value)
+		if svc, ok := ServiceFor(value); ok {
+			label = svc.Label
+		}
+		spans = append(spans, span{sp[0], sp[1], KindLink, value, label})
 	}
 	if len(spans) == 0 {
 		return name

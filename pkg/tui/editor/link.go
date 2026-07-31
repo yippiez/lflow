@@ -17,6 +17,21 @@ import (
 
 const nodeLinkScheme = "lflow://node/"
 
+// detectURLSpans returns the rune ranges of every bare URL in name — an
+// explicit http(s):// address or a "www." host. Used to auto-chip a typed or
+// pasted URL exactly the way a canonical date auto-chips (see chip.go); the
+// detection itself lives in chiptext, shared with the CLI's chipify.
+func detectURLSpans(name string) [][2]int { return chiptext.URLSpans(name) }
+
+// urlChipLabel is a URL's default chip label: a known service names itself
+// ("Sheets"), everything else falls back to its host.
+func urlChipLabel(url string) string {
+	if svc, ok := chiptext.ServiceFor(url); ok {
+		return svc.Label
+	}
+	return browser.Host(url)
+}
+
 // nodeLinkURI builds a node link target from a uuid.
 func nodeLinkURI(uuid string) string { return nodeLinkScheme + uuid }
 
@@ -110,12 +125,7 @@ func (m *Model) insertLinkChip(value, label string) string {
 func (m *Model) insertURLLink(raw string) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	url := browser.Normalize(raw)
-	label := browser.Host(url)
-	// a known service names itself ("Sheets"), not "docs.google.com"
-	if svc, ok := chiptext.ServiceFor(url); ok {
-		label = svc.Label
-	}
-	m.insertLinkChip(url, label)
+	m.insertLinkChip(url, urlChipLabel(url))
 	m.flash = "linked → " + clipStr(url, 32)
 	m.refreshRows()
 	return m, nil

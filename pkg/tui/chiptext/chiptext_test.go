@@ -33,6 +33,26 @@ func TestDateSpans(t *testing.T) {
 	}
 }
 
+func TestURLSpans(t *testing.T) {
+	got := URLSpans("see https://example.com/x and www.foo.com, ok? bare word http")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 urls, got %d (%v)", len(got), got)
+	}
+	if got := URLSpans("visit https://x.com."); len(got) != 1 {
+		t.Fatalf("expected 1 url with trailing period trimmed, got %v", got)
+	} else if end := got[0][1]; end != len("visit https://x.com") {
+		t.Errorf("trailing period should be trimmed, span end = %d", end)
+	}
+	if got := URLSpans("(https://en.wikipedia.org/wiki/Go_(language))"); len(got) != 1 {
+		t.Fatalf("expected 1 url, got %v", got)
+	} else if end := got[0][1]; end != len("(https://en.wikipedia.org/wiki/Go_(language)") {
+		t.Errorf("balanced paren should survive, unbalanced outer paren trimmed, span end = %d", end)
+	}
+	if got := URLSpans("nothttps://not-a-url xhttps://also-not"); len(got) != 0 {
+		t.Errorf("scheme glued to a preceding word must not match, got %v", got)
+	}
+}
+
 func TestLinkSpans(t *testing.T) {
 	got := LinkSpans("see [docs](https://x.com) here")
 	if len(got) != 1 {
@@ -69,6 +89,33 @@ func TestChipify(t *testing.T) {
 	}
 	if !strings.HasPrefix(out, "ship <tag> by <date> see <link>") {
 		t.Errorf("unexpected rewrite: %q", out)
+	}
+}
+
+func TestChipifyBareURL(t *testing.T) {
+	var seen []string
+	out := Chipify("see https://example.com/x for details", mk(&seen))
+	if len(seen) != 1 || seen[0] != "link:example.com=https://example.com/x" {
+		t.Errorf("chips seen = %v, want [link:example.com=https://example.com/x]", seen)
+	}
+	if !strings.HasPrefix(out, "see <link> for") {
+		t.Errorf("unexpected rewrite: %q", out)
+	}
+}
+
+func TestChipifyBareURLKnownService(t *testing.T) {
+	var seen []string
+	Chipify("budget https://docs.google.com/spreadsheets/d/1abc", mk(&seen))
+	if len(seen) != 1 || seen[0] != "link:Sheets=https://docs.google.com/spreadsheets/d/1abc" {
+		t.Errorf("chips seen = %v, want a Sheets-labeled link", seen)
+	}
+}
+
+func TestChipifyWWWURLGetsScheme(t *testing.T) {
+	var seen []string
+	Chipify("see www.example.com now", mk(&seen))
+	if len(seen) != 1 || seen[0] != "link:www.example.com=https://www.example.com" {
+		t.Errorf("chips seen = %v, want a normalized https link", seen)
 	}
 }
 

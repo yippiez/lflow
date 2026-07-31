@@ -8,6 +8,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/chiptext"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/utils"
+	"github.com/lflow/lflow/pkg/utils/browser"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -245,10 +246,11 @@ func linkChipLabel(c database.Chip) string {
 	return c.Value
 }
 
-// chipifyBeforeCaret converts a #tag or canonical date ending exactly at the
-// caret into a chip anchor — called when a token is committed (a space typed, or
-// Enter). It reuses the same detection that renders legacy tags/dates, so there
-// are no new false positives. Returns true if it converted something.
+// chipifyBeforeCaret converts a #tag, canonical date or bare URL ending
+// exactly at the caret into a chip anchor — called when a token is committed
+// (a space typed, or Enter). It reuses the same detection that renders legacy
+// tags/dates/URLs, so there are no new false positives. Returns true if it
+// converted something.
 func (m *Model) chipifyBeforeCaret(cur *item) bool {
 	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly || !chipsEnabled(cur) {
 		return false
@@ -266,13 +268,25 @@ func (m *Model) chipifyBeforeCaret(cur *item) bool {
 			return m.replaceRangeWithChip(cur, sp[0], sp[1], chipKindDate, string(runes[sp[0]:sp[1]]))
 		}
 	}
+	for _, sp := range detectURLSpans(name) {
+		if sp[1] == m.caret {
+			value := browser.Normalize(string(runes[sp[0]:sp[1]]))
+			return m.replaceRangeWithLabeledChip(cur, sp[0], sp[1], chipKindLink, value, urlChipLabel(value))
+		}
+	}
 	return false
 }
 
-// replaceRangeWithChip swaps runes[start:end) for a new chip anchor of the given
-// kind/value and parks the caret just after it.
+// replaceRangeWithChip swaps runes[start:end) for a new unlabeled chip anchor
+// of the given kind/value and parks the caret just after it.
 func (m *Model) replaceRangeWithChip(cur *item, start, end int, kind, value string) bool {
-	anchor := m.createChip(kind, value)
+	return m.replaceRangeWithLabeledChip(cur, start, end, kind, value, "")
+}
+
+// replaceRangeWithLabeledChip swaps runes[start:end) for a new chip anchor of
+// the given kind/value/label and parks the caret just after it.
+func (m *Model) replaceRangeWithLabeledChip(cur *item, start, end int, kind, value, label string) bool {
+	anchor := m.createLabeledChip(kind, value, label)
 	if anchor == "" {
 		return false
 	}
@@ -314,21 +328,25 @@ func (m *Model) backfillChipsOnce() {
 	_ = database.UpsertSystem(m.ctx.DB, "chips_backfilled", "1")
 }
 
-// backfillName rewrites it.name, replacing every tag/date span with a chip
+// backfillName rewrites it.name, replacing every tag/date/URL span with a chip
 // anchor; it returns how many it converted.
 func (m *Model) backfillName(it *item) int {
 	type match struct {
-		start, end  int
-		kind, value string
+		start, end         int
+		kind, value, label string
 	}
 	name := it.name
 	runes := []rune(name)
 	var ms []match
 	for _, sp := range detectTagSpans(name) {
-		ms = append(ms, match{sp[0], sp[1], chipKindTag, strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#")})
+		ms = append(ms, match{sp[0], sp[1], chipKindTag, strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#"), ""})
 	}
 	for _, sp := range detectDateSpans(name) {
-		ms = append(ms, match{sp[0], sp[1], chipKindDate, string(runes[sp[0]:sp[1]])})
+		ms = append(ms, match{sp[0], sp[1], chipKindDate, string(runes[sp[0]:sp[1]]), ""})
+	}
+	for _, sp := range detectURLSpans(name) {
+		value := browser.Normalize(string(runes[sp[0]:sp[1]]))
+		ms = append(ms, match{sp[0], sp[1], chipKindLink, value, urlChipLabel(value)})
 	}
 	if len(ms) == 0 {
 		return 0
@@ -342,7 +360,7 @@ func (m *Model) backfillName(it *item) int {
 			continue // overlapping span (e.g. a date inside a tag) — keep the earlier
 		}
 		b.WriteString(string(runes[prev:mm.start]))
-		b.WriteString(m.createChip(mm.kind, mm.value))
+		b.WriteString(m.createLabeledChip(mm.kind, mm.value, mm.label))
 		prev, last, n = mm.end, mm.end, n+1
 	}
 	b.WriteString(string(runes[prev:]))
