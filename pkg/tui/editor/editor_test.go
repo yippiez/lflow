@@ -197,6 +197,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyPgUp}
 	case "pgdown":
 		return tea.KeyMsg{Type: tea.KeyPgDown}
+	case "ctrl+t":
+		return tea.KeyMsg{Type: tea.KeyCtrlT}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }

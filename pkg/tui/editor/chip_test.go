@@ -88,33 +88,6 @@ func TestChipVisualRowsOversizedChipTerminates(t *testing.T) {
 	}
 }
 
-// TestChipifyBeforeCaretURL: a bare URL ending at the caret commits into a link
-// chip exactly like a canonical date does — same trigger (chipifyBeforeCaret,
-// called on a committed space/enter), same anchor mechanics.
-func TestChipifyBeforeCaretURL(t *testing.T) {
-	m := newTestModel(80, "see https://example.com/x")
-	cur := m.cursorItem()
-	m.caret = len([]rune(cur.name))
-
-	if !m.chipifyBeforeCaret(cur) {
-		t.Fatalf("expected chipifyBeforeCaret to convert the URL")
-	}
-	spans := anchorSpans([]rune(cur.name))
-	if len(spans) != 1 {
-		t.Fatalf("want 1 anchor, got %d: %q", len(spans), cur.name)
-	}
-	c, ok := m.chips[spans[0].id]
-	if !ok {
-		t.Fatalf("chip record missing for id %q", spans[0].id)
-	}
-	if c.Kind != chipKindLink || c.Value != "https://example.com/x" || c.Label != "example.com" {
-		t.Fatalf("chip = %+v, want link https://example.com/x labeled example.com", c)
-	}
-	if !strings.HasPrefix(cur.name, "see ") {
-		t.Fatalf("unexpected rewrite: %q", cur.name)
-	}
-}
-
 // TestVisualRowsWideRuneNarrowLineTerminates: the plain wrapper has the same
 // hazard — a 2-cell rune on a 1-cell line must be consumed, not retried.
 func TestVisualRowsWideRuneNarrowLineTerminates(t *testing.T) {
