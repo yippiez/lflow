@@ -3,6 +3,7 @@
 @AGENTS.md
 
 After any code change, call the **verifier** subagent instead of running
-build / test / e2e / ast-grep steps yourself — it owns that logic and its
-memory of known flakes. Install the dev binary and commit only after it
-reports PASS.
+build / test / e2e / ast-grep or demo-recording steps yourself — it owns that
+logic and its memory of known flakes, and on PASS it records the DEMO.md video
+of a visible change and sends it to the user. Install the dev binary and
+commit only after it reports PASS.
