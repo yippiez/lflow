@@ -113,15 +113,24 @@ type NodeHost interface {
 	// NodeDepOK reports a CLI binary's availability (NodeCLIDeps; judged by
 	// the daemon — the execution side).
 	NodeDepOK(bin string) bool
-	// NodeScroll / NodeSetScroll read and move the focused view's scroll offset —
-	// the shared window origin the core clamps against the view's Lines each
-	// frame. A plugin View's Key handler uses them to page its own bands; a huge
-	// value means "the last page" (the clamp pins it).
-	NodeScroll() int
-	NodeSetScroll(int)
+	// NodeSetGenerated replaces the rows a previous run of this node produced
+	// with one real child node per entry, leaving children the user made alone.
+	// Generated rows are ordinary outline nodes — persisted, synced, foldable,
+	// starrable, and movable out of the way to keep one — identified for the
+	// next run by their type (NodeRow.Type), not by a lock.
+	NodeSetGenerated(n NodeRef, typ string, rows []NodeRow) int
 	// NodeComputeTurn runs one raw code-generation turn (system+prompt as-is) —
 	// on the daemon when connected, locally otherwise. Cancel ctx to stop it.
 	NodeComputeTurn(ctx context.Context, system, prompt, cwd string) (<-chan compute.Event, error)
+}
+
+// NodeRow is one generated child row: its display text, plus an optional link
+// target that makes the row a link chip pointing there (the row then reads as
+// its title, in the themed link color, clickable where the terminal supports
+// OSC 8 — exactly like a link typed by hand).
+type NodeRow struct {
+	Text string
+	URL  string
 }
 
 // NodePlugin declares one pluggable node type — the exported mirror of the
@@ -140,6 +149,10 @@ type NodePlugin struct {
 	// NodeBlockFace reads. Pair with AutoFocus + BlockCode.
 	BlockFaces bool
 	CLIDeps    []string
+	// Internal keeps the type out of the /type picker: it is a type a plugin
+	// GENERATES (a search hit row), not one a user converts a node into. Rows of
+	// it render and sync like any other node.
+	Internal bool
 
 	Glyph     func() (string, string)             // static glyph + SGR (per-node glyphs stay core for now)
 	BaseColor func() string                       // body SGR; nil/"" default
@@ -209,6 +222,7 @@ func RegisterNodePlugin(p NodePlugin) {
 		autoFocus:      p.AutoFocus,
 		blockFaces:     p.BlockFaces,
 		cliDeps:        p.CLIDeps,
+		internal:       p.Internal,
 	}
 	if p.Glyph != nil {
 		g := p.Glyph
@@ -284,8 +298,56 @@ func (m *Model) NodeDB() *database.DB                 { return m.db }
 func (m *Model) NodeConfigDir() string                { return m.ctx.Paths.Config }
 func (m *Model) NodeFlash(msg string)                 { m.flash = msg }
 func (m *Model) NodeDepOK(bin string) bool            { return m.depOK(bin) }
-func (m *Model) NodeScroll() int                      { return m.focusScroll }
-func (m *Model) NodeSetScroll(n int)                  { m.focusScroll = n }
+
+// NodeSetGenerated swaps this node's generated rows (its children of type typ)
+// for a fresh set. The user's own children — including a generated row they
+// moved out from under the node, or retyped — are untouched, so a re-run
+// replaces the run's output and nothing else.
+func (m *Model) NodeSetGenerated(n NodeRef, typ string, rows []NodeRow) int {
+	ref, ok := n.(nodeRef)
+	if !ok || ref.it == nil {
+		return 0
+	}
+	it := ref.it
+	var kept []*item
+	for _, c := range it.children {
+		if c.typ == typ {
+			m.dropGeneratedRow(c)
+			continue
+		}
+		kept = append(kept, c)
+	}
+	made := make([]*item, 0, len(rows))
+	for _, r := range rows {
+		c, err := m.tree.newItem()
+		if err != nil {
+			break
+		}
+		c.parent = it
+		c.typ = typ
+		c.name = r.Text
+		if r.URL != "" {
+			c.name = m.createLabeledChip(chipKindLink, r.URL, r.Text)
+		}
+		made = append(made, c)
+	}
+	it.children = append(made, kept...)
+	m.unsaved = true
+	m.refreshRows()
+	return len(made)
+}
+
+// dropGeneratedRow tombstones one generated row and its subtree, releasing the
+// chips its name owned so a re-run cannot leak chip records.
+func (m *Model) dropGeneratedRow(it *item) {
+	for _, c := range it.children {
+		m.dropGeneratedRow(c)
+	}
+	for _, sp := range anchorSpans([]rune(it.name)) {
+		m.deleteChipID(sp.id)
+	}
+	m.tombstoneItem(it)
+}
 
 // NodeComputeTurn runs a raw generation turn — daemon-side when connected and
 // local otherwise.

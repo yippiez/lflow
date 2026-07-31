@@ -38,8 +38,12 @@ const (
 	// linear preview of its whole subtree. See editor/math.go.
 	TypeMath = "math"
 	// TypeWebSearch is a web search: the node's text is the query and alt+r hangs
-	// the first ten hits beneath it, ephemerally (see editor/nodes/websearch.go).
+	// the first ten hits beneath it as child nodes (see editor/nodes/websearch.go).
 	TypeWebSearch = "websearch"
+	// TypeWebResult is one of those hits — a link row a websearch run generated.
+	// It is deliberately NOT in TypeOrder: nothing converts a node into one, the
+	// run creates them and the next run replaces them.
+	TypeWebResult = "webresult"
 )
 
 // Priority values for a node: where incoming nodes land among its children.

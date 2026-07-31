@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,21 +14,19 @@ import (
 	"github.com/lflow/lflow/pkg/tui/websearch"
 )
 
-// The websearch node: an outline row whose text IS a web search. alt+r asks a
-// keyless endpoint (see pkg/tui/websearch — DuckDuckGo out of the box, a
-// SearxNG instance when one is configured; no account, no API key either way)
-// and hangs the first ten hits underneath the node: one "Last Updated: …" time
-// chip, then ten titles, each a link to its result and nothing more — no ranks,
-// no URLs spelled out, no counts. alt+e opens the same ten with their URLs and
-// snippets in a scrollable view.
+// The websearch node: an outline row whose text IS a web search. alt+r asks the
+// user's SearxNG instance (see pkg/tui/websearch — the only backend, and no
+// instance means an error rather than a query sent somewhere they did not
+// choose) and hangs the first ten hits under the node AS REAL CHILD NODES, one
+// per hit: a link row whose text is the title and whose target is the result.
+// They are ordinary outline nodes — fold them, star them, note them, indent
+// something under one, or move one out to keep it — and the next run replaces
+// the ones still sitting under the node.
 //
-// The row stays an ordinary editable line — no Render override — so the query is
-// typed, chipped and colored like any other node; everything the search produces
-// lives in the bands beneath it.
-//
-// WARNING (invariant): the hits are RUN OUTPUT — they live only in the ephemeral
-// node store, are never written to the database and never sync. Reopening the
-// outline shows the query, not yesterday's web.
+// The node itself keeps one band: a dim "Last Updated: …" chip, and while a run
+// is in flight the shining "searching…" line. The stamp lives in node_output
+// (local, never synced) so the chip still reads right after a restart, while
+// the hits themselves are just outline.
 
 const (
 	wsLimit   = websearch.DefaultLimit // the first ten results
@@ -50,8 +49,9 @@ func init() {
 		Glyph:          wsGlyph,
 		Run:            runWebSearch,
 		Preview:        wsPreview,
-		View:           wsView{},
-		ToContext:      wsToContext,
+		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
+			return "websearch", "", "" // the hits are children now; they carry themselves
+		},
 		OnRemove: func(h editor.NodeHost, uuid string) {
 			if st := wsStateOf(h, uuid); st.cancel != nil {
 				st.cancel()
@@ -60,16 +60,28 @@ func init() {
 			delete(h.NodeStore(uuid), "animating")
 		},
 	})
+	// the hit rows themselves: generated, so kept out of the /type picker. They
+	// are not inline-editable (a run replaces them), but they are otherwise a
+	// plain node — the link chip in the name does all the rendering.
+	editor.RegisterNodePlugin(editor.NodePlugin{
+		Key: database.TypeWebResult, Label: "Web Result",
+		Internal:       true,
+		InlineEditable: false,
+		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
+			return "result", "", ""
+		},
+	})
 }
 
-// wsState is one node's ephemeral search state (NodeStore, key "websearch").
+// wsState is one node's in-flight state (NodeStore, key "websearch"). Only the
+// run itself lives here — the results are outline nodes, and the stamp is in
+// node_output.
 type wsState struct {
-	busy    bool
-	cancel  func()
-	query   string // the query the held results answer — not necessarily the row's text now
-	results []websearch.Result
-	errMsg  string
-	at      int64 // unix seconds of the last finished run — the time chip's stamp
+	busy   bool
+	cancel func()
+	errMsg string
+	at     int64 // unix seconds of the last finished run; 0 = never (or not loaded)
+	loaded bool
 }
 
 func wsStateOf(h editor.NodeHost, uuid string) *wsState {
@@ -79,17 +91,55 @@ func wsStateOf(h editor.NodeHost, uuid string) *wsState {
 		st = &wsState{}
 		d["websearch"] = st
 	}
+	if !st.loaded {
+		st.loaded = true
+		st.at = wsLoadStamp(h, uuid)
+	}
 	return st
+}
+
+// wsStamp is the persisted piece: when this node last ran. It rides in
+// node_output, which is local and never synced — the hits are the synced part.
+type wsStampData struct {
+	At int64 `json:"at"`
+}
+
+func wsLoadStamp(h editor.NodeHost, uuid string) int64 {
+	db := h.NodeDB()
+	if db == nil {
+		return 0
+	}
+	raw, err := database.LoadNodeOutput(db, uuid)
+	if err != nil || raw == "" {
+		return 0
+	}
+	var d wsStampData
+	if json.Unmarshal([]byte(raw), &d) != nil {
+		return 0
+	}
+	return d.At
+}
+
+func wsSaveStamp(h editor.NodeHost, uuid string, at int64) {
+	db := h.NodeDB()
+	if db == nil {
+		return
+	}
+	if raw, err := json.Marshal(wsStampData{At: at}); err == nil {
+		_ = database.SaveNodeOutput(db, uuid, string(raw))
+	}
 }
 
 // wsDoneMsg lands a finished search back in the update loop.
 type wsDoneMsg struct {
-	uuid, query string
-	results     []websearch.Result
-	err         string
+	uuid    string
+	node    editor.NodeRef
+	results []websearch.Result
+	err     string
 }
 
-// runWebSearch (alt+r) searches the web for the node's text. Never auto-runs.
+// runWebSearch (alt+r) searches the user's instance for the node's text. Never
+// auto-runs.
 func runWebSearch(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 	uuid := n.UUID()
 	st := wsStateOf(h, uuid)
@@ -102,18 +152,16 @@ func runWebSearch(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 		h.NodeFlash("websearch · type what to search first")
 		return nil
 	}
-	// re-read each run, so naming a SearxNG instance in credentials.json takes
-	// effect without a restart
+	// re-read each run, so naming an instance in credentials.json takes effect
+	// without a restart
 	wsClient.ConfigDir = h.NodeConfigDir()
 	ctx, cancel := context.WithTimeout(context.Background(), wsTimeout)
-	st.busy, st.cancel = true, cancel
-	st.query, st.results, st.errMsg = query, nil, ""
-	// the shine on the searching… band keeps the animation tick alive
-	h.NodeStore(uuid)["animating"] = true
+	st.busy, st.cancel, st.errMsg = true, cancel, ""
+	h.NodeStore(uuid)["animating"] = true // keeps the shine ticking while it runs
 	return func() tea.Msg {
 		defer cancel()
 		res, err := wsClient.Search(ctx, query, wsLimit)
-		msg := wsDoneMsg{uuid: uuid, query: query, results: res}
+		msg := wsDoneMsg{uuid: uuid, node: n, results: res}
 		if err != nil {
 			msg.err = err.Error()
 		}
@@ -121,143 +169,44 @@ func runWebSearch(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 	}
 }
 
-// HandleNodePlugin parks a finished search (editor.NodePluginMsg).
+// HandleNodePlugin lands a finished search: the hits become the node's children
+// (editor.NodePluginMsg). A failed run keeps the rows the last one produced —
+// stale results beat no results, and the band says how old they are.
 func (msg wsDoneMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 	st := wsStateOf(h, msg.uuid)
 	st.busy, st.cancel = false, nil
 	delete(h.NodeStore(msg.uuid), "animating")
-	st.query, st.results, st.errMsg = msg.query, msg.results, msg.err
-	st.at = time.Now().Unix()
-	switch {
-	case msg.err != "":
+	st.errMsg = msg.err
+	if msg.err != "" {
 		h.NodeFlash("websearch · " + msg.err)
-	case len(msg.results) == 0:
-		h.NodeFlash("websearch · no results")
-	default:
-		h.NodeFlash(fmt.Sprintf("websearch · %d results · ⌥e opens them", len(msg.results)))
+		return nil
 	}
+
+	rows := make([]editor.NodeRow, 0, len(msg.results))
+	for _, r := range msg.results {
+		rows = append(rows, editor.NodeRow{Text: r.Title, URL: r.URL})
+	}
+	n := h.NodeSetGenerated(msg.node, database.TypeWebResult, rows)
+	st.at = time.Now().Unix()
+	wsSaveStamp(h, msg.uuid, st.at)
+	h.NodeFlash(fmt.Sprintf("websearch · %d results", n))
 	return nil
 }
 
-// wsStamp is the node's one piece of chrome: when these hits were fetched.
-func wsStamp(st *wsState) string {
-	return "Last Updated: " + editor.NodeRelTime(st.at)
-}
-
-// wsPreview hangs the results beneath the node — the time chip, then one linked
-// title per hit and nothing else. Always on once a search has run (the point of
-// the type: run it, read the ten); it steps aside while the alt+e view is open,
-// which shows the same ten in full.
+// wsPreview is the node's one band: the time chip, or what the run is doing.
+// The results are rows of their own beneath it.
 func wsPreview(h editor.NodeHost, n editor.NodeRef, rail string, maxLine int, focused bool) []string {
-	if focused {
-		return nil
-	}
 	th := editor.NodeTheme()
 	st := wsStateOf(h, n.UUID())
 	line := func(s string) string { return editor.NodeClip(rail+th.Reset+"  "+s, maxLine) }
 
 	switch {
 	case st.busy:
-		return []string{line(editor.ShineText("searching the web…"))}
+		return []string{line(editor.ShineText("searching…"))}
 	case st.errMsg != "":
-		return []string{line(th.Red + "websearch · " + st.errMsg + th.Reset)}
-	case len(st.results) == 0 && st.at > 0:
-		return []string{line(th.Dim + "no results · ⌥r searches again" + th.Reset)}
-	case len(st.results) == 0:
-		return nil // never run — the row is just a line of text until ⌥r
+		return []string{line(th.Red + st.errMsg + th.Reset)}
+	case st.at > 0:
+		return []string{line(th.Dim + "Last Updated: " + editor.NodeRelTime(st.at) + th.Reset)}
 	}
-
-	out := []string{line(th.Dim + wsStamp(st) + th.Reset)}
-	for _, r := range st.results {
-		out = append(out, line(editor.NodeLink(r.URL, r.Title)))
-	}
-	return out
-}
-
-// wsToContext hands the hits to structured outline context: the query, then one
-// element per result.
-func wsToContext(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
-	st := wsStateOf(h, n.UUID())
-	var b strings.Builder
-	b.WriteString(strings.TrimSpace(n.Text()))
-	for _, r := range st.results {
-		b.WriteString("\n<result url=\"" + r.URL + "\">" + r.Title)
-		if r.Snippet != "" {
-			b.WriteString(" — " + r.Snippet)
-		}
-		b.WriteString("</result>")
-	}
-	return "websearch", "", b.String()
-}
-
-// ── the alt+e view: the same ten hits, with their URLs and snippets ──────────
-
-type wsView struct{}
-
-func (wsView) Enter(h editor.NodeHost, n editor.NodeRef) bool { return true }
-func (wsView) Leave(h editor.NodeHost, n editor.NodeRef)      {}
-
-func (v wsView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
-	return len(wsViewLines(h, n, width))
-}
-
-func (v wsView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
-	content := wsViewLines(h, n, width)
-	for i, l := range content {
-		content[i] = editor.NodeClip(rail+editor.NodeTheme().Reset+l, width)
-	}
-	return editor.NodeWindowBands(content, scroll, winH)
-}
-
-// wsViewLines is the view's full content — the time chip, then each hit as its
-// linked title over its url and snippet. Lines and Bands share it so the scroll
-// clamp always matches what is drawn.
-func wsViewLines(h editor.NodeHost, n editor.NodeRef, width int) []string {
-	th := editor.NodeTheme()
-	st := wsStateOf(h, n.UUID())
-
-	hdr := wsStamp(st)
-	switch {
-	case st.busy:
-		hdr = "searching…"
-	case st.errMsg != "":
-		hdr = st.errMsg
-	case st.at == 0:
-		hdr = "nothing yet"
-	}
-	out := []string{th.Dim + "  " + hdr + " · ↑↓ scroll · ⌥r again · esc close" + th.Reset}
-	if len(st.results) == 0 {
-		return append(out, th.Dim+"  ⌥r searches the web for this row"+th.Reset)
-	}
-	for _, r := range st.results {
-		out = append(out, "  "+editor.NodeLink(r.URL, r.Title), th.Dim+"  "+r.URL+th.Reset)
-		if r.Snippet != "" {
-			out = append(out, th.Dim+"  "+r.Snippet+th.Reset)
-		}
-	}
-	return out
-}
-
-// Key scrolls the hit list; alt+r searches again. esc falls through to the
-// central defocus handler.
-func (v wsView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
-	switch k.String() {
-	case "alt+r":
-		return runWebSearch(h, n), true
-	case "down", "j":
-		h.NodeSetScroll(h.NodeScroll() + 1)
-	case "up", "k":
-		h.NodeSetScroll(max(0, h.NodeScroll()-1))
-	case "pgdown":
-		h.NodeSetScroll(h.NodeScroll() + 10)
-	case "pgup":
-		h.NodeSetScroll(max(0, h.NodeScroll()-10))
-	case "home", "g":
-		h.NodeSetScroll(0)
-	case "end", "G":
-		h.NodeSetScroll(1 << 30) // the central clamp pins it to the last page
-	default:
-		return nil, false
-	}
-	return nil, true
+	return nil // never run — the row is just a line of text until ⌥r
 }

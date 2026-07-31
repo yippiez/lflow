@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,28 +9,31 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/tui/editor"
 	"github.com/lflow/lflow/pkg/tui/websearch"
 )
 
-// resultPage is a lite-shaped DuckDuckGo answer with twelve hits, so the tests
+// searxAnswer is a SearxNG format=json answer with twelve hits, so the tests
 // also prove the node keeps only the first ten.
-func resultPage() string {
-	var b strings.Builder
-	for i := 1; i <= 12; i++ {
-		n := string(rune('a' + i - 1))
-		b.WriteString(`<tr><td><a rel="nofollow" href="https://www.` + n + `.example/page" class='result-link'>Result ` + n + `</a></td></tr>`)
-		b.WriteString(`<tr><td class='result-snippet'>about ` + n + `</td></tr>`)
+func searxAnswer() string {
+	type hit struct {
+		URL     string `json:"url"`
+		Title   string `json:"title"`
+		Content string `json:"content"`
 	}
-	return b.String()
+	var hits []hit
+	for i := 0; i < 12; i++ {
+		n := string(rune('a' + i))
+		hits = append(hits, hit{URL: "https://" + n + ".example/page", Title: "Result " + n, Content: "about " + n})
+	}
+	b, _ := json.Marshal(map[string]any{"query": "go outliner", "results": hits})
+	return string(b)
 }
 
-// serveResults points the shared client at a local server for the test's life.
-func serveResults(t *testing.T, body string, status int) {
+// serveInstance points the shared client at a local SearxNG stand-in.
+func serveInstance(t *testing.T, body string, status int) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if status != http.StatusOK {
@@ -39,11 +43,12 @@ func serveResults(t *testing.T, body string, status int) {
 		w.Write([]byte(body))
 	}))
 	prev := wsClient
-	wsClient = websearch.Client{Endpoints: []websearch.Endpoint{{URL: srv.URL}}}
+	wsClient = websearch.Client{Instance: srv.URL}
 	t.Cleanup(func() {
 		wsClient = prev
 		srv.Close()
 	})
+	return srv
 }
 
 // runToCompletion performs an alt+r and folds the resulting message back in, the
@@ -61,84 +66,91 @@ func runToCompletion(t *testing.T, h *fakeHost, n *fakeNode) {
 	msg.HandleNodePlugin(h)
 }
 
-func TestWebSearchRunKeepsTenResults(t *testing.T) {
-	serveResults(t, resultPage(), http.StatusOK)
+func TestWebSearchHangsTheHitsAsChildNodes(t *testing.T) {
+	serveInstance(t, searxAnswer(), http.StatusOK)
 	h := newFakeHost(t)
+	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
+
+	runToCompletion(t, h, n)
+
+	if len(n.kids) != 10 {
+		t.Fatalf("got %d children, want the first 10 hits", len(n.kids))
+	}
+	first := n.kids[0]
+	if first.typ != database.TypeWebResult {
+		t.Errorf("child type = %q, want the generated result type", first.typ)
+	}
+	if first.text != "Result a" || first.url != "https://a.example/page" {
+		t.Errorf("first child = %q → %q, want the title linked to its result", first.text, first.url)
+	}
+	if n.kids[9].text != "Result j" {
+		t.Errorf("last child = %q", n.kids[9].text)
+	}
+	if !strings.Contains(h.flash, "10 results") {
+		t.Errorf("flash = %q", h.flash)
+	}
+}
+
+// A re-run replaces the rows the last run made and leaves everything else — a
+// note the user filed under the search, or a hit they moved out to keep.
+func TestWebSearchRerunReplacesOnlyItsOwnRows(t *testing.T) {
+	serveInstance(t, searxAnswer(), http.StatusOK)
+	h := newFakeHost(t)
+	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
+	mine := &fakeNode{uuid: "mine", typ: database.TypeBullets, text: "read these on the train", parent: n}
+	n.kids = []*fakeNode{mine}
+
+	runToCompletion(t, h, n)
+	runToCompletion(t, h, n)
+
+	if len(n.kids) != 11 {
+		t.Fatalf("got %d children, want 10 fresh hits plus the user's row", len(n.kids))
+	}
+	if n.kids[10] != mine {
+		t.Errorf("the user's own child must survive a re-run: %+v", n.kids[10])
+	}
+	for _, c := range n.kids[:10] {
+		if c.typ != database.TypeWebResult {
+			t.Errorf("row %q is not a generated result", c.text)
+		}
+	}
+}
+
+// The one hard requirement of a searxng-only backend: with no instance named
+// and none listening locally, a run explains how to name one instead of asking
+// anybody else.
+func TestWebSearchWithoutAnInstanceErrors(t *testing.T) {
+	prev := wsClient
+	// an address nothing listens on stands in for "no local instance"
+	wsClient = websearch.Client{}
+	t.Cleanup(func() { wsClient = prev })
+	t.Setenv("LFLOW_SEARXNG_URL", "")
+
+	h := newFakeHost(t)
+	h.configDir = t.TempDir() // no credentials.json
 	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
 
 	runToCompletion(t, h, n)
 
 	st := wsStateOf(h, n.uuid)
-	if st.busy {
-		t.Error("still busy after the search finished")
+	if !strings.Contains(st.errMsg, "no SearxNG instance") {
+		t.Fatalf("err = %q, want the setup message", st.errMsg)
 	}
-	if len(st.results) != 10 {
-		t.Fatalf("kept %d results, want the first 10", len(st.results))
+	if !strings.Contains(st.errMsg, "credentials.json") {
+		t.Errorf("the error must say where to name one: %q", st.errMsg)
 	}
-	if st.results[0].Title != "Result a" || st.results[0].URL != "https://www.a.example/page" {
-		t.Errorf("first result = %+v", st.results[0])
+	if len(n.kids) != 0 {
+		t.Errorf("a failed run must hang no rows, got %d", len(n.kids))
 	}
-	if a, _ := h.NodeStore(n.uuid)["animating"].(bool); a {
-		t.Error("the animation flag outlived the search")
-	}
-	if !strings.Contains(h.flash, "10 results") {
-		t.Errorf("flash = %q, want the result count", h.flash)
+	band := wsPreview(h, n, "", 120, false)
+	if len(band) != 1 || !strings.Contains(ansi.Strip(band[0]), "no SearxNG instance") {
+		t.Errorf("band = %v, want the error on the node", band)
 	}
 }
 
-func TestWebSearchPreviewShowsTheTenHits(t *testing.T) {
-	serveResults(t, resultPage(), http.StatusOK)
-	h := newFakeHost(t)
-	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
-
-	if bands := wsPreview(h, n, "", 120, false); bands != nil {
-		t.Fatalf("an unrun node hangs no bands, got %v", bands)
-	}
-	runToCompletion(t, h, n)
-
-	bands := wsPreview(h, n, "", 120, false)
-	if len(bands) != 11 {
-		t.Fatalf("got %d bands, want the time chip plus 10 hits", len(bands))
-	}
-	// the chip is the node's only chrome — no counts, no key hints
-	if got := strings.TrimSpace(ansi.Strip(bands[0])); got != "Last Updated: just now" {
-		t.Errorf("time chip = %q", got)
-	}
-	// a hit is its title and nothing else: no rank, no host, no url spelled out
-	if got := strings.TrimSpace(ansi.Strip(bands[1])); got != "Result a" {
-		t.Errorf("first hit band = %q, want the bare title", got)
-	}
-	if got := strings.TrimSpace(ansi.Strip(bands[10])); got != "Result j" {
-		t.Errorf("last hit band = %q", got)
-	}
-	if bands := wsPreview(h, n, "", 120, true); bands != nil {
-		t.Error("the preview must yield to the focused view")
-	}
-}
-
-func TestWebSearchHitsAreHyperlinks(t *testing.T) {
-	serveResults(t, resultPage(), http.StatusOK)
-	h := newFakeHost(t)
-	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
-	runToCompletion(t, h, n)
-
-	band := wsPreview(h, n, "", 120, false)[1]
-	if !strings.Contains(band, "\x1b]8;;https://www.a.example/page\x1b\\") {
-		t.Errorf("the title must open an OSC 8 link to its result: %q", band)
-	}
-	if !strings.HasSuffix(band, "\x1b]8;;\x1b\\") {
-		t.Errorf("the link must be closed at the end of the title: %q", band)
-	}
-	// the target rides in the escape, so it costs no visible columns
-	if w := editor.NodeVisibleWidth(band); w != len("  Result a") {
-		t.Errorf("visible width = %d, want %d", w, len("  Result a"))
-	}
-}
-
-// The node reads the configured backend from the host's config dir on every
-// run, so naming a SearxNG instance in credentials.json takes effect without a
-// restart — and that instance is where the query goes.
-func TestWebSearchUsesTheConfiguredSearxNGInstance(t *testing.T) {
+// The node reads the configured instance from the host's config dir on every
+// run, so naming one in credentials.json takes effect without a restart.
+func TestWebSearchUsesTheConfiguredInstance(t *testing.T) {
 	var asked string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
@@ -165,35 +177,54 @@ func TestWebSearchUsesTheConfiguredSearxNGInstance(t *testing.T) {
 	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
 	runToCompletion(t, h, n)
 
-	st := wsStateOf(h, n.uuid)
-	if st.errMsg != "" {
+	if st := wsStateOf(h, n.uuid); st.errMsg != "" {
 		t.Fatalf("search failed: %s", st.errMsg)
 	}
 	if !strings.Contains(asked, "/search?") || !strings.Contains(asked, "format=json") {
 		t.Errorf("asked %q, want the instance's json search endpoint", asked)
 	}
-	if len(st.results) != 1 || st.results[0].Title != "From the instance" {
-		t.Fatalf("results = %+v", st.results)
+	if len(n.kids) != 1 || n.kids[0].text != "From the instance" {
+		t.Fatalf("children = %+v", n.kids)
 	}
 }
 
-func TestWebSearchReportsFailure(t *testing.T) {
-	serveResults(t, "", http.StatusTooManyRequests)
+// A failed re-run keeps the rows the last good run produced: stale hits beat no
+// hits, and the band says how old they are.
+func TestWebSearchFailureKeepsTheLastRows(t *testing.T) {
+	serveInstance(t, searxAnswer(), http.StatusOK)
 	h := newFakeHost(t)
 	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
-
 	runToCompletion(t, h, n)
 
+	serveInstance(t, "", http.StatusForbidden)
+	runToCompletion(t, h, n)
+
+	if len(n.kids) != 10 {
+		t.Errorf("got %d children, want the previous run's rows kept", len(n.kids))
+	}
 	st := wsStateOf(h, n.uuid)
-	if st.errMsg == "" {
-		t.Fatal("want the failure recorded on the node")
+	if !strings.Contains(st.errMsg, "search.formats") {
+		t.Errorf("err = %q, want the searxng format hint", st.errMsg)
 	}
-	bands := wsPreview(h, n, "", 120, false)
-	if len(bands) != 1 || !strings.Contains(ansi.Strip(bands[0]), "websearch ·") {
-		t.Errorf("bands = %v, want one error line", bands)
+}
+
+// The stamp is the node's only persisted state: it lives in node_output, so the
+// chip still reads right after a restart while the hits are just outline.
+func TestWebSearchStampSurvivesAReload(t *testing.T) {
+	serveInstance(t, searxAnswer(), http.StatusOK)
+	h := newFakeHost(t)
+	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
+	runToCompletion(t, h, n)
+
+	if got := strings.TrimSpace(ansi.Strip(wsPreview(h, n, "", 120, false)[0])); got != "Last Updated: just now" {
+		t.Fatalf("band = %q", got)
 	}
-	if !strings.Contains(h.flash, "websearch ·") {
-		t.Errorf("flash = %q", h.flash)
+
+	// a fresh host over the same database is what reopening the outline looks like
+	reopened := &fakeHost{db: h.db, stores: map[string]map[string]any{}}
+	band := wsPreview(reopened, n, "", 120, false)
+	if len(band) != 1 || !strings.Contains(ansi.Strip(band[0]), "Last Updated:") {
+		t.Errorf("band after a reload = %v, want the time chip", band)
 	}
 }
 
@@ -208,52 +239,15 @@ func TestWebSearchRefusesAnEmptyQuery(t *testing.T) {
 	}
 }
 
-func TestWebSearchViewScrollsAndMatchesItsLineCount(t *testing.T) {
-	serveResults(t, resultPage(), http.StatusOK)
+func TestWebSearchBandWhileSearching(t *testing.T) {
 	h := newFakeHost(t)
 	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
-	runToCompletion(t, h, n)
-
-	v := wsView{}
-	if !v.Enter(h, n) {
-		t.Fatal("the view declined to open")
+	if band := wsPreview(h, n, "", 120, false); band != nil {
+		t.Fatalf("an unrun node hangs no band, got %v", band)
 	}
-	total := v.Lines(h, n, 100)
-	if want := 1 + 3*10; total != want {
-		t.Fatalf("Lines = %d, want %d (header + title/url/snippet per hit)", total, want)
-	}
-	if got := len(v.Bands(h, n, "", 100, 0, total, true)); got != total {
-		t.Errorf("Bands rendered %d lines, want the %d Lines promised", got, total)
-	}
-	if _, handled := v.Key(h, n, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}); !handled {
-		t.Fatal("j must scroll")
-	}
-	if h.scroll != 1 {
-		t.Errorf("scroll = %d, want 1", h.scroll)
-	}
-	body := v.Bands(h, n, "", 100, h.scroll, 3, true)
-	if len(body) != 3 || !strings.Contains(ansi.Strip(body[0]), "Result a") {
-		t.Errorf("scrolled window = %v", body)
-	}
-	if _, handled := v.Key(h, n, tea.KeyMsg{Type: tea.KeyEsc}); handled {
-		t.Error("esc must fall through to the central defocus")
-	}
-}
-
-func TestWebSearchContext(t *testing.T) {
-	serveResults(t, resultPage(), http.StatusOK)
-	h := newFakeHost(t)
-	n := &fakeNode{uuid: "s1", typ: database.TypeWebSearch, text: "go outliner"}
-	runToCompletion(t, h, n)
-
-	tag, _, body := wsToContext(h, n)
-	if tag != "websearch" {
-		t.Errorf("tag = %q", tag)
-	}
-	if !strings.HasPrefix(body, "go outliner\n") {
-		t.Errorf("body must open with the query: %q", body)
-	}
-	if n := strings.Count(body, "<result url="); n != 10 {
-		t.Errorf("got %d result elements, want 10", n)
+	wsStateOf(h, n.uuid).busy = true
+	band := wsPreview(h, n, "", 120, false)
+	if len(band) != 1 || !strings.Contains(ansi.Strip(band[0]), "searching") {
+		t.Errorf("band = %v, want the in-flight line", band)
 	}
 }

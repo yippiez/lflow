@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/lflow/lflow/pkg/tui/compute"
@@ -20,7 +21,6 @@ type fakeHost struct {
 	flash     string
 	deps      map[string]bool
 	configDir string
-	scroll    int
 	compute   func() <-chan compute.Event
 }
 
@@ -44,8 +44,28 @@ func (f *fakeHost) NodeDepOK(b string) bool {
 	ok, probed := f.deps[b]
 	return !probed || ok
 }
-func (f *fakeHost) NodeScroll() int     { return f.scroll }
-func (f *fakeHost) NodeSetScroll(n int) { f.scroll = n }
+
+// NodeSetGenerated mirrors the editor's: swap the node's children of type typ
+// for one row each, keeping everything else.
+func (f *fakeHost) NodeSetGenerated(n editor.NodeRef, typ string, rows []editor.NodeRow) int {
+	fn, ok := n.(*fakeNode)
+	if !ok {
+		return 0
+	}
+	var kept []*fakeNode
+	for _, c := range fn.kids {
+		if c.typ != typ {
+			kept = append(kept, c)
+		}
+	}
+	made := make([]*fakeNode, 0, len(rows))
+	for i, r := range rows {
+		made = append(made, &fakeNode{uuid: fmt.Sprintf("%s-gen%d", fn.uuid, i), typ: typ,
+			text: r.Text, url: r.URL, parent: fn})
+	}
+	fn.kids = append(made, kept...)
+	return len(made)
+}
 func (f *fakeHost) NodeComputeTurn(context.Context, string, string, string) (<-chan compute.Event, error) {
 	return f.compute(), nil
 }
@@ -53,6 +73,7 @@ func (f *fakeHost) NodeComputeTurn(context.Context, string, string, string) (<-c
 // fakeNode implements editor.NodeRef.
 type fakeNode struct {
 	uuid, typ, text, path string
+	url                   string // the link target a generated row carries
 	parent                *fakeNode
 	kids                  []*fakeNode
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/tui/database"
@@ -170,19 +171,22 @@ func (m *Model) hydrateCmdPreviews() {
 // clean inline preview from coloured command output.
 func stripSGR(s string) string {
 	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if r == 'm' {
-				inEsc = false
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			// escapes are walked properly (ansiEscapeEnd), not "up to the next m":
+			// an OSC 8 payload is a URL and routinely contains one, which used to
+			// swallow the rest of the line. A hyperlink is not styling, so it is
+			// kept — a grayed row stays clickable.
+			j := ansiEscapeEnd(s, i)
+			if seq := s[i:j]; strings.HasPrefix(seq, "\x1b]") {
+				b.WriteString(seq)
 			}
+			i = j
 			continue
 		}
-		if r == '\x1b' {
-			inEsc = true
-			continue
-		}
+		r, n := utf8.DecodeRuneInString(s[i:])
 		b.WriteRune(r)
+		i += n
 	}
 	return b.String()
 }

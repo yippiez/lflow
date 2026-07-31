@@ -4,8 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 func TestSourceUUIDFollowsMirrorChain(t *testing.T) {
@@ -205,7 +207,6 @@ func TestGlyphForMutedBullets(t *testing.T) {
 		t.Errorf("mirrors keep the normal per-type glyph — the suffix marks them, got %q %q", glyph, color)
 	}
 }
-
 
 func TestRenderBodyLoneAsteriskStaysPlain(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
@@ -509,7 +510,8 @@ func TestClipClosesATruncatedHyperlink(t *testing.T) {
 	if !strings.HasSuffix(got, oscLinkClose) {
 		t.Errorf("a cut hyperlink must be closed so it cannot bleed on: %q", got)
 	}
-	if strings.Contains(stripSGR(got), "example.com") {
+	// the target rides in the escape: it must never become visible text
+	if strings.Contains(ansi.Strip(got), "example.com") {
 		t.Errorf("the target leaked into the visible text: %q", got)
 	}
 }
