@@ -2,6 +2,7 @@
 name: verifier
 description: Verifies lflow changes — fts5 build, unit tests, the bash/tmux e2e suite, and the ast-grep rules — then records the DEMO.md video of a visible change and shows it to the user. Call it after any code change, before installing the dev binary or committing.
 tools: Bash, Read, Grep, Glob, Write
+model: claude-sonnet-5
 color: green
 memory: project
 ---
