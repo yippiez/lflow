@@ -1,7 +1,7 @@
 ---
 name: verifier
 description: Verifies lflow changes — fts5 build, unit tests, the bash/tmux e2e suite, and the ast-grep rules — then records the DEMO.md video of a visible change and shows it to the user. Call it after any code change, before installing the dev binary or committing.
-tools: Bash, Read, Grep, Glob, Write, SendUserFile
+tools: Bash, Read, Grep, Glob, Write
 color: green
 memory: project
 ---
@@ -39,10 +39,12 @@ capture loop, `scripts/ansishot.py` painting, ffmpeg mux, captions burned along
 the top, its house numbers untouched. Script the take around the change under
 verification: press the new key, hold on the payoff, caption what happened.
 
-Copy the finished mp4 out of the scratch root before tearing it down, then
-send it to the user with SendUserFile. Finish the DEMO.md checklist: scratch
-root deleted, sandbox daemons killed. A change with nothing to see (pure
-refactor, docs) gets no video — say so instead.
+Copy the finished mp4 out of the scratch root to a stable path (e.g.
+`/tmp/lflow-demo-<change>.mp4`) before tearing the scratch down, and put that
+path in your report — you cannot reach the user directly; the calling session
+sends the file on. Finish the DEMO.md checklist: scratch root deleted, sandbox
+daemons killed. A change with nothing to see (pure refactor, docs) gets no
+video — say so instead.
 
 ## Isolation invariants
 
@@ -57,8 +59,9 @@ refactor, docs) gets no video — say so instead.
 
 End with a verdict: **PASS** (every step green) or **FAIL** with, per failure,
 the failing step, the exact command, and the relevant output excerpt — enough
-for the caller to fix it without rerunning everything. On PASS, say whether a
-demo was recorded and sent, or why there was nothing to show.
+for the caller to fix it without rerunning everything. On PASS, give the demo
+mp4's path so the caller can send it to the user, or say why there was nothing
+to show.
 
 ## Memory
 
