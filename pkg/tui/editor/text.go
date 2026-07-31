@@ -2,6 +2,7 @@ package editor
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
@@ -11,66 +12,145 @@ import (
 // tab-expansion, cluster and caret helpers. They are node-agnostic; the
 // node-body and band rendering that uses them lives in render.go.
 
-// visibleWidth returns the display width of s ignoring SGR sequences. Runs of
+// ── ANSI escape scanning ───────────────────────────────────────────────────
+
+// A rendered line carries TWO shapes of escape: SGR color (CSI, "\x1b[…m") and
+// the OSC 8 hyperlink a URL link chip wraps itself in — oscLink(target) …
+// oscLink("") — so a terminal can ctrl+click the chip (see renderBody).
+//
+// WARNING (invariant): every scanner that walks a styled line must skip BOTH
+// through ansiEscapeEnd / escapeEndRunes. A hand-rolled "consume until 'm'"
+// loop ends an OSC 8 escape inside its own target (the 'm' of ".com"), and the
+// rest of the URL is then measured and printed as if it were text: rows wrap
+// early, a continuation line re-emits the half-eaten opener, and the terminal
+// swallows whatever follows it as OSC payload.
+
+const (
+	oscLinkPrefix = "\x1b]8;;" // OSC 8: prefix + target + ST; an empty target closes
+	oscST         = "\x1b\\"   // string terminator
+)
+
+// oscLink is one OSC 8 hyperlink escape; oscLink("") closes the open link.
+func oscLink(target string) string { return oscLinkPrefix + target + oscST }
+
+// ansiEscapeEnd returns the byte index just after the escape beginning at s[i]
+// (s[i] must be ESC). An unterminated escape runs to the end of s.
+func ansiEscapeEnd(s string, i int) int {
+	if i+1 >= len(s) {
+		return len(s)
+	}
+	switch s[i+1] {
+	case '[': // CSI: the final byte is anything in 0x40..0x7e ('m' for SGR)
+		for j := i + 2; j < len(s); j++ {
+			if s[j] >= 0x40 && s[j] <= 0x7e {
+				return j + 1
+			}
+		}
+		return len(s)
+	case ']': // OSC: BEL or ST ends the payload — never a bare 'm'
+		for j := i + 2; j < len(s); j++ {
+			if s[j] == '\a' {
+				return j + 1
+			}
+			if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
+				return j + 2
+			}
+		}
+		return len(s)
+	default:
+		return i + 2
+	}
+}
+
+// escapeEndRunes is ansiEscapeEnd in rune coordinates, for the wrappers that
+// index a []rune. Escape syntax is ASCII, so the two scan the same bytes.
+func escapeEndRunes(runes []rune, i int) int {
+	if i+1 >= len(runes) {
+		return len(runes)
+	}
+	switch runes[i+1] {
+	case '[':
+		for j := i + 2; j < len(runes); j++ {
+			if runes[j] >= 0x40 && runes[j] <= 0x7e {
+				return j + 1
+			}
+		}
+		return len(runes)
+	case ']':
+		for j := i + 2; j < len(runes); j++ {
+			if runes[j] == '\a' {
+				return j + 1
+			}
+			if runes[j] == '\x1b' && j+1 < len(runes) && runes[j+1] == '\\' {
+				return j + 2
+			}
+		}
+		return len(runes)
+	default:
+		return i + 2
+	}
+}
+
+// isSGR reports whether an escape sequence is a color/attribute one — the only
+// kind a continuation line re-opens as carried style.
+func isSGR(seq string) bool { return strings.HasPrefix(seq, "\x1b[") }
+
+// linkTargetOf returns the target an OSC 8 escape opens ("" for the closing
+// escape) and whether seq is an OSC 8 escape at all.
+func linkTargetOf(seq string) (string, bool) {
+	if !strings.HasPrefix(seq, oscLinkPrefix) {
+		return "", false
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(seq, oscLinkPrefix), oscST), true
+}
+
+// visibleWidth returns the display width of s ignoring escape sequences. Runs of
 // text between escapes are measured a grapheme cluster at a time so a ZWJ emoji
 // sequence counts as its true terminal width — StringWidth folds the cluster's
 // components into one cell-run — rather than the sum of its parts.
 func visibleWidth(s string) int {
+	if !strings.ContainsRune(s, '\x1b') {
+		return runewidth.StringWidth(s)
+	}
 	w := 0
-	var run strings.Builder
-	flush := func() {
-		if run.Len() > 0 {
-			w += runewidth.StringWidth(run.String())
-			run.Reset()
-		}
-	}
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if r == 'm' {
-				inEsc = false
-			}
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			i = ansiEscapeEnd(s, i)
 			continue
 		}
-		if r == '\x1b' {
-			flush()
-			inEsc = true
-			continue
+		j := i
+		for j < len(s) && s[j] != '\x1b' {
+			j++
 		}
-		run.WriteRune(r)
+		w += runewidth.StringWidth(s[i:j])
+		i = j
 	}
-	flush()
 	return w
 }
 
-// clip truncates s (which may contain SGR sequences) to the given display width.
+// clip truncates s (which may carry escape sequences) to the given display width.
 func clip(s string, width int) string {
 	if visibleWidth(s) <= width {
 		return s
 	}
 	var b strings.Builder
 	w := 0
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			b.WriteRune(r)
-			if r == 'm' {
-				inEsc = false
-			}
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			e := ansiEscapeEnd(s, i)
+			b.WriteString(s[i:e])
+			i = e
 			continue
 		}
-		if r == '\x1b' {
-			b.WriteRune(r)
-			inEsc = true
-			continue
-		}
+		r, n := utf8.DecodeRuneInString(s[i:])
 		rw := runewidth.RuneWidth(r)
 		if w+rw > width-1 {
 			b.WriteString(cDim + "…")
 			break
 		}
-		b.WriteRune(r)
+		b.WriteString(s[i : i+n])
 		w += rw
+		i += n
 	}
 	return b.String()
 }
@@ -89,29 +169,24 @@ func wrapSGR(s string, width int) []string {
 	style := ""    // live SGR state as escapes are consumed
 	w := 0
 	spIdx, spStyle := -1, "" // byte offset in cur of the last breakable space + style there
-	inEsc := false
-	var esc strings.Builder
-	for _, r := range s {
-		if inEsc {
-			esc.WriteRune(r)
-			if r == 'm' {
-				inEsc = false
-				seq := esc.String()
-				esc.Reset()
-				cur.WriteString(seq)
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			e := ansiEscapeEnd(s, i)
+			seq := s[i:e]
+			cur.WriteString(seq)
+			// only color state is re-opened on a continuation line; an OSC
+			// hyperlink passes through and stays open on its own.
+			if isSGR(seq) {
 				if seq == cReset {
 					style = ""
 				} else {
 					style += seq
 				}
 			}
+			i = e
 			continue
 		}
-		if r == '\x1b' {
-			inEsc = true
-			esc.WriteRune(r)
-			continue
-		}
+		r, n := utf8.DecodeRuneInString(s[i:])
 		rw := runewidth.RuneWidth(r)
 		if w+rw > width {
 			line, rest, restStyle := cur.String(), "", style
@@ -127,14 +202,16 @@ func wrapSGR(s string, width int) []string {
 			w = visibleWidth(rest)
 			spIdx, spStyle = -1, ""
 			if r == ' ' {
+				i += n
 				continue // the breaking space itself never leads the next line
 			}
 		}
 		if r == ' ' && w > 0 {
 			spIdx, spStyle = cur.Len(), style
 		}
-		cur.WriteRune(r)
+		cur.WriteString(s[i : i+n])
 		w += rw
+		i += n
 	}
 	if cur.Len() > 0 {
 		lines = append(lines, curStyle+cur.String())
@@ -239,29 +316,23 @@ func expandTabs(s string) string {
 	}
 	var b strings.Builder
 	col := 0
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			b.WriteRune(r)
-			if r == 'm' {
-				inEsc = false
-			}
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			e := ansiEscapeEnd(s, i)
+			b.WriteString(s[i:e])
+			i = e
 			continue
 		}
-		switch {
-		case r == '\x1b':
-			b.WriteRune(r)
-			inEsc = true
-		case r == '\t':
-			n := tabWidth - col%tabWidth
-			for k := 0; k < n; k++ {
-				b.WriteByte(' ')
-			}
-			col += n
-		default:
-			b.WriteRune(r)
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if r == '\t' {
+			pad := tabWidth - col%tabWidth
+			b.WriteString(strings.Repeat(" ", pad))
+			col += pad
+		} else {
+			b.WriteString(s[i : i+n])
 			col += runewidth.RuneWidth(r)
 		}
+		i += n
 	}
 	return b.String()
 }
@@ -305,14 +376,20 @@ func wrapLine(s string, width int, prefix string) []string {
 
 	var lines []string
 	var state []string // SGR sequences active since the last reset
+	link := ""         // OSC 8 target open at the walk position ("" = none)
 	lineStart := 0
 	var startState []string // state at lineStart
+	startLink := ""         // link open at lineStart
 	curWidth := 0
 	avail := width
 	lastSpace := -1
 	var lastSpaceState []string
+	lastSpaceLink := ""
 
-	emitLine := func(end int, cursorBreak bool) {
+	// endLink is the OSC 8 target open where the line breaks. A hyperlink never
+	// spans a wrap: it is closed at the break and reopened past the rail prefix,
+	// so the dim indent is not swallowed into the link.
+	emitLine := func(end int, cursorBreak bool, endLink string) {
 		seg := string(runes[lineStart:end])
 		// When the break consumes a space that carried the block cursor, the
 		// inverted space rune lands on neither line — re-emit a single inverted
@@ -326,9 +403,11 @@ func wrapLine(s string, width int, prefix string) []string {
 			seg = strings.TrimSuffix(seg, cInvert)
 			tail = cInvert + " " + cReset
 		}
-		if len(lines) == 0 {
-			lines = append(lines, seg+tail+cReset)
-		} else {
+		if endLink != "" {
+			tail += oscLink("")
+		}
+		head := ""
+		if len(lines) > 0 {
 			// The cursor cell is a single cell and never spans a wrap, so the
 			// reverse-video sequence must never appear in a continuation
 			// prefix — drop it from the carried state.
@@ -339,24 +418,35 @@ func wrapLine(s string, width int, prefix string) []string {
 				}
 				carried = append(carried, sgr)
 			}
-			lines = append(lines, prefix+cReset+strings.Join(carried, "")+seg+tail+cReset)
+			head = prefix + cReset + strings.Join(carried, "")
 		}
+		if startLink != "" {
+			head += oscLink(startLink) // reopen past the prefix, not around it
+		}
+		lines = append(lines, head+seg+tail+cReset)
 	}
 
 	i := 0
 	for i < len(runes) {
 		r := runes[i]
 		if r == '\x1b' {
-			j := i
-			for j < len(runes) && runes[j] != 'm' {
-				j++
+			e := escapeEndRunes(runes, i)
+			seq := string(runes[i:e])
+			switch {
+			case isSGR(seq):
+				if seq == cReset {
+					state = state[:0]
+				} else {
+					state = append(state, seq)
+				}
+			default:
+				// an OSC 8 hyperlink is not style state — it is carried across a
+				// break as an open target, closed and reopened by emitLine.
+				if target, ok := linkTargetOf(seq); ok {
+					link = target
+				}
 			}
-			if seq := string(runes[i:min(j+1, len(runes))]); seq == cReset {
-				state = state[:0]
-			} else {
-				state = append(state, seq)
-			}
-			i = j + 1
+			i = e
 			continue
 		}
 
@@ -376,9 +466,10 @@ func wrapLine(s string, width int, prefix string) []string {
 		if curWidth+rw > avail {
 			if r == ' ' {
 				// the overflowing rune is itself a space: break right here
-				emitLine(i, hasInvert(state))
+				emitLine(i, hasInvert(state), link)
 				lineStart = i + 1
 				startState = append([]string(nil), state...)
+				startLink = link
 				curWidth = 0
 				avail = width - hang
 				lastSpace = -1
@@ -387,16 +478,18 @@ func wrapLine(s string, width int, prefix string) []string {
 			}
 			if lastSpace > lineStart {
 				// break at the last space; what follows it moves down
-				emitLine(lastSpace, hasInvert(lastSpaceState))
+				emitLine(lastSpace, hasInvert(lastSpaceState), lastSpaceLink)
 				lineStart = lastSpace + 1
 				startState = append([]string(nil), lastSpaceState...)
+				startLink = lastSpaceLink
 				curWidth = visibleWidth(string(runes[lineStart:i]))
 			} else {
 				// no space on this line: hard break before the cluster — never
 				// in the middle of it.
-				emitLine(i, false)
+				emitLine(i, false, link)
 				lineStart = i
 				startState = append([]string(nil), state...)
+				startLink = link
 				curWidth = 0
 			}
 			avail = width - hang
@@ -410,6 +503,7 @@ func wrapLine(s string, width int, prefix string) []string {
 			// line when the body is one long unbroken run.
 			lastSpace = i
 			lastSpaceState = append([]string(nil), state...)
+			lastSpaceLink = link
 		}
 		curWidth += rw
 		i = clEnd
@@ -422,7 +516,7 @@ func wrapLine(s string, width int, prefix string) []string {
 	// runes — only leftover escape sequences — and would just add a blank
 	// rail-only line below it.
 	if len(lines) == 0 || visibleWidth(string(runes[lineStart:])) > 0 {
-		emitLine(len(runes), false)
+		emitLine(len(runes), false, "") // renderBody always closes its own links
 	}
 	return lines
 }
