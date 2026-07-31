@@ -178,10 +178,20 @@ func (nodeFinderBackend) hint(m *Model) string {
 // finderRowFor decorates a node with its subtree count for the finder list. A
 // count error (or a synthetic Temporary-Domain node not in the DB) falls back to 1,
 // matching the pre-refactor lazy count.
+//
+// A mirror's own style/starred columns are blank — the picker (like the
+// outline's renderItem) must show the one real node's live appearance, or a
+// styled/starred node reads as plain the moment it shows up as a mirror row
+// (e.g. in /backlinks, the one picker that keeps mirror rows).
 func (m *Model) finderRowFor(n database.Node) finderRow {
 	count, err := database.CountSubtree(m.db, n.UUID)
 	if err != nil {
 		count = 1
+	}
+	if n.MirrorOf != "" {
+		src := m.resolveSourceNode(n)
+		n.Style = src.Style
+		n.Starred = src.Starred
 	}
 	return finderRow{node: n, count: count}
 }

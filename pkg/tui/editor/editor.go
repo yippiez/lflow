@@ -1684,7 +1684,15 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/goto":
 		m.openFinder(actGoto)
 	case "/backlinks":
-		// list every node that mirrors or [[-links to this one; pick → jump
+		// list every node that mirrors or [[-links to this one; pick → jump.
+		// Flush first: /backlinks queries the DB directly, and a link/mirror
+		// created earlier in this session may still be sitting unflushed in
+		// memory (auto-sync is debounced ~1s) — without this the query would
+		// show no matches for a link that plainly exists in the outline.
+		if _, err := m.saveAll(); err != nil {
+			m.flash = "save: " + err.Error()
+			return m, nil
+		}
 		m.openFinder(actBacklinks)
 	case "/undo":
 		m.undo()
