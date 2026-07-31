@@ -260,10 +260,17 @@ func TestDownWalksWrappedVisualLinesFirst(t *testing.T) {
 		t.Fatalf("Down should land on visual line 1, got %d (caret=%d)", line, m.caret)
 	}
 
-	// from the last visual line, Down crosses to the next node
+	// from the last visual line, Down first snaps to the node end, then crosses
+	m.press("down")
+	if m.cursor != 0 {
+		t.Fatalf("Down from last visual line must first snap to the node end, cursor=%d", m.cursor)
+	}
+	if m.caret != len([]rune("aaaa bbbb cccc")) {
+		t.Fatalf("Down from last visual line should snap caret to the node end, caret=%d", m.caret)
+	}
 	m.press("down")
 	if m.cursor != 1 {
-		t.Fatalf("Down from last visual line must move to next node, cursor=%d", m.cursor)
+		t.Fatalf("Down from the snapped node end must move to next node, cursor=%d", m.cursor)
 	}
 }
 
@@ -366,12 +373,55 @@ func TestEndMovesToEndOfCurrentVisualLine(t *testing.T) {
 	}
 }
 
-// TestDownSingleLineNodeMovesToNextNode keeps the simple case working: a node
-// that does not wrap moves straight to the next node.
-func TestDownSingleLineNodeMovesToNextNode(t *testing.T) {
+// TestDownSnapsToEndBeforeCrossing: on the last visual line a Down press that
+// would leave the node instead snaps the caret to the end of its text first;
+// only the next Down crosses to the next node (or into the Temporary Domain).
+func TestDownSnapsToEndBeforeCrossing(t *testing.T) {
 	m := newTestModel(80, "one", "two")
 	m.cursor = 0
 	m.caret = 0
+	if len(m.selectedVisualRows()) != 1 {
+		t.Fatalf("short node should be one visual line")
+	}
+	// first Down snaps the caret to the end of the node, staying put
+	m.press("down")
+	if m.cursor != 0 {
+		t.Fatalf("first Down must stay on the node, cursor=%d", m.cursor)
+	}
+	if m.caret != len([]rune("one")) {
+		t.Fatalf("first Down should snap caret to the node end %d, got %d", len([]rune("one")), m.caret)
+	}
+	// second Down crosses to the next node
+	m.press("down")
+	if m.cursor != 1 {
+		t.Fatalf("second Down should move to next node, cursor=%d", m.cursor)
+	}
+}
+
+// TestDownSnapsToEndBeforeTemp: from the last node of the main outline, Down
+// first snaps to the node end and only a later Down drops into the Temporary
+// Domain.
+func TestDownSnapsToEndBeforeTemp(t *testing.T) {
+	m := newTestModel(80, "one")
+	m.cursor = 0
+	m.caret = 0
+	m.press("down")
+	if m.tempActive || m.caret != len([]rune("one")) {
+		t.Fatalf("first Down should snap to the node end, not enter temp (tempActive=%v caret=%d)", m.tempActive, m.caret)
+	}
+	m.press("down")
+	if !m.tempActive {
+		t.Fatalf("second Down should enter the Temporary Domain, tempActive=%v", m.tempActive)
+	}
+}
+
+// TestDownSingleLineNodeMovesToNextNode keeps the simple case working: a node
+// that does not wrap with the caret already at its end moves straight to the
+// next node.
+func TestDownSingleLineNodeMovesToNextNode(t *testing.T) {
+	m := newTestModel(80, "one", "two")
+	m.cursor = 0
+	m.caret = len([]rune("one"))
 	if len(m.selectedVisualRows()) != 1 {
 		t.Fatalf("short node should be one visual line")
 	}

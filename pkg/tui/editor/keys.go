@@ -691,6 +691,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// walk down one visual line of the wrapped node first
 			goal := m.caretColumn(starts, line)
 			m.caret = m.caretAtColumn(starts, line+1, goal)
+		} else if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(cur.name)) {
+			// on the last visual line: snap the caret to the end of this node's
+			// text first — the next down press crosses to the next node
+			m.caret = len([]rune(cur.name))
 		} else if m.cursor < len(m.rows)-1 {
 			// from the last visual line, cross to the next node and land on its
 			// first visual line, keeping the horizontal column
