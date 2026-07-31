@@ -1363,3 +1363,40 @@ var lm41 = migration{
 		return nil
 	},
 }
+
+// lm42 adds the suggestions table: proposed changes to the outline that a
+// reviewer approves or rejects before anything touches nodes. A suggestion is
+// inert data — kind "add" carries the node an author proposes under a parent,
+// kind "edit" carries the fields an author proposes for one node — so nothing
+// in the tree changes until approval applies it.
+var lm42 = migration{
+	name: "add-suggestions",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS suggestions (
+			uuid text PRIMARY KEY,
+			kind text NOT NULL DEFAULT 'edit',
+			target_uuid text NOT NULL DEFAULT '',
+			name text NOT NULL DEFAULT '',
+			note text NOT NULL DEFAULT '',
+			type text NOT NULL DEFAULT '',
+			fields text NOT NULL DEFAULT '',
+			position text NOT NULL DEFAULT '',
+			raw bool NOT NULL DEFAULT false,
+			base_name text NOT NULL DEFAULT '',
+			base_note text NOT NULL DEFAULT '',
+			author text NOT NULL DEFAULT '',
+			message text NOT NULL DEFAULT '',
+			status text NOT NULL DEFAULT 'pending',
+			created_on integer NOT NULL DEFAULT 0,
+			resolved_on integer NOT NULL DEFAULT 0,
+			result_uuid text NOT NULL DEFAULT ''
+		);`); err != nil {
+			return errors.Wrap(err, "creating suggestions table")
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_suggestions_status
+			ON suggestions(status, created_on);`); err != nil {
+			return errors.Wrap(err, "indexing suggestions by status")
+		}
+		return nil
+	},
+}

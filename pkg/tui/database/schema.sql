@@ -68,6 +68,27 @@ CREATE TABLE node_spans (
 			style text NOT NULL DEFAULT '',
 			PRIMARY KEY (node_uuid, start)
 		);
+CREATE TABLE suggestions (
+			uuid text PRIMARY KEY,
+			kind text NOT NULL DEFAULT 'edit',
+			target_uuid text NOT NULL DEFAULT '',
+			name text NOT NULL DEFAULT '',
+			note text NOT NULL DEFAULT '',
+			type text NOT NULL DEFAULT '',
+			fields text NOT NULL DEFAULT '',
+			position text NOT NULL DEFAULT '',
+			raw bool NOT NULL DEFAULT false,
+			base_name text NOT NULL DEFAULT '',
+			base_note text NOT NULL DEFAULT '',
+			author text NOT NULL DEFAULT '',
+			message text NOT NULL DEFAULT '',
+			status text NOT NULL DEFAULT 'pending',
+			created_on integer NOT NULL DEFAULT 0,
+			resolved_on integer NOT NULL DEFAULT 0,
+			result_uuid text NOT NULL DEFAULT ''
+		);
+CREATE INDEX idx_suggestions_status
+			ON suggestions(status, created_on);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 41);
+INSERT INTO system (key, value) VALUES ('schema', 42);
