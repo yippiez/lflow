@@ -127,27 +127,32 @@ or resumable external coding-session reference.
 The websearch node (`pkg/tui/editor/nodes/websearch.go`) is an ordinary editable
 row whose text IS the query, marked with ⊕ — the astronomical Earth symbol, a
 globe in plain Unicode (no emoji), deliberately unlike the query node's ⌕
-magnifier: one searches the web, the other searches your own outline. alt+r
-hangs the first ten hits beneath the node as bands: one dim `Last Updated: …`
-time chip, then ten titles, each an OSC 8 hyperlink to its result in the themed
-link color and nothing else — no ranks, no hosts, no counts. alt+e opens the
-same ten with their URLs and snippets in a scrollable view. The hits are run
-output: they live in the ephemeral node store only, never in the DB and never in
-sync.
+magnifier: one searches the web, the other searches your own outline.
 
-Two **keyless** backends behind it (`pkg/tui/websearch`):
+alt+r hangs the first ten hits under the node **as real child nodes**, one per
+hit (`webresult` — a generated type, so it is kept out of the `/type` picker; see
+`NodePlugin.Internal`). Each is a link row: its name is a link chip whose label
+is the title and whose target is the result, so it renders as the title in the
+themed link color, OSC 8 clickable, and it is a node like any other — fold it,
+star it, note it, hang something under it, or move it out from under the search
+to keep it. A re-run replaces the rows still sitting under the node (matched by
+type) and touches nothing else, so a failed run keeps the last good hits. The
+node itself carries one band: a dim `Last Updated: …` chip (its stamp is in
+local `node_output`, so the chip reads right after a restart), or the shining
+`searching…` line while a run is in flight.
 
-- **DuckDuckGo**, the default — html.duckduckgo.com/html/, falling back to
-  lite.duckduckgo.com/lite/. No account, no API key, nothing to configure.
-  `LFLOW_SEARCH_URL` points the client at one other DDG-shaped endpoint (a
-  mirror, or a mock for tests and demos).
-- **SearxNG**, when an instance is named — `{"searxng":{"url":"https://…"}}` in
-  `~/.config/lflow/credentials.json`, or `LFLOW_SEARXNG_URL` for a shell-scoped
-  override. It is asked for `format=json` (the instance must list `json` in its
-  `search.formats` — a 403 says so in the error), and a named instance is used
-  **exclusively**: the point of pointing lflow at your own metasearch is that
-  the query does not also go to DuckDuckGo, so there is no silent fallback.
-  Config is re-read per run, so naming an instance needs no restart.
+**SearxNG is the only backend** (`pkg/tui/websearch`) — the user's own
+metasearch, so the query goes exactly where they pointed it, its JSON output is
+a contract rather than scraped markup, and it needs no account and no API key.
+The instance is named in `{"searxng":{"url":"https://…"}}` in
+`~/.config/lflow/credentials.json`, or `LFLOW_SEARXNG_URL` for a shell-scoped
+override; config is re-read per run, so naming one needs no restart. With
+neither set the client tries the conventional local instance
+(`localhost:8888`), and when nothing answers there **a run errors** with how to
+name one — there is deliberately no fallback engine, because quietly asking
+somebody else is the one thing a private metasearch is chosen to avoid. It is
+asked for `format=json`, which the instance must list in its `search.formats` —
+a 403 says exactly that in the error.
 
 ## Demo videos
 
