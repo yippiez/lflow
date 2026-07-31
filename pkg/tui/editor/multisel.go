@@ -102,8 +102,8 @@ func (m *Model) selIndent() {
 	}
 	dest := first.parent.children[idx-1]
 	m.pushUndo("")
-	// the group lands where dest's priority points, its own order intact
-	m.tree.reparentAll(roots, dest)
+	// group Tab always lands at the bottom of dest's children, own order intact
+	m.tree.indentAll(roots, dest)
 	dest.collapsed = false
 	m.unsaved = true
 	m.refreshRows()
