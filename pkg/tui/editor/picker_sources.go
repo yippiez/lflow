@@ -477,6 +477,12 @@ func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 }
 
 func (completerSource) onRune(m *Model, p *listPicker, r []rune) bool {
+	// "#1" means "number one", not a tag: if the first char typed after a '#' is
+	// not a tag letter, drop the completer and keep the text literal.
+	if m.compl.kind == complTag && len(p.query) == 0 && len(r) > 0 && !isTagLetter(r[0]) {
+		p.query = ""
+		return true
+	}
 	p.query += string(r)
 	p.sel = 0
 	if cur := m.cursorItem(); cur != nil {

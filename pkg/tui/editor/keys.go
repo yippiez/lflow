@@ -891,8 +891,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command
 		// completer in a query node, or the icon shortcode picker on every other
 		// inline-editable node. Both stay literal mid-word so "C#"/"a:b" type
-		// normally; tags skip bash/code where "#" is a comment. Query nodes reach
-		// icons via /insert → icon (see insertChip).
+		// normally; tags skip bash/code where "#" is a comment. Typing a digit or
+		// special char right after "#" closes the completer again, so "#1" stays a
+		// literal "number one". Query nodes reach icons via /insert → icon (see insertChip).
 		if string(k.Runes) == "#" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
 			return m.openCompleter(cur, complTag, "#")
