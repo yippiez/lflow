@@ -409,3 +409,168 @@ func TestDBPathConfig(t *testing.T) {
 		t.Errorf("custom db file was not created")
 	}
 }
+
+// TestSuggestAddNeedsApproval walks the whole review loop for a proposed node:
+// suggesting changes nothing, approving creates the node.
+func TestSuggestAddNeedsApproval(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "reading list")
+	out := testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "add",
+		"--parent", "reading list", "--message", "found this", "Designing Data-Intensive Applications")
+	if !strings.Contains(out, "suggested 1 node") {
+		t.Fatalf("suggest add output = %q", out)
+	}
+
+	db := database.OpenTestDB(t, testDir)
+
+	// the proposal exists, the outline does not have it yet
+	var pending int
+	database.MustScan(t, "counting pending",
+		db.QueryRow("SELECT count(*) FROM suggestions WHERE status = 'pending'"), &pending)
+	assert.Equal(t, pending, 1, "suggestion should be stored pending")
+
+	var nodes int
+	database.MustScan(t, "counting nodes",
+		db.QueryRow("SELECT count(*) FROM nodes WHERE name = ?", "Designing Data-Intensive Applications"), &nodes)
+	assert.Equal(t, nodes, 0, "a pending suggestion must not touch the outline")
+
+	var id string
+	database.MustScan(t, "getting suggestion id",
+		db.QueryRow("SELECT uuid FROM suggestions LIMIT 1"), &id)
+	db.Close()
+
+	listed := testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "list")
+	if !strings.Contains(listed, id[:6]) {
+		t.Fatalf("suggest list did not show %s: %q", id[:6], listed)
+	}
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "approve", id[:6])
+
+	db = database.OpenTestDB(t, testDir)
+	defer db.Close()
+
+	var parentUUID, childName, status, resultUUID string
+	database.MustScan(t, "getting parent",
+		db.QueryRow("SELECT uuid FROM nodes WHERE name = ?", "reading list"), &parentUUID)
+	database.MustScan(t, "getting created child",
+		db.QueryRow("SELECT name FROM nodes WHERE parent_uuid = ?", parentUUID), &childName)
+	assert.Equal(t, childName, "Designing Data-Intensive Applications", "approval should create the node")
+
+	database.MustScan(t, "getting settled suggestion",
+		db.QueryRow("SELECT status, result_uuid FROM suggestions WHERE uuid = ?", id), &status, &resultUUID)
+	assert.Equal(t, status, database.SuggestApproved, "suggestion should be approved")
+	if resultUUID == "" {
+		t.Fatal("approved add did not record the node it created")
+	}
+}
+
+// TestSuggestEditRejectKeepsText: a rejected text edit never reaches the node.
+func TestSuggestEditRejectKeepsText(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "ship the thing")
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "edit", "ship the thing",
+		"--name", "ship the other thing")
+
+	db := database.OpenTestDB(t, testDir)
+	var id string
+	database.MustScan(t, "getting suggestion id",
+		db.QueryRow("SELECT uuid FROM suggestions LIMIT 1"), &id)
+	db.Close()
+
+	shown := testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "show", id[:6])
+	if !strings.Contains(shown, "ship the other thing") {
+		t.Fatalf("suggest show did not render the proposal: %q", shown)
+	}
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "reject", id[:6])
+
+	db = database.OpenTestDB(t, testDir)
+	defer db.Close()
+
+	var name, status string
+	database.MustScan(t, "getting node name",
+		db.QueryRow("SELECT name FROM nodes WHERE uuid IN (SELECT target_uuid FROM suggestions WHERE uuid = ?)", id), &name)
+	assert.Equal(t, name, "ship the thing", "a rejected suggestion must not change the node")
+
+	database.MustScan(t, "getting status",
+		db.QueryRow("SELECT status FROM suggestions WHERE uuid = ?", id), &status)
+	assert.Equal(t, status, database.SuggestRejected, "suggestion should be rejected")
+}
+
+// TestSuggestApproveEditAppliesText: approving a text edit rewrites the node.
+func TestSuggestApproveEditAppliesText(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "draft heading")
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "edit", "draft heading",
+		"--name", "final heading", "--type", "h1")
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "approve", "--all")
+
+	db := database.OpenTestDB(t, testDir)
+	defer db.Close()
+
+	var name, typ string
+	database.MustScan(t, "getting edited node",
+		db.QueryRow("SELECT name, type FROM nodes WHERE name = ?", "final heading"), &name, &typ)
+	assert.Equal(t, typ, database.TypeH1, "approval should apply the proposed type")
+}
+
+// TestSuggestApproveSkipsDriftedTarget: a proposal made against text that has
+// since changed is held back until --force.
+func TestSuggestApproveSkipsDriftedTarget(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "original text")
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "edit", "original text", "--name", "suggested text")
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "original text", "--name", "moved on")
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "approve", "--all")
+
+	db := database.OpenTestDB(t, testDir)
+	var name, status string
+	database.MustScan(t, "getting node name",
+		db.QueryRow("SELECT name FROM nodes WHERE name = ?", "moved on"), &name)
+	database.MustScan(t, "getting status",
+		db.QueryRow("SELECT status FROM suggestions LIMIT 1"), &status)
+	assert.Equal(t, status, database.SuggestPending, "a drifted suggestion should stay pending")
+	db.Close()
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "approve", "--all", "--force")
+
+	db = database.OpenTestDB(t, testDir)
+	defer db.Close()
+	database.MustScan(t, "getting forced status",
+		db.QueryRow("SELECT status FROM suggestions LIMIT 1"), &status)
+	assert.Equal(t, status, database.SuggestApproved, "--force should apply the drifted suggestion")
+
+	var forced string
+	database.MustScan(t, "getting forced name",
+		db.QueryRow("SELECT name FROM nodes WHERE name = ?", "suggested text"), &forced)
+	assert.Equal(t, forced, "suggested text", "--force should rewrite the node")
+}
+
+// TestSuggestListJSON is the machine-readable face of the review queue.
+func TestSuggestListJSON(t *testing.T) {
+	_, opts := setupTestEnv(t)
+
+	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "inbox")
+	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "add", "--parent", "inbox",
+		"--author", "agent", "--message", "spotted a gap", "write the migration guide")
+
+	out := testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "list", "--format", "json")
+
+	var got []database.Suggestion
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(errors.Wrap(err, "parsing json listing"))
+	}
+	if len(got) != 1 {
+		t.Fatalf("json listing = %d suggestions", len(got))
+	}
+	assert.Equal(t, got[0].Kind, database.SuggestAdd, "kind mismatch")
+	assert.Equal(t, got[0].Name, "write the migration guide", "name mismatch")
+	assert.Equal(t, got[0].Author, "agent", "author mismatch")
+	assert.Equal(t, got[0].Message, "spotted a gap", "message mismatch")
+	assert.Equal(t, got[0].Status, database.SuggestPending, "status mismatch")
+}
