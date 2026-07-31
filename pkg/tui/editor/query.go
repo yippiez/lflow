@@ -204,6 +204,9 @@ func (m *Model) startQueryLoad(it *item) tea.Cmd {
 		ch:         make(chan queryLoadMsg, 1),
 		done:       make(chan struct{}),
 	}
+	// Batches land one at a time; a "quoted" atom holds until the last one is in
+	// (see qSemantic.eval) and finishQueryRun clears this.
+	load.ctx.partial = true
 	m.queryLoad = load
 	if load.parsed.empty() {
 		m.finishQueryRun(it, nil)
@@ -260,6 +263,7 @@ func (m *Model) handleQueryLoad(msg queryLoadMsg) tea.Cmd {
 		if msg.err != nil {
 			m.flash = "query: " + msg.err.Error()
 		}
+		load.ctx.partial = false // the corpus is complete — semantic atoms may run
 		m.finishQueryRun(q, m.queryMatchesInCtx(q, load.parsed, load.scope, load.ctx))
 		m.queryLoad = nil
 		return m.scheduleSync()
@@ -428,7 +432,8 @@ func (ctx *qCtx) scoped(q *item, scope string) *qCtx {
 	if scope == "" {
 		scope = database.RootUUID
 	}
-	out := &qCtx{m: ctx.m, now: ctx.now, parent: ctx.parent, byUUID: map[string]*qCand{}, seen: ctx.seen}
+	out := &qCtx{m: ctx.m, now: ctx.now, parent: ctx.parent, byUUID: map[string]*qCand{},
+		seen: ctx.seen, partial: ctx.partial}
 	qRoot := map[string]bool{q.uuid: true}
 	scopeRoot := map[string]bool{scope: true}
 	for _, c := range ctx.cands {

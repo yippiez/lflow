@@ -195,7 +195,17 @@ func (e *qNot) eval(ctx *qCtx) map[string]bool {
 	return out
 }
 
+// eval on qSemantic defers while a streaming scan is still delivering
+// candidates. Unlike every other atom, a semantic match is a property of the
+// WHOLE corpus — idf, co-occurrence and the vector space all shift as nodes
+// arrive — so a partial answer is not an early version of the final one, it is
+// a different and wrong one. Worse, it is expensive: evaluating per batch
+// rebuilt the space once per batch, which is what made a 50k-node query take
+// twenty seconds instead of one.
 func (e *qSemantic) eval(ctx *qCtx) map[string]bool {
+	if ctx.partial {
+		return map[string]bool{}
+	}
 	return semanticHits(ctx, e.phrase)
 }
 
@@ -300,6 +310,9 @@ type qCtx struct {
 	// run and rebuilt only when a streamed batch grows the candidate set.
 	sem  *semanticModel
 	semN int
+	// partial marks an evaluation over a candidate set the streaming scan has not
+	// finished delivering. See qSemantic.eval.
+	partial bool
 }
 
 // underAny reports whether uuid is a strict descendant of any node in roots.
