@@ -42,7 +42,7 @@ func TestTextSelectionGrowsByWordAndRune(t *testing.T) {
 	m.clearTextSel()
 	m.press("shift+right")
 	body := renderBody(n, n.name, -1, false, nil, false)
-	before, after, found := strings.Cut(body, bgTextSel)
+	before, after, found := strings.Cut(body, bgTextSel())
 	if !found {
 		t.Fatalf("selection must render a bar, got %q", body)
 	}

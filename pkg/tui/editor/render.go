@@ -50,12 +50,11 @@ var (
 	bgPage = ""
 )
 
-// The horizontal selection bar: white (not themed — white is white) with dark
-// text for unstyled runes; already-styled runes keep their color on it.
-const (
-	bgTextSel = "\x1b[48;2;255;255;255m"
-	fgTextSel = "\x1b[38;2;30;30;30m"
-)
+// The horizontal selection bar is the SAME fill the row selection uses (selFill
+// paints bgPill under a selected row): selecting rows and selecting runes must
+// read as one thing, so both are that blue and both let the text keep its own
+// color on it. Themed, so a /theme change moves them together.
+func bgTextSel() string { return bgPill }
 
 // glyphs (locked)
 const (
@@ -668,7 +667,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				s += spanSGR[i]
 			}
 			if selLive && i >= selLo && i < selHi {
-				s += fgTextSel + bgTextSel
+				s += bgTextSel()
 			}
 			b.WriteString(s + cInvert)
 			b.WriteRune(r)
@@ -678,17 +677,14 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 		s := sgr(f)
 		// a styled run (see spans.go) overrides the cell's color/attrs; a live
-		// horizontal selection sits on a white bar — dark text for plain runes,
-		// styled runes keep their color on it. NOT inverse video, which swaps
-		// fg/bg and makes an already-red run read as a red background.
+		// horizontal selection lays the row-selection blue under those cells and
+		// nothing else. NOT inverse video, which swaps fg/bg and makes an
+		// already-red run read as a red background.
 		if spanSGR != nil && spanSGR[i] != "" {
 			s += spanSGR[i]
 		}
 		if selLive && i >= selLo && i < selHi {
-			if spanSGR == nil || spanSGR[i] == "" {
-				s += fgTextSel
-			}
-			s += bgTextSel
+			s += bgTextSel()
 		}
 		if s != cur {
 			b.WriteString(s)
