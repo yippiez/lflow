@@ -112,19 +112,42 @@ const (
 // semanticStop are words carrying no topical signal. They are dropped from both
 // sides, so "why the build broke" and "the release keeps failing" compare on
 // build/broke against release/keeps/failing rather than on "the".
+// Prepositions and temporal connectives matter here more than the usual list
+// suggests: outline rows are full of "… after the audit" / "… before the
+// freeze", and one shared "after" is enough for BM25 to admit a node that has
+// nothing to do with the query.
 var semanticStop = map[string]bool{
-	"a": true, "an": true, "and": true, "any": true, "are": true, "as": true,
-	"at": true, "be": true, "been": true, "but": true, "by": true, "can": true,
-	"did": true, "do": true, "does": true, "for": true, "from": true, "get": true,
-	"had": true, "has": true, "have": true, "how": true, "i": true, "if": true,
-	"in": true, "into": true, "is": true, "it": true, "its": true, "me": true,
-	"my": true, "no": true, "not": true, "of": true, "on": true, "or": true,
-	"our": true, "out": true, "so": true, "than": true, "that": true, "the": true,
-	"their": true, "them": true, "then": true, "there": true, "these": true,
-	"they": true, "this": true, "to": true, "too": true, "up": true, "was": true,
-	"we": true, "were": true, "what": true, "when": true, "which": true,
-	"who": true, "why": true, "will": true, "with": true, "would": true,
-	"you": true, "your": true,
+	"a": true, "about": true, "above": true, "after": true, "again": true,
+	"against": true, "all": true, "also": true, "am": true, "an": true,
+	"and": true, "another": true, "any": true, "are": true, "as": true,
+	"at": true, "be": true, "because": true, "been": true, "before": true,
+	"being": true, "below": true, "between": true, "both": true, "but": true,
+	"by": true, "can": true, "cannot": true, "could": true, "did": true,
+	"do": true, "does": true, "doing": true, "done": true, "down": true,
+	"during": true, "each": true, "either": true, "else": true, "even": true,
+	"ever": true, "every": true, "few": true, "for": true, "from": true,
+	"further": true, "get": true, "got": true, "had": true, "has": true,
+	"have": true, "having": true, "he": true, "her": true, "here": true,
+	"hers": true, "him": true, "his": true, "how": true, "i": true, "if": true,
+	"in": true, "into": true, "is": true, "it": true, "its": true, "just": true,
+	"last": true, "least": true, "less": true, "let": true, "like": true,
+	"made": true, "make": true, "many": true, "may": true, "me": true,
+	"might": true, "more": true, "most": true, "much": true, "must": true,
+	"my": true, "near": true, "need": true, "next": true, "no": true,
+	"nor": true, "not": true, "now": true, "of": true, "off": true, "on": true,
+	"once": true, "one": true, "only": true, "onto": true, "or": true,
+	"other": true, "our": true, "out": true, "over": true, "own": true,
+	"per": true, "put": true, "said": true, "same": true, "see": true,
+	"she": true, "should": true, "since": true, "so": true, "some": true,
+	"still": true, "such": true, "take": true, "than": true, "that": true,
+	"the": true, "their": true, "them": true, "then": true, "there": true,
+	"these": true, "they": true, "this": true, "those": true, "through": true,
+	"to": true, "too": true, "under": true, "until": true, "up": true,
+	"upon": true, "us": true, "use": true, "very": true, "was": true,
+	"we": true, "well": true, "were": true, "what": true, "when": true,
+	"where": true, "whether": true, "which": true, "while": true, "who": true,
+	"whom": true, "why": true, "will": true, "with": true, "within": true,
+	"without": true, "would": true, "yet": true, "you": true, "your": true,
 }
 
 // semanticDoc is one candidate reduced to its term frequencies and the
@@ -462,31 +485,40 @@ func contextFingerprint(uuid string, kin *kinship) []indexEntry {
 }
 
 // kinship is the outline's shape, plus the one number that keeps structure from
-// swamping text: how many children each node has.
+// swamping text: how many nodes each one stands over.
 type kinship struct {
 	parent map[string]string
-	kids   map[string]int
+	sub    map[string]int // uuid → descendants, at any depth
 }
 
 func newKinship(parent map[string]string) *kinship {
-	k := &kinship{parent: parent, kids: map[string]int{}}
-	for _, p := range parent {
-		if p != "" {
-			k.kids[p]++
+	k := &kinship{parent: parent, sub: map[string]int{}}
+	for uuid := range parent {
+		seen := map[string]bool{uuid: true}
+		for hops, cur := 0, uuid; hops < 64; hops++ {
+			p, ok := parent[cur]
+			if !ok || p == "" || seen[p] {
+				break
+			}
+			seen[p] = true
+			k.sub[p]++
+			cur = p
 		}
 	}
 	return k
 }
 
-// broadcast is how much of an ancestor's identity each of its children inherits.
+// broadcast is how much of an ancestor's identity each descendant inherits.
 //
-// A parent with three children is making a claim about all three; a bucket with
-// fifty is barely making one about any of them. Dividing by sqrt(children) is
-// what stops a large subtree from turning into one undifferentiated blob where
-// every node is "related" to every other — which is exactly what happens at a
-// flat weight, and it drowns the specific hit the user was looking for.
+// A parent of three is making a claim about all three; a bucket of fifty is
+// barely making one about any. The measure of "how many things am I claiming
+// about" is the WHOLE subtree, not the direct children: an area with ten
+// projects but five thousand rows under it broadcasts to five thousand nodes,
+// and damping it as though it spoke for ten let one planted row tint its entire
+// area — a query matching that row came back with fifty unrelated siblings from
+// four projects over.
 func (k *kinship) broadcast(uuid string) float64 {
-	n := k.kids[uuid]
+	n := k.sub[uuid]
 	if n <= 1 {
 		return 1
 	}
@@ -586,7 +618,11 @@ func semanticTerms(s string) []string {
 		if len(w) < 2 || semanticStop[w] {
 			continue
 		}
-		out = append(out, semanticStem(w))
+		// Stemming can land on a function word ("uses" → "use"), so the filter has
+		// to run on both sides of it or the same word is a term half the time.
+		if s := semanticStem(w); !semanticStop[s] {
+			out = append(out, s)
+		}
 	}
 	return out
 }
