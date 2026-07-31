@@ -30,6 +30,11 @@ func (m *Model) ensureTempTree() {
 			externalNames: map[string]string{},
 			byUUID:        map[string]*item{root.uuid: root},
 		} // db is nil → save() is a no-op, so it never persists or syncs
+		// seed one empty child so the panel is never a blank void — the same
+		// guarantee ensureViewNonEmpty makes for the main outline
+		if len(root.children) == 0 {
+			_, _ = m.tempTree.insertFirstChild(root)
+		}
 	}
 }
 
@@ -193,6 +198,16 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			if b := typeOf(it.typ).bands; b != nil {
 				flat = append(flat, b(m, r, below, maxLine)...)
 			}
+		}
+	}
+
+	// an empty tree must never render as a blank void: seed one dim hint line so
+	// the region (temp panel, or a malformed main stash) still signals itself
+	if len(flat) == 0 {
+		if dashed {
+			flat = append(flat, " "+cDim+glyphDotted+" empty temp space"+cReset)
+		} else {
+			flat = append(flat, cDim+" empty"+cReset)
 		}
 	}
 

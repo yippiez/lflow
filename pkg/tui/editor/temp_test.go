@@ -7,9 +7,15 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// seedTemp adds n bullet children to the scratch tree's root and returns it.
+// seedTemp adds n bullet children to the scratch tree's root and returns it. It
+// first drops the seeded empty child ensureTempTree plants so the root holds
+// exactly the n named nodes the test asks for.
 func seedTemp(m *Model, n int) *Model {
 	m.ensureTempTree()
+	for _, c := range m.tempTree.root.children {
+		delete(m.tempTree.byUUID, c.uuid)
+	}
+	m.tempTree.root.children = nil
 	for i := 0; i < n; i++ {
 		it := &item{name: "t" + string(rune('a'+i)), typ: database.TypeBullets, parent: m.tempTree.root}
 		it.uuid = it.name // enough for the read-only render paths
@@ -17,6 +23,28 @@ func seedTemp(m *Model, n int) *Model {
 		m.tempTree.byUUID[it.uuid] = it
 	}
 	return m
+}
+
+// TestEmptyTempPanelShowsNode: the scratch tree is seeded with one empty node on
+// first use so the persistent panel is never a blank void, and a tree with no
+// visible rows at all still renders a dim hint line instead of going blank.
+func TestEmptyTempPanelShowsNode(t *testing.T) {
+	m := newTestModel(120, "main")
+	m.ensureTempTree()
+	if got := len(m.tempTree.visibleRows(m.tempTree.root, false, nil)); got != 1 {
+		t.Fatalf("seeded temp tree visible rows = %d, want 1", got)
+	}
+	lines := m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, maxTempPanelLines, 119, true, 0)
+	if len(lines) != 1 || strings.TrimSpace(lines[0]) == "" {
+		t.Fatalf("empty temp panel should show the one seeded node line, got %q", lines)
+	}
+
+	// a tree with no rows at all still signals itself instead of going blank
+	m.tempTree.root.children = nil
+	lines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, maxTempPanelLines, 119, true, 0)
+	if !strings.Contains(lines[0], "empty temp space") {
+		t.Fatalf("blank temp tree should render the hint, got %q", lines[0])
+	}
 }
 
 // TestTempPanelBudgetCapped: the always-visible temp panel is limited to

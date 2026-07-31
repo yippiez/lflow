@@ -140,6 +140,12 @@ type Model struct {
 	// mirror of an ancestor may re-enter its target, one level per expand
 	// press. Ephemeral view state — never persisted or synced.
 	unroll map[string]int
+	// clearOnFrame asks the next View to open with cClearScrollback, wiping the
+	// terminal's scrollback history before the new view draws. Set by the
+	// navigation keys (zoom, /goto, walk-up) so an old node's rows that have
+	// already scrolled into the scrollback buffer don't linger above the new
+	// view. Ephemeral — never persisted or synced.
+	clearOnFrame bool
 
 	width  int
 	height int
@@ -375,6 +381,7 @@ func (m *Model) reopenAt(rootUUID, focusUUID string) {
 	m.tree = t
 	m.viewStack = []*item{t.root}
 	m.undoStack = nil // a reload is a fresh editing context
+	m.clearOnFrame = true
 	m.refreshAncestors()
 	m.refreshRows()
 	m.cursor = 0

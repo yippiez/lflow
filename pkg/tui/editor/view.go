@@ -82,7 +82,19 @@ func (m *Model) View() string {
 		lines[i] = cClearEOL + l + cReset
 	}
 
-	return strings.Join(lines, "\n")
+	// After a view jump (zoom, /goto, walk-up) the previous node's rows may have
+	// scrolled into the terminal's scrollback buffer, where the inline renderer
+	// cannot reach them with cursor-up — they would linger above the new view
+	// forever. Open such a frame by wiping scrollback + screen and homing the
+	// cursor, so the new node draws from a known-empty terminal. The escape is
+	// zero-width to the renderer's line measurement, so it cannot skew the
+	// cursor-up bookkeeping of the frames that follow.
+	out := strings.Join(lines, "\n")
+	if m.clearOnFrame && len(lines) > 0 {
+		out = cClearScrollback + out
+		m.clearOnFrame = false
+	}
+	return out
 }
 
 // finalView renders the complete tree with glyphs and connectors but no
