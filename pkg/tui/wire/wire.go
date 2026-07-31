@@ -75,6 +75,8 @@ type ComputeEv struct {
 // the fresh post-commit rows (Deleted=true rows are tombstones the client
 // removes). Aux signals a change to a render-support table (chips, tag_colors,
 // node_spans, settings) — clients reload those wholesale, they are tiny.
+// Suggest signals a change to the suggestions table: proposed edits that have
+// not touched the tree, so a client reloads its review list and nothing else.
 // Resync tells a client it missed events and must reload everything.
 type Event struct {
 	Seq      int64           `json:"seq"`
@@ -82,6 +84,7 @@ type Event struct {
 	Name     string          `json:"name,omitempty"`     // writer's human label
 	Nodes    []database.Node `json:"nodes,omitempty"`
 	Aux      bool            `json:"aux,omitempty"`
+	Suggest  bool            `json:"suggest,omitempty"`
 	Resync   bool            `json:"resync,omitempty"`
 }
 
@@ -99,6 +102,11 @@ var AuxTables = map[string]bool{
 	"node_spans": true,
 	"settings":   true,
 }
+
+// SuggestTable is the review queue whose changes flag Event.Suggest. It is
+// deliberately not an aux table: a suggestion is a proposal, so it changes
+// nothing a client renders until somebody approves it.
+const SuggestTable = "suggestions"
 
 // EncodeValue converts a driver-level value into its wire form: nil stays
 // null, everything else becomes a tagged string ("i:", "f:", "s:", "b:",

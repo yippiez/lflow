@@ -318,8 +318,16 @@ func (sv *server) logEvent(ev wire.Event) {
 		from = "unknown"
 	}
 	if len(ev.Nodes) == 0 {
+		// a suggestion is a proposal: it moves the review queue, not the tree
+		if ev.Suggest {
+			sv.logf("→ suggested · seq %d · %s", ev.Seq, from)
+			return
+		}
 		sv.logf("→ applied chips · seq %d · %s", ev.Seq, from)
 		return
+	}
+	if ev.Suggest {
+		from += " · suggestion"
 	}
 	name := ev.Nodes[0].Name
 	if database.HasAnchor(name) {

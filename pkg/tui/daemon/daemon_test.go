@@ -239,3 +239,83 @@ func TestDepsOp(t *testing.T) {
 		t.Fatal("a nonsense binary must be unavailable")
 	}
 }
+
+// TestSuggestionEvents: a suggestion moves the review queue, not the tree, so
+// its event carries the suggest flag and no node rows. Approving one — the
+// node write and the settled suggestion in a single transaction — arrives as
+// one event carrying both.
+func TestSuggestionEvents(t *testing.T) {
+	dbPath, _ := startDaemon(t)
+
+	a, err := client.Ensure(dbPath, "author", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	b, err := client.Ensure(dbPath, "reviewer", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	if _, err := a.DB().Exec(`CREATE TABLE suggestions (
+		uuid text PRIMARY KEY, kind text NOT NULL DEFAULT 'edit', target_uuid text NOT NULL DEFAULT '',
+		name text NOT NULL DEFAULT '', status text NOT NULL DEFAULT 'pending')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.DB().Exec("INSERT INTO nodes (uuid, name) VALUES ('n1', 'before')"); err != nil {
+		t.Fatal(err)
+	}
+
+	events, cancel, err := b.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+
+	if _, err := a.DB().Exec(
+		"INSERT INTO suggestions (uuid, kind, target_uuid, name) VALUES ('s1', 'edit', 'n1', 'after')"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-events:
+		if !ev.Suggest {
+			t.Fatalf("suggestion write did not flag suggest: %+v", ev)
+		}
+		if len(ev.Nodes) != 0 {
+			t.Fatalf("a pending suggestion reported node changes: %+v", ev.Nodes)
+		}
+		if ev.Aux {
+			t.Fatal("a suggestion is not an aux table change")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event for the suggestion")
+	}
+
+	// approval: one transaction, one event, both halves visible
+	tx, err := a.DB().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec("UPDATE nodes SET name = 'after' WHERE uuid = 'n1'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec("UPDATE suggestions SET status = 'approved' WHERE uuid = 's1'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case ev := <-events:
+		if !ev.Suggest {
+			t.Fatal("approval did not flag suggest")
+		}
+		if len(ev.Nodes) != 1 || ev.Nodes[0].Name != "after" {
+			t.Fatalf("approval event nodes = %+v", ev.Nodes)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event for the approval")
+	}
+}
