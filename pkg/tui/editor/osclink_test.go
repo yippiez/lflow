@@ -26,6 +26,10 @@ func linkChips() (map[string]database.Chip, string, string) {
 	return chips, name, displayAnchors(name, chips)
 }
 
+// spaced turns a rendered chip's NBSP back into a plain space, so a test can
+// compare what the screen shows against the chip's display text.
+func spaced(s string) string { return strings.ReplaceAll(s, "\u00a0", " ") }
+
 // TestVisibleWidthSkipsHyperlink: a hyperlink target occupies no columns.
 func TestVisibleWidthSkipsHyperlink(t *testing.T) {
 	chips, name, plain := linkChips()
@@ -33,7 +37,8 @@ func TestVisibleWidthSkipsHyperlink(t *testing.T) {
 	if got, want := visibleWidth(body), visibleWidth(plain); got != want {
 		t.Errorf("width = %d, want %d (the OSC 8 targets are not text)", got, want)
 	}
-	if got := stripSGR(body); got != plain {
+	// the chip's own spaces render as NBSP so a wrap cannot split it (nonBreaking)
+	if got := spaced(stripSGR(body)); got != plain {
 		t.Errorf("stripped = %q, want %q", got, plain)
 	}
 	// clip measures in the same coordinates: 20 columns of a linked row is 20
@@ -59,7 +64,7 @@ func TestWrapLinkedRowFillsItsLines(t *testing.T) {
 		if w := visibleWidth(l); w > width {
 			t.Errorf("line %d is %d columns wide, want ≤ %d: %q", i, w, width, l)
 		}
-		bare := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(stripSGR(l)), "│"))
+		bare := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(spaced(stripSGR(l))), "│"))
 		if bare == "" {
 			t.Errorf("line %d is blank: %q", i, l)
 		}

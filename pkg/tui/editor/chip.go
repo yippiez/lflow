@@ -224,6 +224,17 @@ func chipDisplay(c database.Chip) string {
 	return c.Value
 }
 
+// nonBreaking swaps the spaces INSIDE a chip's display for U+00A0. A chip is one
+// atomic cluster to the caret (chipVisualRows walks anchors whole), so the
+// renderer must not let a soft wrap split it either — and wrapLine only ever
+// breaks at an ordinary space. NBSP measures one cell and the terminal draws it
+// as a space, so nothing about the row's geometry changes.
+//
+// A cmd chip is the exception and never comes through here: it is a whole shell
+// command, long by nature, and renderCmdChip already carries its tint across a
+// wrap.
+func nonBreaking(s string) string { return strings.ReplaceAll(s, " ", "\u00a0") }
+
 // chipExpand returns the full underlying value for a chip record. A link expands
 // to "[name](target)" so both halves survive bash/script/export surfaces.
 func chipExpand(c database.Chip) string {
