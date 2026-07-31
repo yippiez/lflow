@@ -28,7 +28,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// (there esc defocuses; handled in the focused block below)
 	if m.mode == modeOutline && key == "esc" && !m.focused {
 		if m.selOn {
-			m.clearSel() // first esc releases the multi-selection
+			m.clearSel() // first esc releases the row selection
+			return m, nil
+		}
+		if m.textSelOn {
+			m.clearTextSel() // …and the horizontal one
 			return m, nil
 		}
 		if m.escPending {
@@ -50,8 +54,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleLinkEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
-	case modePaint:
-		return m.handlePaintKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
 	case modeSettings:
@@ -138,22 +140,47 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// snapshot the tree before a mutating outline key so /undo can reverse it
 	m.snapshotForKey(key, k)
 
-	// multi-select lifecycle: shift+arrows grow the selection; any other plain
-	// movement, typing or esc drops it (structural ops below act on it instead)
+	// selection lifecycle: shift+arrows grow a selection — ↑/↓ by row
+	// (multisel.go), ←/→ by word inside the node's own text (textsel.go), with
+	// ctrl/alt+shift+←/→ adjusting that run one rune at a time. Any other plain
+	// movement, typing or esc drops it (the ops below act on it instead).
 	if m.mode == modeOutline {
 		switch key {
 		case "shift+up":
+			m.clearTextSel()
 			m.startOrExtendSel()
 			if m.cursor > 0 {
 				m.cursor--
 			}
 			return m, nil
 		case "shift+down":
+			m.clearTextSel()
 			m.startOrExtendSel()
 			if m.cursor < len(m.rows)-1 {
 				m.cursor++
 			}
 			return m, nil
+		case "shift+left":
+			m.extendTextSel(-1, true)
+			return m, nil
+		case "shift+right":
+			m.extendTextSel(1, true)
+			return m, nil
+		case "ctrl+shift+left", "alt+shift+left":
+			m.extendTextSel(-1, false)
+			return m, nil
+		case "ctrl+shift+right", "alt+shift+right":
+			m.extendTextSel(1, false)
+			return m, nil
+		}
+		if m.textSelOn {
+			switch key {
+			// the style picker (and the menus that reach it) style the run;
+			// yank/cut take it to the clipboard (see clipboard.go)
+			case "/", "alt+P", "alt+a", "alt+c", "alt+y", "alt+x", "ctrl+x":
+			default:
+				m.clearTextSel()
+			}
 		}
 		if m.selOn {
 			switch key {
@@ -161,7 +188,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
 				"/", "alt+P", "alt+a", // the slash menu may apply /type //style //move to the selection
-				"alt+t", "alt+y": // the type/style pickers retype/re-style the whole selection
+				"alt+t", "alt+c", // the type/style pickers retype/re-style the whole selection
+				"alt+y", "alt+x", "ctrl+x": // yank/cut take the whole selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -629,11 +657,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+t":
 		// open the type picker directly (same as /type)
 		return m.runSlash("/type")
-	case "alt+y":
-		// open the style picker directly (same as /style)
+	case "alt+c":
+		// open the style picker directly (same as /style) — c for colors; alt+y
+		// is the yank key, so the picker moved off it
 		return m.runSlash("/style")
-	case "alt+x":
-		// stop a running command, keeping what was captured; when nothing is
+	case "alt+k":
+		// kill: stop a running command, keeping what was captured; when nothing is
 		// running, clear the output band. A cmd chip under the caret takes the
 		// key (its band is keyed by chip id); otherwise the node's own band.
 		if cur := m.cursorItem(); cur != nil {
@@ -653,6 +682,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setCmdPreview(id)
 			}
 		}
+		return m, nil
+	case "alt+y", "alt+x", "ctrl+x":
+		// yank / cut, acting on the horizontal selection, else the row selection,
+		// else the cursor node's subtree (see clipboard.go). alt+y yanks and
+		// alt+x cuts; ctrl+x is kept as the cut twin for terminals that swallow
+		// the alt chord.
+		m.copyCut(key != "alt+y")
 		return m, nil
 	case "alt+s":
 		// flash: label every visible row's actions (jump / run / expand / fold) and

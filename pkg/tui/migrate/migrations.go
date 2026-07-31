@@ -1012,8 +1012,8 @@ var lm35 = migration{
 	},
 }
 
-// lm36 adds the node_spans table — the painter's partial-text styling. One row
-// per painted run (rune offsets into the node name), style = the same token
+// lm36 adds the node_spans table — partial-text styling. One row
+// per styled run (rune offsets into the node name), style = the same token
 // vocabulary as nodes.style. The text itself stays markup-free, always.
 var lm36 = migration{
 	name: "add-node-spans-table",

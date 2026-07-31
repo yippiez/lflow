@@ -60,12 +60,11 @@ var (
 	bgPage = ""
 )
 
-// The painter's window: a white bar (not themed — white is white) with dark
-// text for unpainted runes; painted runes keep their color on it.
-const (
-	bgPaintSel = "\x1b[48;2;255;255;255m"
-	fgPaintSel = "\x1b[38;2;30;30;30m"
-)
+// The horizontal selection bar is the SAME fill the row selection uses (selFill
+// paints bgPill under a selected row): selecting rows and selecting runes must
+// read as one thing, so both are that blue and both let the text keep its own
+// color on it. Themed, so a /theme change moves them together.
+func bgTextSel() string { return bgPill }
 
 // glyphs (locked)
 const (
@@ -244,7 +243,7 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		lines = append(lines, clip(rail+cReset+"  "+styleOutLine(l), maxLine))
 	}
 	if running {
-		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥x stop"+cReset, maxLine))
+		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥k stop"+cReset, maxLine))
 	}
 	return lines
 }
@@ -531,8 +530,9 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	flags := inlineSpans(runes)
 	markKeywords(runes, flags, animFrame) // ultracode/ultraloop: render-time only
 	spanSGR := spanSGRFor(it.uuid, len(runes))
-	paintLive := paintUUID == it.uuid
-	paintLo, paintHi := paintBounds()
+	// the live horizontal selection (shift+←/→) draws as a bar over its runes
+	selLive := textSelUUID != "" && textSelUUID == it.uuid
+	selLo, selHi := textSelLo, textSelHi
 	chipsp := anchorSpans(runes) // inline chip anchors, drawn collapsed
 	// the "$…" draft tint only while the caret sits where typing left it
 	// (cmdDraft, see cmdDraftLive) — never on a mere caret walk through text
@@ -683,11 +683,15 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 		if i == caret {
 			// the block cursor sits ON the rune: same colors as the cell —
-			// including its painted span — so the block wears the character's
-			// real color, then inverts
+			// including its styled run — so the block wears the character's
+			// real color, then inverts. Inside a selection it inverts the bar
+			// instead, so the caret stays legible on the white run.
 			s := sgr(f)
 			if spanSGR != nil && spanSGR[i] != "" {
 				s += spanSGR[i]
+			}
+			if selLive && i >= selLo && i < selHi {
+				s += bgTextSel()
 			}
 			b.WriteString(s + cInvert)
 			b.WriteRune(r)
@@ -696,19 +700,15 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			continue
 		}
 		s := sgr(f)
-		// a painted run (see paint.go) overrides the cell's color/attrs; while
-		// the painter is live on this node its window sits on a white bar —
-		// dark text for plain runes, painted runes keep their color on it.
-		// NOT inverse video, which swaps fg/bg and makes an already-red run
-		// read as a red background.
+		// a styled run (see spans.go) overrides the cell's color/attrs; a live
+		// horizontal selection lays the row-selection blue under those cells and
+		// nothing else. NOT inverse video, which swaps fg/bg and makes an
+		// already-red run read as a red background.
 		if spanSGR != nil && spanSGR[i] != "" {
 			s += spanSGR[i]
 		}
-		if paintLive && i >= paintLo && i < paintHi {
-			if spanSGR == nil || spanSGR[i] == "" {
-				s += fgPaintSel
-			}
-			s += bgPaintSel
+		if selLive && i >= selLo && i < selHi {
+			s += bgTextSel()
 		}
 		if s != cur {
 			b.WriteString(s)
