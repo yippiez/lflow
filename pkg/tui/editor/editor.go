@@ -1351,6 +1351,23 @@ func prevWordBoundary(runes []rune, caret int) int {
 	return i
 }
 
+// deleteWordBoundary returns the index a word delete removes back to: a caret
+// right after whitespace removes only that whitespace (the word survives for
+// the next press), otherwise the whole previous word goes.
+func deleteWordBoundary(runes []rune, caret int) int {
+	i := caret
+	if i > 0 && runes[i-1] == ' ' {
+		for i > 0 && runes[i-1] == ' ' {
+			i--
+		}
+		return i
+	}
+	for i > 0 && runes[i-1] != ' ' {
+		i--
+	}
+	return i
+}
+
 func (m *Model) rowIndexOf(it *item) int {
 	for i, r := range m.rows {
 		if r.it == it {

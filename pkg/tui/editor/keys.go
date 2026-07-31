@@ -366,7 +366,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.unsaved = true
 			return m, nil
 		}
-		target := prevWordBoundary(runes, m.caret)
+		target := deleteWordBoundary(runes, m.caret)
 		if sp := spanContaining(spans, target); sp != nil {
 			target = sp.start // don't cut into a chip — take the whole thing
 		}

@@ -174,7 +174,11 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 				if i == cursor {
 					cursorAt = len(flat)
 				}
-				flat = append(flat, dividerLine(r, maxLine, false))
+				shown := m.renderItem(it)
+				name := tr.displayName(it)
+				body := renderBody(shown, name, -1, false, m.chips, false)
+				line := dividerLine(r, maxLine, body, false)
+				flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 				flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
 				continue
 			}

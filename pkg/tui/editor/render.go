@@ -136,24 +136,38 @@ func connector(r row) string {
 // dividerLine renders a divider node as a single horizontal rule. The glyph
 // (circle) is hidden: the rule is ~90% of the width available after the row's
 // indent/rail, CENTERED in that space so equal gaps hang on the left and right.
-// Muted gray normally, red under the cursor — the rule itself is the selection
-// cue since there's no glyph.
-func dividerLine(r row, maxLine int, selected bool) string {
+// A non-empty body (the node's text, already rendered by renderBody with chips,
+// styles and caret) sits on the midpoint of the rule — equal rule runs on each
+// side center the text, with one space of breathing room around it; if the text
+// leaves no room for a rule it stands alone. Muted gray normally, red under the
+// cursor — the rule itself is the selection cue since there's no glyph.
+func dividerLine(r row, maxLine int, body string, selected bool) string {
 	prefix := " " + cDim + connector(r)
 	col := cDim
 	if selected {
 		col = cRed
 	}
 	avail := maxLine - visibleWidth(prefix) // content width after the indent/rail
-	ruleW := avail * 24 / 25                // ~96%, a small centered gap each side
+
+	if body == "" {
+		ruleW := avail * 24 / 25 // ~96%, a small centered gap each side
+		if ruleW < 1 {
+			ruleW = 1
+		}
+		leftGap := (avail - ruleW) / 2
+		if leftGap < 0 {
+			leftGap = 0
+		}
+		return prefix + cReset + strings.Repeat(" ", leftGap) + col + strings.Repeat("─", ruleW) + cReset
+	}
+
+	ruleW := avail - visibleWidth(body) - 2
 	if ruleW < 1 {
-		ruleW = 1
+		return prefix + cReset + body + cReset // text wider than the row — bare text
 	}
-	leftGap := (avail - ruleW) / 2
-	if leftGap < 0 {
-		leftGap = 0
-	}
-	return prefix + cReset + strings.Repeat(" ", leftGap) + col + strings.Repeat("─", ruleW) + cReset
+	left := ruleW / 2
+	right := ruleW - left
+	return prefix + cReset + col + strings.Repeat("─", left) + cReset + " " + body + cReset + " " + col + strings.Repeat("─", right) + cReset
 }
 
 // continuationPrefix builds the dim-styled hanging indent for a row's wrapped

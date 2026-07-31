@@ -105,7 +105,11 @@ func (m *Model) finalView(maxLine int) []string {
 	for i, r := range allRows {
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
 		if r.it.typ == database.TypeDivider {
-			lines = append(lines, dividerLine(r, maxLine, false))
+			shown := m.renderItem(r.it)
+			name := m.tree.displayName(r.it)
+			body := renderBody(shown, name, -1, false, m.chips, false)
+			line := dividerLine(r, maxLine, body, false)
+			lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 			continue
 		}
@@ -159,12 +163,24 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		it := r.it
 		selected := i == m.cursor
 
-		// a divider is a full-width rule with no glyph/body; it still hangs a note
+		// a divider is a full-width rule hiding the glyph; its text (if any) sits
+		// on the midpoint of the rule and edits inline like any node — it still
+		// hangs a note. A text wider than the row wraps under the tree rail.
 		if it.typ == database.TypeDivider {
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
-			groups[i] = []string{dividerLine(r, maxLine, selected && m.mode != modeFlash)} // single line, never wrapped
+			shown := m.renderItem(it)
+			name := m.tree.displayName(it)
+			caret := -1
+			if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
+				caret = m.caret
+			}
+			body := renderBody(shown, name, caret, selected, m.chips, m.cmdDraftLive(shown))
+			line := dividerLine(r, maxLine, body, selected && m.mode != modeFlash)
+			groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
 			if m.inSelection(i) {
-				groups[i][0] = selFill(groups[i][0], maxLine)
+				for j, l := range groups[i] {
+					groups[i][j] = selFill(l, maxLine)
+				}
 			}
 			noteCaret := -1
 			if selected && m.mode == modeNote {
