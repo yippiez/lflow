@@ -175,6 +175,12 @@ func key(s string) tea.KeyMsg {
 	case "alt+P", "alt+shift+p":
 		// terminals send alt+shift+p as uppercase P with Alt set
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P"), Alt: true}
+	case "alt+a":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a"), Alt: true}
+	case "alt+t":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t"), Alt: true}
+	case "alt+y":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y"), Alt: true}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "left":
@@ -1637,6 +1643,66 @@ func TestAltShiftPOpensSlashMenu(t *testing.T) {
 	}
 	if m.unsaved {
 		t.Fatal("alt+shift+p alone should not mark the outline unsaved")
+	}
+}
+
+// TestAltAOpensSlashMenu: alt+a is the home-row twin of alt+P — it opens the
+// command palette non-inline so the node name is left alone while filtering.
+func TestAltAOpensSlashMenu(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+	before := m.cursorItem().name
+
+	m.press("alt+a")
+	if m.mode != modeSlash {
+		t.Fatalf("alt+a should open the slash menu, mode=%v", m.mode)
+	}
+	if m.slashInline {
+		t.Fatal("alt+a should open non-inline so nothing is typed into the name")
+	}
+	if got := m.cursorItem().name; got != before {
+		t.Fatalf("alt+a must not change the node name: before=%q after=%q", before, got)
+	}
+	if m.unsaved {
+		t.Fatal("alt+a alone should not mark the outline unsaved")
+	}
+}
+
+// TestAltTOpensTypePicker: alt+t is the /type shortcut — it lands in the type
+// picker with the picker open, ready to change the node's type.
+func TestAltTOpensTypePicker(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+	before := m.cursorItem().typ
+
+	m.press("alt+t")
+	if m.mode != modeType {
+		t.Fatalf("alt+t should open the type picker, mode=%v", m.mode)
+	}
+	if len((typeSource{}).items(m, "")) == 0 {
+		t.Fatal("alt+t type picker should have items")
+	}
+
+	// committing a pick from the picker retypes the cursor node
+	m.press("down")
+	m.press("enter")
+	if m.cursorItem().typ == before {
+		t.Fatal("alt+t pick should change the node's type")
+	}
+}
+
+// TestAltYOpensStylePicker: alt+y is the /style shortcut — it lands in the
+// style picker (toggles + colors) for the cursor node.
+func TestAltYOpensStylePicker(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+
+	m.press("alt+y")
+	if m.mode != modeStyle {
+		t.Fatalf("alt+y should open the style picker, mode=%v", m.mode)
+	}
+	if len((styleSource{}).items(m, "")) == 0 {
+		t.Fatal("alt+y style picker should have items")
 	}
 }
 

@@ -160,7 +160,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "tab", "shift+tab", "ctrl+d", "alt+d", "ctrl+shift+backspace",
 				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
-				"/", "alt+P": // the slash menu may apply /type //style //move to the selection
+				"/", "alt+P", "alt+a", // the slash menu may apply /type //style //move to the selection
+				"alt+t", "alt+y": // the type/style pickers retype/re-style the whole selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -607,6 +608,28 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.openSlashMenu(false)
 		return m, nil
+	case "alt+a":
+		// open the command palette without typing "/" into the node text —
+		// mnemonic twin of alt+P, on the home row
+		cur := m.cursorItem()
+		if cur == nil {
+			it, err := m.tree.insertFirstChild(m.viewRoot())
+			if err != nil {
+				m.err = err
+				return m.quit()
+			}
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(it)
+			m.caret = 0
+		}
+		m.openSlashMenu(false)
+		return m, nil
+	case "alt+t":
+		// open the type picker directly (same as /type)
+		return m.runSlash("/type")
+	case "alt+y":
+		// open the style picker directly (same as /style)
+		return m.runSlash("/style")
 	case "alt+x":
 		// stop a running command, keeping what was captured; when nothing is
 		// running, clear the output band. A cmd chip under the caret takes the
