@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestIconCatalogShortcodesUnique(t *testing.T) {
 		"larrow", "rarrow", "doublearrow", "ldarrow", "rdarrow", "iff", "loop", "rlooparrow",
 		"chain", "magnifier", "decision",
 		"trello", "cpapers", "zotero", "claude", "obsidian",
-		"melt", "shush", "cold", "hand", "no", "warning",
+		"melt", "shush", "cold", "block", "no", "warning",
 	} {
 		if _, ok := seen[code]; !ok {
 			t.Errorf("missing shortcode %q", code)
@@ -34,6 +35,40 @@ func TestIconCatalogShortcodesUnique(t *testing.T) {
 	}
 	if _, ok := seen["sheets"]; ok {
 		t.Error("sheets was removed from the catalog")
+	}
+}
+
+func TestIconByShortcodeAlias(t *testing.T) {
+	e, ok := iconByShortcode("block")
+	if !ok || e.glyph != "🤚" {
+		t.Fatalf("block = %+v, %v; want 🤚, true", e, ok)
+	}
+	for _, a := range []string{"hand", "el", "blok", "engel", "dur", ":dur"} {
+		got, ok := iconByShortcode(a)
+		if !ok || got.glyph != e.glyph {
+			t.Fatalf("alias %q = %+v, %v; want block glyph %q", a, got, ok, e.glyph)
+		}
+	}
+	for _, a := range []string{"query", "arama", ":query"} {
+		got, ok := iconByShortcode(a)
+		if !ok || got.glyph != "⌕" {
+			t.Fatalf("alias %q = %+v, %v; want magnifier glyph", a, got, ok)
+		}
+	}
+}
+
+func TestFilterIconsMatchesAliases(t *testing.T) {
+	for _, q := range []string{"el", "engel", "dur", "hand"} {
+		got := filterIcons(q)
+		if !slices.ContainsFunc(got, func(e iconEntry) bool { return e.shortcode == "block" }) {
+			t.Fatalf("filter %q = %v, want [block] included", q, got)
+		}
+	}
+	for _, q := range []string{"query", "arama"} {
+		got := filterIcons(q)
+		if len(got) != 1 || got[0].shortcode != "magnifier" {
+			t.Fatalf("filter %q = %v, want [magnifier]", q, got)
+		}
 	}
 }
 

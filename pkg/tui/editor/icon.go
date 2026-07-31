@@ -68,12 +68,21 @@ var iconCatalog = []iconEntry{
 	{"🫠", "melt", "none"},
 	{"🤫", "shush", "none"},
 	{"🥶", "cold", "none"},
-	{"🤚", "hand", "none"},
+	{"🤚", "block", "none"},
 	{"👎", "no", "none"},
 	{"🚧", "warning", "none"},
 }
 
-// iconByShortcode looks up a catalog entry by its shortcode (no leading colon).
+// iconAliases maps canonical shortcodes to alternate search keywords. Typing an
+// alias resolves to the same glyph, but the picker always shows the canonical
+// shortcode — aliases are search-only.
+var iconAliases = map[string][]string{
+	"block":     {"hand", "el", "blok", "engel", "dur"},
+	"magnifier": {"query", "arama"},
+}
+
+// iconByShortcode looks up a catalog entry by its shortcode or an alias (no
+// leading colon).
 func iconByShortcode(code string) (iconEntry, bool) {
 	code = strings.ToLower(strings.TrimPrefix(code, ":"))
 	for _, e := range iconCatalog {
@@ -81,12 +90,19 @@ func iconByShortcode(code string) (iconEntry, bool) {
 			return e, true
 		}
 	}
+	for _, e := range iconCatalog {
+		for _, a := range iconAliases[e.shortcode] {
+			if a == code {
+				return e, true
+			}
+		}
+	}
 	return iconEntry{}, false
 }
 
-// filterIcons returns catalog entries whose shortcode contains query (case
-// insensitive). A leading ":" on the query is ignored so typing after the
-// trigger char matches cleanly. Empty query returns the full catalog.
+// filterIcons returns catalog entries whose shortcode or any alias contains
+// query (case insensitive). A leading ":" on the query is ignored so typing
+// after the trigger char matches cleanly. Empty query returns the full catalog.
 func filterIcons(query string) []iconEntry {
 	q := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(query), ":"))
 	if q == "" {
@@ -98,6 +114,13 @@ func filterIcons(query string) []iconEntry {
 	for _, e := range iconCatalog {
 		if strings.Contains(e.shortcode, q) {
 			out = append(out, e)
+			continue
+		}
+		for _, a := range iconAliases[e.shortcode] {
+			if strings.Contains(a, q) {
+				out = append(out, e)
+				break
+			}
 		}
 	}
 	return out
