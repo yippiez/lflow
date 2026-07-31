@@ -221,7 +221,17 @@ so it can return a node sharing no word with the phrase. The quote marks render
 yellow like a math operator; the phrase inside stays ordinary text. The model is
 built from the outline itself on every run — random indexing over the candidate
 set, fused by Reciprocal Rank Fusion with BM25 and character-trigram Dice — so
-there is no model file, no download, and no network call. Quality is bounded by
+there is no model file, no download, and no network call.
+
+The model is **outline-native**: the tree is evidence, not just layout. A node's
+fingerprint carries a decayed share of its ancestors', and its vector blends its
+ancestors' and children's, so a query about a container reaches what is filed
+inside it (including rows that share no word with it) and a query about a child
+reaches its container. Each ancestor is damped by `sqrt(children)` — a parent of
+three is making a claim about all three, a bucket of fifty is barely making one
+about any. That damping is load-bearing: without it a subtree collapses into one
+blob where every node is "related" to every other, and a query for one child
+returns all its siblings. Nodes reach up and down, never sideways. Quality is bounded by
 what the outline itself makes available: with no co-occurrence evidence linking
 two vocabularies, the honest answer is no hits, and the matcher returns none
 rather than the top of the noise. Swapping in static embeddings later changes

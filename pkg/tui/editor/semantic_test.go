@@ -213,3 +213,159 @@ func contains(xs []string, want string) bool {
 	}
 	return false
 }
+
+// --- structure ---------------------------------------------------------------
+
+// treeDoc is one node of a nested fixture: an uuid, its parent, and its text.
+// A node with empty text is a structural grouping row — it still shapes the
+// space through its fingerprint, but it is never itself a candidate.
+type treeDoc struct{ uuid, parent, text string }
+
+func treeCtx(docs []treeDoc) *qCtx {
+	ctx := &qCtx{parent: map[string]string{}, byUUID: map[string]*qCand{}}
+	for _, d := range docs {
+		if d.parent != "" {
+			ctx.parent[d.uuid] = d.parent
+		}
+		if d.text != "" {
+			ctx.cands = append(ctx.cands, qCand{uuid: d.uuid, searchName: d.text, parent: d.parent})
+		}
+	}
+	return ctx
+}
+
+// nestedOutline is two unrelated subtrees plus a loose node. "fix it" carries no
+// topical word of its own — it exists to prove a bare row is still reachable
+// through what it was filed under.
+var nestedOutline = []treeDoc{
+	{"groceries", "", "groceries"},
+	{"milk", "groceries", "milk"},
+	{"eggs", "groceries", "eggs"},
+	{"bread", "groceries", "bread"},
+	{"auth", "", "auth rewrite"},
+	{"signin", "auth", "signin flow"},
+	{"token", "auth", "token refresh"},
+	{"fixit", "auth", "fix it"},
+	{"weather", "", "the weather is nice today"},
+}
+
+// TestStructureParentTopicReachesChildren is the headline structural behavior: a
+// query about the container returns what is filed inside it, including a row
+// that shares no word with the query at all.
+func TestStructureParentTopicReachesChildren(t *testing.T) {
+	got := semanticSet(treeCtx(nestedOutline), "groceries")
+	for _, want := range []string{"groceries", "milk", "eggs", "bread"} {
+		if !contains(got, want) {
+			t.Errorf(`"groceries" = %v, want it to reach %q`, got, want)
+		}
+	}
+	if contains(got, "weather") || contains(got, "signin") {
+		t.Errorf(`"groceries" = %v, want the other subtree left out`, got)
+	}
+}
+
+// TestStructureReachesContentlessChild: "fix it" has no topical word of its own.
+// Only its position in the tree can explain it, which is the point.
+func TestStructureReachesContentlessChild(t *testing.T) {
+	got := semanticSet(treeCtx(nestedOutline), "auth rewrite")
+	if !contains(got, "fixit") {
+		t.Fatalf(`"auth rewrite" = %v, want the contentless "fix it" row`, got)
+	}
+	if contains(got, "milk") {
+		t.Errorf(`"auth rewrite" = %v, want the grocery subtree left out`, got)
+	}
+}
+
+// TestStructureChildTopicReachesParent makes a container findable through what
+// is filed inside it, not only through its own title.
+func TestStructureChildTopicReachesParent(t *testing.T) {
+	if got := semanticSet(treeCtx(nestedOutline), "milk"); !contains(got, "groceries") {
+		t.Fatalf(`"milk" = %v, want the parent container`, got)
+	}
+}
+
+// TestStructureDoesNotSpreadSideways is the constraint that makes the rest safe.
+// Ancestry is shared by every node in a subtree, so a flat weight would make one
+// child's query return all of its siblings.
+func TestStructureDoesNotSpreadSideways(t *testing.T) {
+	got := semanticSet(treeCtx(nestedOutline), "milk")
+	for _, sibling := range []string{"eggs", "bread"} {
+		if contains(got, sibling) {
+			t.Errorf(`"milk" = %v, want the sibling %q left out`, got, sibling)
+		}
+	}
+}
+
+// TestStructureLargeBucketDoesNotFlood: a wide parent broadcasts weakly, so a
+// query for one of its children returns that child rather than the whole
+// subtree. Without the sqrt(children) damping this returned all 25 allowed hits.
+func TestStructureLargeBucketDoesNotFlood(t *testing.T) {
+	docs := []treeDoc{{"proj", "", "project alpha"}}
+	for i := 0; i < 30; i++ {
+		docs = append(docs, treeDoc{fmt.Sprintf("c%02d", i), "proj", fmt.Sprintf("task %d widget", i)})
+	}
+	docs = append(docs, treeDoc{"target", "proj", "rewrite the signin flow"})
+
+	got := semanticSet(treeCtx(docs), "signin")
+	if !contains(got, "target") {
+		t.Fatalf(`"signin" = %v, want the node that actually says it`, got)
+	}
+	if len(got) > 3 {
+		t.Errorf(`"signin" returned %d of 31 siblings (%v) — the subtree flooded`, len(got), got)
+	}
+}
+
+// TestStructureEmptyAncestorStillBinds: fingerprints come from the uuid, not the
+// text, so a bare grouping row with no words of its own still ties its children
+// together — which is exactly what someone meant by creating it.
+func TestStructureEmptyAncestorStillBinds(t *testing.T) {
+	docs := []treeDoc{
+		{"group", "", ""}, // a structural row: no text, never a candidate itself
+		{"a", "group", "kubernetes ingress certificate"},
+		{"b", "group", "renew the letsencrypt chain"},
+		{"far", "", "sourdough starter feeding schedule"},
+	}
+	m := treeCtx(docs).semanticModel()
+	if len(m.docs) != 3 {
+		t.Fatalf("model has %d docs, want the empty grouping row excluded", len(m.docs))
+	}
+	bound := cosine(m.docVec["a"], m.docVec["b"])
+	loose := cosine(m.docVec["a"], m.docVec["far"])
+	if bound <= loose {
+		t.Fatalf("siblings under an empty group cos=%.4f, unrelated cos=%.4f — the "+
+			"grouping row must still bind", bound, loose)
+	}
+}
+
+// TestStructureIgnoresForestRoot: every node descends from the root, so letting
+// it broadcast would add the same component to every vector — diluting the space
+// while discriminating nothing.
+func TestStructureIgnoresForestRoot(t *testing.T) {
+	docs := []treeDoc{
+		{"a", database.RootUUID, "kubernetes ingress certificate"},
+		{"b", database.RootUUID, "sourdough starter feeding schedule"},
+	}
+	m := treeCtx(docs).semanticModel()
+	if c := cosine(m.docVec["a"], m.docVec["b"]); c > 0.01 {
+		t.Fatalf("top-level nodes cos=%.4f, want ~0 — the root must not bind them", c)
+	}
+}
+
+// TestStructureSurvivesCyclicAncestry: bad parent data must not hang the walk.
+func TestStructureSurvivesCyclicAncestry(t *testing.T) {
+	ctx := &qCtx{
+		parent: map[string]string{"a": "b", "b": "a"},
+		byUUID: map[string]*qCand{},
+		cands: []qCand{
+			{uuid: "a", searchName: "first node", parent: "b"},
+			{uuid: "b", searchName: "second node", parent: "a"},
+		},
+	}
+	done := make(chan bool, 1)
+	go func() { semanticHits(ctx, "first"); done <- true }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cyclic ancestry hung the semantic model build")
+	}
+}
