@@ -113,8 +113,7 @@ func (m *Model) syncTextSel() {
 		return
 	}
 	textSelUUID, textSelLo, textSelHi = cur.uuid, lo, hi
-	m.flash = fmt.Sprintf("selected %q · /style (alt+y) styles just this run · esc clears",
-		trimFlash(string(runes[lo:hi]), 24))
+	m.flash = fmt.Sprintf("selected %q · alt+y styles it", trimFlash(string(runes[lo:hi]), 16))
 }
 
 // wordEndAfter returns the index just past the next word. The selection's right

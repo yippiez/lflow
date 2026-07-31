@@ -46,8 +46,8 @@ func (m *Model) applyStyleToSpan(cur *item, lo, hi int, value string) {
 	m.setSpanStyle(cur, lo, hi, tok)
 	m.unsaved = true
 	label := stylePickerLabels[value]
-	if tok == "" {
-		label = "cleared"
+	if !style.Has(tok, value) && style.Color(tok) != value {
+		label += " off" // re-picking took it back off the run
 	}
 	m.flash = "styled " + trimFlash(string([]rune(cur.name)[lo:hi]), 24) + " · " + label
 }
