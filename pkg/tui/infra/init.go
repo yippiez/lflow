@@ -266,7 +266,6 @@ func initSystemKV(db *database.DB, key string, val string) error {
 	}
 
 	if _, err := db.Exec("INSERT INTO system (key, value) VALUES (?, ?)", key, val); err != nil {
-		db.Rollback()
 		return errors.Wrapf(err, "inserting %s %s", key, val)
 	}
 
@@ -283,6 +282,9 @@ func InitSystem(ctx context.DnoteCtx) error {
 	if err != nil {
 		return errors.Wrap(err, "beginning a transaction")
 	}
+	// the caller owns the transaction: any failure rolls everything back, and
+	// rolling back an already-committed transaction is a no-op
+	defer tx.Rollback()
 
 	nowStr := strconv.FormatInt(time.Now().Unix(), 10)
 	if err := initSystemKV(tx, consts.SystemLastUpgrade, nowStr); err != nil {

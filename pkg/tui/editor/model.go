@@ -904,6 +904,10 @@ func (t *tree) save() (int, error) {
 	if err != nil {
 		return 0, errors.Wrap(err, "beginning a transaction")
 	}
+	// any failure rolls the whole save back; rolling back an already-committed
+	// transaction is a no-op, so every error path is covered without a manual
+	// tx.Rollback() call
+	defer tx.Rollback()
 
 	now := time.Now().UnixNano()
 	written := 0
@@ -979,14 +983,12 @@ func (t *tree) save() (int, error) {
 	if t.changed(t.root) {
 		if _, err := tx.Exec(`UPDATE nodes SET name = ?, note = ?, type = ?, style = ?, completed_at = ?, edited_on = ? WHERE uuid = ?`,
 			t.root.name, t.root.note, t.root.typ, t.root.style, t.root.completedAt, now, t.root.uuid); err != nil {
-			tx.Rollback()
 			return 0, errors.Wrap(err, "updating root node")
 		}
 		written++
 	}
 	for i, c := range t.root.children {
 		if err := walk(c, t.root.uuid, i); err != nil {
-			tx.Rollback()
 			return 0, err
 		}
 	}
@@ -1000,14 +1002,12 @@ func (t *tree) save() (int, error) {
 			continue
 		}
 		if err := walk(ex, s.parentUUID, s.rank); err != nil {
-			tx.Rollback()
 			return 0, err
 		}
 	}
 
 	for _, uuid := range t.deleted {
 		if _, err := tx.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = ?", uuid); err != nil {
-			tx.Rollback()
 			return 0, errors.Wrapf(err, "tombstoning node %s", uuid)
 		}
 		written++
