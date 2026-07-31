@@ -1,9 +1,5 @@
 # AGENTS.md — operating guide for AI agents working in lflow
 
-(Claude Code readers: `CLAUDE.md` imports this file and adds Claude-specific
-workflow on top — notably that verification runs through the `verifier`
-subagent.)
-
 lflow is a local-first **terminal outline editor** (Go + bubbletea), forked from
 dnote into a keyboard-driven outliner. The whole tree lives in one SQLite file
 owned by a single **daemon** process; every CLI command is a one-shot,
@@ -19,12 +15,10 @@ per type in `pkg/tui/editor/registry.go`.
   `go build --tags fts5 ./pkg/tui`
 - After every change, install the dev binary so the user can test it:
   `go build --tags fts5 -ldflags "-X main.versionTag=0.1.0-dev" -o ~/.local/bin/lflow ./pkg/tui`
-- The full verification pass (unit tests, bash/tmux e2e suite, ast-grep rules)
-  and its isolation invariants (throwaway HOME/XDG, `LFLOW_NO_DAEMON=1`, never
-  the real outline at `~/.local/share/lflow/lflow.db`) live in
-  `.claude/agents/verifier.md`. Claude Code invokes it as the `verifier`
-  subagent; any other agent follows the same steps from that file manually.
-  Verify before installing.
+- Verification (tests, e2e, ast-grep, isolation rules) lives in
+  `.claude/agents/verifier.md` — Claude Code calls it as the `verifier`
+  subagent; other agents follow the same steps manually. Verify before
+  installing.
 - Development is **trunk-based**: work directly on `main`, no feature branches
   or PRs. Commit each logical change as its own `label: description` commit
   (labels: `editor`, `db`, `agent`, `daemon`, `docs`, …) and push to `main` as
