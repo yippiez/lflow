@@ -44,6 +44,13 @@ const (
 	// fans out into a child tree and each container row shows a dim linear
 	// preview of its subtree plus its parameter count. See editor/ml.go.
 	TypeML = "ml"
+	// TypeTable reads an ordinary subtree AS a grid: the table's first-level
+	// children are its columns (their text is the header), each column's children
+	// are that column's cells top to bottom (so row n is the nth child of every
+	// column), and a cell's own children are the outline inside that cell. No node
+	// moves when a node becomes a table — it is a reading, so any node converts and
+	// the grid ⇄ nodes toggle is lossless. See editor/table.go.
+	TypeTable = "table"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -75,6 +82,7 @@ var TypeOrder = []string{
 	TypeNLPCompute,
 	TypeMath,
 	TypeML,
+	TypeTable,
 	TypeWF,
 }
 
@@ -218,6 +226,15 @@ func SetStarred(db *DB, uuid string, starred bool) error {
 func SetPriority(db *DB, uuid, priority string) error {
 	if _, err := db.Exec("UPDATE nodes SET priority = ? WHERE uuid = ?", priority, uuid); err != nil {
 		return errors.Wrapf(err, "setting priority for %s", uuid)
+	}
+	return nil
+}
+
+// SetAddedOn rewrites a node's creation date (the /reborn command). Like
+// star and priority it writes in place and leaves edited_on untouched.
+func SetAddedOn(db *DB, uuid string, addedOn int64) error {
+	if _, err := db.Exec("UPDATE nodes SET added_on = ? WHERE uuid = ?", addedOn, uuid); err != nil {
+		return errors.Wrapf(err, "setting added_on for %s", uuid)
 	}
 	return nil
 }

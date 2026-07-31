@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lflow/lflow/pkg/tui/chiptext"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/utils"
 	"github.com/mattn/go-runewidth"
@@ -199,6 +200,11 @@ func linkChipColorCode() string {
 // its label (the arbitrary name), not its target.
 func chipDisplay(c database.Chip) string {
 	if c.Kind == chipKindLink {
+		// a link to a known service (Google Sheets/Docs/Drive …) adds that
+		// service's mark to its name — same arrow, same styling; see service.go
+		if svc, ok := linkService(c); ok {
+			return "→" + chiptext.ServiceDisplay(svc, c.Label)
+		}
 		return "→" + linkChipLabel(c)
 	}
 	if c.Kind == chipKindCmd {

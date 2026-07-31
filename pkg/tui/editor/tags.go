@@ -2,18 +2,24 @@ package editor
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/lflow/lflow/pkg/tui/chiptext"
 )
 
-// A tag is a #word token — '#' followed by letters, digits or underscores —
-// anchored at a left boundary (start of text or a non-word char) so bare '#'s
-// and mid-word hashes are ignored. Tags carry no stored markup: the literal
-// "#word" lives in the node name. They render in a fixed muted gray (a /color
-// never bleeds into them) and drive STRICT tag search — "#log" matches the tag
-// "#log" only, never the word "log" nor the tag "#logic". The pattern itself
-// lives in pkg/tui/chiptext, shared with the CLI's chipify.
+// A tag is a #word token — '#' followed by a letter or underscore, then letters,
+// digits or underscores — anchored at a left boundary (start of text or a
+// non-word char) so bare '#'s, mid-word hashes and "#1" ("number one") are
+// ignored. Tags carry no stored markup: the literal "#word" lives in the node
+// name. They render in a fixed muted gray (a /color never bleeds into them) and
+// drive STRICT tag search — "#log" matches the tag "#log" only, never the word
+// "log" nor the tag "#logic". The pattern itself lives in pkg/tui/chiptext,
+// shared with the CLI's chipify.
 var reTag = chiptext.ReTag
+
+// isTagLetter reports whether r may start a tag word — the first character after
+// '#' — matching the ReTag pattern's opening class.
+func isTagLetter(r rune) bool { return unicode.IsLetter(r) || r == '_' }
 
 // detectTagSpans returns the [start,end) rune ranges of each tag's "#word" run.
 func detectTagSpans(name string) [][2]int { return chiptext.TagSpans(name) }

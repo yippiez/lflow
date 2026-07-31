@@ -80,6 +80,7 @@ var slashCommands = []slashCommand{
 	{"/note", "Edit this node's note"},
 	{"/priority:down", "Incoming nodes land at the bottom"},
 	{"/priority:up", "Incoming nodes land on top"},
+	{"/reborn", "Reset this node's creation date to now"},
 	{"/settings", "Editor preferences: theme, image preview"},
 	{"/star", "Star this node — ranks first in pickers and search hits"},
 	{"/style", "Set this node's text style or color"},
@@ -669,8 +670,8 @@ func (m *Model) cursorItem() *item {
 // persistCollapsed writes an item's fold state to the DB. Collapse is local
 // view-state.
 func (m *Model) persistCollapsed(it *item) {
-	if it == nil {
-		return
+	if it == nil || m.db == nil {
+		return // no database behind this tree (the ephemeral temp tree, tests)
 	}
 	if err := database.SetCollapsed(m.db, it.uuid, it.collapsed); err != nil {
 		m.err = err
@@ -1576,6 +1577,15 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		if m.db != nil {
 			_ = database.SetPriority(m.db, cur.uuid, cur.priority)
 		}
+	case "/reborn":
+		// reset the node's creation date to now (a mirror resets its original).
+		// Like /star: writes in place, no edited_on churn.
+		cur = m.tree.resolve(cur)
+		cur.addedOn = time.Now().UnixNano()
+		if m.db != nil {
+			_ = database.SetAddedOn(m.db, cur.uuid, cur.addedOn)
+		}
+		m.flash = "reborn · created_at reset to now"
 	case "/duplicate":
 		// deep-copy this node (and its subtree) in as the next sibling, then
 		// land the cursor on the copy so it is ready to rename/edit

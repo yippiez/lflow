@@ -554,6 +554,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
 			}
+			// running a link chip IS opening it — the browser for a URL (a Google
+			// Sheets/Docs chip lands in the host browser), a jump for a node link.
+			// Same action as alt+g, reached from the key every other inline chip
+			// is run with.
+			if c, ok := m.linkChipAtCaret(cur); ok {
+				return m.followLink(c)
+			}
 			if run := typeOf(cur.typ).run; run != nil {
 				if bin, missing := m.typeDepMissing(cur.typ); missing {
 					m.flash = "Missing dependency: " + bin
@@ -884,8 +891,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command
 		// completer in a query node, or the icon shortcode picker on every other
 		// inline-editable node. Both stay literal mid-word so "C#"/"a:b" type
-		// normally; tags skip bash/code where "#" is a comment. Query nodes reach
-		// icons via /insert → icon (see insertChip).
+		// normally; tags skip bash/code where "#" is a comment. Typing a digit or
+		// special char right after "#" closes the completer again, so "#1" stays a
+		// literal "number one". Query nodes reach icons via /insert → icon (see insertChip).
 		if string(k.Runes) == "#" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
 			return m.openCompleter(cur, complTag, "#")
@@ -914,6 +922,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				text = lines[0]
 			} else {
 				text = ""
+			}
+			// a pasted service URL (Google Sheets/Docs/Drive …) lands as its
+			// branded chip instead of a wall of URL; every other paste is text
+			// exactly as before (see service.go)
+			if m.pasteServiceLink(cur, text) {
+				return m, nil
 			}
 		}
 

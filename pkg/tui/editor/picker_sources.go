@@ -266,6 +266,11 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 				} else {
 					t.typ = it.value
 				}
+				// a type may want to land on its own face right away (the Table
+				// folds to its grid) — one hook, no per-type branch here
+				if h := typeOf(t.typ).onType; h != nil {
+					h(m, t)
+				}
 			}
 			m.unsaved = true
 		}
@@ -472,6 +477,12 @@ func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 }
 
 func (completerSource) onRune(m *Model, p *listPicker, r []rune) bool {
+	// "#1" means "number one", not a tag: if the first char typed after a '#' is
+	// not a tag letter, drop the completer and keep the text literal.
+	if m.compl.kind == complTag && len(p.query) == 0 && len(r) > 0 && !isTagLetter(r[0]) {
+		p.query = ""
+		return true
+	}
 	p.query += string(r)
 	p.sel = 0
 	if cur := m.cursorItem(); cur != nil {
