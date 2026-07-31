@@ -1005,6 +1005,8 @@ func (m *Model) scrollBody(delta int) {
 }
 
 // handleMouse: the wheel scrolls the body like pgup/pgdown but in small steps.
+// When the wheel is over the read-only Temporary Domain panel (bottom of the
+// screen, unfocused), it scrolls that panel's window instead of the main body.
 // Everything else (clicks, motion) is ignored — the mouse is captured only so
 // the terminal reports wheel events (hold shift to select text natively).
 // Wheel events bypass handleKey, so they never clear the scroll pin; the next
@@ -1015,8 +1017,33 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 	}
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
+		if m.scrollTempPanel(-wheelStep, msg.Y) {
+			return
+		}
 		m.scrollBody(-wheelStep)
 	case tea.MouseButtonWheelDown:
+		if m.scrollTempPanel(wheelStep, msg.Y) {
+			return
+		}
 		m.scrollBody(wheelStep)
 	}
+}
+
+// scrollTempPanel wheels the read-only temp panel (when visible and unfocused) if
+// the event is over its region, returning true when it handled the scroll. The
+// offset is clamped to zero here; the upper bound is clamped by
+// readonlyRegionLines, which also writes the clamped value back to m.tempScroll.
+func (m *Model) scrollTempPanel(delta, y int) bool {
+	if m.tempActive || m.tempHeight < 1 {
+		return false
+	}
+	row := y - 1 // mouse Y is 1-based, screen rows are 0-based
+	if row < m.tempTop || row >= m.tempTop+m.tempHeight {
+		return false
+	}
+	m.tempScroll += delta
+	if m.tempScroll < 0 {
+		m.tempScroll = 0
+	}
+	return true
 }

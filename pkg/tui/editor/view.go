@@ -559,13 +559,17 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 			if n := len(m.mainStash.viewStack); n > 0 {
 				mainRoot = m.mainStash.viewStack[n-1]
 			}
-			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, lay.mainBudget, maxLine, false)
+			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, lay.mainBudget, maxLine, false, -1)
 			tempLines = focused // live, focused temp
 		} else {
 			mainLines = focused // live, focused main
 			// read-only temp panel: the dashed-glyph Temporary Domain look
-			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, lay.tempBudget, maxLine, true)
+			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, lay.tempBudget, maxLine, true, m.tempScroll)
 		}
+		// remember where the temp panel landed so the wheel can hit-test it and
+		// scroll it (the mouse handler runs before the next frame renders)
+		m.tempTop = len(mainLines) + len(bar)
+		m.tempHeight = len(tempLines)
 		// NOTE: the page background never adds filler rows — the layout (where
 		// the divider sits) must be identical across themes; gray paints
 		// exactly the rows the main region already has, edge to edge.
@@ -593,6 +597,7 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 	// frame sits near the bottom, the grow half of that cycle scrolls rows the
 	// inline renderer can no longer reach up to, stranding a ghost line below and
 	// pushing the outline up one row each toggle (the bleed).
+	m.tempHeight = 0 // no temp panel in this frame — the wheel must not hit-test it
 	if m.focused {
 		for len(body) < lay.rowBudget {
 			body = append(body, "")

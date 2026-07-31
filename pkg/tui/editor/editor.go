@@ -210,6 +210,12 @@ type Model struct {
 	tempActive bool
 	tempTree   *tree
 	mainStash  tempStash
+	// tempScroll is the read-only temp panel's window offset (mouse wheel over the
+	// panel); tempTop/tempHeight bound the panel's screen region for that hit-test.
+	// A focused temp list scrolls through the normal body window instead.
+	tempScroll int
+	tempTop    int
+	tempHeight int
 
 	// inline expanded view: when focused, the cursor node's nodeView captures keys
 	// and renders bands beneath it (replaces the per-feature full-screen modes).
