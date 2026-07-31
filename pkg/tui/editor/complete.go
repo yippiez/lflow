@@ -41,19 +41,19 @@ type complItem struct {
 // queryCmdItems is the fixed menu for ":" in a query node — the filters and
 // display flags the query matcher understands (see querytime.go).
 var queryCmdItems = []complItem{
-	{label: "type:", value: "type:", desc: "node type (todo, log, …)"},
-	{label: "in:", value: "in:", desc: "select subtree to search (root by default)"},
-	{label: "after:", value: "after:", desc: "dated/created on or after"},
-	{label: "before:", value: "before:", desc: "dated/created on or before"},
-	{label: "since:", value: "since:", desc: "alias of after:"},
-	{label: "until:", value: "until:", desc: "alias of before:"},
-	{label: "is:starred", value: "is:starred", desc: "pinned with /star"},
-	{label: "is:done", value: "is:done", desc: "completed todos"},
-	{label: "is:open", value: "is:open", desc: "not completed"},
-	{label: "has:note", value: "has:note", desc: "carries a note"},
-	{label: "has:children", value: "has:children", desc: "has child nodes"},
-	{label: "as:tree", value: "as:tree", desc: "nest hits in a locked ancestor tree"},
-	{label: "as:list", value: "as:list", desc: "flat hit list (default)"},
+	{label: "type()", value: "type()", desc: "node type (todo, log, …)"},
+	{label: "in()", value: "in()", desc: "select subtree to search (root by default)"},
+	{label: "after()", value: "after()", desc: "dated/created on or after"},
+	{label: "before()", value: "before()", desc: "dated/created on or before"},
+	{label: "since()", value: "since()", desc: "alias of after()"},
+	{label: "until()", value: "until()", desc: "alias of before()"},
+	{label: "is(starred)", value: "is(starred)", desc: "pinned with /star"},
+	{label: "is(done)", value: "is(done)", desc: "completed todos"},
+	{label: "is(open)", value: "is(open)", desc: "not completed"},
+	{label: "has(note)", value: "has(note)", desc: "carries a note"},
+	{label: "has(children)", value: "has(children)", desc: "has child nodes"},
+	{label: "as(tree)", value: "as(tree)", desc: "nest hits in a locked ancestor tree"},
+	{label: "as(list)", value: "as(list)", desc: "flat hit list (default)"},
 }
 
 // existingTags is every distinct tag in the outline, sorted. It unions the chip
@@ -151,13 +151,19 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 		}
 		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(chosen.value))
+		// An empty "()" is a hole to fill, so the caret lands between the parens
+		// rather than after them. A qualifier that already carries its value —
+		// is(open) — leaves the caret at the end, ready for the next atom.
+		if strings.HasSuffix(chosen.value, "()") {
+			m.caret--
+		}
 		m.unsaved = true
-		if strings.EqualFold(chosen.value, "type:") {
+		if strings.EqualFold(chosen.value, "type()") {
 			m.compl = complState{kind: complQueryType, start: m.caret}
 			m.list = listPicker{searchable: true}
 			return true
 		}
-		if strings.EqualFold(chosen.value, "in:") {
+		if strings.EqualFold(chosen.value, "in()") {
 			m.openFinder(actQueryScope)
 		}
 		return false
@@ -168,6 +174,7 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 		}
 		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
 		m.caret = m.compl.start + len([]rune(chosen.value))
+		m.skipClosingParen(cur)
 		m.unsaved = true
 		return false
 	}
@@ -217,10 +224,23 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 	return false
 }
 
+// skipClosingParen steps the caret past a ")" sitting immediately after it, so
+// completing a value inside "type(…)" leaves the caret ready for the next atom
+// instead of stranded inside the brackets.
+func (m *Model) skipClosingParen(cur *item) {
+	runes := []rune(cur.name)
+	if m.caret < len(runes) && runes[m.caret] == ')' {
+		m.caret++
+	}
+}
+
 // typedQueryCmd reports the qualifier a user has finished typing INTO the open
-// completer ("type:", "is:"), so the popup can react the same way Enter on the
-// matching row does.
+// completer — "type(" as well as the colon spellings — so the popup reacts the
+// same way Enter on the matching row does.
 func typedQueryCmd(typed string) (string, bool) {
+	if key, ok := strings.CutSuffix(strings.ToLower(typed), "("); ok && isQualifierKey(key) {
+		return key, true
+	}
 	key, _, ok := splitQualifier(strings.ToLower(typed))
 	if !ok || !strings.HasSuffix(typed, ":") {
 		return "", false
@@ -229,8 +249,8 @@ func typedQueryCmd(typed string) (string, bool) {
 }
 
 // dropCompleterTrigger removes the ":" that opened the completer. Typing a
-// qualifier out by hand must land the same flat "type:" text that picking it
-// from the popup does, not the legacy ":type:" sandwich.
+// qualifier out by hand must land the same "type(" text that picking it from the
+// popup does, not a stray colon in front of it.
 func (m *Model) dropCompleterTrigger(cur *item) {
 	runes := []rune(cur.name)
 	at := m.compl.start

@@ -65,7 +65,7 @@ func (m *Model) queryTextAndScope(q *item) (string, string) {
 	scope := database.RootUUID
 	var out []rune
 	for i := 0; i < len(runes); {
-		marker := queryScopeMarker(runes[i:])
+		marker, bracket := queryScopeMarker(runes[i:])
 		if marker == 0 || (i > 0 && !unicode.IsSpace(runes[i-1]) && runes[i-1] != '(') {
 			out = append(out, runes[i])
 			i++
@@ -81,37 +81,60 @@ func (m *Model) queryTextAndScope(q *item) (string, string) {
 					scope = uuid
 				}
 			}
-			i = sp.End
+			i = closeBracket(runes, sp.End, bracket)
 			continue
 		}
 		end := j
-		for end < len(runes) && !unicode.IsSpace(runes[end]) {
-			end++
+		if bracket {
+			for end < len(runes) && runes[end] != ')' {
+				end++
+			}
+		} else {
+			for end < len(runes) && !unicode.IsSpace(runes[end]) {
+				end++
+			}
 		}
-		value := string(runes[j:end])
+		value := strings.TrimSpace(string(runes[j:end]))
 		switch strings.ToLower(value) {
 		case "", "root":
 			scope = database.RootUUID
 		default:
 			scope = value
 		}
-		i = end
+		i = closeBracket(runes, end, bracket)
 	}
 	return strings.TrimSpace(database.ExpandAnchors(string(out), m.chips)), scope
 }
 
 // queryScopeMarker returns the rune length of the scope selector starting at
-// runes, or 0 when there is none. Both the flat "in:" spelling and the legacy
-// ":in:" one are recognized.
-func queryScopeMarker(runes []rune) int {
+// runes and whether its value is bracketed, or 0 when there is no selector.
+// "in(" is the current spelling; "in:" and the legacy ":in:" still resolve.
+func queryScopeMarker(runes []rune) (n int, bracket bool) {
 	head := strings.ToLower(string(runes[:min(len(runes), 4)]))
 	switch {
+	case strings.HasPrefix(head, "in("):
+		return 3, true
 	case strings.HasPrefix(head, ":in:"):
-		return 4
+		return 4, false
 	case strings.HasPrefix(head, "in:"):
-		return 3
+		return 3, false
 	}
-	return 0
+	return 0, false
+}
+
+// closeBracket steps past the ")" that ends a bracketed selector, so the closing
+// paren never survives into the searchable text as a stray grouping token.
+func closeBracket(runes []rune, at int, bracket bool) int {
+	if !bracket {
+		return at
+	}
+	for at < len(runes) && unicode.IsSpace(runes[at]) {
+		at++
+	}
+	if at < len(runes) && runes[at] == ')' {
+		at++
+	}
+	return at
 }
 
 // querySpanColor tints the semantic-search delimiters. A "quoted" phrase is the

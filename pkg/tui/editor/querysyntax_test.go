@@ -52,15 +52,46 @@ func sameSet(got []string, want ...string) bool {
 	return true
 }
 
-// TestFlatQualifiersReplaceColonSandwich is the point of the syntax rework: a
-// filter is `key:value`, not `:key:value`.
-func TestFlatQualifiersReplaceColonSandwich(t *testing.T) {
+// TestBracketQualifiers is the point of the syntax rework: a filter is
+// `key(value)`, not a `:key:value` sandwich.
+func TestBracketQualifiers(t *testing.T) {
 	m, q := newSyntaxTree()
-	if got := hitUUIDs(m, q, "type:todo"); !sameSet(got, "a", "b") {
-		t.Fatalf("type:todo = %v, want the two todos", got)
+	if got := hitUUIDs(m, q, "type(todo)"); !sameSet(got, "a", "b") {
+		t.Fatalf("type(todo) = %v, want the two todos", got)
 	}
-	if got := hitUUIDs(m, q, "buy type:bullets"); !sameSet(got, "d") {
-		t.Fatalf("buy type:bullets = %v, want [d]", got)
+	if got := hitUUIDs(m, q, "buy type(bullets)"); !sameSet(got, "d") {
+		t.Fatalf("buy type(bullets) = %v, want [d]", got)
+	}
+}
+
+// TestBracketValueMayContainSpaces is what the bracket form buys over a colon.
+// A clock time is separated from its date by a space, so "before:2026-06-20
+// 14:30" split into a filter and a stray word and silently lost the time;
+// bracketing holds the value together.
+func TestBracketValueMayContainSpaces(t *testing.T) {
+	now := mustDate("2026-06-25")
+	tq := parseTimeQuery("before(2026-06-20 14:30)", now)
+	if tq.before == nil {
+		t.Fatal("before(2026-06-20 14:30) did not parse")
+	}
+	if h, m := tq.before.Hour(), tq.before.Minute(); h != 14 || m != 30 {
+		t.Errorf("before = %02d:%02d, want the 14:30 inside the brackets kept", h, m)
+	}
+	if tq.text != "" {
+		t.Errorf("residual text = %q, want the bracketed value fully consumed", tq.text)
+	}
+}
+
+// TestGroupingParensStillGroup: only a "(" glued to a known qualifier key opens
+// a value — a standalone one keeps grouping the boolean expression.
+func TestGroupingParensStillGroup(t *testing.T) {
+	m, q := newSyntaxTree()
+	if got := hitUUIDs(m, q, "(apples || bread) && type(todo)"); !sameSet(got, "a", "b") {
+		t.Fatalf("grouped or = %v, want both todos", got)
+	}
+	// a space before the "(" makes it a group again, not a value
+	if got := hitUUIDs(m, q, "type (todo)"); sameSet(got, "a", "b") {
+		t.Errorf("type (todo) = %v, want it NOT read as a qualifier", got)
 	}
 }
 
@@ -68,19 +99,21 @@ func TestFlatQualifiersReplaceColonSandwich(t *testing.T) {
 // text is persisted node text, so pre-existing queries must keep matching.
 func TestLegacyColonSpellingsStillParse(t *testing.T) {
 	m, q := newSyntaxTree()
-	flat := hitUUIDs(m, q, "type:todo")
-	legacy := hitUUIDs(m, q, ":type:todo")
-	if !sameSet(legacy, flat...) {
-		t.Fatalf("legacy :type:todo = %v, want same as flat %v", legacy, flat)
+	want := hitUUIDs(m, q, "type(todo)")
+	for _, legacy := range []string{"type:todo", ":type:todo"} {
+		if got := hitUUIDs(m, q, legacy); !sameSet(got, want...) {
+			t.Errorf("legacy %s = %v, want same as type(todo) %v", legacy, got, want)
+		}
 	}
-	if pq := parseQuery("fix :breadcrumb:", time.Now()); !pq.breadcrumb {
-		t.Error("legacy :breadcrumb: must still set the tree display")
+	for _, tree := range []string{"fix as(tree)", "fix as:tree", "fix :breadcrumb:"} {
+		if pq := parseQuery(tree, time.Now()); !pq.breadcrumb {
+			t.Errorf("%q must set the tree display", tree)
+		}
 	}
-	if pq := parseQuery("fix as:tree", time.Now()); !pq.breadcrumb {
-		t.Error("as:tree must set the tree display")
-	}
-	if pq := parseQuery("fix as:list", time.Now()); pq.breadcrumb {
-		t.Error("as:list must clear the tree display")
+	for _, list := range []string{"fix as(list)", "fix as:list", "fix :list:"} {
+		if pq := parseQuery(list, time.Now()); pq.breadcrumb {
+			t.Errorf("%q must clear the tree display", list)
+		}
 	}
 }
 
@@ -106,11 +139,11 @@ func TestStateQualifiers(t *testing.T) {
 		query string
 		want  []string
 	}{
-		{"is:starred", []string{"b"}},
-		{"is:done", []string{"b"}},
-		{"is:open", []string{"a", "c", "d"}},
-		{"has:note", []string{"c"}},
-		{"buy is:open", []string{"a", "d"}},
+		{"is(starred)", []string{"b"}},
+		{"is(done)", []string{"b"}},
+		{"is(open)", []string{"a", "c", "d"}},
+		{"has(note)", []string{"c"}},
+		{"buy is(open)", []string{"a", "d"}},
 	}
 	for _, tc := range cases {
 		if got := hitUUIDs(m, q, tc.query); !sameSet(got, tc.want...) {
@@ -118,19 +151,19 @@ func TestStateQualifiers(t *testing.T) {
 		}
 	}
 	// an unknown predicate matches nothing rather than everything
-	if got := hitUUIDs(m, q, "is:nonsense"); len(got) != 0 {
-		t.Errorf("is:nonsense = %v, want no hits", got)
+	if got := hitUUIDs(m, q, "is(nonsense)"); len(got) != 0 {
+		t.Errorf("is(nonsense) = %v, want no hits", got)
 	}
 }
 
 func TestNegationExcludesAtoms(t *testing.T) {
 	m, q := newSyntaxTree()
-	if got := hitUUIDs(m, q, "buy -type:todo"); !sameSet(got, "d") {
-		t.Fatalf("buy -type:todo = %v, want [d]", got)
+	if got := hitUUIDs(m, q, "buy -type(todo)"); !sameSet(got, "d") {
+		t.Fatalf("buy -type(todo) = %v, want [d]", got)
 	}
 	// an interior hyphen is not an operator — dates and hyphenated words survive
-	if pq := parseTimeQuery("after:2026-06-01", time.Now()); pq.after == nil {
-		t.Fatal("after:2026-06-01 must parse as a date, not a negation")
+	if pq := parseTimeQuery("after(2026-06-01)", time.Now()); pq.after == nil {
+		t.Fatal("after(2026-06-01) must parse as a date, not a negation")
 	}
 }
 
@@ -145,7 +178,7 @@ func TestQuotedPhraseParsesAsSemanticAtom(t *testing.T) {
 	}
 	// the phrase stays one atom even though it contains spaces and a qualifier
 	// word — quoting suspends the rest of the grammar
-	pq = parseQuery(`deploy "type:todo && x"`, time.Now())
+	pq = parseQuery(`deploy "type(todo) && x"`, time.Now())
 	and, ok := pq.expr.(*qAnd)
 	if !ok || len(and.kids) != 2 {
 		t.Fatalf("expr = %#v, want text AND one semantic atom", pq.expr)
@@ -202,11 +235,14 @@ func TestFlatScopeQualifier(t *testing.T) {
 			"link": {ID: "link", Kind: chipKindLink, Value: nodeLinkURI("scope"), Label: "scope"},
 		}}
 
-	if got := hitUUIDs(m, q, "needle in:"+database.ChipAnchor("link")); !sameSet(got, "inside") {
-		t.Fatalf("flat in: scope = %v, want [inside]", got)
-	}
-	if got := hitUUIDs(m, q, "needle :in:"+database.ChipAnchor("link")); !sameSet(got, "inside") {
-		t.Fatalf("legacy :in: scope = %v, want [inside]", got)
+	for _, spelling := range []string{
+		"needle in(" + database.ChipAnchor("link") + ")",
+		"needle in:" + database.ChipAnchor("link"),
+		"needle :in:" + database.ChipAnchor("link"),
+	} {
+		if got := hitUUIDs(m, q, spelling); !sameSet(got, "inside") {
+			t.Errorf("scope %q = %v, want [inside]", spelling, got)
+		}
 	}
 	// the selector must never leak into text matching
 	if raw, _ := m.queryTextAndScope(q); raw != "needle" {

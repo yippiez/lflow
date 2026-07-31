@@ -8,30 +8,33 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// Query language (live-query node name). Every filter is a flat `key:value`
-// qualifier — one colon, no `:sandwich:` — so the grammar reads like the search
-// bars people already know:
+// Query language (live-query node name). Every filter is a `key(value)` call —
+// no `:sandwich:` — which reads as one token, nests visibly, and lets a value
+// contain spaces:
 //
-//	words           deploy notes            substring on name/note (adjacent words glue)
-//	"phrase"        "why the build broke"   SEMANTIC match — meaning, not letters
-//	#tag            #urgent                 exact tag
-//	type:todo                               node type
-//	after:2026-06-01 · since:               dated/created on or after
-//	before:2026-06-20 · until:              dated/created on or before
-//	is:starred · is:done · is:open          node state
-//	has:note · has:children                 node shape
-//	in:<node link>                          limit results to a subtree (default: root)
-//	as:tree · as:list                       display (default list)
-//	-x                                      negate the atom that follows
-//	ops:            ||   &&   >   ( … )
+//	words              deploy notes            substring on name/note (adjacent words glue)
+//	"phrase"           "why the build broke"   SEMANTIC match — meaning, not letters
+//	#tag               #urgent                 exact tag
+//	type(todo)                                 node type
+//	after(2026-06-01) · since(…)               dated/created on or after
+//	before(2026-06-20 14:30) · until(…)        dated/created on or before
+//	is(starred) · is(done) · is(open)          node state
+//	has(note) · has(children)                  node shape
+//	in(<node link>)                            limit results to a subtree (default: root)
+//	as(tree) · as(list)                        display (default list)
+//	-x                                         negate the atom that follows
+//	ops:               ||   &&   >   ( … )
+//
+// A "(" only opens a value when it is glued to a known qualifier key, so a
+// standalone "(project || release)" still groups the boolean expression.
 //
 // "A > B" keeps nodes matching B that sit under a node matching A (strict
 // descendants). Time bounds that share an AND combine into one window so a
 // node needs any one of its dates inside [after, before].
 //
-// WARNING (invariant): the legacy `:key:value` spellings (`:type:todo`,
-// `:after:…`, `:breadcrumb:`) still tokenize. Query text is persisted node text,
-// so queries written before the flat syntax must keep matching what they always
+// WARNING (invariant): the colon spellings (`type:todo`, `:type:todo`,
+// `:breadcrumb:`) still tokenize. Query text is persisted node text, so queries
+// written before the bracket syntax must keep matching what they always
 // matched — the old forms are aliases, never errors.
 
 // parsedQuery is a compiled query: the match expression plus display flags.
@@ -355,17 +358,19 @@ type qTok struct {
 	text string // word / type key / tag / date operand / phrase
 }
 
-// qField is one lexical field of a query: its text plus whether the user wrote
-// it inside "double quotes". Quoting is the semantic-search trigger, so it has
-// to survive tokenization as a flag rather than as literal quote characters.
+// qField is one lexical field of a query. key is set when the field was written
+// as a `key(value)` qualifier; quoted marks a "double quoted" phrase. Both are
+// flags rather than literal characters, because both are gone by the time the
+// parser sees them.
 type qField struct {
 	text   string
+	key    string
 	quoted bool
 }
 
-// splitQueryFields scans raw into fields. Quoted runs stay whole (spaces and
-// all), parens and a leading "-" become their own fields, and everything else
-// splits on whitespace.
+// splitQueryFields scans raw into fields. A `key(value)` qualifier and a quoted
+// run each stay whole — spaces and all — grouping parens and a leading "-"
+// become their own fields, and everything else splits on whitespace.
 func splitQueryFields(raw string) []qField {
 	var out []qField
 	runes := []rune(raw)
@@ -402,15 +407,56 @@ func splitQueryFields(raw string) []qField {
 				runes[j] != '(' && runes[j] != ')' && runes[j] != '"' {
 				j++
 			}
-			out = append(out, qField{text: string(runes[i:j])})
+			word := string(runes[i:j])
+			// "type(todo)": a "(" glued to a known qualifier key opens its VALUE,
+			// not a grouping group. The value may then contain spaces — which is
+			// the point of the bracket form, since "after(jun 20)" says something
+			// "after:jun 20" could not say at all.
+			if j < len(runes) && runes[j] == '(' && isQualifierKey(word) {
+				value, end := scanBracketValue(runes, j)
+				out = append(out, qField{text: value, key: strings.ToLower(word)})
+				i = end
+				continue
+			}
+			out = append(out, qField{text: word})
 			i = j
 		}
 	}
 	return out
 }
 
-// queryFilterKeys maps a `key:` qualifier to the token it produces. The flat
-// `type:todo` spelling and the legacy `:type:todo` one both resolve here.
+// scanBracketValue reads the value of a `key(value)` qualifier, given the index
+// of its opening paren. Nesting is balanced so an in: chip label containing a
+// paren survives; an unterminated value runs to the end of the text, which keeps
+// a half-typed "type(tod" from breaking the rest of the parse.
+func scanBracketValue(runes []rune, open int) (value string, end int) {
+	depth := 0
+	for k := open; k < len(runes); k++ {
+		switch runes[k] {
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 0 {
+				return string(runes[open+1 : k]), k + 1
+			}
+		}
+	}
+	return string(runes[open+1:]), len(runes)
+}
+
+// isQualifierKey reports whether a word names a qualifier, and so whether a "("
+// glued to it opens a value rather than a grouping group.
+func isQualifierKey(word string) bool {
+	w := strings.ToLower(word)
+	if _, ok := queryFilterKeys[w]; ok {
+		return true
+	}
+	return w == "in" || w == "as"
+}
+
+// queryFilterKeys maps a qualifier key to the token it produces. All three
+// spellings — `type(todo)`, `type:todo` and the legacy `:type:todo` — resolve
+// through it.
 var queryFilterKeys = map[string]qTokKind{
 	"type":   tokType,
 	"after":  tokAfter,
@@ -421,13 +467,27 @@ var queryFilterKeys = map[string]qTokKind{
 	"has":    tokState,
 }
 
-// queryDisplayFields maps whole fields that only affect display (never
-// matching) to their breadcrumb setting. "as:tree" is the current spelling;
-// the rest are the legacy flags kept alive by the compatibility invariant.
-var queryDisplayFields = map[string]bool{
-	"as:tree": true, "as:breadcrumb": true, "as:list": false,
+// queryDisplayFlags maps the legacy bare display flags to their breadcrumb
+// setting. The current spelling is the as() qualifier; these are kept alive by
+// the compatibility invariant.
+var queryDisplayFlags = map[string]bool{
 	":breadcrumb:": true, ":breadcrumb": true,
 	":list:": false, ":list": false,
+}
+
+// displaySetting resolves an as() qualifier, which chooses how hits are laid out
+// and never affects which nodes match.
+func displaySetting(key, value string) (breadcrumb, ok bool) {
+	if strings.ToLower(key) != "as" {
+		return false, false
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "tree", "breadcrumb":
+		return true, true
+	case "list", "flat":
+		return false, true
+	}
+	return false, false
 }
 
 // splitQualifier peels "key:value" off a field, tolerating the legacy
@@ -440,7 +500,7 @@ func splitQualifier(field string) (key, value string, ok bool) {
 		return "", "", false
 	}
 	key = strings.ToLower(f[:i])
-	if _, known := queryFilterKeys[key]; !known && key != "in" {
+	if !isQualifierKey(key) {
 		return "", "", false
 	}
 	return key, f[i+1:], true
@@ -456,8 +516,16 @@ func tokenizeQuery(raw string, now time.Time) (toks []qTok, breadcrumb bool, ok 
 			toks = append(toks, qTok{kind: tokSemantic, text: f.text})
 			continue
 		}
+		if f.key != "" { // a key(value) qualifier
+			if v, isDisplay := displaySetting(f.key, f.text); isDisplay {
+				breadcrumb = v
+				continue
+			}
+			toks = append(toks, filterToken(f.key, f.text, now)...)
+			continue
+		}
 		lf := strings.ToLower(f.text)
-		if v, isDisplay := queryDisplayFields[lf]; isDisplay {
+		if v, isFlag := queryDisplayFlags[lf]; isFlag {
 			breadcrumb = v
 			continue
 		}
@@ -484,6 +552,10 @@ func tokenizeQuery(raw string, now time.Time) (toks []qTok, breadcrumb bool, ok 
 			continue // removed display flag — ignore rather than search for it
 		}
 		if key, value, isFilter := splitQualifier(f.text); isFilter {
+			if v, isDisplay := displaySetting(key, value); isDisplay {
+				breadcrumb = v
+				continue
+			}
 			toks = append(toks, filterToken(key, value, now)...)
 			continue
 		}

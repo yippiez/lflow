@@ -195,23 +195,26 @@ back out of the CLI's own store (`agentstore.go`) on demand.
 ## Query nodes
 
 A Query node's name IS its search; `alt+r` runs it and reconciles the hits as
-mirror children. The language is flat `key:value` qualifiers — never a
-`:key:value` sandwich — plus bare words, `#tag`, `&&`/`||`/`>`/parens, and `-x`
-to negate:
+mirror children. Every filter is a `key(value)` call — never a `:key:value`
+sandwich — alongside bare words, `#tag`, `&&`/`||`/`>`/parens, and `-x` to
+negate:
 
 ```
-buy type:todo is:open                    todos still open that mention "buy"
-project > type:todo after:2026-06-01     dated todos under a "project" node
-#urgent -is:done in:<picked node>        open urgent work inside one subtree
-"why the build keeps failing" as:tree    semantic search, nested under ancestors
+buy type(todo) is(open)                     todos still open that mention "buy"
+project > type(todo) after(2026-06-01)      dated todos under a "project" node
+#urgent -is(done) in(<picked node>)         open urgent work inside one subtree
+"why the build keeps failing" as(tree)      semantic search, nested under ancestors
 ```
 
-Qualifiers: `type:` `in:` `after:`/`since:` `before:`/`until:` `is:` (starred,
-unstarred, done, open, note-bearing) `has:` (note, children) `as:` (tree/list).
-The `:` completer in a query node inserts the flat spelling; typing one out by
-hand lands the same text. Every legacy `:key:value` form still parses — query
-text is persisted node text, so old queries must keep matching (invariant noted
-in `querytime.go`).
+Qualifiers: `type()` `in()` `after()`/`since()` `before()`/`until()` `is()`
+(starred, unstarred, done, open) `has()` (note, children) `as()` (tree/list). A
+`(` opens a value only when glued to a known key, so `(project || release)`
+still groups; brackets also hold a value with spaces together, which is how
+`before(2026-06-20 14:30)` keeps its clock time. The `:` completer inserts
+`type()` with the caret between the brackets, and typing a key out by hand
+lands the same text. Every colon spelling (`type:todo`, `:type:todo`) still
+parses — query text is persisted node text, so old queries must keep matching
+(invariant noted in `querytime.go`).
 
 **A `"quoted phrase"` is a SEMANTIC atom** (`semantic.go`): it matches by meaning,
 so it can return a node sharing no word with the phrase. The quote marks render
