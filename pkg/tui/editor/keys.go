@@ -175,8 +175,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.textSelOn {
 			switch key {
-			// the style picker (and the menus that reach it) style the run
-			case "/", "alt+P", "alt+a", "alt+y":
+			// the style picker (and the menus that reach it) style the run;
+			// copy/cut take it to the clipboard (see clipboard.go)
+			case "/", "alt+P", "alt+a", "alt+y", "alt+c", "ctrl+x":
 			default:
 				m.clearTextSel()
 			}
@@ -187,7 +188,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
 				"/", "alt+P", "alt+a", // the slash menu may apply /type //style //move to the selection
-				"alt+t", "alt+y": // the type/style pickers retype/re-style the whole selection
+				"alt+t", "alt+y", // the type/style pickers retype/re-style the whole selection
+				"alt+c", "ctrl+x": // copy/cut take the whole selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -677,6 +679,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setCmdPreview(id)
 			}
 		}
+		return m, nil
+	case "alt+c", "ctrl+x":
+		// copy / cut, acting on the horizontal selection, else the row selection,
+		// else the cursor node's subtree (see clipboard.go). ctrl+c is quit, so
+		// copy is alt+c; ctrl+x is free and keeps the familiar cut key.
+		m.copyCut(key == "ctrl+x")
 		return m, nil
 	case "alt+s":
 		// flash: label every visible row's actions (jump / run / expand / fold) and
