@@ -14,6 +14,7 @@ lflow node list <id|text>
 lflow node list <id|text> --format json
 lflow node add <text> --parent <id>
 lflow node edit <id> --name <text>
+lflow suggest edit <id> --name <text>   # propose instead of writing
 ```
 
 Node references accept a UUID, UUID prefix, or fuzzy text. Use `--strict` to

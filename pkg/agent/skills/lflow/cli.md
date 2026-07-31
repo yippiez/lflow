@@ -69,3 +69,29 @@ $ lflow node list 8a41b2 --format json           # read the subtree
 $ lflow node add "draft the changelog" --parent 8a41b2 --type todo
 $ lflow node edit 8a41b2 --state complete
 ```
+
+## Propose instead of writing — `lflow suggest`
+
+A suggestion is a proposed change parked in a review queue. It touches nothing
+until the user approves it, so it is the safe way to offer an edit you are not
+sure about — and the way to leave work for a human to confirm.
+
+```
+$ lflow suggest add "write the migration guide" --parent 8a41b2 --message "gap in the docs"
+$ lflow suggest edit d3f532 --name "retry transient failures only" --message "clearer"
+$ lflow suggest list                      # the pending queue: id, status, kind, gist
+$ lflow suggest list --format json        # every field, for scripting
+$ lflow suggest show 4cad8e               # current value beside the proposed one
+```
+
+`suggest add` takes the same `--parent`, `--type`, `--note` and `--raw` flags as
+`node add` (plus `--position top|bottom`); `suggest edit` takes `--name`,
+`--note` and `--type`. Both take `--message` (why) and `--author` (who,
+defaulting to `$LFLOW_AUTHOR`) — set `--author` so a reviewer can tell agent
+proposals from their own.
+
+The user reviews with `lflow suggest approve <id>` (applies it) or `lflow
+suggest reject <id>` (drops it); `--all` acts on the whole pending queue. An
+edit records the text it was written against, so if the node changed since,
+approve holds it back until `--force`. Do not approve your own suggestions
+unless the user asks: filing one and approving it is just an edit.
