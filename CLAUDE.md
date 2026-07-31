@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-@AGENTS.md
+Read `AGENTS.md` first — it is the operating guide for this repo.
 
 After any code change, call the **verifier** subagent instead of running
 build / test / e2e / ast-grep or demo-recording steps yourself — it owns that
