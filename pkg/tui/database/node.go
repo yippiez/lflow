@@ -222,6 +222,15 @@ func SetPriority(db *DB, uuid, priority string) error {
 	return nil
 }
 
+// SetAddedOn rewrites a node's creation date (the /reborn command). Like
+// star and priority it writes in place and leaves edited_on untouched.
+func SetAddedOn(db *DB, uuid string, addedOn int64) error {
+	if _, err := db.Exec("UPDATE nodes SET added_on = ? WHERE uuid = ?", addedOn, uuid); err != nil {
+		return errors.Wrapf(err, "setting added_on for %s", uuid)
+	}
+	return nil
+}
+
 // Update persists all mutable fields of the node.
 func (n Node) Update(db *DB) error {
 	_, err := db.Exec(`UPDATE nodes SET parent_uuid = ?, rank = ?, name = ?, note = ?, type = ?,
