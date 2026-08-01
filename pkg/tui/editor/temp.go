@@ -186,12 +186,17 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			if dashed && !r.mirrored {
 				glyph = glyphDotted
 			}
+			// a proposal still marks its node here: the read-only region is the
+			// main outline while the temp panel is up, and a suggestion must not
+			// vanish just because you stepped into the scratch space
+			glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
 			name := tr.displayName(it)
 			body := renderBody(it, name, -1, false, m.chips, false)
 			if rm := typeOf(it.typ).renderM; rm != nil {
 				body = rm(m, it)
 			}
-			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r)
+			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body +
+				m.typeSuffix(r) + m.suggestInline(it)
 			if i == cursor {
 				cursorAt = len(flat)
 			}

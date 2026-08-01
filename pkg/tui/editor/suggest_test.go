@@ -397,3 +397,23 @@ func TestSuggestToolbarCountHasNoCircle(t *testing.T) {
 		t.Fatalf("bar still wears the circle: %q", bar)
 	}
 }
+
+// TestSuggestSurvivesTheTempPanel: stepping into the Temporary Domain renders
+// the main outline through the read-only region — a proposal must still mark
+// its node there, or it looks like it went away.
+func TestSuggestSurvivesTheTempPanel(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing",
+		Author: "agent"})
+	m.loadSuggests()
+
+	lines := m.readonlyRegionLines(m.tree, m.tree.root, 0, 6, 80, false, -1)
+	joined := stripSGR(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, glyphSuggest+" ship the thing") {
+		t.Fatalf("read-only region dropped the node's circle: %q", joined)
+	}
+	if !strings.Contains(joined, "→ ship the other thing") {
+		t.Fatalf("read-only region dropped the proposal: %q", joined)
+	}
+}
