@@ -83,6 +83,23 @@ an import sits inside the active theme; a tag the user already colored keeps
 their choice. `alt+r` re-reads the entry and reconciles against those keys —
 in place, so a refresh updates what changed instead of duplicating the subtree.
 
+What each Zotero object becomes, one for one:
+
+| Zotero | binding kind | node | mark | alt+g | alt+o |
+| --- | --- | --- | --- | --- | --- |
+| the entry (item) | `item` | mirror root, tags as colored chips, citation on its `/note` | `Z` brand red | the entry, per `zotero.open` | the other one |
+| a field (type · venue · date, DOI/URL, abstract) | `meta` | one row each | `·` dim | the entry | the other one |
+| an attachment (the PDF) | `attachment` | one row, the file resolved to a local path | `◆` dim | the PDF in Zotero's reader | the file, in the host's app |
+| a highlight / underline / sticky note | `annotation` | one row, text (or comment), `p.N` | `▍` in the highlighter's color | the reader AT that mark | the entry on the web |
+| an area crop / pen drawing (image, ink) | `annotation` | one row + the picture as half-blocks, alt+e larger | `▦` in its color | the reader AT that mark | the picture, in the host's viewer |
+| an annotation comment | `meta` | a child under its highlight | `·` dim | the entry | the other one |
+| a note | `note` | an ordinary row, HTML flattened | `○` dim — a normal node that is fixed | the entry | the other one |
+
+A pictorial mark's PNG is copied out of Zotero's own render cache into
+`node_blobs`, so the picture travels inside the outline file; the cache fills
+lazily as Zotero draws pages, so a fresh crop may need one alt+r before it has
+a picture. Collections, related items and saved searches are not mirrored.
+
 The mirror is Zotero's, not yours: the root is content-locked (movable and
 deletable as a unit), every node below it is content- AND position-locked, and
 `/lock` and `/note` refuse on all of them — an edit there would be silently
