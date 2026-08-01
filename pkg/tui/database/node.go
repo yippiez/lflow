@@ -54,18 +54,17 @@ const (
 	// TypeMol is a molecule composed AS an outline: one atom per node, children
 	// are the atoms bonded to it; alt+e draws the structure. See editor/molecule.go.
 	TypeMol = "molecule"
-	// TypeLine is a dialogue line: ordinary editable text prefixed with a
-	// character name, e.g. "[ALICE] be right there" — the bracket is a render-time
-	// prefix, never baked into the stored name. The character assigned to each Line
-	// node lives in the line_characters table (keyed by node uuid) and each
-	// character's color in character_colors (keyed by character name), so the same
-	// character stays consistent everywhere it speaks. See editor/line.go.
 	TypeLine = "line"
 	// TypeWebResult is one web-search hit: a generated link row a web node hangs
 	// under it (title + URL link chip). It is generated, so it never appears in
 	// the /type picker; a re-run replaces the rows by type. See editor/webnode.go
 	// and pkg/tui/websearch.
 	TypeWebResult = "webresult"
+
+	// TypeZotero is a mirrored Zotero entry: one node per library item, its
+	// attachments, annotations and notes pulled in beneath it as a locked
+	// subtree (see editor/zoteroitem.go and pkg/tui/zotero).
+	TypeZotero = "zotero"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -104,6 +103,8 @@ var TypeOrder = []string{
 	TypeThinking,
 	TypeLine,
 	TypeWebResult,
+	TypeZotero,
+}
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.
