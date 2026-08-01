@@ -1,7 +1,6 @@
 package database
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/lflow/lflow/pkg/tui/chiptext"
@@ -21,16 +20,10 @@ func ChipAnchor(id string) string {
 // HasAnchor reports whether name contains any chip anchor.
 func HasAnchor(name string) bool { return strings.ContainsRune(name, ChipSentinel) }
 
-// ChipDisplay is a chip's compact form (e.g. "›readme.txt"). Keep in sync with
+// ChipDisplay is a chip's compact form (e.g. "#tag"). Keep in sync with
 // the editor's chip-kind registry; this is the lower-level copy CLI surfaces use.
 func ChipDisplay(c Chip) string {
 	switch c.Kind {
-	case "path":
-		base := filepath.Base(c.Value)
-		if base == "" || base == "." || base == string(filepath.Separator) {
-			base = c.Value
-		}
-		return "›" + base
 	case "tag":
 		return "#" + c.Value
 	case "link":
@@ -138,12 +131,11 @@ func ExpandAnchors(name string, chips map[string]Chip) string {
 
 // Chip is an inline structured token referenced by an anchor in a node's name
 // (see the chip-kind registry in pkg/tui/editor). The name text holds an opaque
-// anchor carrying the chip id; the chip's real data lives here. Local content
-// for now — a path chip's value is a machine-specific absolute path.
+// anchor carrying the chip id; the chip's real data lives here.
 type Chip struct {
 	ID    string `json:"id"`
-	Kind  string `json:"kind"`  // path, date, tag, link, …
-	Value string `json:"value"` // the full underlying data (e.g. the absolute path, or a link target)
+	Kind  string `json:"kind"`  // date, tag, link, …
+	Value string `json:"value"` // the full underlying data (e.g. a link target)
 	Label string `json:"label"` // display name; used by link chips, empty for path/date/tag
 }
 

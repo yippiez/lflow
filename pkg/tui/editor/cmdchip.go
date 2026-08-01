@@ -34,9 +34,9 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 	end := m.caret - 1 // command ends just before the trailing space
 	spans := anchorSpans(runes)
 	// walk back to the "$" that opens the command: it must be at the node start or
-	// follow a space (a standalone token). Skip whole chip anchors so a path chip
-	// (or any chip) spliced into the command doesn't stop the scan — its sentinels
-	// would otherwise read as stray markers and abort the token.
+	// follow a space (a standalone token). Skip whole chip anchors so any chip
+	// spliced into the command doesn't stop the scan — its sentinels would
+	// otherwise read as stray markers and abort the token.
 	start := -1
 	for i := end - 1; i >= 0; {
 		if sp := spanEndingAt(spans, i+1); sp != nil {
@@ -52,8 +52,8 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 	if start < 0 {
 		return false
 	}
-	// expand any chips folded into the command (e.g. a path chip → its full path)
-	// so the cmd chip's stored command is plain, runnable shell. An EMPTY
+	// expand any chips folded into the command (e.g. a tag chip → "#value") so
+	// the cmd chip's stored command is plain, runnable shell. An EMPTY
 	// command still chips: "$" + double space lands a blank $ chip to fill in.
 	cmd := strings.TrimSpace(expandAnchors(string(runes[start+1:end]), m.chips))
 	// those inner chips are now baked into the cmd value; drop their records before

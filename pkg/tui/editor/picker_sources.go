@@ -119,7 +119,6 @@ var insertKinds = []struct{ value, label, desc string }{
 	{"date", "date", "today as a date chip"},
 	{"icon", "icon", "an icon or emoji via shortcode"},
 	{"link", "link", "a link chip"},
-	{"path", "file", "a file path chip"},
 	{"tag", "tag", "a #tag chip"},
 }
 
@@ -152,10 +151,10 @@ func (insertSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 }
 
 // insertChip splices a chip of the given kind at the caret, reusing each kind's
-// native flow: the "#" completer, the "[[" finder, the fzf file picker; date
-// lands today directly, cmd opens a "$" draft that the double-space rule turns
-// into the runnable chip. "icon" is plain unicode via the shortcode completer
-// and skips the chipsEnabled guard so query nodes can reach it.
+// native flow: the "#" completer, the "[[" finder; date lands today directly,
+// cmd opens a "$" draft that the double-space rule turns into the runnable
+// chip. "icon" is plain unicode via the shortcode completer and skips the
+// chipsEnabled guard so query nodes can reach it.
 func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	cur := m.cursorItem()
 	if cur == nil {
@@ -178,11 +177,6 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 		return m.openCompleter(cur, complTag, "#")
 	case "link":
 		m.openFinder(actLinkInsert)
-	case "path":
-		if cmd := m.openFilePicker(cur, ""); cmd != nil {
-			return m, cmd
-		}
-		m.flash = "fzf not installed"
 	case "date":
 		if anchor := m.createChip(chipKindDate, time.Now().Format("2006-01-02")); anchor != "" {
 			m.insertLiteralAt(cur, m.caret, anchor)

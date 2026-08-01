@@ -24,13 +24,11 @@ type NodeRef interface {
 	UUID() string
 	// Type returns the node's type key.
 	Type() string
-	// Text returns the display text with chips expanded (a path chip reads as
-	// its full path); a mirror reads its source's name.
+	// Text returns the display text with chips expanded; a mirror reads its
+	// source's name.
 	Text() string
 	// SetText replaces the node's plain text and marks it for the next flush.
 	SetText(s string)
-	// PathChip returns the node's first path-chip value, or "".
-	PathChip() string
 	// Parent returns the node's parent, when it has a real one.
 	Parent() (NodeRef, bool)
 	// Siblings returns the node's parent's children (the node included).
@@ -57,15 +55,6 @@ func (n nodeRef) Text() string {
 func (n nodeRef) SetText(s string) {
 	n.it.name = s
 	n.m.unsaved = true
-}
-
-func (n nodeRef) PathChip() string {
-	for _, sp := range anchorSpans([]rune(n.it.name)) {
-		if c, ok := n.m.chips[sp.id]; ok && c.Kind == chipKindPath {
-			return c.Value
-		}
-	}
-	return ""
 }
 
 func (n nodeRef) Parent() (NodeRef, bool) {

@@ -447,7 +447,7 @@ func renderCmdChip(c database.Chip, caretOn bool) string {
 // activeCmdDraftRange returns the not-yet-committed cmd chip range that contains
 // the caret. A standalone "$" starts the draft immediately; single spaces stay
 // in the command, while a double space means the draft has ended (and normally
-// commits before render). Anchor interiors are ignored so path chips can still
+// commits before render). Anchor interiors are ignored so other chips can still
 // be folded into the command when the double space arrives.
 func activeCmdDraftRange(runes []rune, caret int, spans []anchorSpan) (int, int) {
 	if caret <= 0 || caret > len(runes) {

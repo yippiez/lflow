@@ -305,9 +305,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
-		// path chips are inserted via the /file fuzzy picker, and "#" is for tags,
-		// so Tab is free to just indent. The Temporary Domain edits exactly like the
-		// main outline, so indenting works there too.
+		// no chip kind claims Tab as a trigger, so it is free to just indent. The
+		// Temporary Domain edits exactly like the main outline, so indenting works
+		// there too.
 		if m.selOn {
 			m.selIndent()
 			return m, nil
@@ -573,8 +573,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			} else if e := typeOf(cur.typ).expand; e != nil {
 				return m, e(m, cur)
-			} else if cmd := m.openPathChipCmd(cur); cmd != nil {
-				return m, cmd // ⌥e on a node with a path chip opens the file in $EDITOR
 			}
 		}
 		return m, nil
@@ -923,25 +921,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// ">" opens the file picker to splice a path chip at the caret — the chip
-		// renders as "›name", so ">" is its natural trigger. It fires in every
-		// inline-editable type, including bash/code/query where ">" is real syntax:
-		// the picker is cancelable, and dismissing it types a literal ">" instead
-		// (see the fzfPickedMsg handler), so a redirect still works — you just quit
-		// the picker. Only at a word start (start of text or after a space) so a
-		// mid-word ">" and the "->" log gesture stay literal; when fzf is missing we
-		// fall through to typing ">" literally.
-		if string(k.Runes) == ">" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			pathChipTrigger(cur.typ) && atWordStart(cur, m.caret) {
-			if cmd := m.openFilePicker(cur, ">"); cmd != nil {
-				return m, cmd
-			}
-		}
-
 		// "[[" opens the link picker: the second "[" drops the first and opens the
-		// finder where you pick a node or type/paste a URL. Unlike the file picker
-		// it has no cancel-to-literal path, so it stays off where "[" is real syntax
-		// (bash test brackets, code, query, quote, json).
+		// finder where you pick a node or type/paste a URL. It has no
+		// cancel-to-literal path, so it stays off where "[" is real syntax (bash
+		// test brackets, code, query, quote, json).
 		if string(k.Runes) == "[" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
 			runes := []rune(cur.name)

@@ -26,14 +26,14 @@ func TestAnchorRoundTrip(t *testing.T) {
 
 func TestExpandAndDisplayAnchors(t *testing.T) {
 	chips := map[string]database.Chip{
-		"p1": {ID: "p1", Kind: "path", Value: "/home/eren/work/readme.txt"},
+		"l1": {ID: "l1", Kind: "link", Value: "https://example.com/readme", Label: "readme"},
 	}
-	name := "open " + chipAnchor("p1") + " please"
+	name := "open " + chipAnchor("l1") + " please"
 
-	if got, want := expandAnchors(name, chips), "open /home/eren/work/readme.txt please"; got != want {
+	if got, want := expandAnchors(name, chips), "open [readme](https://example.com/readme) please"; got != want {
 		t.Errorf("expand = %q, want %q", got, want)
 	}
-	if got, want := displayAnchors(name, chips), "open ›readme.txt please"; got != want {
+	if got, want := displayAnchors(name, chips), "open →readme please"; got != want {
 		t.Errorf("display = %q, want %q", got, want)
 	}
 	// a missing record degrades to a placeholder, never a raw anchor
