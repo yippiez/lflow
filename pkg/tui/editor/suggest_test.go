@@ -325,3 +325,27 @@ func TestSuggestReviewWalksSeveral(t *testing.T) {
 		t.Fatal("review closed while a proposal was still queued")
 	}
 }
+
+// TestSuggestReviewOpensOnTheInlineOne: the arrow on the row and the proposal
+// review opens on must be the same one — the queue is ordered by when it was
+// filed, and review starts at its head.
+func TestSuggestReviewOpensOnTheInlineOne(t *testing.T) {
+	m, db, cur := suggestModel(t, "rollout plan")
+	fileSuggestion(t, db, database.Suggestion{UUID: "later", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "and an owner column", Author: "teammate", CreatedOn: 20})
+	fileSuggestion(t, db, database.Suggestion{UUID: "first", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "add a risks column", Author: "agent", CreatedOn: 10})
+	m.loadSuggests()
+
+	if inline := m.suggestInline(cur); !strings.Contains(inline, "add a risks column") {
+		t.Fatalf("inline showed the wrong proposal: %q", inline)
+	}
+	m.press("alt+v")
+	band := strings.Join(m.suggestBandLines(m.rows[m.cursor], false, 80), "\n")
+	if !strings.Contains(band, "add a risks column") {
+		t.Fatalf("review opened on a different proposal than the row showed: %q", band)
+	}
+	if strings.Contains(band, "and an owner column") {
+		t.Fatalf("review showed the second proposal too: %q", band)
+	}
+}
