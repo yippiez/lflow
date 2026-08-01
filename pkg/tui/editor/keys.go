@@ -58,6 +58,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNoteKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
+	case modeSuggest:
+		return m.handleSuggestKey(k)
 	case modeSettings:
 		return m.handleSettingsKey(k)
 	case modeFlash:
@@ -622,6 +624,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, runWF(m, cur)
 			}
 		}
+		return m, nil
+	case "alt+v":
+		// review the proposals pending on this node: y approves (applying it),
+		// n rejects. Until then the suggestion has changed nothing.
+		m.enterSuggestReview()
 		return m, nil
 	case "alt+o":
 		// open the cursor node in the HOST's own app — outside the terminal

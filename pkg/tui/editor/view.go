@@ -187,6 +187,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				noteCaret = m.caret
 			}
 			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+			bands[i] = append(bands[i], m.suggestBandLines(r, below, maxLine)...)
 			continue
 		}
 
@@ -217,6 +218,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 					noteCaret = m.caret
 				}
 				bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+				bands[i] = append(bands[i], m.suggestBandLines(r, below, maxLine)...)
 				continue
 			}
 		}
@@ -289,6 +291,9 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				bands[i] = append(bands[i], b(m, r, below, maxLine)...)
 			}
 		}
+		// a proposal pending on this node hangs beneath it, unapplied, until
+		// alt+v review settles it
+		bands[i] = append(bands[i], m.suggestBandLines(r, below, maxLine)...)
 		// flash grays the note / run-output bands too, so nothing competes with the chips
 		if m.mode == modeFlash {
 			for k := range bands[i] {
@@ -686,6 +691,11 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	if n := m.computingNodeCount(); n > 0 {
 		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
+	}
+	// a proposal waiting on review is worth seeing even when its node is off
+	// screen — it changes nothing until somebody settles it
+	if n := m.pendingSuggestCount(); n > 0 {
+		state += " · " + cYellow + "○ " + suggestNoun(n) + cDim
 	}
 	if m.flash != "" {
 		state += " · " + m.flash

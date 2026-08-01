@@ -45,6 +45,7 @@ const (
 	modeInsert     // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
 	modeAgentPick  // /agent: start a coding session here, or attach one from a CLI's own store
 	modeAgentColor // ⌥c on a session chip: its color
+	modeSuggest    // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
 )
 
 type finderAction int
@@ -85,6 +86,7 @@ var slashCommands = []slashCommand{
 	{"/settings", "Editor preferences: theme, image preview"},
 	{"/star", "Star this node — ranks first in pickers and search hits"},
 	{"/style", "Style this node — or just the text selected with shift+←/→"},
+	{"/suggestions", "Go to the next node with a pending suggestion (alt+v reviews)"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
 }
@@ -282,6 +284,14 @@ type Model struct {
 	queryGeneration int
 
 	tagColorWord string // the tag word the alt+e color picker is assigning
+
+	// edit suggestions (see suggest.go): the pending review queue grouped by the
+	// node each proposal is about, refreshed whenever the feed reports a
+	// suggestions write. suggestUUID/suggestSel are the review cursor while
+	// modeSuggest is up. A proposal has changed nothing until it is approved.
+	suggests    map[string][]database.Suggestion
+	suggestUUID string
+	suggestSel  int
 
 	// hideCompleted is the /hide:complete toggle: when true, completed nodes (and their
 	// subtrees) drop out of the visible outline. Session-only — not persisted.
@@ -1623,6 +1633,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// open the kind picker (chips + icon); searchable so "ic" reaches icon
 		m.mode = modeInsert
 		m.list.open(m, insertSource{}, true)
+	case "/suggestions":
+		// walk to the next node carrying a proposal and open review on it
+		m.gotoSuggestion()
 	case "/priority:up", "/priority:down":
 		// where incoming and moved-in nodes land among this node's children:
 		// top (up) or bottom (down). A mirror sets its original.
@@ -1813,6 +1826,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	m.startFeed()          // subscribe to external changes; Init retries if it failed
 	m.loadSettings()       // apply persisted preferences (theme, …) before the first render
 	m.loadDeps()           // NodeCLIDeps: which CLI backends the daemon can exec
+	m.loadSuggests()       // proposals waiting on review (alt+v settles one)
 	m.refreshAncestors()
 	m.refreshRows()
 	m.ensureTempTree()    // the panel is always visible, so it must always have >=1 node
