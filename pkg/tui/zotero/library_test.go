@@ -23,6 +23,11 @@ CREATE TABLE itemData (itemID INT, fieldID INT, valueID INT, PRIMARY KEY (itemID
 CREATE TABLE creators (creatorID INTEGER PRIMARY KEY, firstName TEXT, lastName TEXT, fieldMode INT);
 CREATE TABLE itemCreators (itemID INT, creatorID INT, creatorTypeID INT, orderIndex INT, PRIMARY KEY (itemID, creatorID, creatorTypeID, orderIndex));
 CREATE TABLE settings (setting TEXT, key TEXT, value, PRIMARY KEY (setting, key));
+CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INT, linkMode INT, contentType TEXT, path TEXT);
+CREATE TABLE itemNotes (itemID INTEGER PRIMARY KEY, parentItemID INT, note TEXT, title TEXT);
+CREATE TABLE itemAnnotations (itemID INTEGER PRIMARY KEY, parentItemID INT, type INT, authorName TEXT, text TEXT, comment TEXT, color TEXT, pageLabel TEXT, sortIndex TEXT, position TEXT);
+CREATE TABLE tags (tagID INTEGER PRIMARY KEY, name TEXT UNIQUE);
+CREATE TABLE itemTags (itemID INT, tagID INT, type INT, PRIMARY KEY (itemID, tagID));
 `
 
 // seedLibrary writes a small Zotero library into dir and returns its path. It
@@ -79,6 +84,32 @@ func seedLibrary(t *testing.T, dir string) string {
 	exec(`INSERT INTO creators VALUES (1, 'Ashish', 'Vaswani', 0), (2, 'Noam', 'Shazeer', 0), (3, '', 'Institute of Notes', 1)`)
 	exec(`INSERT INTO itemCreators VALUES (10, 1, 1, 0), (10, 2, 1, 1), (11, 3, 1, 0)`)
 	exec(`INSERT INTO settings VALUES ('account', 'username', '"erin"')`)
+
+	// the children of the journal article: a PDF with two annotations, a note,
+	// and three tags — one of them colored in Zotero
+	exec(`INSERT INTO items VALUES
+		(20, 3, '2024-01-01 00:00:00', '2024-06-02 12:00:00', 1, 'PDF00001'),
+		(21, 4, '2024-01-01 00:00:00', '2024-06-03 12:00:00', 1, 'NOTE0001'),
+		(22, 3, '2024-01-01 00:00:00', '2024-06-04 12:00:00', 1, 'ANN00001'),
+		(23, 3, '2024-01-01 00:00:00', '2024-06-05 12:00:00', 1, 'ANN00002'),
+		(24, 3, '2024-01-01 00:00:00', '2024-06-06 12:00:00', 1, 'ANNTRASH')`)
+	exec(`INSERT INTO itemAttachments VALUES (20, 10, 0, 'application/pdf', 'storage:paper.pdf')`)
+	exec(`INSERT INTO itemDataValues VALUES (20, 'paper.pdf'), (21, 'The dominant models are recurrent.')`)
+	exec(`INSERT INTO itemData VALUES (20, 1, 20)`)
+	exec(`INSERT INTO itemNotes VALUES (21, 10, '<div><p>the residual stream framing &amp; why it works</p></div>', '')`)
+	// deliberately inserted out of reading order: sortIndex is what orders them
+	exec(`INSERT INTO itemAnnotations VALUES
+		(23, 20, 1, '', 'the second highlight', '', '#ff6666', '9', '00002|000000|00100', ''),
+		(22, 20, 1, '', 'the first highlight', 'my comment', '#ffd400', '3', '00001|000000|00100', ''),
+		(24, 20, 1, '', 'a trashed highlight', '', '#5fb236', '4', '00001|000000|00200', '')`)
+	exec(`INSERT INTO deletedItems VALUES (24, '2024-08-02 00:00:00')`)
+	exec(`INSERT INTO tags VALUES (1, 'transformers'), (2, 'nlp'), (3, 'imported')`)
+	exec(`INSERT INTO itemTags VALUES (10, 1, 0), (10, 2, 0), (10, 3, 1)`)
+	exec(`INSERT INTO settings VALUES ('tagColors', '', '[{"name":"transformers","color":"#FFD400"}]')`)
+	// the abstract, and a full date for the human-readable form
+	exec(`INSERT INTO fields VALUES (7, 'abstractNote')`)
+	exec(`INSERT INTO itemDataValues VALUES (30, 'We propose a new simple network architecture.')`)
+	exec(`INSERT INTO itemData VALUES (10, 7, 30)`)
 	return path
 }
 
@@ -270,5 +301,157 @@ func TestSQLTimeOrders(t *testing.T) {
 	}
 	if sqlTime("") != 0 || sqlTime("bad") != 0 {
 		t.Error("an unparseable timestamp must sort oldest")
+	}
+}
+
+func TestDetails(t *testing.T) {
+	dir := t.TempDir()
+	seedLibrary(t, dir)
+	lib, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := lib.Details("AAAA1111")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if d.Item.Title != "Attention is all you need" {
+		t.Errorf("details carry the wrong entry: %q", d.Item.Title)
+	}
+	if d.Abstract != "We propose a new simple network architecture." {
+		t.Errorf("abstract = %q", d.Abstract)
+	}
+	// the human half of Zotero's multipart date, not the machine half
+	if d.Date != "2017-06-12" {
+		t.Errorf("date = %q, want the displayed form", d.Date)
+	}
+
+	// tags: colored first, then manual, then the translator's automatic ones
+	var names []string
+	for _, tag := range d.Tags {
+		names = append(names, tag.Name)
+	}
+	if strings.Join(names, ",") != "transformers,nlp,imported" {
+		t.Errorf("tags = %v, want colored → manual → automatic", names)
+	}
+	if d.Tags[0].Color != "#FFD400" {
+		t.Errorf("tag color = %q, want Zotero's own", d.Tags[0].Color)
+	}
+	if d.Tags[0].Auto || !d.Tags[2].Auto {
+		t.Errorf("automatic flags = %v / %v", d.Tags[0].Auto, d.Tags[2].Auto)
+	}
+
+	if len(d.Attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(d.Attachments))
+	}
+	at := d.Attachments[0]
+	if at.Title != "paper.pdf" || at.ContentType != "application/pdf" {
+		t.Errorf("attachment = %+v", at)
+	}
+	// an imported file resolves under <dataDir>/storage/<attachment key>/
+	if want := filepath.Join(dir, "storage", "PDF00001", "paper.pdf"); at.Path != want {
+		t.Errorf("attachment path = %q, want %q", at.Path, want)
+	}
+
+	// annotations come back in reading order, and the trashed one does not
+	if len(at.Annotations) != 2 {
+		t.Fatalf("annotations = %d, want the two live ones", len(at.Annotations))
+	}
+	if at.Annotations[0].Text != "the first highlight" {
+		t.Errorf("annotations are not in reading order: %q first", at.Annotations[0].Text)
+	}
+	first := at.Annotations[0]
+	if first.Kind != "highlight" || first.Comment != "my comment" || first.Color != "#ffd400" || first.Page != "3" {
+		t.Errorf("annotation = %+v", first)
+	}
+
+	if len(d.Notes) != 1 {
+		t.Fatalf("notes = %d, want 1", len(d.Notes))
+	}
+	// the note's HTML is flattened — the outline stores no markup
+	if got := d.Notes[0].Text; got != "the residual stream framing & why it works" {
+		t.Errorf("note text = %q", got)
+	}
+}
+
+func TestDetailsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	seedLibrary(t, dir)
+	lib, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.Details("NOSUCHKEY"); err == nil {
+		t.Error("Details of an unknown key should fail")
+	}
+	var nilLib *Library
+	if _, err := nilLib.Details("AAAA1111"); err == nil {
+		t.Error("Details with no library should fail")
+	}
+}
+
+func TestPlainText(t *testing.T) {
+	cases := map[string]string{
+		"<p>one</p><p>two</p>":      "one two",
+		"a &amp; b &lt;c&gt;":       "a & b <c>",
+		"<div>line<br/>break</div>": "line break",
+		"&#8212; dash &#x2014; too": "— dash — too",
+		"  <b>bold</b>   spaced  ":  "bold spaced",
+		"":                          "",
+		"&unknownentity; stays":     "&unknownentity; stays",
+	}
+	for in, want := range cases {
+		if got := PlainText(in); got != want {
+			t.Errorf("PlainText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestPDFURI(t *testing.T) {
+	personal := Ref{Key: "PDF00001"}
+	if got := personal.PDFURI(""); got != "zotero://open-pdf/library/items/PDF00001" {
+		t.Errorf("PDFURI = %q", got)
+	}
+	if got := personal.PDFURI("ANN00001"); got != "zotero://open-pdf/library/items/PDF00001?annotation=ANN00001" {
+		t.Errorf("PDFURI with annotation = %q", got)
+	}
+	group := Ref{Key: "PDF00001", GroupID: "5566"}
+	if got := group.PDFURI(""); got != "zotero://open-pdf/groups/5566/items/PDF00001" {
+		t.Errorf("group PDFURI = %q", got)
+	}
+}
+
+func TestResolvePath(t *testing.T) {
+	cases := []struct {
+		path     string
+		linkMode int
+		want     string
+	}{
+		{"storage:paper.pdf", 0, "/zot/storage/KEY/paper.pdf"},
+		{"attachments:sub/paper.pdf", 2, "/zot/sub/paper.pdf"},
+		{"/elsewhere/paper.pdf", 2, "/elsewhere/paper.pdf"},
+		{"paper.pdf", 0, "/zot/storage/KEY/paper.pdf"},
+		{"", 3, ""},
+	}
+	for _, c := range cases {
+		if got := resolvePath("/zot", "KEY", c.linkMode, c.path); got != c.want {
+			t.Errorf("resolvePath(%q, mode %d) = %q, want %q", c.path, c.linkMode, got, c.want)
+		}
+	}
+}
+
+func TestHumanDate(t *testing.T) {
+	cases := map[string]string{
+		"2017-06-12 2017-06-12": "2017-06-12",
+		"0000-00-00 June 2017":  "June 2017",
+		"2020-01-00 2020-01":    "2020-01",
+		"in press":              "in press",
+		"":                      "",
+	}
+	for in, want := range cases {
+		if got := humanDate(in); got != want {
+			t.Errorf("humanDate(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

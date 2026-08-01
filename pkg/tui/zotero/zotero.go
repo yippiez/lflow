@@ -132,6 +132,21 @@ func (r Ref) LocalURI() string {
 	return "zotero://select/library/items/" + r.Key
 }
 
+// PDFURI opens the reference in Zotero's own PDF reader rather than selecting
+// it in the library — the reference here being an ATTACHMENT's key. An
+// annotation key (optional) selects one mark inside the document, which is how
+// a mirrored highlight points back at the page it came from.
+func (r Ref) PDFURI(annotation string) string {
+	base := "zotero://open-pdf/library/items/" + r.Key
+	if r.GroupID != "" {
+		base = "zotero://open-pdf/groups/" + r.GroupID + "/items/" + r.Key
+	}
+	if annotation != "" {
+		return base + "?annotation=" + annotation
+	}
+	return base
+}
+
 // WebURL is the reference's zotero.org web-library address. A group library
 // needs nothing but its id; the personal library is addressed by the account's
 // username, which the caller resolves (from the local library's own account
