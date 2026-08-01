@@ -50,13 +50,13 @@ func authCorpus() *qCtx {
 // outline's own co-occurrence evidence.
 func TestSemanticFindsVocabularyMismatch(t *testing.T) {
 	got := semanticSet(authCorpus(), "auth bug")
-	if !contains(got, "D2") {
+	if !containsAll(got, "D2") {
 		t.Errorf(`"auth bug" = %v, want it to reach D2 — the paraphrase is the point`, got)
 	}
-	if !contains(got, "D1") {
+	if !containsAll(got, "D1") {
 		t.Errorf(`"auth bug" = %v, want the literal match D1 as well`, got)
 	}
-	if contains(got, "D3") {
+	if containsAll(got, "D3") {
 		t.Errorf(`"auth bug" = %v, want the unrelated grocery node left out`, got)
 	}
 }
@@ -79,10 +79,10 @@ func TestSemanticLiteralPhraseAlwaysQualifies(t *testing.T) {
 		"far":   "water the plants on friday",
 	})
 	got := semanticSet(ctx, "deployment pipeline broken")
-	if !contains(got, "exact") {
+	if !containsAll(got, "exact") {
 		t.Fatalf("literal match = %v, want the exact node", got)
 	}
-	if contains(got, "far") {
+	if containsAll(got, "far") {
 		t.Errorf("literal match = %v, want the unrelated node left out", got)
 	}
 }
@@ -96,10 +96,10 @@ func TestSemanticTrigramBridgesMorphology(t *testing.T) {
 		"b": "gardening notes",
 	})
 	got := semanticSet(ctx, "auth")
-	if !contains(got, "a") {
+	if !containsAll(got, "a") {
 		t.Fatalf(`"auth" = %v, want the authentication node`, got)
 	}
-	if contains(got, "b") {
+	if containsAll(got, "b") {
 		t.Errorf(`"auth" = %v, want the unrelated node left out`, got)
 	}
 }
@@ -197,15 +197,15 @@ func TestQuerySemanticAtomEndToEnd(t *testing.T) {
 	for _, n := range m.queryMatches(q) {
 		got = append(got, n.UUID)
 	}
-	if !contains(got, "hit") {
+	if !containsAll(got, "hit") {
 		t.Errorf("quoted query = %v, want the paraphrased node", got)
 	}
-	if contains(got, "miss") {
+	if containsAll(got, "miss") {
 		t.Errorf("quoted query = %v, want the unrelated node left out", got)
 	}
 }
 
-func contains(xs []string, want string) bool {
+func containsAll(xs []string, want string) bool {
 	for _, x := range xs {
 		if x == want {
 			return true
@@ -255,11 +255,11 @@ var nestedOutline = []treeDoc{
 func TestStructureParentTopicReachesChildren(t *testing.T) {
 	got := semanticSet(treeCtx(nestedOutline), "groceries")
 	for _, want := range []string{"groceries", "milk", "eggs", "bread"} {
-		if !contains(got, want) {
+		if !containsAll(got, want) {
 			t.Errorf(`"groceries" = %v, want it to reach %q`, got, want)
 		}
 	}
-	if contains(got, "weather") || contains(got, "signin") {
+	if containsAll(got, "weather") || containsAll(got, "signin") {
 		t.Errorf(`"groceries" = %v, want the other subtree left out`, got)
 	}
 }
@@ -268,10 +268,10 @@ func TestStructureParentTopicReachesChildren(t *testing.T) {
 // Only its position in the tree can explain it, which is the point.
 func TestStructureReachesContentlessChild(t *testing.T) {
 	got := semanticSet(treeCtx(nestedOutline), "auth rewrite")
-	if !contains(got, "fixit") {
+	if !containsAll(got, "fixit") {
 		t.Fatalf(`"auth rewrite" = %v, want the contentless "fix it" row`, got)
 	}
-	if contains(got, "milk") {
+	if containsAll(got, "milk") {
 		t.Errorf(`"auth rewrite" = %v, want the grocery subtree left out`, got)
 	}
 }
@@ -279,7 +279,7 @@ func TestStructureReachesContentlessChild(t *testing.T) {
 // TestStructureChildTopicReachesParent makes a container findable through what
 // is filed inside it, not only through its own title.
 func TestStructureChildTopicReachesParent(t *testing.T) {
-	if got := semanticSet(treeCtx(nestedOutline), "milk"); !contains(got, "groceries") {
+	if got := semanticSet(treeCtx(nestedOutline), "milk"); !containsAll(got, "groceries") {
 		t.Fatalf(`"milk" = %v, want the parent container`, got)
 	}
 }
@@ -290,7 +290,7 @@ func TestStructureChildTopicReachesParent(t *testing.T) {
 func TestStructureDoesNotSpreadSideways(t *testing.T) {
 	got := semanticSet(treeCtx(nestedOutline), "milk")
 	for _, sibling := range []string{"eggs", "bread"} {
-		if contains(got, sibling) {
+		if containsAll(got, sibling) {
 			t.Errorf(`"milk" = %v, want the sibling %q left out`, got, sibling)
 		}
 	}
@@ -307,7 +307,7 @@ func TestStructureLargeBucketDoesNotFlood(t *testing.T) {
 	docs = append(docs, treeDoc{"target", "proj", "rewrite the signin flow"})
 
 	got := semanticSet(treeCtx(docs), "signin")
-	if !contains(got, "target") {
+	if !containsAll(got, "target") {
 		t.Fatalf(`"signin" = %v, want the node that actually says it`, got)
 	}
 	if len(got) > 3 {
