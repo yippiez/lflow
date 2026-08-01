@@ -83,6 +83,8 @@ var slashCommands = []slashCommand{
 	{"/lock", "Lock or unlock this node as read-only"},
 	{"/mirror:from", "Mirror another node here"},
 	{"/mirror:to", "Mirror this node into another node"},
+	{"/mirror:workflowy", "Mirror a Workflowy subtree here (paste a link, then alt+r)"},
+	{"/mirror:zotero", "Mirror a Zotero entry here: tags, attachments, annotations"},
 	{"/move:here", "Move another node here"},
 	{"/move:to", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
@@ -95,7 +97,6 @@ var slashCommands = []slashCommand{
 	{"/suggestions", "Go to the next node with a pending suggestion (alt+v reviews)"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
-	{"/zotero", "Mirror a Zotero entry here: tags, attachments, annotations"},
 }
 
 // stylePickerItem groups the text-attribute toggles and the color choices
@@ -1836,9 +1837,23 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/cite":
 		// splice a citation chip from the local Zotero library (same as "@@")
 		return m.openCitePicker(citeChip)
-	case "/zotero":
+	case "/mirror:zotero":
 		// mirror a whole Zotero entry into this node as a locked subtree
 		return m.openCitePicker(citeMirror)
+	case "/mirror:workflowy":
+		// the Workflowy sibling: this node becomes the pull handle, and alt+r
+		// fetches the subtree once it holds a link (see wf.go)
+		if cur.mirrorOf != "" || cur.readonly {
+			m.flash = "node is not editable"
+			return m, nil
+		}
+		m.pushUndo("")
+		cur.typ = database.TypeWF
+		m.unsaved = true
+		if _, ok := m.wfIDFor(cur); ok {
+			return m, runWF(m, cur)
+		}
+		m.flash = "workflowy · paste a link into this node, then alt+r"
 	case "/move:to":
 		m.openFinder(actMoveTo)
 	case "/goto":
@@ -1967,14 +1982,6 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	}
 	if zb, err := database.AllZoteroNodes(ctx.DB); err == nil {
 		zoteroBindings = zb // mirrored Zotero entries (see zoteroitem.go)
-		if blobs, err := database.BlobUUIDs(ctx.DB); err == nil {
-			zoteroImageNodes = map[string]bool{}
-			for uuid := range zb {
-				if blobs[uuid] {
-					zoteroImageNodes[uuid] = true // a mirrored crop or pen drawing
-				}
-			}
-		}
 	}
 
 	m := &Model{
