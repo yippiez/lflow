@@ -3,10 +3,10 @@ language: go
 severity: warning
 message: Do not write to stdout from editor library code — it doesn't own stdout.
 note: |
-  pkg/tui/editor is a library package that must not write to stdout. While the
+  packages/editor is a library package that must not write to stdout. While the
   editor's bubbletea program is running it owns the whole terminal: a stray
   fmt.Print would corrupt the rendered outline. Use the bubbletea View, the
-  pkg/tui/log helpers, or return a value to the caller instead.
+  packages/utils/log helpers, or return a value to the caller instead.
 
   Exemptions: editor.go is the Run() entry point that prints the final
   "saved" summary AFTER the program exits and the terminal is handed back —
@@ -24,6 +24,7 @@ rule:
         context: "func f() { fmt.Print($$$) }"
         selector: call_expression
 files:
-  - pkg/tui/editor/**
+  - packages/editor/**
+  - packages/nodes/**
 ignores:
-  - pkg/tui/editor/editor.go
+  - packages/editor/editor.go

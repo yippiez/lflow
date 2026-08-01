@@ -18,13 +18,13 @@ report covers everything:
 
 1. **Build** (fts5 is mandatory — SQLite FTS5 node triggers do not compile
    without it):
-   `go build --tags fts5 ./pkg/tui`
+   `go build --tags fts5 ./cmd/lflow`
 2. **Unit tests**:
    `go test --tags fts5 ./...`
 3. **e2e suite** (builds its own binary, drives the editor under tmux):
    `bash scripts/test.sh`
-   Individual scripts live at `pkg/e2e/test-*.sh` — rerun one directly with
-   `LFLOW_BIN=<binary> bash pkg/e2e/test-<name>.sh` when isolating a failure.
+   Individual scripts live at `tests/e2e/test-*.sh` — rerun one directly with
+   `LFLOW_BIN=<binary> bash tests/e2e/test-<name>.sh` when isolating a failure.
 4. **ast-grep rules** (structural lint; rules in `rules/`, driven by
    `sgconfig.yml`):
    `ast-grep scan`

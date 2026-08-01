@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # scripts/test.sh — build the lflow binary once, then run the bash/tmux e2e
-# regression suite (every pkg/e2e/test-*.sh). Prints PASS/FAIL per script and a
+# regression suite (every tests/e2e/test-*.sh). Prints PASS/FAIL per script and a
 # final summary; exits non-zero if any test failed.
 
 set -euo pipefail
@@ -14,7 +14,7 @@ trap 'rm -rf "${TMPDIR_BIN}"' EXIT
 
 BIN="${TMPDIR_BIN}/lflow"
 echo "building lflow binary..."
-go build --tags fts5 -o "${BIN}" ./pkg/tui
+go build --tags fts5 -o "${BIN}" ./cmd/lflow
 export LFLOW_BIN="${BIN}"
 
 passed=0
@@ -22,11 +22,11 @@ failed=0
 failures=()
 
 shopt -s nullglob
-tests=( "${ROOT}"/pkg/e2e/test-*.sh )
+tests=( "${ROOT}"/tests/e2e/test-*.sh )
 shopt -u nullglob
 
 if (( ${#tests[@]} == 0 )); then
-    echo "no tests found (pkg/e2e/test-*.sh)"
+    echo "no tests found (tests/e2e/test-*.sh)"
     exit 0
 fi
 

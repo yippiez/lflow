@@ -4,7 +4,7 @@ lflow is a fork of [dnote](https://github.com/dnote/dnote) reworked into a local
 
 ```sh
 # Build — lflow needs SQLite FTS5, so build with the fts5 tag
-go build --tags fts5 ./pkg/tui
+go build --tags fts5 ./cmd/lflow
 
 # Add nodes: positional text, or pipe stdin where every line becomes a node
 lflow node add "reading list"

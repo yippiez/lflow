@@ -7,14 +7,14 @@ pipe-friendly client of it, and `lflow node open` drops into an inline editor
 that draws in the terminal **scrollback**, never the alt-screen — and live-updates
 when any other client (CLI, agents) writes. Everything is a node with a
 free-string `type`, and node types are an extensible registry — one descriptor
-per type in `pkg/tui/editor/registry.go`.
+per type in `packages/editor/registry.go`.
 
 ## Build / test / run
 
 - Always build with the fts5 tag (required by SQLite FTS5 node triggers):
-  `go build --tags fts5 ./pkg/tui`
+  `go build --tags fts5 ./cmd/lflow`
 - After every change, install the dev binary so the user can test it:
-  `go build --tags fts5 -ldflags "-X main.versionTag=0.1.0-dev" -o ~/.local/bin/lflow ./pkg/tui`
+  `go build --tags fts5 -ldflags "-X main.versionTag=0.1.0-dev" -o ~/.local/bin/lflow ./cmd/lflow`
 - Verification (tests, e2e, ast-grep, isolation rules) lives in
   `.claude/agents/verifier.md` — Claude Code calls it as the `verifier`
   subagent; other agents follow the same steps manually. Verify before
@@ -43,13 +43,13 @@ per type in `pkg/tui/editor/registry.go`.
 - Foreground `lflow serve` is the live monitor: one dim `→` line per event
   (serving/connected/applied/gone), node names in yellow, chip anchors
   resolved. `--db`/`--sock` point it at another database (isolated testing).
-- Wire protocol (`pkg/tui/wire`): ndjson over the unix socket. SQL is
-  forwarded through a `database/sql` driver (`pkg/tui/client`), so every
+- Wire protocol (`packages/daemon/wire`): ndjson over the unix socket. SQL is
+  forwarded through a `database/sql` driver (`packages/daemon/client`), so every
   `database.*` helper works unchanged on a remote handle; values travel as
   tagged strings ("i:"/"f:"/"s:"/"b:"/"d:") because UnixNano int64s do not
-  survive JSON floats. The daemon (`pkg/tui/daemon`) serializes all writes —
+  survive JSON floats. The daemon (`packages/daemon`) serializes all writes —
   a client transaction holds the write lock begin→commit, watchdogged at 30s.
-- Editor live sync (`pkg/tui/editor/livesync.go`): there is no unsaved state
+- Editor live sync (`packages/editor/livesync.go`): there is no unsaved state
   anymore — edits auto-flush ~1s after typing pauses (bar shows `syncing`;
   ctrl+s = flush now). The subscribe feed folds other clients' commits into
   the in-memory tree in place. Conflicts are errorless last-writer-wins per
@@ -64,15 +64,15 @@ per type in `pkg/tui/editor/registry.go`.
 `nodes.type` is a free string, so a new type needs **no DB migration** and no
 per-feature column — and no scattered `switch typ`:
 
-1. Add a `TypeXxx` constant in `pkg/tui/database/node.go` and to `ValidTypes`.
+1. Add a `TypeXxx` constant in `packages/database/node.go` and to `ValidTypes`.
 2. Add one `nodeType` entry to the `nodeTypes` slice in
-   `pkg/tui/editor/registry.go` — that slice drives the `/type` picker, and the
+   `packages/editor/registry.go` — that slice drives the `/type` picker, and the
    field doc-comments there list every hook (`sign`, `glyph`, `render`,
    `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e,
    `onType` to land on a face right after /type, and `toContext`/`toContextM`
    for structured XML context).
 3. Put the behavior in its own file. PLUGGABLE types live in
-   `pkg/tui/editor/nodes/<type>.go` — ONE file per node — registered at init
+   `packages/nodes/<type>.go` — ONE file per node — registered at init
    via `editor.RegisterNodePlugin` (see `editor/nodeplugin.go`): the editor
    hosts the generic plugin API (`NodeHost` = editor surface, `NodeRef` = the
    node, both interfaces so a node file tests against fakes), async work flows
@@ -105,7 +105,7 @@ auto-run) and their output is ephemeral — never persisted or synced.
 
 ## Tables
 
-The Table node (`pkg/tui/editor/table.go`) is a grid READING of an ordinary
+The Table node (`packages/editor/table.go`) is a grid READING of an ordinary
 subtree, not a storage shape: the table's children are its **columns** (their
 text is the header), each column's children are that column's **cells** top to
 bottom (row n = the nth child of every column), and a cell's own children are the
@@ -140,7 +140,7 @@ instruction and local outline neighborhood as one fresh, no-session generation
 turn. The daemon runs Pi in the cell's pinned working directory and streams
 progress back; generated code is stored in local `node_output`, shown through
 the shared code-block face, and never executed automatically. The embedded
-`pkg/agent/skills/lflow/` skill teaches the generator how to query the outline.
+`packages/agent/skills/lflow/` skill teaches the generator how to query the outline.
 There is no conversational assistant, mention completer, assistant reply type,
 or resumable external coding-session reference.
 

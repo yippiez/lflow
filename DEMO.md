@@ -35,7 +35,7 @@ exec env -i PATH=/usr/local/bin:/usr/bin:/bin TERM="${TERM:-xterm-256color}" \
 Build the binary under test into the scratch root, always with fts5:
 
 ```bash
-go build --tags fts5 -o /tmp/lflow-demo/bin/lflow ./pkg/tui
+go build --tags fts5 -o /tmp/lflow-demo/bin/lflow ./cmd/lflow
 ```
 
 Seed the outline with `sandbox <demo> node add …`. New children land on top
