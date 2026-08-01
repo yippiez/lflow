@@ -129,32 +129,37 @@ func (m *Model) setCmdPreview(id string) {
 		return
 	}
 	m.ensureRunOutLoaded(id)
-	preview := ""
-	var out []outLine
-	running := false
-	if r := m.run(id); r != nil {
-		out, running = r.lines(), r.cancel != nil
-	}
-	if running {
-		// stream the tail: walk back from the newest line so the label tracks the
-		// stream, and stop at the first line that has content (a trailing blank
-		// line must not blank the preview).
-		for i := len(out) - 1; i >= 0; i-- {
-			if t := strings.TrimSpace(stripSGR(out[i].text)); t != "" {
-				preview = t
-				break
-			}
-		}
-	} else {
-		for _, l := range out {
-			if t := strings.TrimSpace(stripSGR(l.text)); t != "" {
-				preview = t
-				break
-			}
-		}
-	}
-	c.Label = clipStr(preview, 32)
+	c.Label = runHeadline(m.run(id))
 	m.chips[id] = c
+}
+
+// runHeadline is the one-line summary of a run that both shell surfaces hang
+// after their "→": a band still running shows its NEWEST non-blank line, so a
+// long command streams its progress in place; a finished band settles on its
+// FIRST non-blank line, the run's headline. Clipped to a fixed width so a
+// torrent of output cannot rewrap the row it sits on.
+func runHeadline(r *runState) string {
+	if r == nil {
+		return ""
+	}
+	out := r.lines()
+	pick := func(i int) string { return strings.TrimSpace(stripSGR(out[i].text)) }
+	if r.cancel != nil {
+		// walk back from the newest line, stopping at the first with content (a
+		// trailing blank line must not blank the preview)
+		for i := len(out) - 1; i >= 0; i-- {
+			if t := pick(i); t != "" {
+				return clipStr(t, runTailWidth)
+			}
+		}
+		return ""
+	}
+	for i := range out {
+		if t := pick(i); t != "" {
+			return clipStr(t, runTailWidth)
+		}
+	}
+	return ""
 }
 
 // ── live run feedback ────────────────────────────────────────────────────────

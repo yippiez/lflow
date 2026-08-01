@@ -91,8 +91,9 @@ per-feature column — and no scattered `switch typ`:
    prompt, always, fold or no fold — whose children are its parts, where a join operator (`|` `&&` `||` `;`) joins them, a wrapper (`$()`
    `()`) wraps them, empty text is a plain container and anything else heads them;
    a completed node is commented out of the command, chips resolve on the way
-   through, the row hangs the composed line dim (`bodyTail`), and alt+r runs THIS
-   node's subtree — `code.go` the shared multi-line **code block** —
+   through, the row hangs the composed line dim (`bodyTail`) — replaced by the
+   run's streaming headline once there is one — and alt+r runs THIS node's
+   subtree — `code.go` the shared multi-line **code block** —
    `codeBlockLines`: a borderless gray block (no rule box, no header) whose every
    line is the dim line number, a white vertical rule to its RIGHT, then the
    highlighted code; the block REPLACES the node's row via the `blockCode` hook
@@ -236,11 +237,18 @@ Remaining doc-level rules:
 
 - Never auto-run runnable nodes (alt+r only) — an agentic coding session chip is
   opened by that same key and by nothing else.
-- A run is LIVE, never a wait: output streams into the band as it arrives (~50ms
-  batches), a running cmd chip's code cell shimmers and its `→` tail tracks the
-  newest line, and every band/header carries an elapsed clock while the command
-  is in flight. A collapsed row claims no extra lines while running — the shimmer
-  and the `→` tail are the signal, the output lives in alt+e.
+- A run is LIVE, never a wait: output streams in as it arrives (~50ms batches).
+  **Both shell surfaces stream in their ROW, not under it** — a cmd chip in its
+  label, a Bash node in its `→` tail (`runInTail` in the registry, fed by
+  `runTails`): the newest line while the command is in flight, the first line
+  once it settles, clipped to `runTailWidth` so a torrent cannot rewrap the row.
+  A running chip's cell shimmers and a running node's tail does; neither claims a
+  single line beneath itself. The whole output is alt+e away, and the two
+  surfaces read 1:1 there — same header, same pane, same keys.
+- The expanded run view is a terminal WINDOW, never a growing list: it opens at
+  the height it will keep (`winH-1` filled rows over `bgTerm`) and the output
+  scrolls inside it, so nothing on screen shifts as lines arrive. One line of
+  chrome — state, elapsed clock, and where it ran, right-aligned — then the pane.
 - A shell run IS a terminal, not a captured log: `bash -c` runs on a **PTY** and
   its raw bytes drive a VT screen (`pkg/tui/editor/term.go`) — so programs detect
   a tty and colour themselves, `\r` progress bars overwrite in place, `clear`

@@ -311,6 +311,11 @@ func runOutTail(rail string, rs *runState, capN, maxLine int) []string {
 // band is hydrated from its on-disk cache on first render (see runout.go) so it
 // survives a restart, but it never enters the DB or sync.
 func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
+	// a type whose run lives in its row tail (Bash, reading like the cmd chip)
+	// never hangs a band: the "→" headline is the signal, alt+e is the terminal
+	if typeOf(r.it.typ).runInTail {
+		return nil
+	}
 	uuid := r.it.uuid
 	m.ensureRunOutLoaded(uuid)
 	rs := m.run(uuid) // non-nil after ensureRunOutLoaded

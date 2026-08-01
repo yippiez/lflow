@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -138,6 +139,40 @@ func runningTag(r *runState) string {
 		s += cDim + " " + elapsedShort(d)
 	}
 	return s
+}
+
+// runTailWidth bounds the headline both shell surfaces hang after their "→".
+// It is a fixed clip on purpose: the row must not rewrap as output streams
+// through it, or the view below would shift on every line.
+const runTailWidth = 32
+
+// runTail is one node row's live "→" section for this frame.
+type runTail struct {
+	text    string
+	running bool
+}
+
+// runTails is the render-time map of node uuid → the headline its row hangs,
+// the node-side twin of a cmd chip's Label. Same render-time global discipline
+// as liveCmdRuns and animFrame: the bodyTail hook is a pure
+// func(item, chips) reached from every render surface, and this is the one bit
+// of run state it needs. syncRunTails refreshes it once per frame, and both it
+// and the readers run on bubbletea's single goroutine.
+var runTails map[string]runTail
+
+// syncRunTails snapshots each node run's headline for this frame's render. Chip
+// runs are skipped — a chip carries its headline in its own Label.
+func (m *Model) syncRunTails() {
+	tails := map[string]runTail{}
+	for id, r := range m.runs {
+		if _, isChip := m.chips[id]; isChip {
+			continue
+		}
+		if t := runHeadline(r); t != "" {
+			tails[id] = runTail{text: t, running: r.cancel != nil}
+		}
+	}
+	runTails = tails
 }
 
 // finishRun closes out a run band — the stream ended (done, canceled, or
@@ -315,16 +350,14 @@ func (runOutView) Bands(m *Model, it *item, rail string, width, scroll, winH int
 // follow); end/G resumes it. runOutView and cmdChipView share both halves so the
 // Bash node and the cmd chip behave identically.
 
-// runViewLines is the height both expanded run views report: a header, an
-// optional pwd row, and one row per output line (or the "no output" placeholder).
+// runViewLines is the CONTENT height both expanded run views report — one
+// header plus every output line. It is what the central loop clamps scrolling
+// against; the pane actually drawn is a fixed window onto it (see runViewBands),
+// so this growing with the output moves nothing on screen.
 func runViewLines(m *Model, id string) int {
 	m.ensureRunOutLoaded(id)
 	r := m.run(id) // non-nil after ensureRunOutLoaded
-	n := max(len(r.lines()), 1)
-	if r.pwd != "" {
-		n++
-	}
-	return 1 + n
+	return 1 + max(len(r.lines()), 1)
 }
 
 // runViewKey is the scroll handling both expanded run views use.
@@ -360,9 +393,14 @@ func runViewKey(m *Model, k tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// runViewBands builds the expanded band: the header (hdr, already prefixed with
-// two spaces) plus its live/idle tail, the pwd row, and the run's screen. stopKey
-// is the key that stops or clears this run ("⌥k" for a node, "⌥r" for a chip).
+// runViewBands draws the expanded terminal: one chrome header, then a PANE of
+// exactly winH-1 filled rows showing a window onto the run's screen. stopKey is
+// the key that stops or clears this run ("⌥k" for a node, "⌥r" for a chip).
+//
+// The pane's height never depends on how much has been printed — an empty run
+// opens the same size it will have at a thousand lines, so nothing on screen
+// shifts as output streams in. That is also how a terminal behaves: the window
+// is the window, and the text scrolls inside it.
 func runViewBands(m *Model, r *runState, hdr, stopKey, rail string, width, scroll, winH int) []string {
 	out := r.lines()
 	running := r.cancel != nil
@@ -377,32 +415,31 @@ func runViewBands(m *Model, r *runState, hdr, stopKey, rail string, width, scrol
 	case len(out) > 0:
 		hdr += " · " + stopKey + " clear"
 	}
-	hdr += " · ↑↓ scroll · esc close"
-	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}
-	if pwd := r.pwd; pwd != "" {
-		content = append(content, clip(rail+cReset+cDim+"  pwd: "+pwd+cReset, width))
+	hdr += " · esc close"
+	inner := width - visibleWidth(rail) // the pane's own width, right of the rail
+	head := cDim + hdr
+	// where it ran, right-aligned on the header row — one line of chrome, not two
+	if pad := inner - visibleWidth(head) - visibleWidth(r.pwd) - 2; r.pwd != "" && pad > 0 {
+		head += strings.Repeat(" ", pad) + cDim + r.pwd
 	}
-	if len(out) == 0 {
-		content = append(content, clip(rail+cReset+cDim+"  no output yet · ⌥r runs"+cReset, width))
-	}
-	for _, l := range out {
-		content = append(content, clip(rail+cReset+"  "+styleOutLine(l), width))
-	}
+	lines := []string{clip(rail+cReset+head+cReset, width)}
 
-	// follow the tail while the view is chasing output, exactly as a terminal
-	// scrolls itself; the manual scroll keys take over the moment you scroll up.
-	if m.focusFollow && len(content) > winH {
-		scroll = len(content) - winH
+	paneH := max(winH-1, 1)
+	// the window onto the output: follow the tail as a terminal scrolls itself,
+	// until a scroll key takes over (runViewKey clears focusFollow)
+	top := clampInt(scroll, 0, max(len(out)-paneH, 0))
+	if m.focusFollow {
+		top = max(len(out)-paneH, 0)
 	}
-	if scroll < 0 {
-		scroll = 0
+	for i := top; i < top+paneH; i++ {
+		body := ""
+		switch {
+		case i < len(out):
+			body = "  " + styleOutLine(out[i])
+		case i == 0:
+			body = cDim + "  no output yet · ⌥r runs"
+		}
+		lines = append(lines, clip(rail+cReset+bgFill(body, inner, bgTerm)+cReset, width))
 	}
-	if scroll > len(content) {
-		scroll = len(content)
-	}
-	end := scroll + winH
-	if end > len(content) {
-		end = len(content)
-	}
-	return content[scroll:end]
+	return lines
 }

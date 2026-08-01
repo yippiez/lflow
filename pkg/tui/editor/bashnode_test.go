@@ -3,6 +3,7 @@ package editor
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lflow/lflow/pkg/tui/database"
 )
@@ -157,6 +158,73 @@ func TestBashRowLook(t *testing.T) {
 	}
 	if !strings.HasPrefix(tail, cDim) {
 		t.Errorf("parent tail should be dim: %q", tail)
+	}
+}
+
+// bashRunRow builds a bash node with a run in hand — the state the row's "→"
+// section reads — and syncs the per-frame tail map the way View does.
+func bashRunRow(t *testing.T, running bool, out ...string) (*Model, *item) {
+	t.Helper()
+	m := newTestModel(80, "run me")
+	it := m.rows[0].it
+	it.uuid, it.typ = "u-run", database.TypeBash
+	r := m.ensureRun(it.uuid)
+	r.loaded = true
+	if running {
+		r.cancel = func() {}
+		r.started = time.Now().Add(-3 * time.Second)
+	}
+	for _, l := range out {
+		r.out = append(r.out, outLine{text: l})
+	}
+	m.syncRunTails()
+	t.Cleanup(func() { runTails = nil })
+	return m, it
+}
+
+// TestBashRowStreamsInItsTail: a bash node is the cmd chip's tree form, so it
+// streams the same way — the run's headline replaces the row's "→" section
+// (newest line while running, first line once settled) and NOTHING hangs beneath
+// the row. The composed-command preview is what a row with no run falls back to.
+func TestBashRowStreamsInItsTail(t *testing.T) {
+	m, it := bashRunRow(t, true, "step one", "step two", "step three")
+
+	tail := stripSGR(bashBodyTail(it, nil))
+	if want := "→ step three"; tail != want {
+		t.Errorf("running tail = %q, want %q (the newest line)", tail, want)
+	}
+	// live means live: the tail wears the same sliding shimmer the running chip's
+	// cell does, so the row itself says "working"
+	if raw := bashBodyTail(it, nil); !strings.Contains(raw, "\x1b[38;2;") || strings.HasPrefix(raw, cDim) {
+		t.Errorf("a running tail should shimmer, not sit dim: %q", raw)
+	}
+	// and it claims no band under the row — that space belongs to the outline
+	_, bands := m.viewRenderRows(80)
+	if under := stripSGR(strings.Join(bands[0], "\n")); strings.TrimSpace(under) != "" {
+		t.Errorf("a running bash row drew a band underneath:\n%s", under)
+	}
+
+	// settled: the tail keeps the headline, the run's FIRST line
+	m.run(it.uuid).cancel = nil
+	m.syncRunTails()
+	if got, want := stripSGR(bashBodyTail(it, nil)), "→ step one"; got != want {
+		t.Errorf("settled tail = %q, want %q (the headline)", got, want)
+	}
+	if !strings.HasPrefix(bashBodyTail(it, nil), cDim) {
+		t.Error("a settled tail should be dim")
+	}
+}
+
+// TestBashTailFallsBackToTheCommand: with no run in hand the tree still explains
+// itself — the "→" section is the composed command, as it was before any run.
+func TestBashTailFallsBackToTheCommand(t *testing.T) {
+	m, it := bashRunRow(t, false)
+	m.run(it.uuid).out = nil
+	m.syncRunTails()
+	it.children = []*item{bnode("ls"), bnode("wc -l")}
+	it.name = "|"
+	if got := stripSGR(bashBodyTail(it, nil)); !strings.Contains(got, "ls | wc -l") {
+		t.Errorf("tail = %q, want the composed command", got)
 	}
 }
 
