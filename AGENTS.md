@@ -15,10 +15,10 @@ per type in `pkg/tui/editor/registry.go`.
   `go build --tags fts5 ./pkg/tui`
 - After every change, install the dev binary so the user can test it:
   `go build --tags fts5 -ldflags "-X main.versionTag=0.1.0-dev" -o ~/.local/bin/lflow ./pkg/tui`
-- Test before installing: `go test --tags fts5 ./...`
-- Test in isolation against a throwaway HOME/XDG + seeded DB — **never** the real
-  outline at `~/.local/share/lflow/lflow.db`. SQLite surgery goes through a
-  `-tags fts5` Go program (the sqlite3 CLI lacks fts5).
+- Verification (tests, e2e, ast-grep, isolation rules) lives in
+  `.claude/agents/verifier.md` — Claude Code calls it as the `verifier`
+  subagent; other agents follow the same steps manually. Verify before
+  installing.
 - Development is **trunk-based**: work directly on `main`, no feature branches
   or PRs. Commit each logical change as its own `label: description` commit
   (labels: `editor`, `db`, `agent`, `daemon`, `docs`, …) and push to `main` as
