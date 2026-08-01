@@ -2,6 +2,7 @@ package zotero
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -48,7 +49,15 @@ type Annotation struct {
 	Comment string // what you typed next to it
 	Color   string // "#rrggbb" as Zotero stores it
 	Page    string // the page label Zotero shows
+	// ImagePath is the picture Zotero rendered for a mark that HAS no text — an
+	// area crop or a pen drawing. "" when the mark is textual, or when Zotero
+	// has not drawn it yet (the cache fills lazily, as the reader displays a
+	// page). See annotationImagePath for how it is found.
+	ImagePath string
 }
+
+// HasImage reports whether the mark is a picture rather than text.
+func (a Annotation) HasImage() bool { return a.ImagePath != "" }
 
 // Note is a Zotero note attached to an entry, flattened out of its HTML.
 type Note struct {
@@ -98,7 +107,7 @@ func (l *Library) Details(key string) (*Details, error) {
 	if d.Tags, err = readTags(db, id); err != nil {
 		return nil, err
 	}
-	if d.Attachments, err = readAttachments(db, id, filepath.Dir(l.Path)); err != nil {
+	if d.Attachments, err = readAttachments(db, id, filepath.Dir(l.Path), item.GroupID); err != nil {
 		return nil, err
 	}
 	if d.Notes, err = readNotes(db, id); err != nil {
@@ -200,7 +209,7 @@ const (
 // readAttachments returns an entry's attachments with their annotations, in
 // Zotero's own order. dataDir is the Zotero data directory — the root the
 // "storage:" and "attachments:" path prefixes resolve against.
-func readAttachments(db *database.DB, id int64, dataDir string) ([]Attachment, error) {
+func readAttachments(db *database.DB, id int64, dataDir, groupID string) ([]Attachment, error) {
 	rows, err := db.Query(`
 		SELECT a.itemID, i.key, a.linkMode, IFNULL(a.contentType, ''), IFNULL(a.path, '')
 		FROM itemAttachments a JOIN items i ON i.itemID = a.itemID
@@ -240,7 +249,7 @@ func readAttachments(db *database.DB, id int64, dataDir string) ([]Attachment, e
 	}
 	for i := range out {
 		out[i].Title = firstNonEmpty(titles[ids[i]], filepath.Base(out[i].Path), out[i].Key)
-		if out[i].Annotations, err = readAnnotations(db, ids[i]); err != nil {
+		if out[i].Annotations, err = readAnnotations(db, ids[i], dataDir, groupID); err != nil {
 			return nil, err
 		}
 	}
@@ -312,7 +321,7 @@ var annotationKinds = map[int]string{
 // readAnnotations returns one attachment's annotations in reading order.
 // itemAnnotations arrived with Zotero 6; an older library simply has no table,
 // which reads as an entry with no annotations rather than an error.
-func readAnnotations(db *database.DB, attachmentID int64) ([]Annotation, error) {
+func readAnnotations(db *database.DB, attachmentID int64, dataDir, groupID string) ([]Annotation, error) {
 	rows, err := db.Query(`
 		SELECT i.key, an.type, IFNULL(an.text, ''), IFNULL(an.comment, ''),
 		       IFNULL(an.color, ''), IFNULL(an.pageLabel, ''), IFNULL(an.sortIndex, '')
@@ -338,6 +347,9 @@ func readAnnotations(db *database.DB, attachmentID int64) ([]Annotation, error) 
 		r.a.Kind = firstNonEmpty(annotationKinds[typ], "annotation")
 		r.a.Text = collapseSpace(r.a.Text)
 		r.a.Comment = collapseSpace(r.a.Comment)
+		if pictorialKinds[r.a.Kind] {
+			r.a.ImagePath = annotationImagePath(dataDir, groupID, r.a.Key)
+		}
 		all = append(all, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -351,6 +363,69 @@ func readAnnotations(db *database.DB, attachmentID int64) ([]Annotation, error) 
 		out = append(out, r.a)
 	}
 	return out, nil
+}
+
+// pictorialKinds are the annotation kinds that ARE a picture: an area crop and
+// a pen drawing carry no text, so their rendered image is the only thing to
+// show. Zotero draws these lazily into its cache as the reader displays them.
+var pictorialKinds = map[string]bool{"image": true, "ink": true}
+
+// annotationImagePath locates the picture Zotero rendered for one mark, or ""
+// when there is none.
+//
+// This cache is Zotero's own business and it is not a documented format: the
+// known layout is <dataDir>/cache/library/<key>.png for the personal library
+// and <dataDir>/cache/groups/<id>/<key>.png for a group. Those are tried first
+// and then, because the layout is undocumented and has moved before, the cache
+// directory is scanned shallowly for the key. Finding nothing is an ordinary
+// outcome — the mark still mirrors, just without its picture.
+func annotationImagePath(dataDir, groupID, key string) string {
+	if dataDir == "" || key == "" {
+		return ""
+	}
+	cache := filepath.Join(dataDir, "cache")
+	candidates := []string{
+		filepath.Join(cache, "library", key+".png"),
+		filepath.Join(cache, "groups", groupID, key+".png"),
+	}
+	for _, p := range candidates {
+		if groupID == "" && strings.Contains(p, "groups") {
+			continue
+		}
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return findInCache(cache, key+".png", 3)
+}
+
+// findInCache looks for a file name under root, at most depth levels down. The
+// Zotero cache holds one small file per rendered annotation, so this stays a
+// cheap walk over a flat-ish directory.
+func findInCache(root, name string, depth int) string {
+	if depth < 0 {
+		return ""
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return ""
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, filepath.Join(root, e.Name()))
+			continue
+		}
+		if e.Name() == name {
+			return filepath.Join(root, e.Name())
+		}
+	}
+	for _, d := range dirs {
+		if hit := findInCache(d, name, depth-1); hit != "" {
+			return hit
+		}
+	}
+	return ""
 }
 
 // readNotes returns an entry's notes, HTML flattened to text.

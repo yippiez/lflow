@@ -455,3 +455,95 @@ func TestHumanDate(t *testing.T) {
 		}
 	}
 }
+
+func TestAnnotationImagePath(t *testing.T) {
+	dir := t.TempDir()
+	// the known layout: <dataDir>/cache/library/<key>.png
+	lib := filepath.Join(dir, "cache", "library")
+	if err := os.MkdirAll(lib, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(lib, "ANN00001.png")
+	if err := os.WriteFile(want, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := annotationImagePath(dir, "", "ANN00001"); got != want {
+		t.Errorf("personal-library image = %q, want %q", got, want)
+	}
+	// a group library keeps its pictures under its own id
+	grp := filepath.Join(dir, "cache", "groups", "5566")
+	if err := os.MkdirAll(grp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gwant := filepath.Join(grp, "ANN00002.png")
+	if err := os.WriteFile(gwant, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := annotationImagePath(dir, "5566", "ANN00002"); got != gwant {
+		t.Errorf("group image = %q, want %q", got, gwant)
+	}
+	// the cache layout is Zotero's own and undocumented: a picture filed
+	// somewhere else under cache/ is still found
+	odd := filepath.Join(dir, "cache", "somewhere", "deeper")
+	if err := os.MkdirAll(odd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	owant := filepath.Join(odd, "ANN00003.png")
+	if err := os.WriteFile(owant, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := annotationImagePath(dir, "", "ANN00003"); got != owant {
+		t.Errorf("relocated image = %q, want %q", got, owant)
+	}
+	// and a mark Zotero has not drawn yet simply has none
+	if got := annotationImagePath(dir, "", "NOTDRAWN"); got != "" {
+		t.Errorf("undrawn mark = %q, want none", got)
+	}
+	if got := annotationImagePath("", "", "ANN00001"); got != "" {
+		t.Errorf("no data dir = %q", got)
+	}
+}
+
+func TestDetailsFindsAnnotationImages(t *testing.T) {
+	dir := t.TempDir()
+	seedLibrary(t, dir)
+	// make the second annotation an area crop, and cache a picture for it
+	db, err := sql.Open("sqlite3", filepath.Join(dir, DBName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE itemAnnotations SET type = 3, text = '' WHERE itemID = 23`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	cache := filepath.Join(dir, "cache", "library")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cache, "ANN00002.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lib, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := lib.Details("AAAA1111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var crop, highlight *Annotation
+	for i, a := range d.Attachments[0].Annotations {
+		if a.Kind == "image" {
+			crop = &d.Attachments[0].Annotations[i]
+		} else {
+			highlight = &d.Attachments[0].Annotations[i]
+		}
+	}
+	if crop == nil || !crop.HasImage() {
+		t.Fatalf("the area crop has no picture: %+v", crop)
+	}
+	if highlight == nil || highlight.HasImage() {
+		t.Error("a textual highlight was given a picture path")
+	}
+}
