@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/utils/browser"
 )
 
 func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -28,7 +29,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// (there esc defocuses; handled in the focused block below)
 	if m.mode == modeOutline && key == "esc" && !m.focused {
 		if m.selOn {
-			m.clearSel() // first esc releases the multi-selection
+			m.clearSel() // first esc releases the row selection
+			return m, nil
+		}
+		if m.textSelOn {
+			m.clearTextSel() // …and the horizontal one
 			return m, nil
 		}
 		if m.escPending {
@@ -42,7 +47,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.mode {
-	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert:
+	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert,
+		modeAgentPick, modeAgentColor:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
@@ -50,8 +56,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleLinkEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
-	case modePaint:
-		return m.handlePaintKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
 	case modeSettings:
@@ -138,29 +142,56 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// snapshot the tree before a mutating outline key so /undo can reverse it
 	m.snapshotForKey(key, k)
 
-	// multi-select lifecycle: shift+arrows grow the selection; any other plain
-	// movement, typing or esc drops it (structural ops below act on it instead)
+	// selection lifecycle: shift+arrows grow a selection — ↑/↓ by row
+	// (multisel.go), ←/→ by word inside the node's own text (textsel.go), with
+	// ctrl/alt+shift+←/→ adjusting that run one rune at a time. Any other plain
+	// movement, typing or esc drops it (the ops below act on it instead).
 	if m.mode == modeOutline {
 		switch key {
 		case "shift+up":
+			m.clearTextSel()
 			m.startOrExtendSel()
 			if m.cursor > 0 {
 				m.cursor--
 			}
 			return m, nil
 		case "shift+down":
+			m.clearTextSel()
 			m.startOrExtendSel()
 			if m.cursor < len(m.rows)-1 {
 				m.cursor++
 			}
 			return m, nil
+		case "shift+left":
+			m.extendTextSel(-1, true)
+			return m, nil
+		case "shift+right":
+			m.extendTextSel(1, true)
+			return m, nil
+		case "ctrl+shift+left", "alt+shift+left":
+			m.extendTextSel(-1, false)
+			return m, nil
+		case "ctrl+shift+right", "alt+shift+right":
+			m.extendTextSel(1, false)
+			return m, nil
+		}
+		if m.textSelOn {
+			switch key {
+			// the style picker (and the menus that reach it) style the run;
+			// yank/cut take it to the clipboard (see clipboard.go)
+			case "/", "alt+P", "alt+a", "alt+c", "alt+y", "alt+x", "ctrl+x":
+			default:
+				m.clearTextSel()
+			}
 		}
 		if m.selOn {
 			switch key {
 			case "tab", "shift+tab", "ctrl+d", "alt+d", "ctrl+shift+backspace",
 				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
-				"/", "alt+P": // the slash menu may apply /type //style //move to the selection
+				"/", "alt+P", "alt+a", // the slash menu may apply /type //style //move to the selection
+				"alt+t", "alt+c", // the type/style pickers retype/re-style the whole selection
+				"alt+y", "alt+x", "ctrl+x": // yank/cut take the whole selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -276,9 +307,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
-		// path chips are inserted via the /file fuzzy picker, and "#" is for tags,
-		// so Tab is free to just indent. The Temporary Domain edits exactly like the
-		// main outline, so indenting works there too.
+		// no chip kind claims Tab as a trigger, so it is free to just indent. The
+		// Temporary Domain edits exactly like the main outline, so indenting works
+		// there too.
 		if m.selOn {
 			m.selIndent()
 			return m, nil
@@ -365,7 +396,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.unsaved = true
 			return m, nil
 		}
-		target := prevWordBoundary(runes, m.caret)
+		target := deleteWordBoundary(runes, m.caret)
 		if sp := spanContaining(spans, target); sp != nil {
 			target = sp.start // don't cut into a chip — take the whole thing
 		}
@@ -383,7 +414,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+t":
 		// convert a time phrase under the cursor to canonical date text (the renderer
-		// then chips it)
+		// then chips it); with no date phrase there, convert a bare URL under the
+		// cursor straight into a link chip instead — neither ever happens just from
+		// typing, only this explicit key (see the status-bar hint in view.go).
 		if cur := m.cursorItem(); cur != nil && m.mirrorContext().editable {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
 				runes := []rune(cur.name)
@@ -391,6 +424,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				cur.name = string(runes[:d.start]) + date + string(runes[d.end:])
 				m.caret = d.start + len([]rune(date))
 				m.unsaved = true
+			} else if u := detectURLNear(cur.name, m.caret); u != nil && chipsEnabled(cur) {
+				value := browser.Normalize(u.raw)
+				anchor := m.createLabeledChip(chipKindLink, value, urlChipLabel(value))
+				if anchor != "" {
+					runes := []rune(cur.name)
+					cur.name = string(runes[:u.start]) + anchor + string(runes[u.end:])
+					m.caret = u.start + len([]rune(anchor))
+					m.unsaved = true
+				}
 			}
 		}
 		return m, nil
@@ -488,6 +530,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewStack = append(m.viewStack, cur)
 			m.cursor = 0
 			m.caret = 0
+			m.clearOnFrame = true // wipe the scrolled-away rows of the previous view
 			m.refreshRows()
 		}
 		return m, nil
@@ -496,6 +539,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.viewStack) > 1 {
 			zoomed := m.viewRoot()
 			m.viewStack = m.viewStack[:len(m.viewStack)-1]
+			m.clearOnFrame = true // wipe the scrolled-away rows of the zoomed-in view
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(zoomed)
 			m.caret = 0
@@ -534,6 +578,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if c, ok := m.cmdChipAtCaret(cur); ok {
 				m.focusCmdChip(c) // ⌥e on a cmd chip: its run output as an inline band
 				return m, nil
+			} else if c, ok := m.agentChipForKeys(cur); ok {
+				m.focusAgentChip(c) // ⌥e on a session chip: its transcript as a band
+				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
 				return m, nil
@@ -542,8 +589,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			} else if e := typeOf(cur.typ).expand; e != nil {
 				return m, e(m, cur)
-			} else if cmd := m.openPathChipCmd(cur); cmd != nil {
-				return m, cmd // ⌥e on a node with a path chip opens the file in $EDITOR
 			}
 		}
 		return m, nil
@@ -553,6 +598,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
+			}
+			if c, ok := m.agentChipForKeys(cur); ok {
+				return m, m.runAgentChip(c) // an inline session chip opens its CLI
+			}
+			// running a link chip IS opening it — the browser for a URL (a Google
+			// Sheets/Docs chip lands in the host browser), a jump for a node link.
+			// Same action as alt+g, reached from the key every other inline chip
+			// is run with.
+			if c, ok := m.linkChipAtCaret(cur); ok {
+				return m.followLink(c)
 			}
 			if run := typeOf(cur.typ).run; run != nil {
 				if bin, missing := m.typeDepMissing(cur.typ); missing {
@@ -574,6 +629,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if open := typeOf(cur.typ).openHost; open != nil {
 				return m, open(m, cur)
+			}
+		}
+		return m, nil
+	case "alt+n":
+		// rename the session chip at the caret, in place
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipForKeys(cur); ok {
+				m.openAgentRename(c)
+				return m, nil
 			}
 		}
 		return m, nil
@@ -600,8 +664,39 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.openSlashMenu(false)
 		return m, nil
-	case "alt+x":
-		// stop a running command, keeping what was captured; when nothing is
+	case "alt+a":
+		// open the command palette without typing "/" into the node text —
+		// mnemonic twin of alt+P, on the home row
+		cur := m.cursorItem()
+		if cur == nil {
+			it, err := m.tree.insertFirstChild(m.viewRoot())
+			if err != nil {
+				m.err = err
+				return m.quit()
+			}
+			m.refreshRows()
+			m.cursor = m.rowIndexOf(it)
+			m.caret = 0
+		}
+		m.openSlashMenu(false)
+		return m, nil
+	case "alt+t":
+		// open the type picker directly (same as /type)
+		return m.runSlash("/type")
+	case "alt+c":
+		// color: a session chip under the caret takes the key for its own color,
+		// the way ⌥k goes to a cmd chip's band before the node's. Everywhere else
+		// this opens the style picker (same as /style) — c for colors; alt+y is
+		// the yank key, so the picker moved off it.
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipForKeys(cur); ok {
+				m.openAgentColor(c)
+				return m, nil
+			}
+		}
+		return m.runSlash("/style")
+	case "alt+k":
+		// kill: stop a running command, keeping what was captured; when nothing is
 		// running, clear the output band. A cmd chip under the caret takes the
 		// key (its band is keyed by chip id); otherwise the node's own band.
 		if cur := m.cursorItem(); cur != nil {
@@ -621,6 +716,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setCmdPreview(id)
 			}
 		}
+		return m, nil
+	case "alt+y", "alt+x", "ctrl+x":
+		// yank / cut, acting on the horizontal selection, else the row selection,
+		// else the cursor node's subtree (see clipboard.go). alt+y yanks and
+		// alt+x cuts; ctrl+x is kept as the cut twin for terminals that swallow
+		// the alt chord.
+		m.copyCut(key != "alt+y")
 		return m, nil
 	case "alt+s":
 		// flash: label every visible row's actions (jump / run / expand / fold) and
@@ -661,6 +763,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// walk down one visual line of the wrapped node first
 			goal := m.caretColumn(starts, line)
 			m.caret = m.caretAtColumn(starts, line+1, goal)
+		} else if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(cur.name)) {
+			// on the last visual line: snap the caret to the end of this node's
+			// text first — the next down press crosses to the next node
+			m.caret = len([]rune(cur.name))
 		} else if m.cursor < len(m.rows)-1 {
 			// from the last visual line, cross to the next node and land on its
 			// first visual line, keeping the horizontal column
@@ -851,25 +957,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// ">" opens the file picker to splice a path chip at the caret — the chip
-		// renders as "›name", so ">" is its natural trigger. It fires in every
-		// inline-editable type, including bash/code/query where ">" is real syntax:
-		// the picker is cancelable, and dismissing it types a literal ">" instead
-		// (see the fzfPickedMsg handler), so a redirect still works — you just quit
-		// the picker. Only at a word start (start of text or after a space) so a
-		// mid-word ">" and the "->" log gesture stay literal; when fzf is missing we
-		// fall through to typing ">" literally.
-		if string(k.Runes) == ">" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			pathChipTrigger(cur.typ) && atWordStart(cur, m.caret) {
-			if cmd := m.openFilePicker(cur, ">"); cmd != nil {
-				return m, cmd
-			}
-		}
-
 		// "[[" opens the link picker: the second "[" drops the first and opens the
-		// finder where you pick a node or type/paste a URL. Unlike the file picker
-		// it has no cancel-to-literal path, so it stays off where "[" is real syntax
-		// (bash test brackets, code, query, quote, json).
+		// finder where you pick a node or type/paste a URL. It has no
+		// cancel-to-literal path, so it stays off where "[" is real syntax (bash
+		// test brackets, code, query, quote, json).
 		if string(k.Runes) == "[" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
 			runes := []rune(cur.name)
@@ -884,8 +975,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command
 		// completer in a query node, or the icon shortcode picker on every other
 		// inline-editable node. Both stay literal mid-word so "C#"/"a:b" type
-		// normally; tags skip bash/code where "#" is a comment. Query nodes reach
-		// icons via /insert → icon (see insertChip).
+		// normally; tags skip bash/code where "#" is a comment. Typing a digit or
+		// special char right after "#" closes the completer again, so "#1" stays a
+		// literal "number one". Query nodes reach icons via /insert → icon (see insertChip).
 		if string(k.Runes) == "#" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
 			tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
 			return m.openCompleter(cur, complTag, "#")
@@ -914,6 +1006,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				text = lines[0]
 			} else {
 				text = ""
+			}
+			// a pasted service URL (Google Sheets/Docs/Drive …) lands as its
+			// branded chip instead of a wall of URL; every other paste is text
+			// exactly as before (see service.go)
+			if m.pasteServiceLink(cur, text) {
+				return m, nil
 			}
 		}
 
@@ -968,6 +1066,8 @@ func (m *Model) scrollBody(delta int) {
 }
 
 // handleMouse: the wheel scrolls the body like pgup/pgdown but in small steps.
+// When the wheel is over the read-only Temporary Domain panel (bottom of the
+// screen, unfocused), it scrolls that panel's window instead of the main body.
 // Everything else (clicks, motion) is ignored — the mouse is captured only so
 // the terminal reports wheel events (hold shift to select text natively).
 // Wheel events bypass handleKey, so they never clear the scroll pin; the next
@@ -978,8 +1078,33 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 	}
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
+		if m.scrollTempPanel(-wheelStep, msg.Y) {
+			return
+		}
 		m.scrollBody(-wheelStep)
 	case tea.MouseButtonWheelDown:
+		if m.scrollTempPanel(wheelStep, msg.Y) {
+			return
+		}
 		m.scrollBody(wheelStep)
 	}
+}
+
+// scrollTempPanel wheels the read-only temp panel (when visible and unfocused) if
+// the event is over its region, returning true when it handled the scroll. The
+// offset is clamped to zero here; the upper bound is clamped by
+// readonlyRegionLines, which also writes the clamped value back to m.tempScroll.
+func (m *Model) scrollTempPanel(delta, y int) bool {
+	if m.tempActive || m.tempHeight < 1 {
+		return false
+	}
+	row := y - 1 // mouse Y is 1-based, screen rows are 0-based
+	if row < m.tempTop || row >= m.tempTop+m.tempHeight {
+		return false
+	}
+	m.tempScroll += delta
+	if m.tempScroll < 0 {
+		m.tempScroll = 0
+	}
+	return true
 }

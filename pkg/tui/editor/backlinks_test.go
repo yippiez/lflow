@@ -97,3 +97,55 @@ func TestBacklinksSlashOpensFinder(t *testing.T) {
 		t.Fatalf("finder.act = %v, want actBacklinks", got.finder.act)
 	}
 }
+
+// TestBacklinksFlushesPendingEditBeforeSearching: /backlinks queries the DB
+// directly, so a link chip spliced into another node's name earlier in the
+// same session — still sitting unflushed in memory, since auto-sync is
+// debounced ~1s — must not read as "no matches". Running /backlinks flushes
+// first.
+func TestBacklinksFlushesPendingEditBeforeSearching(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "a", Name: "Target"},
+		database.Node{UUID: "b", Name: "see "},
+	)
+	cursorOn(m, "b")
+	m.caret = len([]rune("see "))
+	m.press("[")
+	m.press("[")
+	m.press("Target")
+	m.press("enter")
+	// deliberately no explicit save here — /backlinks itself must flush
+
+	cursorOn(m, "a")
+	mm, _ := m.runSlash("/backlinks")
+	got := mm.(*Model)
+	if len(got.finder.hits) != 1 || got.finder.hits[0].node.UUID != "b" {
+		t.Fatalf("want 1 hit (b), got %d: %v", len(got.finder.hits), got.finder.hits)
+	}
+}
+
+// TestBacklinksMirrorRowShowsSourceStyle: a mirror's own style/starred columns
+// are blank, so /backlinks — the one picker that keeps mirror rows — must pull
+// the source's live style and starred flag for the row, the same way the
+// outline's renderItem resolves a mirror's appearance through to its source.
+// Otherwise a starred, colored target shows up as a plain, unstarred row the
+// moment it's listed via a mirror.
+func TestBacklinksMirrorRowShowsSourceStyle(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "a", Name: "Target", Style: "color:red,bold", Starred: true},
+		database.Node{UUID: "mir", Name: "", MirrorOf: "a"},
+	)
+	cursorOn(m, "a")
+	mm, _ := m.runSlash("/backlinks")
+	got := mm.(*Model)
+	if len(got.finder.hits) != 1 {
+		t.Fatalf("want 1 hit, got %d", len(got.finder.hits))
+	}
+	row := got.finder.hits[0]
+	if row.node.Style != "color:red,bold" {
+		t.Errorf("mirror row style = %q, want %q (the source's style)", row.node.Style, "color:red,bold")
+	}
+	if !row.node.Starred {
+		t.Error("mirror row starred = false, want true (the source is starred)")
+	}
+}

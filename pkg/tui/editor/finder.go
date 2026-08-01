@@ -178,10 +178,20 @@ func (nodeFinderBackend) hint(m *Model) string {
 // finderRowFor decorates a node with its subtree count for the finder list. A
 // count error (or a synthetic Temporary-Domain node not in the DB) falls back to 1,
 // matching the pre-refactor lazy count.
+//
+// A mirror's own style/starred columns are blank — the picker (like the
+// outline's renderItem) must show the one real node's live appearance, or a
+// styled/starred node reads as plain the moment it shows up as a mirror row
+// (e.g. in /backlinks, the one picker that keeps mirror rows).
 func (m *Model) finderRowFor(n database.Node) finderRow {
 	count, err := database.CountSubtree(m.db, n.UUID)
 	if err != nil {
 		count = 1
+	}
+	if n.MirrorOf != "" {
+		src := m.resolveSourceNode(n)
+		n.Style = src.Style
+		n.Starred = src.Starred
 	}
 	return finderRow{node: n, count: count}
 }
@@ -304,22 +314,10 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		}
 	case actGoto, actBacklinks:
 		// save, then reopen on the target (/backlinks picks jump the same way)
-		if _, err := m.saveAll(); err != nil {
+		if err := m.jumpTo(target); err != nil {
 			m.err = err
 			return m.quit()
 		}
-		t, err := loadTree(m.db, target.UUID)
-		if err != nil {
-			m.err = err
-			return m.quit()
-		}
-		m.tree = t
-		m.viewStack = []*item{t.root}
-		m.undoStack = nil
-		m.refreshAncestors()
-		m.cursor = 0
-		m.caret = 0
-		m.unsaved = false
 	case actQueryScope:
 		// Persist the selected node identity as a regular node-link chip. Query
 		// parsing consumes this chip after :in:, so a rename cannot change scope.
@@ -361,6 +359,30 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 
 	m.refreshRows()
 	return m, nil
+}
+
+// jumpTo saves the open subtree and REOPENS the editor on target — the /goto
+// move. Shared with /backlinks and the /agents index, so every "take me to that
+// node" surface lands the same way: everything persisted, the target as the new
+// view root, no undo history carried across the jump.
+func (m *Model) jumpTo(target database.Node) error {
+	if _, err := m.saveAll(); err != nil {
+		return err
+	}
+	t, err := loadTree(m.db, target.UUID)
+	if err != nil {
+		return err
+	}
+	m.tree = t
+	m.viewStack = []*item{t.root}
+	m.undoStack = nil
+	m.clearOnFrame = true // a jump lands on a new view root: wipe the old one
+	m.refreshAncestors()
+	m.cursor = 0
+	m.caret = 0
+	m.unsaved = false
+	m.refreshRows()
+	return nil
 }
 
 // clampRow bounds a row index into [0, n-1] (0 when the list is empty).
@@ -512,6 +534,7 @@ func (m *Model) bringFromDB(target database.Node, cur *item) error {
 	}
 	m.tree = t
 	m.viewStack = []*item{t.root}
+	m.clearOnFrame = true // jumping to a target in the tree: wipe the previous view
 	m.refreshAncestors()
 	m.refreshRows()
 	if it, ok := t.byUUID[target.UUID]; ok {

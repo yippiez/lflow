@@ -1,10 +1,10 @@
 package editor
 
 import (
-	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/lflow/lflow/pkg/tui/chiptext"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/utils"
 	"github.com/mattn/go-runewidth"
@@ -65,8 +65,20 @@ func chipsEnabled(it *item) bool {
 	return it != nil && !typeOf(it.typ).disableChips
 }
 
-// Path chips are created by the ">" fuzzy picker (see file.go), not by typing a
-// marker — so "#" stays tags-only. The chip's display marker is "›" (see chipKinds).
+// insertLiteralAt splices plain text s into cur.name at caret (no chip) and parks
+// the caret after it.
+func (m *Model) insertLiteralAt(cur *item, caret int, s string) {
+	runes := []rune(cur.name)
+	if caret > len(runes) {
+		caret = len(runes)
+	}
+	if caret < 0 {
+		caret = 0
+	}
+	cur.name = string(runes[:caret]) + s + string(runes[caret:])
+	m.caret = caret + len([]rune(s))
+	m.unsaved = true
+}
 
 // spanStartingAt returns the anchor beginning exactly at rune index i, or nil.
 func spanStartingAt(spans []anchorSpan, i int) *anchorSpan {
@@ -111,27 +123,18 @@ type chipKind struct {
 }
 
 const (
-	chipKindPath = "path"
 	chipKindTag  = "tag"
 	chipKindDate = "date"
 	chipKindLink = "link"
 	chipKindCmd  = "cmd"
 	chipKindIcon = "icon" // painted service glyph; value=glyph, label=shortcode
+	// an agentic coding session inline: value=the CLI variant id ("claude"), the
+	// session itself in local node_output keyed by the chip id. alt+r opens or
+	// resumes it, alt+e shows its transcript (see agent.go).
+	chipKindAgent = "agent"
 )
 
 var chipKinds = map[string]chipKind{
-	chipKindPath: {
-		key:   chipKindPath,
-		color: cCyan,
-		display: func(v string) string {
-			base := filepath.Base(v)
-			if base == "" || base == "." || base == string(filepath.Separator) {
-				base = v
-			}
-			return "›" + base
-		},
-		expand: func(v string) string { return v },
-	},
 	// tag/date kinds make the chip model uniform (see the chip-kind design). Their
 	// display equals their value, so nothing is hidden; legacy plain-text #tags and
 	// dates still render via inlineSpans until they are backfilled into chips.
@@ -163,6 +166,16 @@ var chipKinds = map[string]chipKind{
 		key:     chipKindCmd,
 		color:   cYellow,
 		display: func(v string) string { return "$ " + v },
+		expand:  func(v string) string { return v },
+	},
+	// a session chip is a handle on one agentic coding session. value is the CLI
+	// variant id; the label carries the session's live title (refreshed from the
+	// CLI's store, never persisted — see refreshAgentChip). Color is per-chip
+	// (the variant's, or the session's own), applied in renderBody.
+	chipKindAgent: {
+		key:     chipKindAgent,
+		color:   cFG,
+		display: func(v string) string { return v },
 		expand:  func(v string) string { return v },
 	},
 	// an icon chip is a painted service glyph from the :shortcode picker.
@@ -199,7 +212,16 @@ func linkChipColorCode() string {
 // its label (the arbitrary name), not its target.
 func chipDisplay(c database.Chip) string {
 	if c.Kind == chipKindLink {
+		// a link to a known service (Google Sheets/Docs/Drive …) adds that
+		// service's mark to its name — same arrow, same styling; see service.go
+		if svc, ok := linkService(c); ok {
+			return "→" + chiptext.ServiceDisplay(svc, c.Label)
+		}
 		return "→" + linkChipLabel(c)
+	}
+	if c.Kind == chipKindAgent {
+		// glyph + the session's live title (see agentChipDisplay)
+		return agentChipDisplay(c)
 	}
 	if c.Kind == chipKindCmd {
 		// the label holds the run preview (set by setCmdPreview / hydrateCmdPreviews;
@@ -217,6 +239,17 @@ func chipDisplay(c database.Chip) string {
 	}
 	return c.Value
 }
+
+// nonBreaking swaps the spaces INSIDE a chip's display for U+00A0. A chip is one
+// atomic cluster to the caret (chipVisualRows walks anchors whole), so the
+// renderer must not let a soft wrap split it either — and wrapLine only ever
+// breaks at an ordinary space. NBSP measures one cell and the terminal draws it
+// as a space, so nothing about the row's geometry changes.
+//
+// A cmd chip is the exception and never comes through here: it is a whole shell
+// command, long by nature, and renderCmdChip already carries its tint across a
+// wrap.
+func nonBreaking(s string) string { return strings.ReplaceAll(s, " ", "\u00a0") }
 
 // chipExpand returns the full underlying value for a chip record. A link expands
 // to "[name](target)" so both halves survive bash/script/export surfaces.
@@ -377,11 +410,16 @@ func (m *Model) createLabeledChip(kind, value, label string) string {
 }
 
 // deleteChipID drops a chip record (in-memory and on disk). The caller removes
-// its anchor from the node name.
+// its anchor from the node name. A chip's LOCAL sidecar row goes with it — a cmd
+// chip's run band, a session chip's session pointer — since both are keyed by the
+// chip id and nothing can reach them once the chip is gone.
 func (m *Model) deleteChipID(id string) {
 	delete(m.chips, id)
+	delete(m.nodeData, id)
+	delete(agentLooks, id)
 	if m.ctx.DB != nil {
 		_ = database.DeleteChip(m.ctx.DB, id)
+		_ = database.DeleteNodeOutput(m.ctx.DB, id)
 	}
 }
 

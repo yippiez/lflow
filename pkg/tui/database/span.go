@@ -2,10 +2,10 @@ package database
 
 import "github.com/pkg/errors"
 
-// NodeSpan is one painted run of a node's name: [Start, End) in runes, styled
+// NodeSpan is one styled run of a node's name: [Start, End) in runes, styled
 // with the same token vocabulary as nodes.style ("bold,color:red"). The stored
-// text never carries markers — spans are a parallel annotation, the painter's
-// persistence (see editor: paint.go).
+// text never carries markers — spans are a parallel annotation, the persistence
+// behind styling a horizontal selection (see editor: spans.go).
 type NodeSpan struct {
 	NodeUUID string `json:"node_uuid"`
 	Start    int    `json:"start"`

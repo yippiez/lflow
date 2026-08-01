@@ -3,6 +3,7 @@ package editor
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -27,6 +28,16 @@ const (
 	// leads the line rather than trailing it so the renderer's width truncation,
 	// which drops escape bytes past the cut, cannot discard it on full-width rows.
 	cClearEOL = "\x1b[K"
+	// cClearScrollback wipes the terminal history, the visible screen and homes
+	// the cursor (\x1b[3J is the xterm/VTE scrollback-clear extension; terminals
+	// without it ignore it, leaving the screen clear from \x1b[2J). Prepended to
+	// the head of the first frame after a view jump: the inline renderer can only
+	// move the cursor back over its own previous frame — rows that have already
+	// scrolled into the terminal's scrollback buffer are unreachable, so without
+	// this the old node's rows would linger above the new one when you scroll
+	// back. It is zero-width to the renderer's line measurement (verified against
+	// charmbracelet/x/ansi), so frame accounting is unaffected.
+	cClearScrollback = "\x1b[3J\x1b[2J\x1b[H"
 )
 
 // The themeable palette. These are vars (not consts) so /theme can reassign them
@@ -50,12 +61,71 @@ var (
 	bgPage = ""
 )
 
-// The painter's window: a white bar (not themed — white is white) with dark
-// text for unpainted runes; painted runes keep their color on it.
+// The horizontal selection bar is the SAME fill the row selection uses (selFill
+// paints bgPill under a selected row): selecting rows and selecting runes must
+// read as one thing, so both are that blue and both let the text keep its own
+// color on it. Themed, so a /theme change moves them together.
+func bgTextSel() string { return bgPill }
+
+// A FILLED surface (the session pill worn by a chip, a node and a menu row)
+// writes in whatever INK contrasts with its fill: near-black on a light fill —
+// what makes Claude Code's orange read — and near-white on a dark one. Not
+// themed, for the same reason the painter's bar is not: contrast is contrast.
 const (
-	bgPaintSel = "\x1b[48;2;255;255;255m"
-	fgPaintSel = "\x1b[38;2;30;30;30m"
+	cInkDark  = "\x1b[38;2;18;18;18m"
+	cInkLight = "\x1b[38;2;245;245;245m"
 )
+
+// contrastInk picks the ink for a fill given as a foreground SGR: whichever of
+// the two inks actually contrasts MORE with it, by WCAG contrast ratio. There is
+// no knee to tune — a knee on raw channel values ignores sRGB gamma, and a
+// saturated red is exactly where that goes wrong: it looks dark to the arithmetic
+// while the eye reads it as light, so the glyph came out white-on-red and all but
+// vanished. Decoding gamma first puts that red on black ink, where it belongs.
+func contrastInk(fill string) string {
+	r, g, b, ok := sgrRGB(fill)
+	if !ok {
+		return cInkDark
+	}
+	l := relLuminance(r, g, b)
+	// contrast ratio is (lighter+0.05)/(darker+0.05); the fill sits between the
+	// two inks, so each side is one division
+	vsDark := (l + 0.05) / (relLuminance(18, 18, 18) + 0.05)
+	vsLight := (relLuminance(245, 245, 245) + 0.05) / (l + 0.05)
+	if vsDark >= vsLight {
+		return cInkDark
+	}
+	return cInkLight
+}
+
+// relLuminance is the WCAG relative luminance of an sRGB triple — channels
+// gamma-decoded to light before they are weighted.
+func relLuminance(r, g, b int) float64 {
+	lin := func(c int) float64 {
+		v := float64(c) / 255
+		if v <= 0.04045 {
+			return v / 12.92
+		}
+		return math.Pow((v+0.055)/1.055, 2.4)
+	}
+	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+}
+
+// sgrRGB reads the channels out of a truecolor SGR sequence ("\x1b[38;2;r;g;bm").
+func sgrRGB(s string) (r, g, b int, ok bool) {
+	i := strings.Index(s, ";2;")
+	if i < 0 || !strings.HasSuffix(s, "m") {
+		return 0, 0, 0, false
+	}
+	parts := strings.Split(strings.TrimSuffix(s[i+3:], "m"), ";")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	if _, err := fmt.Sscanf(strings.Join(parts, " "), "%d %d %d", &r, &g, &b); err != nil {
+		return 0, 0, 0, false
+	}
+	return r, g, b, true
+}
 
 // glyphs (locked)
 const (
@@ -65,6 +135,7 @@ const (
 	glyphTodoDone  = "■"
 	glyphQuoteBar  = "▎"
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
+	glyphCloud     = "☁" // a HOSTED coding session (started on the web or a phone)
 	glyphThinking  = "※" // Claude Code's thinking-spinner glyph, always muted gray
 )
 
@@ -127,24 +198,38 @@ func connector(r row) string {
 // dividerLine renders a divider node as a single horizontal rule. The glyph
 // (circle) is hidden: the rule is ~90% of the width available after the row's
 // indent/rail, CENTERED in that space so equal gaps hang on the left and right.
-// Muted gray normally, red under the cursor — the rule itself is the selection
-// cue since there's no glyph.
-func dividerLine(r row, maxLine int, selected bool) string {
+// A non-empty body (the node's text, already rendered by renderBody with chips,
+// styles and caret) sits on the midpoint of the rule — equal rule runs on each
+// side center the text, with one space of breathing room around it; if the text
+// leaves no room for a rule it stands alone. Muted gray normally, red under the
+// cursor — the rule itself is the selection cue since there's no glyph.
+func dividerLine(r row, maxLine int, body string, selected bool) string {
 	prefix := " " + cDim + connector(r)
 	col := cDim
 	if selected {
 		col = cRed
 	}
 	avail := maxLine - visibleWidth(prefix) // content width after the indent/rail
-	ruleW := avail * 24 / 25                // ~96%, a small centered gap each side
+
+	if body == "" {
+		ruleW := avail * 24 / 25 // ~96%, a small centered gap each side
+		if ruleW < 1 {
+			ruleW = 1
+		}
+		leftGap := (avail - ruleW) / 2
+		if leftGap < 0 {
+			leftGap = 0
+		}
+		return prefix + cReset + strings.Repeat(" ", leftGap) + col + strings.Repeat("─", ruleW) + cReset
+	}
+
+	ruleW := avail - visibleWidth(body) - 2
 	if ruleW < 1 {
-		ruleW = 1
+		return prefix + cReset + body + cReset // text wider than the row — bare text
 	}
-	leftGap := (avail - ruleW) / 2
-	if leftGap < 0 {
-		leftGap = 0
-	}
-	return prefix + cReset + strings.Repeat(" ", leftGap) + col + strings.Repeat("─", ruleW) + cReset
+	left := ruleW / 2
+	right := ruleW - left
+	return prefix + cReset + col + strings.Repeat("─", left) + cReset + " " + body + cReset + " " + col + strings.Repeat("─", right) + cReset
 }
 
 // continuationPrefix builds the dim-styled hanging indent for a row's wrapped
@@ -221,7 +306,7 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		lines = append(lines, clip(rail+cReset+"  "+styleOutLine(l), maxLine))
 	}
 	if running {
-		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥x stop"+cReset, maxLine))
+		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥k stop"+cReset, maxLine))
 	}
 	return lines
 }
@@ -422,10 +507,56 @@ func renderCmdChip(c database.Chip, caretOn bool) string {
 	return b.String()
 }
 
+// renderAgentChip draws a session chip as a filled PILL: the agent's glyph and
+// the session's name on the session's own color, near-black ink on top. A hosted
+// session carries the cloud mark inside the pill (see refreshAgentChip). Like
+// the cmd chip this owns its whole look, so the generic chip-color path in
+// renderBody steps aside for it.
+//
+// struck carries the completed row's strikethrough INTO the pill. The pill keeps
+// its color when the row is done — a finished session is still the agent it was —
+// so the line through it is what says finished, and it is drawn in the pill's own
+// ink, which contrastInk keeps dark against every fill in the palette.
+func renderAgentChip(c database.Chip, caretOn, struck bool) string {
+	glyph, col := "◈", cDim
+	if v, ok := agentVariantByID(c.Value); ok {
+		glyph = v.glyph
+		col = v.colorSGR()
+	}
+	if l, ok := agentLooks[c.ID]; ok && l != "" {
+		col = l // the session's own color, when its CLI gave it one
+	}
+	label := c.Label
+	if label == "" {
+		label = c.Value // no session yet: the pill names the CLI
+	}
+	var b strings.Builder
+	b.WriteString(cReset)
+	if caretOn {
+		b.WriteString(cInvert)
+	}
+	b.WriteString(bgOf(col) + contrastInk(col))
+	if struck {
+		b.WriteString(cStrike)
+	}
+	b.WriteString(" " + glyph + " " + label + " " + cReset)
+	return b.String()
+}
+
+// bgOf turns a foreground SGR ("\x1b[38;2;r;g;bm") into the matching BACKGROUND
+// sequence, so a chip can be filled with the color a session is themed in
+// without a second palette. A code it cannot read leaves the pill unfilled.
+func bgOf(fg string) string {
+	if s, ok := strings.CutPrefix(fg, "\x1b[38;"); ok {
+		return "\x1b[48;" + s
+	}
+	return ""
+}
+
 // activeCmdDraftRange returns the not-yet-committed cmd chip range that contains
 // the caret. A standalone "$" starts the draft immediately; single spaces stay
 // in the command, while a double space means the draft has ended (and normally
-// commits before render). Anchor interiors are ignored so path chips can still
+// commits before render). Anchor interiors are ignored so other chips can still
 // be folded into the command when the double space arrives.
 func activeCmdDraftRange(runes []rune, caret int, spans []anchorSpan) (int, int) {
 	if caret <= 0 || caret > len(runes) {
@@ -508,8 +639,9 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	flags := inlineSpans(runes)
 	markKeywords(runes, flags, animFrame) // ultracode/ultraloop: render-time only
 	spanSGR := spanSGRFor(it.uuid, len(runes))
-	paintLive := paintUUID == it.uuid
-	paintLo, paintHi := paintBounds()
+	// the live horizontal selection (shift+←/→) draws as a bar over its runes
+	selLive := textSelUUID != "" && textSelUUID == it.uuid
+	selLo, selHi := textSelLo, textSelHi
 	chipsp := anchorSpans(runes) // inline chip anchors, drawn collapsed
 	// the "$…" draft tint only while the caret sits where typing left it
 	// (cmdDraft, see cmdDraftLive) — never on a mere caret walk through text
@@ -583,6 +715,16 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				i = sp.end
 				continue
 			}
+			// a session chip is a filled pill in the agent's (or the session's)
+			// own color — it owns its whole look, like the cmd chip's code cell.
+			// The row's strike is the one attribute that carries into it: a chip
+			// in a finished row is a finished session.
+			if c, ok := chips[sp.id]; ok && c.Kind == chipKindAgent {
+				b.WriteString(renderAgentChip(c, caret == sp.start, strings.Contains(attrs, cStrike)))
+				cur = ""
+				i = sp.end
+				continue
+			}
 			col := cCyan
 			osc8 := "" // URL link target for an OSC 8 hyperlink, "" = none
 			if c, ok := chips[sp.id]; ok {
@@ -606,6 +748,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				// can't jump inside the app — so they get no OSC 8.
 				if c.Kind == chipKindLink {
 					col = linkChipColorCode() // /settings link.color: blue or gray
+					// a link to a known service swaps that gray for the
+					// service's own muted hue — same weight (see service.go)
+					if svc, ok := linkService(c); ok {
+						col = serviceChipColor(svc)
+					}
 					if _, isNode := nodeLinkUUID(c.Value); !isNode {
 						osc8 = c.Value
 					}
@@ -613,15 +760,17 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			}
 			b.WriteString(cReset + col)
 			if osc8 != "" {
-				b.WriteString("\x1b]8;;" + osc8 + "\x1b\\")
+				b.WriteString(oscLink(osc8))
 			}
 			if caret == sp.start {
 				b.WriteString(cInvert) // cursor sits on the whole chip
 			}
-			b.WriteString(dispByID(sp.id, chips))
+			// atomic on screen as well as to the caret: a soft wrap never breaks
+			// a chip apart mid-name (see nonBreaking)
+			b.WriteString(nonBreaking(dispByID(sp.id, chips)))
 			b.WriteString(cReset)
 			if osc8 != "" {
-				b.WriteString("\x1b]8;;\x1b\\")
+				b.WriteString(oscLink(""))
 			}
 			cur = ""
 			i = sp.end
@@ -655,11 +804,15 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 		if i == caret {
 			// the block cursor sits ON the rune: same colors as the cell —
-			// including its painted span — so the block wears the character's
-			// real color, then inverts
+			// including its styled run — so the block wears the character's
+			// real color, then inverts. Inside a selection it inverts the bar
+			// instead, so the caret stays legible on the white run.
 			s := sgr(f)
 			if spanSGR != nil && spanSGR[i] != "" {
 				s += spanSGR[i]
+			}
+			if selLive && i >= selLo && i < selHi {
+				s += bgTextSel()
 			}
 			b.WriteString(s + cInvert)
 			b.WriteRune(r)
@@ -668,19 +821,15 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			continue
 		}
 		s := sgr(f)
-		// a painted run (see paint.go) overrides the cell's color/attrs; while
-		// the painter is live on this node its window sits on a white bar —
-		// dark text for plain runes, painted runes keep their color on it.
-		// NOT inverse video, which swaps fg/bg and makes an already-red run
-		// read as a red background.
+		// a styled run (see spans.go) overrides the cell's color/attrs; a live
+		// horizontal selection lays the row-selection blue under those cells and
+		// nothing else. NOT inverse video, which swaps fg/bg and makes an
+		// already-red run read as a red background.
 		if spanSGR != nil && spanSGR[i] != "" {
 			s += spanSGR[i]
 		}
-		if paintLive && i >= paintLo && i < paintHi {
-			if spanSGR == nil || spanSGR[i] == "" {
-				s += fgPaintSel
-			}
-			s += bgPaintSel
+		if selLive && i >= selLo && i < selHi {
+			s += bgTextSel()
 		}
 		if s != cur {
 			b.WriteString(s)

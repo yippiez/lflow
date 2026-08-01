@@ -206,7 +206,6 @@ func TestGlyphForMutedBullets(t *testing.T) {
 	}
 }
 
-
 func TestRenderBodyLoneAsteriskStaysPlain(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
 

@@ -491,3 +491,60 @@ func TestResizeStormRedrawsOneCleanFrame(t *testing.T) {
 			"resize storm duplicated or dropped rows", total)
 	}
 }
+
+// TestNavigationWipesScrollback is the scrollback-ghost break: zooming between
+// nodes must wipe the terminal's scrollback before the new view draws. The
+// inline renderer can only move the cursor back over its own last frame with
+// cursor-up — rows that have already scrolled into the scrollback buffer are
+// out of reach and would linger above the new view when the user scrolls up.
+// The navigation keys flag the next frame to open with cClearScrollback
+// (ESC[3J ESC[2J ESC[H), clearing history and screen. We assert zoom-in and
+// zoom-out both flag the next frame, the frame carries the clear at its head,
+// and exactly one frame does — ordinary redraws (typing, cursor moves, live
+// sync) must never re-clear.
+func TestNavigationWipesScrollback(t *testing.T) {
+	root := &item{}
+	tr := &tree{root: root, byUUID: map[string]*item{}, externalNames: map[string]string{}}
+	parent := &item{name: "parent", parent: root, uuid: "p"}
+	child := &item{name: "child", parent: parent, uuid: "c"}
+	parent.children = append(parent.children, child)
+	root.children = append(root.children, parent)
+	tr.byUUID["p"] = parent
+	tr.byUUID["c"] = child
+
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 60, height: 24}
+	m.refreshRows()
+
+	// zoom into the parent: the next frame must open by clearing scrollback
+	m.press("alt+right")
+	if m.viewRoot() != parent {
+		t.Fatalf("alt+right did not zoom into the parent node")
+	}
+	if !m.clearOnFrame {
+		t.Fatal("zoom-in did not flag the next frame to clear scrollback")
+	}
+	frame := m.View()
+	if !strings.HasPrefix(frame, cClearScrollback) {
+		t.Fatalf("post-zoom frame does not open with the scrollback clear %q: %q",
+			cClearScrollback, frame)
+	}
+	if m.clearOnFrame {
+		t.Fatal("the clear flag was not consumed by the zoom frame")
+	}
+	// a second, unchanged render must not re-clear
+	if again := m.View(); strings.HasPrefix(again, cClearScrollback) {
+		t.Fatalf("an ordinary redraw re-cleared scrollback: %q", again)
+	}
+
+	// zoom back out: the same guarantee on the way out
+	m.press("alt+left")
+	if m.viewRoot() != root {
+		t.Fatalf("alt+left did not zoom back out to the root")
+	}
+	if !m.clearOnFrame {
+		t.Fatal("zoom-out did not flag the next frame to clear scrollback")
+	}
+	if out := m.View(); !strings.HasPrefix(out, cClearScrollback) {
+		t.Fatalf("post-zoom-out frame does not open with the scrollback clear: %q", out)
+	}
+}

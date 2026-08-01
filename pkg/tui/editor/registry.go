@@ -60,6 +60,10 @@ type nodeType struct {
 	// continueOnEnter makes Enter from this type open another node of the same type
 	// — the todo-list continuation, where a fresh sibling stays a todo.
 	continueOnEnter bool
+	// onType runs right after /type has set this type on a node — the hook a type
+	// uses to land on its own face instead of leaving the picker on a row that
+	// looks unchanged (the Table folds to its grid face). nil → nothing.
+	onType func(m *Model, it *item)
 
 	// granular look hooks: an editable type keeps caret editing while these
 	// decide its look (glyph, prefix, muted tail) — see the log type.
@@ -140,10 +144,11 @@ var nodeTypes = []nodeType{
 	{key: database.TypeBullets, label: "Bullet", inlineEditable: true},
 	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true, continueOnEnter: true,
 		toContext: todoToContext},
-	// a divider has no body text — viewOutline/finalView render it as a full-width
-	// rule (see dividerLine), hiding the glyph. It is otherwise a normal node: it
-	// nests, moves, takes a /note, and is removed with ctrl+d.
-	{key: database.TypeDivider, label: "Divider", inlineEditable: false, toContext: xmlTag("divider")},
+	// a divider renders as a full-width rule (see dividerLine), hiding the glyph;
+	// an optional text runs on the midpoint of the rule, edited like any node. It
+	// is otherwise a normal node: it nests, moves, takes a /note, and is removed
+	// with ctrl+d.
+	{key: database.TypeDivider, label: "Divider", inlineEditable: true, toContext: xmlTag("divider")},
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true, toContext: xmlTag("h1")},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true, toContext: xmlTag("h2")},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true, toContext: xmlTag("h3")},
@@ -227,6 +232,22 @@ var nodeTypes = []nodeType{
 		flashActions: mathFlashActions,
 		toContext:    mathToContext,
 	},
+	// a table is an ordinary subtree READ as a grid (see table.go): columns are
+	// the children, rows are their children, and a cell's children are the
+	// outline inside it. The face IS the fold state — a folded table draws its
+	// grid, an open one is the plain outline — so ctrl+space / alt+↑↓ toggle
+	// table ⇄ nodes, and alt+e opens the grid editor.
+	{
+		key: database.TypeTable, label: "Table", inlineEditable: true,
+		glyph:        tableGlyph,
+		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.tableBandLines(r, below, maxLine) },
+		view:         tableView{},
+		flashActions: tableFlashActions,
+		onType:       tableOnType,
+		toContextM:   tableToContext,
+	},
+	// An agentic coding SESSION is not a node type: it is an inline chip only
+	// (see agent.go), so there is no entry here.
 	// Thinking is a plain marker node: always the muted-gray thinking glyph,
 	// no other behavior.
 	{key: database.TypeThinking, label: "Thinking", glyph: thinkingGlyph, inlineEditable: true},

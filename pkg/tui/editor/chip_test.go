@@ -26,14 +26,14 @@ func TestAnchorRoundTrip(t *testing.T) {
 
 func TestExpandAndDisplayAnchors(t *testing.T) {
 	chips := map[string]database.Chip{
-		"p1": {ID: "p1", Kind: "path", Value: "/home/eren/work/readme.txt"},
+		"l1": {ID: "l1", Kind: "link", Value: "https://example.com/readme", Label: "readme"},
 	}
-	name := "open " + chipAnchor("p1") + " please"
+	name := "open " + chipAnchor("l1") + " please"
 
-	if got, want := expandAnchors(name, chips), "open /home/eren/work/readme.txt please"; got != want {
+	if got, want := expandAnchors(name, chips), "open [readme](https://example.com/readme) please"; got != want {
 		t.Errorf("expand = %q, want %q", got, want)
 	}
-	if got, want := displayAnchors(name, chips), "open ›readme.txt please"; got != want {
+	if got, want := displayAnchors(name, chips), "open →readme please"; got != want {
 		t.Errorf("display = %q, want %q", got, want)
 	}
 	// a missing record degrades to a placeholder, never a raw anchor
@@ -97,5 +97,29 @@ func TestVisualRowsWideRuneNarrowLineTerminates(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("visualRows hung on a wide rune in a 1-cell line")
+	}
+}
+
+// TestChipMovesWholeAcrossAWrap: a chip is atomic on screen too — when it does
+// not fit on the current visual line it moves down whole instead of splitting
+// at the space inside its own name, which is what the caret model (chipVisualRows,
+// which walks anchors as one cluster) already assumes.
+func TestChipMovesWholeAcrossAWrap(t *testing.T) {
+	chips := map[string]database.Chip{
+		"c1": {ID: "c1", Kind: chipKindLink, Value: "https://example.com/x", Label: "Q3 planning notes"},
+	}
+	name := "some text ahead of it " + chipAnchor("c1")
+	body := renderBody(&item{typ: database.TypeBullets}, name, -1, false, chips, false)
+	lines := wrapLine(" ○ "+body, 40, cDim+" │ "+cReset)
+
+	if len(lines) != 2 {
+		t.Fatalf("want 2 visual lines, got %d: %q", len(lines), lines)
+	}
+	const disp = "→Q3 planning notes"
+	if got := stripSGR(lines[1]); !strings.Contains(got, nonBreaking(disp)) {
+		t.Errorf("the chip did not move down whole: %q", got)
+	}
+	if got := stripSGR(lines[0]); strings.Contains(got, "Q3") {
+		t.Errorf("the chip was split across the wrap: %q", got)
 	}
 }

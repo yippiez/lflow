@@ -46,8 +46,12 @@ func TestNoteEditorWordMovement(t *testing.T) {
 		t.Fatalf("ctrl+right: caret = %d, want %d", m.caret, len("alpha beta "))
 	}
 	m.handleNoteKey(tkey("ctrl+w"))
+	if n.note != "alpha betagamma" {
+		t.Fatalf("ctrl+w: note = %q, want %q", n.note, "alpha betagamma")
+	}
+	m.handleNoteKey(tkey("ctrl+w"))
 	if n.note != "alpha gamma" {
-		t.Fatalf("ctrl+w: note = %q, want %q", n.note, "alpha gamma")
+		t.Fatalf("ctrl+w ×2: note = %q, want %q", n.note, "alpha gamma")
 	}
 	m.handleNoteKey(tkey("home"))
 	if m.caret != 0 {

@@ -30,6 +30,11 @@ func (m *Model) ensureTempTree() {
 			externalNames: map[string]string{},
 			byUUID:        map[string]*item{root.uuid: root},
 		} // db is nil → save() is a no-op, so it never persists or syncs
+		// seed one empty child so the panel is never a blank void — the same
+		// guarantee ensureViewNonEmpty makes for the main outline
+		if len(root.children) == 0 {
+			_, _ = m.tempTree.insertFirstChild(root)
+		}
 	}
 }
 
@@ -120,11 +125,19 @@ func (m *Model) tempRowCount() int {
 	return len(m.tempTree.visibleRows(m.tempTree.root, m.hideCompleted, m.unroll))
 }
 
+// maxTempPanelLines caps the always-visible Temporary Domain panel: a longer
+// scratch outline scrolls inside the window instead of growing the panel.
+const maxTempPanelLines = 5
+
 // tempPanelBudget is how many screen lines the persistent temp panel may occupy.
-// It grows to fit all of its nodes — no artificial cap — bounded only by the
-// physical screen (always leaving at least one row for the main outline).
+// Capped at maxTempPanelLines so the panel never squeezes the main outline, and
+// bounded by the physical screen (always leaving at least one row for the main
+// outline). A longer scratch list scrolls within the window.
 func (m *Model) tempPanelBudget(rowBudget int) int {
 	want := m.tempRowCount()
+	if want > maxTempPanelLines {
+		want = maxTempPanelLines
+	}
 	if want < 1 {
 		want = 1
 	}
@@ -140,8 +153,11 @@ func (m *Model) tempPanelBudget(rowBudget int) int {
 // readonlyRegionLines renders a tree's visible rows as a static (no caret, no
 // editing) region exactly `budget` lines tall — padded with blanks so the layout
 // stays fixed and the temp panel anchors to the bottom. `dashed` swaps in the ◌
-// glyph for every non-mirror node (the Temporary Domain look).
-func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, maxLine int, dashed bool) []string {
+// glyph for every non-mirror node (the Temporary Domain look). scroll >= 0 pins
+// the window at that offset (clamped to the content and written back to
+// m.tempScroll so a shrunken list cannot leave a stale offset); scroll < 0 keeps
+// the `cursor` row in view instead.
+func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, maxLine int, dashed bool, scroll int) []string {
 	if budget < 1 {
 		budget = 1
 	}
@@ -158,7 +174,11 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 				if i == cursor {
 					cursorAt = len(flat)
 				}
-				flat = append(flat, dividerLine(r, maxLine, false))
+				shown := m.renderItem(it)
+				name := tr.displayName(it)
+				body := renderBody(shown, name, -1, false, m.chips, false)
+				line := dividerLine(r, maxLine, body, false)
+				flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 				flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
 				continue
 			}
@@ -185,9 +205,23 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 		}
 	}
 
-	// viewport: keep the (stashed) cursor row in view
+	// an empty tree must never render as a blank void: seed one dim hint line so
+	// the region (temp panel, or a malformed main stash) still signals itself
+	if len(flat) == 0 {
+		if dashed {
+			flat = append(flat, " "+cDim+glyphDotted+" empty temp space"+cReset)
+		} else {
+			flat = append(flat, cDim+" empty"+cReset)
+		}
+	}
+
+	// viewport: a pinned scroll offset (the read-only temp panel) or the
+	// (stashed) cursor row kept in view
 	start := 0
-	if cursorAt >= budget {
+	if scroll >= 0 {
+		start = scroll
+	}
+	if cursorAt >= start+budget {
 		start = cursorAt - budget + 1
 	}
 	if start > len(flat)-budget {
@@ -195,6 +229,9 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 	}
 	if start < 0 {
 		start = 0
+	}
+	if scroll >= 0 {
+		m.tempScroll = start
 	}
 	end := start + budget
 	if end > len(flat) {

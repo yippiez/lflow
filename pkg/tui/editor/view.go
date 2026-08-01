@@ -82,7 +82,19 @@ func (m *Model) View() string {
 		lines[i] = cClearEOL + l + cReset
 	}
 
-	return strings.Join(lines, "\n")
+	// After a view jump (zoom, /goto, walk-up) the previous node's rows may have
+	// scrolled into the terminal's scrollback buffer, where the inline renderer
+	// cannot reach them with cursor-up — they would linger above the new view
+	// forever. Open such a frame by wiping scrollback + screen and homing the
+	// cursor, so the new node draws from a known-empty terminal. The escape is
+	// zero-width to the renderer's line measurement, so it cannot skew the
+	// cursor-up bookkeeping of the frames that follow.
+	out := strings.Join(lines, "\n")
+	if m.clearOnFrame && len(lines) > 0 {
+		out = cClearScrollback + out
+		m.clearOnFrame = false
+	}
+	return out
 }
 
 // finalView renders the complete tree with glyphs and connectors but no
@@ -93,7 +105,11 @@ func (m *Model) finalView(maxLine int) []string {
 	for i, r := range allRows {
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
 		if r.it.typ == database.TypeDivider {
-			lines = append(lines, dividerLine(r, maxLine, false))
+			shown := m.renderItem(r.it)
+			name := m.tree.displayName(r.it)
+			body := renderBody(shown, name, -1, false, m.chips, false)
+			line := dividerLine(r, maxLine, body, false)
+			lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 			continue
 		}
@@ -147,12 +163,24 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		it := r.it
 		selected := i == m.cursor
 
-		// a divider is a full-width rule with no glyph/body; it still hangs a note
+		// a divider is a full-width rule hiding the glyph; its text (if any) sits
+		// on the midpoint of the rule and edits inline like any node — it still
+		// hangs a note. A text wider than the row wraps under the tree rail.
 		if it.typ == database.TypeDivider {
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
-			groups[i] = []string{dividerLine(r, maxLine, selected && m.mode != modeFlash)} // single line, never wrapped
+			shown := m.renderItem(it)
+			name := m.tree.displayName(it)
+			caret := -1
+			if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
+				caret = m.caret
+			}
+			body := renderBody(shown, name, caret, selected, m.chips, m.cmdDraftLive(shown))
+			line := dividerLine(r, maxLine, body, selected && m.mode != modeFlash)
+			groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
 			if m.inSelection(i) {
-				groups[i][0] = selFill(groups[i][0], maxLine)
+				for j, l := range groups[i] {
+					groups[i][j] = selFill(l, maxLine)
+				}
 			}
 			noteCaret := -1
 			if selected && m.mode == modeNote {
@@ -559,13 +587,17 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 			if n := len(m.mainStash.viewStack); n > 0 {
 				mainRoot = m.mainStash.viewStack[n-1]
 			}
-			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, lay.mainBudget, maxLine, false)
+			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, lay.mainBudget, maxLine, false, -1)
 			tempLines = focused // live, focused temp
 		} else {
 			mainLines = focused // live, focused main
 			// read-only temp panel: the dashed-glyph Temporary Domain look
-			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, lay.tempBudget, maxLine, true)
+			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, lay.tempBudget, maxLine, true, m.tempScroll)
 		}
+		// remember where the temp panel landed so the wheel can hit-test it and
+		// scroll it (the mouse handler runs before the next frame renders)
+		m.tempTop = len(mainLines) + len(bar)
+		m.tempHeight = len(tempLines)
 		// NOTE: the page background never adds filler rows — the layout (where
 		// the divider sits) must be identical across themes; gray paints
 		// exactly the rows the main region already has, edge to edge.
@@ -593,6 +625,7 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 	// frame sits near the bottom, the grow half of that cycle scrolls rows the
 	// inline renderer can no longer reach up to, stranding a ghost line below and
 	// pushing the outline up one row each toggle (the bleed).
+	m.tempHeight = 0 // no temp panel in this frame — the wheel must not hit-test it
 	if m.focused {
 		for len(body) < lay.rowBudget {
 			body = append(body, "")
@@ -666,6 +699,8 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	// offer the date conversion while a non-canonical time phrase sits under the
 	// cursor; an already-canonical date needs no conversion and is chipped as-is.
+	// with no date phrase there, offer a bare URL under the cursor instead — a URL
+	// never auto-chips from typing, only this explicit ctrl+t.
 	// while in temp the bar describes the main outline, so skip temp-cursor phrases
 	if m.mode == modeOutline && !m.tempActive {
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
@@ -673,6 +708,8 @@ func (m *Model) bottomBar(maxLine int) []string {
 				// the date picker hint reads white against the dim status bar, then
 				// hands the color back so the rest of the bar stays muted
 				state += fmt.Sprintf(" · "+cFG+"ctrl+t %q → %s"+cDim, d.phrase, d.canonical())
+			} else if u := detectURLNear(cur.name, m.caret); u != nil {
+				state += fmt.Sprintf(" · "+cFG+"ctrl+t %q → link chip"+cDim, u.raw)
 			}
 		}
 	}

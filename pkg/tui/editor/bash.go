@@ -276,9 +276,9 @@ func (runOutView) Bands(m *Model, it *item, rail string, width, scroll, winH int
 		hdr += fmt.Sprintf(" · %d dropped", d)
 	}
 	if running {
-		hdr += " · running… · ⌥x stop"
+		hdr += " · running… · ⌥k stop"
 	} else if len(out) > 0 {
-		hdr += " · ⌥x clear"
+		hdr += " · ⌥k clear"
 	}
 	hdr += " · ↑↓ scroll · esc close"
 	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}

@@ -1012,8 +1012,8 @@ var lm35 = migration{
 	},
 }
 
-// lm36 adds the node_spans table — the painter's partial-text styling. One row
-// per painted run (rune offsets into the node name), style = the same token
+// lm36 adds the node_spans table — partial-text styling. One row
+// per styled run (rune offsets into the node name), style = the same token
 // vocabulary as nodes.style. The text itself stays markup-free, always.
 var lm36 = migration{
 	name: "add-node-spans-table",
@@ -1292,6 +1292,73 @@ var lm40 = migration{
 		}
 		if _, err := tx.Exec("DROP TABLE IF EXISTS agent_sessions"); err != nil {
 			return errors.Wrap(err, "dropping assistant sessions")
+		}
+		return nil
+	},
+}
+
+// lm41 converts retired path chips into their stored path text. Path chips are
+// local-only, so preserving the full value is more useful than preserving their
+// former compact basename display.
+var lm41 = migration{
+	name: "convert-path-chips-to-text",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		rows, err := tx.Query("SELECT id, value FROM chips WHERE kind = 'path'")
+		if err != nil {
+			return errors.Wrap(err, "querying path chips")
+		}
+		type pathChip struct{ id, value string }
+		var pathChips []pathChip
+		for rows.Next() {
+			var c pathChip
+			if err := rows.Scan(&c.id, &c.value); err != nil {
+				rows.Close()
+				return errors.Wrap(err, "scanning path chip")
+			}
+			pathChips = append(pathChips, c)
+		}
+		if err := rows.Close(); err != nil {
+			return errors.Wrap(err, "closing path chip query")
+		}
+
+		if len(pathChips) == 0 {
+			return nil
+		}
+
+		type changedNode struct{ uuid, name string }
+		rows, err = tx.Query("SELECT uuid, name FROM nodes")
+		if err != nil {
+			return errors.Wrap(err, "querying nodes with path chips")
+		}
+		var changed []changedNode
+		for rows.Next() {
+			var n changedNode
+			if err := rows.Scan(&n.uuid, &n.name); err != nil {
+				rows.Close()
+				return errors.Wrap(err, "scanning node with path chip")
+			}
+			clean := n.name
+			for _, c := range pathChips {
+				clean = strings.ReplaceAll(clean, database.ChipAnchor(c.id), c.value)
+			}
+			if clean != n.name {
+				changed = append(changed, changedNode{uuid: n.uuid, name: clean})
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return errors.Wrap(err, "closing node query")
+		}
+
+		for _, n := range changed {
+			if _, err := tx.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", n.name, n.uuid); err != nil {
+				return errors.Wrap(err, "converting path chip to text")
+			}
+			if _, err := tx.Exec("DELETE FROM node_spans WHERE node_uuid = ?", n.uuid); err != nil {
+				return errors.Wrap(err, "dropping stale spans from converted path chip")
+			}
+		}
+		if _, err := tx.Exec("DELETE FROM chips WHERE kind = 'path'"); err != nil {
+			return errors.Wrap(err, "deleting path chips")
 		}
 		return nil
 	},

@@ -15,10 +15,10 @@ per type in `pkg/tui/editor/registry.go`.
   `go build --tags fts5 ./pkg/tui`
 - After every change, install the dev binary so the user can test it:
   `go build --tags fts5 -ldflags "-X main.versionTag=0.1.0-dev" -o ~/.local/bin/lflow ./pkg/tui`
-- Test before installing: `go test --tags fts5 ./...`
-- Test in isolation against a throwaway HOME/XDG + seeded DB — **never** the real
-  outline at `~/.local/share/lflow/lflow.db`. SQLite surgery goes through a
-  `-tags fts5` Go program (the sqlite3 CLI lacks fts5).
+- Verification (tests, e2e, ast-grep, isolation rules) lives in
+  `.claude/agents/verifier.md` — Claude Code calls it as the `verifier`
+  subagent; other agents follow the same steps manually. Verify before
+  installing.
 - Development is **trunk-based**: work directly on `main`, no feature branches
   or PRs. Commit each logical change as its own `label: description` commit
   (labels: `editor`, `db`, `agent`, `daemon`, `docs`, …) and push to `main` as
@@ -69,7 +69,8 @@ per-feature column — and no scattered `switch typ`:
    `pkg/tui/editor/registry.go` — that slice drives the `/type` picker, and the
    field doc-comments there list every hook (`sign`, `glyph`, `render`,
    `inlineEditable`, `tempOnly`, `run` on alt+r, `expand`/`view` on alt+e,
-   and `toContext`/`toContextM` for structured XML context).
+   `onType` to land on a face right after /type, and `toContext`/`toContextM`
+   for structured XML context).
 3. Put the behavior in its own file. PLUGGABLE types live in
    `pkg/tui/editor/nodes/<type>.go` — ONE file per node — registered at init
    via `editor.RegisterNodePlugin` (see `editor/nodeplugin.go`): the editor
@@ -102,6 +103,27 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
+## Tables
+
+The Table node (`pkg/tui/editor/table.go`) is a grid READING of an ordinary
+subtree, not a storage shape: the table's children are its **columns** (their
+text is the header), each column's children are that column's **cells** top to
+bottom (row n = the nth child of every column), and a cell's own children are the
+outline **inside** that cell. Nothing moves on conversion, so any node becomes a
+table with `/type` and every node under it stays an ordinary node. Cells are
+ragged in the outline and square on screen; typing into an empty slot
+materializes it.
+
+The two faces are the FOLD STATE — folded draws the grid as a band under the row,
+open is the plain outline — so ctrl+space / alt+↑ / alt+↓ toggle table ⇄ nodes
+with no extra state and the choice persists like any fold. alt+e opens the grid
+editor (arrows/⇥ walk the cells, typing edits the real cell node, ⏎ adds a row
+across every column, ⌥n appends a column, ⌥d twice drops a row, ⌥→ zooms into a
+cell's own outline). Structural work the grid does not cover — deleting a column,
+reordering, retyping a cell — happens in the nodes face, which is the point of
+the toggle. A cell holding a chip is edited there too: a chip renders collapsed,
+so a caret index in the grid is not an index into the stored text.
+
 ## Node priority
 
 `nodes.priority` (lm39) says where INCOMING nodes land among a node's children:
@@ -110,6 +132,65 @@ multi-select, `/mirror:from`) route through it (`database.PlaceRank`,
 `tree.reparent`). New nodes default
 up; everything that existed before lm39 is down. `/priority:up` /
 `/priority:down` set it immediately, like /star.
+
+## Agentic coding sessions
+
+A coding session with an agent is an inline CHIP — and only a chip, so it can be
+dropped into whatever note it belongs to instead of owning a row. Three CLIs, one
+entry each in one table in `pkg/tui/editor/agent.go`: Claude Code ✽, Pi ᴘɪ,
+opencode ▣. (Web services are deliberately not here yet.)
+
+lflow does not START conversations. A chip is a handle on one its CLI already
+made, so the whole vocabulary is four verbs:
+
+- **search** — `/insert → agent` lists every session found across all three
+  stores, newest first, filtered as you type. A session is searched by its NAME
+  first, then by which agent it is and the directory it ran in. That is the only
+  agent surface: there is no `/agent` and no `/agents`, because a chip belongs to
+  the row it sits in and the outline is already the index of them.
+- **add** — enter files the highlighted session as a chip at the caret. There is
+  no create path in the picker.
+- **open** — `⌥r` suspends lflow (`tea.ExecProcess`) and the CLI resumes that
+  session in its pinned directory. A session whose directory is gone refuses to
+  open. `⌥r` is the only way a CLI is ever launched.
+- **rename** — `⌥n` opens the name field on the chip. `⌥c` recolors it.
+
+Names and colors come from the CLIs themselves, and what each one actually
+exposes was checked against real stores, not assumed:
+
+| | name | color | renamable by lflow |
+|---|---|---|---|
+| Claude Code | `~/.claude/sessions/<pid>.json` `.name`, live registry only | none | no |
+| Pi | none — the first prompt names it | none | no |
+| opencode | `.title` in its session record | none | **yes** |
+
+So a rename is ALWAYS stored locally on the chip and always wins; `opencodeRename`
+additionally writes the new title into opencode's own record, atomically and
+round-tripping every other key. The other two have no name field lflow may write:
+Claude Code's lives in a registry keyed by the pid of a running process, and Pi's
+records carry none. No CLI exposes a session color today, so `⌥c` is what colors a
+chip — the variant's default until you pick otherwise.
+
+Colors: Claude's orange and Pi's purple are themed swatches; opencode's mark is
+black on white and takes the `agentMono` literal `#000000`, with white ink from
+`contrastInk`. A completed row's strikethrough runs THROUGH the pill.
+
+`⌥e` opens a panel showing the session's name IN FULL (wrapped — a session named
+by its first prompt is a sentence, and clipping is what makes two of them look
+alike) and the directory it is pinned to. Nothing else, on purpose: everything
+further lflow could say it would be guessing at. It used to print a state word
+and a "last opened" time; "idle" was only ever the absence of a live registry,
+which Pi and opencode do not have at all, and the timestamp was a store file's
+mtime relabelled as an open. Neither was real, so both are gone.
+
+`⌥r` / `⌥e` / `⌥n` / `⌥c` act on the chip under the caret, falling back to the
+row's only session when the row wraps and the caret lands past it; a row with
+several says so rather than guessing.
+
+WARNING (invariant): lflow never copies a conversation into the outline. A chip
+stores only `{variant, cwd, session id}` plus your own name and color in LOCAL
+`node_output` — never in the chip row, never synced — and everything else is read
+back out of the CLI's own store (`agentstore.go`) on demand.
 
 ## NLPCompute code generation
 
@@ -142,7 +223,8 @@ binary), and the status bar being the last rendered line.
 
 Remaining doc-level rules:
 
-- Never auto-run runnable nodes (alt+r only).
+- Never auto-run runnable nodes (alt+r only) — an agentic coding session chip is
+  opened by that same key and by nothing else.
 - Secrets live in local config — Pi in `~/.pi/agent/settings.json`, service keys
   in `~/.config/lflow/credentials.json` (e.g. `{"workflowy":{"api_key":"…"}}`).
   Never synced, never written into the DB.

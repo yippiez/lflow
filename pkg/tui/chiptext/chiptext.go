@@ -4,8 +4,8 @@
 // of truth shared by the editor (which detects the same spans to render and
 // auto-chipify on the fly) and the CLI (which chipifies text passed to add/edit).
 //
-// Only the patterns that have an unambiguous inline form live here. Path chips
-// have no text marker (the editor creates them through the /file picker), so they
+// Only the patterns that have an unambiguous inline form live here. Chip kinds
+// created through an explicit picker rather than typed text (e.g. icon chips)
 // are never auto-detected.
 package chiptext
 
@@ -28,9 +28,10 @@ const (
 )
 
 // ReTag matches a #word tag at a left boundary (start of text or a non-word
-// char) so bare '#'s and mid-word hashes are ignored. The word may contain inner
+// char) so bare '#'s and mid-word hashes are ignored. The word must start with a
+// letter or underscore (#1, #42 mean literal "number one"), may contain inner
 // hyphens (#multi-word) but not a trailing one. Submatch 2 is the #word.
-var ReTag = regexp.MustCompile(`(^|[^\p{L}\p{N}_#])(#[\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*)`)
+var ReTag = regexp.MustCompile(`(^|[^\p{L}\p{N}_#])(#[\p{L}_][\p{L}\p{N}_]*(?:-[\p{L}\p{N}_]+)*)`)
 
 // ReISO matches a canonical date: YYYY-MM-DD optionally followed by HH:MM.
 var ReISO = regexp.MustCompile(`(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?`)

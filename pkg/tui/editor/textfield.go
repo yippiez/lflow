@@ -53,7 +53,7 @@ func (f *textField) backspace() {
 func (f *textField) deleteWordLeft() {
 	r := f.runes()
 	if f.caret > 0 {
-		from := prevWordBoundary(r, f.caret)
+		from := deleteWordBoundary(r, f.caret)
 		f.value = string(r[:from]) + string(r[f.caret:])
 		f.caret = from
 	}

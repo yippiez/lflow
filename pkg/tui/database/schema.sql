@@ -70,4 +70,4 @@ CREATE TABLE node_spans (
 		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 40);
+INSERT INTO system (key, value) VALUES ('schema', 41);

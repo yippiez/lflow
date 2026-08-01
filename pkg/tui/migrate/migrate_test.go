@@ -1128,3 +1128,38 @@ func TestLM40RemovesConversationAssistants(t *testing.T) {
 		t.Fatal("legacy session table survived")
 	}
 }
+
+func TestLM41ConvertsPathChipsToText(t *testing.T) {
+	db := database.InitTestMemoryDBRaw(t, "")
+	ctx := context.InitTestCtxWithDB(t, db)
+	first := database.ChipAnchor("path-1")
+	second := database.ChipAnchor("path-2")
+	database.MustExec(t, "path chip 1", db,
+		"INSERT INTO chips (id, kind, value, label) VALUES ('path-1', 'path', '/tmp/readme.md', '')")
+	database.MustExec(t, "path chip 2", db,
+		"INSERT INTO chips (id, kind, value, label) VALUES ('path-2', 'path', '/home/eren/notes.txt', '')")
+	database.MustExec(t, "tag chip", db,
+		"INSERT INTO chips (id, kind, value, label) VALUES ('tag-1', 'tag', 'keep', '')")
+	database.MustExec(t, "path node", db,
+		"INSERT INTO nodes (uuid, name) VALUES ('path-node', ?)", "open "+first+" and "+second)
+	database.MustExec(t, "path node span", db,
+		"INSERT INTO node_spans (node_uuid, start, end, style) VALUES ('path-node', 0, 4, 'bold')")
+	database.MustExec(t, "rewind schema", db, "UPDATE system SET value = 40 WHERE key = ?", consts.SystemSchema)
+
+	if err := Run(ctx, LocalSequence); err != nil {
+		t.Fatal(err)
+	}
+
+	var name string
+	database.MustScan(t, "converted node", db.QueryRow("SELECT name FROM nodes WHERE uuid = 'path-node'"), &name)
+	if name != "open /tmp/readme.md and /home/eren/notes.txt" {
+		t.Fatalf("converted node name = %q", name)
+	}
+	var pathChips, remainingChips, spans int
+	database.MustScan(t, "removed path chips", db.QueryRow("SELECT count(*) FROM chips WHERE kind = 'path'"), &pathChips)
+	database.MustScan(t, "kept non-path chips", db.QueryRow("SELECT count(*) FROM chips WHERE id = 'tag-1'"), &remainingChips)
+	database.MustScan(t, "removed stale spans", db.QueryRow("SELECT count(*) FROM node_spans WHERE node_uuid = 'path-node'"), &spans)
+	if pathChips != 0 || remainingChips != 1 || spans != 0 {
+		t.Fatalf("pathChips=%d remainingChips=%d spans=%d", pathChips, remainingChips, spans)
+	}
+}

@@ -175,6 +175,18 @@ func key(s string) tea.KeyMsg {
 	case "alt+P", "alt+shift+p":
 		// terminals send alt+shift+p as uppercase P with Alt set
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P"), Alt: true}
+	case "alt+a":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a"), Alt: true}
+	case "alt+t":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t"), Alt: true}
+	case "alt+y":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y"), Alt: true}
+	case "alt+c":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c"), Alt: true}
+	case "alt+x":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x"), Alt: true}
+	case "alt+k":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k"), Alt: true}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "left":
@@ -185,6 +197,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyPgUp}
 	case "pgdown":
 		return tea.KeyMsg{Type: tea.KeyPgDown}
+	case "ctrl+t":
+		return tea.KeyMsg{Type: tea.KeyCtrlT}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -254,10 +268,17 @@ func TestDownWalksWrappedVisualLinesFirst(t *testing.T) {
 		t.Fatalf("Down should land on visual line 1, got %d (caret=%d)", line, m.caret)
 	}
 
-	// from the last visual line, Down crosses to the next node
+	// from the last visual line, Down first snaps to the node end, then crosses
+	m.press("down")
+	if m.cursor != 0 {
+		t.Fatalf("Down from last visual line must first snap to the node end, cursor=%d", m.cursor)
+	}
+	if m.caret != len([]rune("aaaa bbbb cccc")) {
+		t.Fatalf("Down from last visual line should snap caret to the node end, caret=%d", m.caret)
+	}
 	m.press("down")
 	if m.cursor != 1 {
-		t.Fatalf("Down from last visual line must move to next node, cursor=%d", m.cursor)
+		t.Fatalf("Down from the snapped node end must move to next node, cursor=%d", m.cursor)
 	}
 }
 
@@ -360,12 +381,55 @@ func TestEndMovesToEndOfCurrentVisualLine(t *testing.T) {
 	}
 }
 
-// TestDownSingleLineNodeMovesToNextNode keeps the simple case working: a node
-// that does not wrap moves straight to the next node.
-func TestDownSingleLineNodeMovesToNextNode(t *testing.T) {
+// TestDownSnapsToEndBeforeCrossing: on the last visual line a Down press that
+// would leave the node instead snaps the caret to the end of its text first;
+// only the next Down crosses to the next node (or into the Temporary Domain).
+func TestDownSnapsToEndBeforeCrossing(t *testing.T) {
 	m := newTestModel(80, "one", "two")
 	m.cursor = 0
 	m.caret = 0
+	if len(m.selectedVisualRows()) != 1 {
+		t.Fatalf("short node should be one visual line")
+	}
+	// first Down snaps the caret to the end of the node, staying put
+	m.press("down")
+	if m.cursor != 0 {
+		t.Fatalf("first Down must stay on the node, cursor=%d", m.cursor)
+	}
+	if m.caret != len([]rune("one")) {
+		t.Fatalf("first Down should snap caret to the node end %d, got %d", len([]rune("one")), m.caret)
+	}
+	// second Down crosses to the next node
+	m.press("down")
+	if m.cursor != 1 {
+		t.Fatalf("second Down should move to next node, cursor=%d", m.cursor)
+	}
+}
+
+// TestDownSnapsToEndBeforeTemp: from the last node of the main outline, Down
+// first snaps to the node end and only a later Down drops into the Temporary
+// Domain.
+func TestDownSnapsToEndBeforeTemp(t *testing.T) {
+	m := newTestModel(80, "one")
+	m.cursor = 0
+	m.caret = 0
+	m.press("down")
+	if m.tempActive || m.caret != len([]rune("one")) {
+		t.Fatalf("first Down should snap to the node end, not enter temp (tempActive=%v caret=%d)", m.tempActive, m.caret)
+	}
+	m.press("down")
+	if !m.tempActive {
+		t.Fatalf("second Down should enter the Temporary Domain, tempActive=%v", m.tempActive)
+	}
+}
+
+// TestDownSingleLineNodeMovesToNextNode keeps the simple case working: a node
+// that does not wrap with the caret already at its end moves straight to the
+// next node.
+func TestDownSingleLineNodeMovesToNextNode(t *testing.T) {
+	m := newTestModel(80, "one", "two")
+	m.cursor = 0
+	m.caret = len([]rune("one"))
 	if len(m.selectedVisualRows()) != 1 {
 		t.Fatalf("short node should be one visual line")
 	}
@@ -1637,6 +1701,67 @@ func TestAltShiftPOpensSlashMenu(t *testing.T) {
 	}
 	if m.unsaved {
 		t.Fatal("alt+shift+p alone should not mark the outline unsaved")
+	}
+}
+
+// TestAltAOpensSlashMenu: alt+a is the home-row twin of alt+P — it opens the
+// command palette non-inline so the node name is left alone while filtering.
+func TestAltAOpensSlashMenu(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+	before := m.cursorItem().name
+
+	m.press("alt+a")
+	if m.mode != modeSlash {
+		t.Fatalf("alt+a should open the slash menu, mode=%v", m.mode)
+	}
+	if m.slashInline {
+		t.Fatal("alt+a should open non-inline so nothing is typed into the name")
+	}
+	if got := m.cursorItem().name; got != before {
+		t.Fatalf("alt+a must not change the node name: before=%q after=%q", before, got)
+	}
+	if m.unsaved {
+		t.Fatal("alt+a alone should not mark the outline unsaved")
+	}
+}
+
+// TestAltTOpensTypePicker: alt+t is the /type shortcut — it lands in the type
+// picker with the picker open, ready to change the node's type.
+func TestAltTOpensTypePicker(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+	before := m.cursorItem().typ
+
+	m.press("alt+t")
+	if m.mode != modeType {
+		t.Fatalf("alt+t should open the type picker, mode=%v", m.mode)
+	}
+	if len((typeSource{}).items(m, "")) == 0 {
+		t.Fatal("alt+t type picker should have items")
+	}
+
+	// committing a pick from the picker retypes the cursor node
+	m.press("down")
+	m.press("enter")
+	if m.cursorItem().typ == before {
+		t.Fatal("alt+t pick should change the node's type")
+	}
+}
+
+// TestAltCOpensStylePicker: alt+c is the /style shortcut — it lands in the
+// style picker (toggles + colors) for the cursor node. (alt+y is the yank key,
+// so the picker moved off it.)
+func TestAltCOpensStylePicker(t *testing.T) {
+	m := newTestModel(40, "task")
+	m.cursor = 0
+
+	m.press("alt+c")
+	if m.mode != modeStyle {
+		t.Fatalf("alt+c should open the style picker, mode=%v", m.mode)
+	}
+	if len((styleSource{}).items(m, "")) == 0 {
+		t.Fatal("alt+c style picker should have items")
 	}
 }
 

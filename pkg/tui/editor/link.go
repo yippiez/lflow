@@ -1,9 +1,12 @@
 package editor
 
 import (
+	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/pkg/tui/chiptext"
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/utils/browser"
 )
@@ -11,9 +14,89 @@ import (
 // A link chip points at a node or a website. Its target is stored in the chip
 // value — "lflow://node/<uuid>" for a node, a URL otherwise — and its arbitrary
 // display name in the chip label. Create one with "[[" (or /link), follow it with
-// alt+g.
+// alt+g or alt+r. A target pointing at a known service (Google Sheets/Docs/…)
+// renders as that service's branded chip; see service.go.
+//
+// A bare URL typed inline (no "[[") is never auto-chipped by typing: like a
+// natural-language date phrase, it only offers itself in the status bar and
+// converts on ctrl+t (see detectURLNear, keys.go's ctrl+t handler and the
+// status-bar hint in view.go) — never as a side effect of typing a space.
 
 const nodeLinkScheme = "lflow://node/"
+
+// reURL matches a bare web address in free text: an explicit scheme
+// ("https://…") or a "www." host, greedily up to the next whitespace. The `\b`
+// anchor keeps it off a scheme glued to a preceding letter/digit; trailing
+// sentence punctuation ("check https://x.com.") is trimmed in detectURLNear.
+var reURL = regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`)
+
+// trimURLPunct strips trailing characters that almost always read as sentence
+// punctuation rather than URL syntax. A trailing ')' is only trimmed when it
+// closes no '(' held earlier in the match, so a wiki-style
+// "https://x.com/Foo_(bar)" survives whole.
+func trimURLPunct(s string) string {
+	for len(s) > 0 {
+		last := s[len(s)-1]
+		if last == ')' {
+			if strings.Count(s, "(") >= strings.Count(s, ")") {
+				break
+			}
+			s = s[:len(s)-1]
+			continue
+		}
+		if strings.ContainsRune(".,;:!?'\"", rune(last)) {
+			s = s[:len(s)-1]
+			continue
+		}
+		break
+	}
+	return s
+}
+
+// urlMatch is a bare URL span found near the caret, picked by detectURLNear.
+type urlMatch struct {
+	start, end int
+	raw        string
+}
+
+// detectURLNear finds the bare URL phrase to act on: the one whose span
+// contains caret, else the one nearest caret — mirroring detectDate's pick
+// (date.go's pickByCaret) so ctrl+t and the bottom-bar hint act on the URL the
+// user is looking at instead of always the leftmost one. caret is a rune offset.
+func detectURLNear(name string, caret int) *urlMatch {
+	runes := []rune(name)
+	var best *urlMatch
+	bestDist := -1
+	for _, loc := range reURL.FindAllStringIndex(name, -1) {
+		start, end := loc[0], loc[1]
+		trimmed := trimURLPunct(name[start:end])
+		end = start + len(trimmed)
+		if end <= start {
+			continue
+		}
+		rs, re := utf8.RuneCountInString(name[:start]), utf8.RuneCountInString(name[:end])
+		dist := 0
+		if caret < rs {
+			dist = rs - caret
+		} else if caret > re {
+			dist = caret - re
+		}
+		if best == nil || dist < bestDist || (dist == bestDist && rs < best.start) {
+			best = &urlMatch{start: rs, end: re, raw: string(runes[rs:re])}
+			bestDist = dist
+		}
+	}
+	return best
+}
+
+// urlChipLabel is a URL's default chip label: a known service names itself
+// ("Sheets"), everything else falls back to its host.
+func urlChipLabel(url string) string {
+	if svc, ok := chiptext.ServiceFor(url); ok {
+		return svc.Label
+	}
+	return browser.Host(url)
+}
 
 // nodeLinkURI builds a node link target from a uuid.
 func nodeLinkURI(uuid string) string { return nodeLinkScheme + uuid }
@@ -82,22 +165,25 @@ func (m *Model) followLink(c database.Chip) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// insertLinkChip splices a new link chip (target + name) in at the caret.
-func (m *Model) insertLinkChip(value, label string) {
+// insertLinkChip splices a new link chip (target + name) in at the caret and
+// returns its chip id ("" when nothing was inserted) — the /insert service flow
+// reopens the fresh chip in the link editor.
+func (m *Model) insertLinkChip(value, label string) string {
 	cur := m.cursorItem()
 	if cur == nil {
-		return
+		return ""
 	}
 	m.pushUndo("")
 	anchor := m.createLabeledChip(chipKindLink, value, label)
 	if anchor == "" {
-		return
+		return ""
 	}
 	runes := []rune(cur.name)
 	m.boundCaret(len(runes))
 	cur.name = string(runes[:m.caret]) + anchor + string(runes[m.caret:])
 	m.caret += len([]rune(anchor))
 	m.unsaved = true
+	return strings.Trim(anchor, string(chipSentinel))
 }
 
 // insertURLLink inserts a link chip pointing at a typed/pasted URL, its name
@@ -105,7 +191,7 @@ func (m *Model) insertLinkChip(value, label string) {
 func (m *Model) insertURLLink(raw string) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	url := browser.Normalize(raw)
-	m.insertLinkChip(url, browser.Host(url))
+	m.insertLinkChip(url, urlChipLabel(url))
 	m.flash = "linked → " + clipStr(url, 32)
 	m.refreshRows()
 	return m, nil

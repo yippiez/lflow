@@ -33,6 +33,10 @@ func (m *Model) listSource() pickerSource {
 		return tagColorSource{}
 	case modeInsert:
 		return insertSource{}
+	case modeAgentPick:
+		return agentStartSource{}
+	case modeAgentColor:
+		return agentColorSource{}
 	}
 	return nil
 }
@@ -115,11 +119,11 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // kind handed to insertChip. "icon" is plain unicode (not a chip) — offered so
 // query nodes (where ":" is the query-command completer) can still insert icons.
 var insertKinds = []struct{ value, label, desc string }{
+	{"agent", "agent", "a coding session you already have"},
 	{"cmd", "bash", "a runnable $ command chip"},
 	{"date", "date", "today as a date chip"},
 	{"icon", "icon", "an icon or emoji via shortcode"},
 	{"link", "link", "a link chip"},
-	{"path", "file", "a file path chip"},
 	{"tag", "tag", "a #tag chip"},
 }
 
@@ -152,10 +156,10 @@ func (insertSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 }
 
 // insertChip splices a chip of the given kind at the caret, reusing each kind's
-// native flow: the "#" completer, the "[[" finder, the fzf file picker; date
-// lands today directly, cmd opens a "$" draft that the double-space rule turns
-// into the runnable chip. "icon" is plain unicode via the shortcode completer
-// and skips the chipsEnabled guard so query nodes can reach it.
+// native flow: the "#" completer, the "[[" finder; date lands today directly,
+// cmd opens a "$" draft that the double-space rule turns into the runnable
+// chip. "icon" is plain unicode via the shortcode completer and skips the
+// chipsEnabled guard so query nodes can reach it.
 func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	cur := m.cursorItem()
 	if cur == nil {
@@ -174,15 +178,15 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch kind {
+	case "agent":
+		// search the sessions the CLIs already have; the chip lands on select.
+		// This is the ONLY way in: a session chip is one of the things /insert
+		// splices, not a command of its own.
+		m.openAgentPicker()
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")
 	case "link":
 		m.openFinder(actLinkInsert)
-	case "path":
-		if cmd := m.openFilePicker(cur, ""); cmd != nil {
-			return m, cmd
-		}
-		m.flash = "fzf not installed"
 	case "date":
 		if anchor := m.createChip(chipKindDate, time.Now().Format("2006-01-02")); anchor != "" {
 			m.insertLiteralAt(cur, m.caret, anchor)
@@ -266,6 +270,11 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 				} else {
 					t.typ = it.value
 				}
+				// a type may want to land on its own face right away (the Table
+				// folds to its grid) — one hook, no per-type branch here
+				if h := typeOf(t.typ).onType; h != nil {
+					h(m, t)
+				}
 			}
 			m.unsaved = true
 		}
@@ -312,16 +321,16 @@ func (styleSource) items(m *Model, q string) []pickerItem {
 
 func (styleSource) header(m *Model, p *listPicker) string {
 	if m.selOn {
-		// a multi-select styles whole nodes; painting a text portion needs a
-		// single node, so p is not offered
 		return " " + cDim + "enter apply to selection" + cReset
 	}
-	// p paints a portion only while nothing is typed (see onKey); once a search
-	// query starts, p is a filter rune, so the hint drops away.
+	if _, _, _, ok := m.textSelection(); ok {
+		// a horizontal selection narrows the target to that run of the text
+		return " " + cDim + "enter style the selected text" + cReset
+	}
 	if p.query != "" {
 		return " " + cDim + "style: " + cReset + cFG + p.query + cReset
 	}
-	return " " + cDim + "enter apply to all · p paint a portion · type to filter" + cReset
+	return " " + cDim + "enter apply to all · shift+←/→ first styles a portion · type to filter" + cReset
 }
 
 func (styleSource) initialSel(m *Model) int {
@@ -344,6 +353,15 @@ func (styleSource) initialSel(m *Model) int {
 }
 
 func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
+	// a horizontal selection (shift+←/→) narrows the target to that run of the
+	// node's text: the style lands on the selected words only, never the line
+	if cur, lo, hi, ok := m.textSelection(); ok && it.value != "" {
+		m.applyStyleToSpan(cur, lo, hi, it.value)
+		m.clearTextSel()
+		m.mode = modeOutline
+		m.refreshRows()
+		return m, nil
+	}
 	targets := m.selectedItems() // multi-select: restyle the whole range
 	if len(targets) == 0 {
 		if cur := m.cursorItem(); cur != nil {
@@ -372,22 +390,6 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeOutline
 	return m, nil
-}
-
-// onKey: p inside /style takes the HIGHLIGHTED style into the painter — a
-// window over the node's text picks where that style lands (see paint.go).
-// Not with a multi-select: painting targets one node's text. Only while the
-// search query is empty, so a typed filter (e.g. "purple") keeps every rune.
-func (styleSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
-	if key == "p" && !m.selOn && p.query == "" {
-		value := ""
-		if p.sel >= 0 && p.sel < len(items) {
-			value = items[p.sel].value
-		}
-		m.enterPaint(value)
-		return true
-	}
-	return false
 }
 
 // --- /theme ----------------------------------------------------------------
@@ -472,6 +474,12 @@ func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 }
 
 func (completerSource) onRune(m *Model, p *listPicker, r []rune) bool {
+	// "#1" means "number one", not a tag: if the first char typed after a '#' is
+	// not a tag letter, drop the completer and keep the text literal.
+	if m.compl.kind == complTag && len(p.query) == 0 && len(r) > 0 && !isTagLetter(r[0]) {
+		p.query = ""
+		return true
+	}
 	p.query += string(r)
 	p.sel = 0
 	if cur := m.cursorItem(); cur != nil {

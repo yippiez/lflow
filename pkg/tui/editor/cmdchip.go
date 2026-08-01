@@ -34,9 +34,9 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 	end := m.caret - 1 // command ends just before the trailing space
 	spans := anchorSpans(runes)
 	// walk back to the "$" that opens the command: it must be at the node start or
-	// follow a space (a standalone token). Skip whole chip anchors so a path chip
-	// (or any chip) spliced into the command doesn't stop the scan — its sentinels
-	// would otherwise read as stray markers and abort the token.
+	// follow a space (a standalone token). Skip whole chip anchors so any chip
+	// spliced into the command doesn't stop the scan — its sentinels would
+	// otherwise read as stray markers and abort the token.
 	start := -1
 	for i := end - 1; i >= 0; {
 		if sp := spanEndingAt(spans, i+1); sp != nil {
@@ -52,8 +52,8 @@ func (m *Model) bashCmdBeforeCaret(cur *item) bool {
 	if start < 0 {
 		return false
 	}
-	// expand any chips folded into the command (e.g. a path chip → its full path)
-	// so the cmd chip's stored command is plain, runnable shell. An EMPTY
+	// expand any chips folded into the command (e.g. a tag chip → "#value") so
+	// the cmd chip's stored command is plain, runnable shell. An EMPTY
 	// command still chips: "$" + double space lands a blank $ chip to fill in.
 	cmd := strings.TrimSpace(expandAnchors(string(runes[start+1:end]), m.chips))
 	// those inner chips are now baked into the cmd value; drop their records before
@@ -166,23 +166,26 @@ func (m *Model) hydrateCmdPreviews() {
 	}
 }
 
-// stripSGR removes ANSI SGR escapes from s, leaving plain text — used to derive a
-// clean inline preview from coloured command output.
+// stripSGR removes ANSI escapes from s, leaving plain text — used to derive a
+// clean inline preview from coloured command output. Command output can carry
+// OSC 8 hyperlinks too (ls --hyperlink), so it scans with the shared,
+// OSC-aware ansiEscapeEnd rather than running to the next 'm'.
 func stripSGR(s string) string {
+	if !strings.ContainsRune(s, '\x1b') {
+		return s
+	}
 	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if r == 'm' {
-				inEsc = false
-			}
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			i = ansiEscapeEnd(s, i)
 			continue
 		}
-		if r == '\x1b' {
-			inEsc = true
-			continue
+		j := i
+		for j < len(s) && s[j] != '\x1b' {
+			j++
 		}
-		b.WriteRune(r)
+		b.WriteString(s[i:j])
+		i = j
 	}
 	return b.String()
 }
@@ -204,10 +207,13 @@ func (m *Model) focusCmdChip(c database.Chip) {
 	m.ensureRunOutLoaded(c.ID)
 }
 
-// activeView resolves the focused inline view: the cmd-chip band when a chip
-// is focused, else the node type's own view.
+// activeView resolves the focused inline view: a focused chip's own band (the
+// cmd chip's run output, a session chip's transcript), else the node type's view.
 func (m *Model) activeView(it *item) nodeView {
 	if m.focusChip != "" {
+		if c, ok := m.chips[m.focusChip]; ok && c.Kind == chipKindAgent {
+			return agentChipView{}
+		}
 		return cmdChipView{}
 	}
 	return nodeViewOf(it)

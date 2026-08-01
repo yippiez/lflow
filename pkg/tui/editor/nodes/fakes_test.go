@@ -47,16 +47,15 @@ func (f *fakeHost) NodeComputeTurn(context.Context, string, string, string) (<-c
 
 // fakeNode implements editor.NodeRef.
 type fakeNode struct {
-	uuid, typ, text, path string
-	parent                *fakeNode
-	kids                  []*fakeNode
+	uuid, typ, text string
+	parent          *fakeNode
+	kids            []*fakeNode
 }
 
 func (n *fakeNode) UUID() string     { return n.uuid }
 func (n *fakeNode) Type() string     { return n.typ }
 func (n *fakeNode) Text() string     { return n.text }
 func (n *fakeNode) SetText(s string) { n.text = s }
-func (n *fakeNode) PathChip() string { return n.path }
 func (n *fakeNode) Parent() (editor.NodeRef, bool) {
 	if n.parent == nil {
 		return nil, false

@@ -13,6 +13,14 @@ func TestTagSpans(t *testing.T) {
 	}
 }
 
+func TestTagSpansNumberLiteral(t *testing.T) {
+	// "#1" means "number one": a tag word must start with a letter or underscore.
+	got := TagSpans("episode #1 has tag #ep")
+	if len(got) != 1 || got[0] != [2]int{19, 22} {
+		t.Fatalf("expected only the #ep tag at [19,22), got %v", got)
+	}
+}
+
 func TestDateSpans(t *testing.T) {
 	if got := DateSpans("due 2026-07-01 sharp"); len(got) != 1 {
 		t.Errorf("canonical date should match once, got %v", got)
