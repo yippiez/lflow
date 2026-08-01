@@ -103,6 +103,23 @@ per-feature column — and no scattered `switch typ`:
 Then build/install with the fts5 tag. Runnable types execute on alt+r only (never
 auto-run) and their output is ephemeral — never persisted or synced.
 
+## File editing (`lflow file open`)
+
+`lflow file open <path>` edits a supported source file (.md, .py) as a node
+outline with two-way binding: the file parses into a node tree in a THROWAWAY
+scratch database (`packages/cli/file` — direct handle, no daemon, never the
+real outline), the ordinary editor edits that tree, and every save (ctrl+s,
+quit) serializes it back through the codec (`packages/nodes/filecodec.go`) and
+writes the file atomically, with a changed-on-disk guard. Markdown maps onto
+the existing types (h1–h3 sections, bullets, todo, quote, fenced block → Code,
+divider; `packages/nodes/markdown.go`); Python is its own node type — the math
+pattern applied to code: a node's text is one logical line, a compound header
+(`if x:`, `def f():`, keywords colored yellow) holds its body as children, and
+alt+r exports the subtree as indented source to the run band
+(`packages/nodes/python.go`). Saves normalize: markdown prose becomes `- `
+items, python re-indents to the 4-space grid; after that, parse→render
+round-trips byte-identically (see `filecodec_test.go`).
+
 ## Tables
 
 The Table node (`packages/editor/table.go`) is a grid READING of an ordinary

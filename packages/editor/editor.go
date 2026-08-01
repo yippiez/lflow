@@ -313,6 +313,12 @@ type Model struct {
 	saved struct {
 		written int
 	}
+
+	// onSave, when set, runs after every successful saveAll — the file-open
+	// session serializes the tree back to its source file there. Its error
+	// surfaces like a save error (the edits stay in the DB and retry on the
+	// next save).
+	onSave func() error
 }
 
 func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
@@ -365,6 +371,11 @@ func (m *Model) saveAll() (int, error) {
 			return w, err
 		}
 		w += n
+	}
+	if m.onSave != nil {
+		if err := m.onSave(); err != nil {
+			return w, err
+		}
 	}
 	return w, nil
 }
@@ -1746,6 +1757,14 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
+	return RunWithOnSave(ctx, nodeUUID, nil)
+}
+
+// RunWithOnSave is Run with a post-save hook: onSave fires after every
+// successful saveAll (ctrl+s, auto-flush, quit), which is how `lflow file
+// open` keeps its source file bound to the tree — the tree persists to the
+// scratch DB first, then serializes to disk.
+func RunWithOnSave(ctx context.DnoteCtx, nodeUUID string, onSave func() error) error {
 	// Materialize the lflow CLI skill used by NLPCompute's code generator.
 	if dir, err := agent.AgentMaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
 		nlp.SetSkillDir(dir)
@@ -1787,6 +1806,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		viewStack: []*item{t.root},
 		wfMap:     wfMap,
 		live:      ctx.Live, // daemon connection: live sync (nil in direct runs)
+		onSave:    onSave,
 	}
 	m.hydrateCmdPreviews() // rebuild → chrome from local node_output (chip label is never stored)
 	m.startFeed()          // subscribe to external changes; Init retries if it failed

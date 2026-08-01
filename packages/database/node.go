@@ -27,7 +27,7 @@ const (
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
-	TypeWF      = "wf" // a Workflowy mirror root: alt+r pulls its subtree (see pkg/tui/wf)
+	TypeWF      = "wf" // a Workflowy mirror root: alt+r pulls its subtree (see nodes/wf)
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
@@ -37,6 +37,14 @@ const (
 	// complex ones fan out into a child tree and the operator row shows a dim
 	// linear preview of its whole subtree. See editor/math.go.
 	TypeMath = "math"
+	// TypePython is a Python statement composed AS an outline, the
+	// programming-language sibling of TypeMath: a node's text is one logical
+	// line — a compound-statement header (`if x > 3:`, `def foo(a):`, keywords
+	// colored yellow) with its BODY as children, or a simple statement leaf.
+	// The subtree renders back to real indented source (alt+r → run band), and
+	// `lflow file open x.py` binds a whole file to such a tree. See
+	// nodes/python.go.
+	TypePython = "python"
 	// TypeTable reads an ordinary subtree AS a grid: the table's first-level
 	// children are its columns (their text is the header), each column's children
 	// are that column's cells top to bottom (so row n is the nth child of every
@@ -74,6 +82,7 @@ var TypeOrder = []string{
 	TypeImage,
 	TypeNLPCompute,
 	TypeMath,
+	TypePython,
 	TypeTable,
 	TypeWF,
 }

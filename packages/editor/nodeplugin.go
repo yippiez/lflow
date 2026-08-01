@@ -125,6 +125,15 @@ type NodePlugin struct {
 	BaseColor func() string                       // body SGR; nil/"" default
 	Render    func(h NodeHost, n NodeRef) string  // inline body override
 	Run       func(h NodeHost, n NodeRef) tea.Cmd // alt+r
+	// SpanColor tints individual runes of the EDITABLE body (math-operator
+	// style) without taking over the whole render: rune index → SGR. Pure over
+	// the runes — it runs on the render path with no host.
+	SpanColor func(runes []rune) map[int]string
+	// BodyTail appends already-styled text after the body on the same row (the
+	// math subtree-preview slot). It runs on the Model-free render path: the
+	// ref carries STRUCTURE only — Children()/Type()/UUID() work, Text()/
+	// SetText() and anything needing the host do not.
+	BodyTail func(n NodeRef) string
 	View      NodePluginView                      // alt+e inline expanded view
 	// BlockCode makes the node render AS a borderless code block that REPLACES its
 	// row (no glyph/body line): it returns the code, the caret rune index when the
@@ -209,6 +218,14 @@ func RegisterNodePlugin(p NodePlugin) {
 	if p.View != nil {
 		nt.view = nodePluginViewAdapter{v: p.View}
 	}
+	if p.SpanColor != nil {
+		sc := p.SpanColor
+		nt.spanColor = func(_ *item, runes []rune) map[int]string { return sc(runes) }
+	}
+	if p.BodyTail != nil {
+		bt := p.BodyTail
+		nt.bodyTail = func(it *item) string { return bt(nodeRef{it: it}) } // structure-only ref
+	}
 	if p.BlockCode != nil {
 		bc := p.BlockCode
 		nt.blockCode = func(m *Model, it *item, focused bool) (string, int, bool) {
@@ -292,6 +309,23 @@ func (m *Model) NodeComputeTurn(ctx context.Context, system, prompt, cwd string)
 func NodeBlockFace(h NodeHost, uuid string) string {
 	s, _ := h.NodeStore(uuid)["blockFace"].(string)
 	return s
+}
+
+// NodeRunOut replaces a node's run band with the given lines — the plugin
+// mirror of the math node's alt+r LaTeX export. No-op on a fake host.
+func NodeRunOut(h NodeHost, uuid string, lines []string) {
+	m, ok := h.(*Model)
+	if !ok {
+		return
+	}
+	r := m.ensureRun(uuid)
+	r.out = r.out[:0]
+	for _, l := range lines {
+		r.out = append(r.out, outLine{text: l})
+	}
+	r.dropped = 0
+	m.persistRunOut(uuid)
+	m.refreshRows()
 }
 
 // NodeClip trims a styled line to a display width (ANSI aware).

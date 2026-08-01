@@ -12,6 +12,7 @@ import (
 	// commands
 	"github.com/lflow/lflow/packages/cli/auth"
 	"github.com/lflow/lflow/packages/cli/export"
+	"github.com/lflow/lflow/packages/cli/file"
 	"github.com/lflow/lflow/packages/cli/node"
 	"github.com/lflow/lflow/packages/cli/root"
 	"github.com/lflow/lflow/packages/cli/serve"
@@ -42,6 +43,7 @@ func main() {
 	defer ctx.DB.Close()
 
 	root.Register(node.NewCmd(*ctx))
+	root.Register(file.NewCmd(*ctx))
 	root.Register(auth.NewCmd(*ctx))
 	root.Register(export.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))

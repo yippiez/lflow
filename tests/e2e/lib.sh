@@ -74,14 +74,16 @@ use_persist_db() {
 # ---------------------------------------------------------------------------
 # launch: start a detached tmux session running `<bin> node open` (no node arg —
 # opens an empty in-memory outline ready to type). Then settle for the paint.
+# Pass arguments to run a different command instead: `launch file open x.py`.
 # ---------------------------------------------------------------------------
 launch() {
     # LFLOW_NO_DAEMON: open the DB directly. A ":memory:" DB has no directory
     # for daemon.sock to live next to, so the socket path resolves relative and
     # every test would dial the SAME daemon — one shared in-memory DB bleeding
     # nodes across tests.
+    local args="${*:-node open}"
     tmux new-session -d -s "${SESSION}" -x "${WIN_W}" -y "${WIN_H}" \
-        "HOME='${TEST_HOME}' XDG_CONFIG_HOME='${TEST_HOME}' XDG_DATA_HOME='${TEST_HOME}' XDG_CACHE_HOME='${TEST_HOME}' LFLOW_NO_DAEMON=1 TERM=xterm-256color '${BIN}' node open"
+        "HOME='${TEST_HOME}' XDG_CONFIG_HOME='${TEST_HOME}' XDG_DATA_HOME='${TEST_HOME}' XDG_CACHE_HOME='${TEST_HOME}' LFLOW_NO_DAEMON=1 TERM=xterm-256color '${BIN}' ${args}"
     sleep "${SETTLE_AFTER_LAUNCH}"
 }
 
