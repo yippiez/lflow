@@ -699,6 +699,8 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	// offer the date conversion while a non-canonical time phrase sits under the
 	// cursor; an already-canonical date needs no conversion and is chipped as-is.
+	// with no date phrase there, offer a bare URL under the cursor instead — a URL
+	// never auto-chips from typing, only this explicit ctrl+t.
 	// while in temp the bar describes the main outline, so skip temp-cursor phrases
 	if m.mode == modeOutline && !m.tempActive {
 		if cur := m.cursorItem(); cur != nil && cur.mirrorOf == "" {
@@ -706,6 +708,8 @@ func (m *Model) bottomBar(maxLine int) []string {
 				// the date picker hint reads white against the dim status bar, then
 				// hands the color back so the rest of the bar stays muted
 				state += fmt.Sprintf(" · "+cFG+"ctrl+t %q → %s"+cDim, d.phrase, d.canonical())
+			} else if u := detectURLNear(cur.name, m.caret); u != nil {
+				state += fmt.Sprintf(" · "+cFG+"ctrl+t %q → link chip"+cDim, u.raw)
 			}
 		}
 	}

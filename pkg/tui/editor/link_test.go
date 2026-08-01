@@ -260,6 +260,66 @@ func TestNodeLinkURIRoundTrip(t *testing.T) {
 	}
 }
 
+// TestDetectURLNearPicksCaretAdjacent mirrors TestDetectDateCaretAware: with two
+// URLs in the text, detectURLNear must act on the one nearest the caret, not
+// always the leftmost.
+func TestDetectURLNearPicksCaretAdjacent(t *testing.T) {
+	text := "see https://a.com and https://b.com too"
+	if u := detectURLNear(text, 6); u == nil || u.raw != "https://a.com" {
+		t.Fatalf("caret in first url: got %+v", u)
+	}
+	if u := detectURLNear(text, len([]rune(text))-2); u == nil || u.raw != "https://b.com" {
+		t.Fatalf("caret in second url: got %+v", u)
+	}
+}
+
+// TestDetectURLNearTrimsPunctAndRejectsGluedScheme guards the same edge cases
+// as the date phrase scanner: trailing sentence punctuation drops off, and a
+// scheme glued to a preceding word (no space) is not a match.
+func TestDetectURLNearTrimsPunctAndRejectsGluedScheme(t *testing.T) {
+	if u := detectURLNear("visit https://x.com.", 0); u == nil || u.raw != "https://x.com" {
+		t.Fatalf("trailing period should be trimmed: %+v", u)
+	}
+	if u := detectURLNear("nothttps://not-a-url", 0); u != nil {
+		t.Fatalf("scheme glued to a preceding word must not match: %+v", u)
+	}
+}
+
+// TestCtrlTConvertsURLToLinkChip: like ctrl+t on a natural-language date
+// phrase, ctrl+t on a bare URL under the cursor converts it — but straight into
+// a real link chip, since a URL has no separate "canonical text" step. Typing
+// the URL itself (including a trailing space) must NOT have already chipped
+// it — only this explicit key does.
+func TestCtrlTConvertsURLToLinkChip(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "", Rank: 0})
+	cursorOn(m, "edit")
+	m.caret = 0
+
+	m.press("release notes https://example.com/release-notes ")
+	edit := m.tree.byUUID["edit"]
+	if hasAnchor(edit.name) {
+		t.Fatalf("typing a url (with trailing space) must not auto-chip it: %q", edit.name)
+	}
+
+	m.caret = len([]rune(edit.name)) - 1 // land back inside the url text
+	m.feed(key("ctrl+t"))
+
+	edit = m.tree.byUUID["edit"]
+	if !hasAnchor(edit.name) {
+		t.Fatalf("ctrl+t did not chip the url: %q", edit.name)
+	}
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip created")
+	}
+	if c.Value != "https://example.com/release-notes" {
+		t.Errorf("chip value = %q, want https://example.com/release-notes", c.Value)
+	}
+	if c.Label != "example.com" {
+		t.Errorf("chip label = %q, want example.com", c.Label)
+	}
+}
+
 // TestLinkExpandForExport guards the machine-readable form used by export/grep.
 func TestLinkExpandForExport(t *testing.T) {
 	c := database.Chip{Kind: chipKindLink, Value: "https://x.com", Label: "X"}

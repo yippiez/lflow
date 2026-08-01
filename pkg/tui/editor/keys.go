@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/utils/browser"
 )
 
 func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -413,7 +414,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+t":
 		// convert a time phrase under the cursor to canonical date text (the renderer
-		// then chips it)
+		// then chips it); with no date phrase there, convert a bare URL under the
+		// cursor straight into a link chip instead — neither ever happens just from
+		// typing, only this explicit key (see the status-bar hint in view.go).
 		if cur := m.cursorItem(); cur != nil && m.mirrorContext().editable {
 			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
 				runes := []rune(cur.name)
@@ -421,6 +424,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				cur.name = string(runes[:d.start]) + date + string(runes[d.end:])
 				m.caret = d.start + len([]rune(date))
 				m.unsaved = true
+			} else if u := detectURLNear(cur.name, m.caret); u != nil && chipsEnabled(cur) {
+				value := browser.Normalize(u.raw)
+				anchor := m.createLabeledChip(chipKindLink, value, urlChipLabel(value))
+				if anchor != "" {
+					runes := []rune(cur.name)
+					cur.name = string(runes[:u.start]) + anchor + string(runes[u.end:])
+					m.caret = u.start + len([]rune(anchor))
+					m.unsaved = true
+				}
 			}
 		}
 		return m, nil
