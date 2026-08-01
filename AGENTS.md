@@ -209,6 +209,17 @@ says so, `--force` applies anyway. On the wire a suggestions write flags
 `Event.Suggest` — deliberately NOT an aux table, since a proposal changes
 nothing a client renders — and `lflow serve` logs it as `→ suggested`.
 
+In the EDITOR (`pkg/tui/editor/suggest.go`) a pending proposal hangs under the
+node it is about, the same band surface as a note or run output, and appears
+live when the feed reports one (the bar carries `○ N suggestions`). `alt+v`
+opens review on the cursor node (`modeSuggest`): the band expands to author,
+message and the before/after, `y` approves, `n` rejects, `esc` leaves it
+pending, ↑↓ walks a node's queue, and `/suggestions` jumps to the next node
+carrying one. The band is a READING of the suggestions table — approving is the
+only path that writes, and it goes through `database.ApplySuggestion` and then
+resyncs. A proposal against the current view's own root has no row to hang
+from; `/suggestions` says so instead of pretending there is nothing.
+
 ## NLPCompute code generation
 
 NLPCompute is the only in-editor Pi surface. `alt+r` sends its natural-language

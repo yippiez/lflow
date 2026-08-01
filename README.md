@@ -26,7 +26,8 @@ lflow node list "reading list" --format json | jq -r '.children[].name'
 lflow suggest add --parent "reading list" "Designing Data-Intensive Applications"
 lflow suggest edit "ship the thing" --name "ship the other thing" --message "clearer"
 
-# Review the queue, read one proposal, then approve or reject it
+# In the editor a pending suggestion hangs under its node as you work:
+# alt+v reviews it, y approves, n rejects. From the CLI:
 lflow suggest list
 lflow suggest list --format json | jq -r '.[].uuid'
 lflow suggest show 4cad8e
