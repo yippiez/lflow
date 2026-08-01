@@ -187,6 +187,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selOn {
 			switch key {
 			case "tab", "shift+tab", "ctrl+d", "alt+d", "ctrl+shift+backspace",
+				"backspace",
 				"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
 				"/", "alt+P", "alt+a", // the slash menu may apply /type //style //move to the selection
@@ -841,6 +842,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.caret = end
 		return m, nil
 	case "backspace":
+		// backspace deletes the whole shift-selection, like alt+d — a selected
+		// range is content, not a cursor to back over.
+		if m.selOn {
+			if m.selHasChildren() {
+				m.mode = modeConfirm
+			} else {
+				m.selDelete()
+			}
+			return m, nil
+		}
 		cur := m.cursorItem()
 		// a mirror reference is edited at its original — see mirrorContext
 		if cur == nil || cur.mirrorOf != "" {
@@ -869,6 +880,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.unsaved = true
 			return m, nil
 		}
+		// a divider is a full-width rule, not content: backspace on it (or into
+		// it) is a no-op — never demote it, never merge its row with a neighbor.
+		if cur.typ == database.TypeDivider {
+			return m, nil
+		}
 		// backspace on an empty non-bullet node demotes its type to a plain bullet
 		// first (e.g. Bash → bullet → delete), so a special node isn't blown away in
 		// one keypress — the next backspace then merges/removes the bullet.
@@ -883,6 +899,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			prev := m.rows[m.cursor-1].it
 			if prev.mirrorOf != "" {
 				return m, nil // can't merge into a mirror reference
+			}
+			if prev.typ == database.TypeDivider {
+				return m, nil // never merge text into a divider rule
 			}
 			// merging up into a blank placeholder line: the absorbed node is really
 			// the content, so carry its style/type/collapsed across — otherwise

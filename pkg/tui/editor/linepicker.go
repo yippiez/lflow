@@ -41,6 +41,13 @@ func (characterSource) items(m *Model, q string) []pickerItem {
 	names := existingCharacters()
 	ql := strings.ToLower(q)
 	var out []pickerItem
+	// "none" clears the character off this line — picking it falls back to the
+	// "[+ character]" prompt, so a Line can always shed its speaker.
+	if q == "" {
+		out = append(out, pickerItem{value: "", render: func(bool) string {
+			return cDim + "· no character" + cReset
+		}})
+	}
 	for _, name := range names {
 		name := name
 		if ql != "" && !fuzzyMatch(strings.ToLower(name), ql) {
@@ -71,12 +78,13 @@ func (characterSource) header(m *Model, p *listPicker) string {
 
 func (characterSource) initialSel(m *Model) int {
 	cur := lineCharacters[m.characterPickUUID]
+	// "no character" (row 0) pre-selects when the line has none
 	if cur == "" {
 		return 0
 	}
 	for i, name := range existingCharacters() {
 		if name == cur {
-			return i
+			return i + 1 // offset past the "no character" row
 		}
 	}
 	return 0
@@ -84,25 +92,57 @@ func (characterSource) initialSel(m *Model) int {
 
 func (characterSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
-	if it.value == "" {
-		return m, nil
-	}
 	name := normalizeCharacter(it.value)
 	setLineCharacter(m, m.characterPickUUID, name)
-	m.flash = "character · " + name
+	if name == "" {
+		m.flash = "character removed"
+	} else {
+		m.flash = "character · " + name
+	}
 	return m, nil
 }
 
 // onKey claims alt+c to recolor the highlighted character without leaving the
-// picker for the top-level outline first.
+// picker for the top-level outline first, and alt+d to delete that character —
+// which clears every Line node referencing it (their rows fall back to the
+// "[+ character]" prompt) and drops its color.
 func (characterSource) onKey(m *Model, p *listPicker, key string, items []pickerItem) bool {
-	if key != "alt+c" || p.sel < 0 || p.sel >= len(items) || items[p.sel].value == "" {
+	if p.sel < 0 || p.sel >= len(items) || items[p.sel].value == "" {
 		return false
 	}
-	m.characterColorName = normalizeCharacter(items[p.sel].value)
-	m.mode = modeCharacterColor
-	m.list.open(m, characterColorSource{}, false)
-	return true
+	name := normalizeCharacter(items[p.sel].value)
+	switch key {
+	case "alt+c":
+		m.characterColorName = name
+		m.mode = modeCharacterColor
+		m.list.open(m, characterColorSource{}, false)
+		return true
+	case "alt+d":
+		deleteCharacter(m, name)
+		m.flash = "character removed · " + name
+		m.mode = modeOutline
+		return true
+	}
+	return false
+}
+
+// deleteCharacter removes a character from every Line node that names it and
+// drops its color, so the character disappears from the outline entirely — the
+// affected rows fall back to the "[+ character]" prompt. Persisted immediately,
+// like /star, so a crash can't half-remove it.
+func deleteCharacter(m *Model, name string) {
+	for uuid, cur := range lineCharacters {
+		if cur == name {
+			delete(lineCharacters, uuid)
+			if m.db != nil {
+				_ = database.SetLineCharacter(m.db, uuid, "")
+			}
+		}
+	}
+	delete(characterColors, name)
+	if m.db != nil {
+		_ = database.SetCharacterColor(m.db, name, "")
+	}
 }
 
 // --- the nested recolor picker (shares the Group-A listPicker) -------------

@@ -150,3 +150,65 @@ func TestSelectionTypeAndDelete(t *testing.T) {
 		t.Fatal("delete must clear the selection")
 	}
 }
+
+// TestSelectionBackspaceDeletes: backspace on a shift-selection deletes the
+// whole selected range (same as alt+d/ctrl+d), not just the node under the
+// cursor — a selection is content, not a cursor to back over. A selection that
+// spans a subtree asks for confirmation first, like ctrl+d.
+func TestSelectionBackspaceDeletes(t *testing.T) {
+	root := &item{}
+	a := &item{uuid: "a", name: "a", parent: root}
+	b := &item{uuid: "b", name: "b", parent: root}
+	c := &item{uuid: "c", name: "c", parent: root}
+	root.children = []*item{a, b, c}
+	tr := &tree{root: root, byUUID: map[string]*item{"a": a, "b": b, "c": c}, externalNames: map[string]string{}}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+	m.cursor = 0
+	m.press("shift+down") // a..b selected, no subtrees
+
+	m.press("backspace")
+
+	got := names(m.tree.root.children)
+	if len(got) != 1 || got[0] != "c" {
+		t.Fatalf("backspace on selection: %v, want [c]", got)
+	}
+	if m.selOn {
+		t.Fatal("backspace delete must clear the selection")
+	}
+}
+
+// TestBackspaceOnDividerNoop: backspace at the start of a divider (and backspace
+// on the node just below one) must not merge rows — a divider is a rule, not
+// content, so it never absorbs text and is never absorbed.
+func TestBackspaceOnDividerNoop(t *testing.T) {
+	root := &item{}
+	div := &item{uuid: "div", name: "", typ: database.TypeDivider, parent: root}
+	line := &item{uuid: "line", name: "Hello", typ: database.TypeLine, parent: root}
+	root.children = []*item{div, line}
+	tr := &tree{root: root, byUUID: map[string]*item{"div": div, "line": line}, externalNames: map[string]string{}}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+
+	// backspace on the divider itself: nothing happens
+	m.cursor = m.rowIndexOf(div)
+	m.caret = 0
+	m.press("backspace")
+	if len(root.children) != 2 || root.children[0] != div {
+		t.Fatalf("divider must survive backspace, children=%v", names(root.children))
+	}
+	if div.typ != database.TypeDivider {
+		t.Fatalf("divider must stay a divider after backspace, got %q", div.typ)
+	}
+
+	// backspace at the start of the line below: nothing merges into the divider
+	m.cursor = m.rowIndexOf(line)
+	m.caret = 0
+	m.press("backspace")
+	if len(root.children) != 2 || root.children[1] != line {
+		t.Fatalf("line below a divider must not merge into it, children=%v", names(root.children))
+	}
+	if div.name != "" || line.name != "Hello" {
+		t.Fatalf("divider/line text must be untouched: div=%q line=%q", div.name, line.name)
+	}
+}

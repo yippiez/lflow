@@ -271,7 +271,6 @@ var nodeTypes = []nodeType{
 		key: database.TypeLine, label: "Line", inlineEditable: true,
 		prefix:    linePrefix,
 		expand:    func(m *Model, it *item) tea.Cmd { m.openCharacterPicker(it); return nil },
-		onType:    func(m *Model, it *item) { m.openCharacterPicker(it) },
 		toContext: lineToContext,
 	},
 	// An agentic coding SESSION is not a node type: it is an inline chip only
