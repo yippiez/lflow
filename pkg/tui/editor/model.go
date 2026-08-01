@@ -571,8 +571,47 @@ func (t *tree) insertChildAt(parent *item, idx int, it *item) {
 	parent.children[idx] = it
 }
 
+// errStructureLocked is what the insert helpers return when a lock refuses the
+// splice. It is a REFUSAL, not a failure: the callers flash it and carry on,
+// where an unexpected error (a uuid that would not generate) still ends the
+// session. Compare with errors.Is.
+var errStructureLocked = errors.New("node structure is locked")
+
+// lockedSlot reports whether a node's POSITION is fixed — its own structure
+// lock, or its parent's. Nothing may be spliced in beside such a node: a
+// generated or mirrored run of siblings (query result rows, a mirrored Zotero
+// entry) is its source's shape, and a node wedged among them would be silently
+// dropped by the next refresh.
+func lockedSlot(it *item) bool {
+	if it == nil {
+		return false
+	}
+	return it.structureLocked || (it.parent != nil && it.parent.structureLocked)
+}
+
+// acceptsChildren reports whether a node can take a new child: not structure
+// locked itself, and not already holding locked children — the mirror root is
+// movable as a whole (so it is not locked), but its child list is Zotero's.
+func acceptsChildren(parent *item) bool {
+	if parent == nil {
+		return true
+	}
+	if parent.structureLocked {
+		return false
+	}
+	for _, c := range parent.children {
+		if c.structureLocked {
+			return false
+		}
+	}
+	return true
+}
+
 // insertSiblingAfter inserts a new empty node after the given one.
 func (t *tree) insertSiblingAfter(after *item) (*item, error) {
+	if lockedSlot(after) {
+		return nil, errStructureLocked
+	}
 	it, err := t.newItem()
 	if err != nil {
 		return nil, err
@@ -586,6 +625,9 @@ func (t *tree) insertSiblingAfter(after *item) (*item, error) {
 // insertSiblingBefore inserts a new empty node before the given one, pushing it
 // (and its whole subtree) down a slot.
 func (t *tree) insertSiblingBefore(before *item) (*item, error) {
+	if lockedSlot(before) {
+		return nil, errStructureLocked
+	}
 	it, err := t.newItem()
 	if err != nil {
 		return nil, err
@@ -598,8 +640,8 @@ func (t *tree) insertSiblingBefore(before *item) (*item, error) {
 
 // insertFirstChild inserts a new empty node as the first child of parent.
 func (t *tree) insertFirstChild(parent *item) (*item, error) {
-	if parent != nil && parent.structureLocked {
-		return nil, errors.New("node structure is locked")
+	if !acceptsChildren(parent) {
+		return nil, errStructureLocked
 	}
 	it, err := t.newItem()
 	if err != nil {
@@ -615,7 +657,7 @@ func (t *tree) insertFirstChild(parent *item) (*item, error) {
 // pointing at their originals. The view root (no parent) cannot be duplicated.
 func (t *tree) duplicate(it *item) (*item, error) {
 	if it.structureLocked {
-		return nil, errors.New("node structure is locked")
+		return nil, errStructureLocked
 	}
 	if it.parent == nil {
 		return nil, errors.New("cannot duplicate the root node")
@@ -820,7 +862,7 @@ func (t *tree) reparent(it *item, newParent *item) bool {
 // current parent and attaches it under newParent, landing on top when top is
 // true or at the bottom otherwise.
 func (t *tree) reparentPlaced(it *item, newParent *item, top bool) bool {
-	if it == nil || newParent == nil || it.structureLocked || newParent.structureLocked {
+	if it == nil || newParent == nil || it.structureLocked || !acceptsChildren(newParent) {
 		return false
 	}
 	// cycle check: newParent must not be inside it's subtree

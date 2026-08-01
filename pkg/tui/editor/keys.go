@@ -4,9 +4,20 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/pkg/errors"
+
 	"github.com/lflow/lflow/pkg/tui/database"
 	"github.com/lflow/lflow/pkg/utils/browser"
 )
+
+// lockedFlash explains a refused splice in the terms of whatever owns the node:
+// a mirrored Zotero entry says so by name, anything else is a plain lock.
+func lockedFlash(it *item) string {
+	if zoteroMirrored(it) {
+		return "zotero · a mirrored entry is read-only · alt+r refreshes it"
+	}
+	return "node structure is locked"
+}
 
 func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
@@ -254,6 +265,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// above it with the cursor there.
 		if cur != nil && mc.editable && m.caret == 0 && cur.name != "" {
 			it, err := m.tree.insertSiblingBefore(cur)
+			if errors.Is(err, errStructureLocked) {
+				m.flash = lockedFlash(cur)
+				return m, nil
+			}
 			if err != nil {
 				m.err = err
 				return m.quit()
@@ -279,6 +294,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			it, err = m.tree.insertFirstChild(cur)
 		default:
 			it, err = m.tree.insertSiblingAfter(cur)
+		}
+		if errors.Is(err, errStructureLocked) {
+			m.flash = lockedFlash(cur)
+			return m, nil
 		}
 		if err != nil {
 			m.err = err
@@ -566,6 +585,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if c, ok := m.zoteroChipAtCaret(cur); ok {
 				return m.openZoteroChip(c, zoteroTargetLocal())
 			}
+			if zoteroMirrored(cur) {
+				return m.zoteroOpenNode(cur, false)
+			}
 		}
 		if !m.tempActive {
 			m.openFinder(actGoto)
@@ -656,6 +678,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.zoteroChipAtCaret(cur); ok {
 				return m.openZoteroChip(c, !zoteroTargetLocal())
+			}
+			if zoteroMirrored(cur) {
+				return m.zoteroOpenNode(cur, true)
 			}
 			if open := typeOf(cur.typ).openHost; open != nil {
 				return m, open(m, cur)
@@ -1049,7 +1074,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
 			m.caret--
 			m.unsaved = true
-			return m.openCitePicker()
+			return m.openCitePicker(citeChip)
 		}
 
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command
