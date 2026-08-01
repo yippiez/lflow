@@ -27,9 +27,11 @@ wait_for "convert ⌬"
 
 send Enter
 
-# the notation is folded into one painted chip: ring glyph + truncated notation
-wait_for "⌬ CN1C"
-assert_contains "…"
+# the notation is folded into one painted chip: ring glyph + truncated notation.
+# the chip's padding is NBSP (nonBreaking, so a soft wrap cannot split the pill),
+# so assert the ring and the notation rather than the separator between them.
+wait_for "CN1C=NC2=C1C…"
+assert_contains "⌬"
 # the raw notation no longer sprawls across the row
 assert_not_contains "N(C(=O)N2C)C"
 
