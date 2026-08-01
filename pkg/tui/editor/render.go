@@ -65,7 +65,7 @@ const (
 	glyphTodoDone  = "■"
 	glyphQuoteBar  = "▎"
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
-	glyphThinking  = "✣" // Claude Code's thinking-spinner glyph, always muted gray
+	glyphThinking  = "※" // Claude Code's thinking-spinner glyph, always muted gray
 )
 
 // underCompleted reports whether it sits under a completed ancestor in the
