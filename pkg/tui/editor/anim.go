@@ -99,6 +99,16 @@ func (m *Model) animActive() bool {
 	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating() || m.queryLoad != nil
 }
 
+// runningQueryCount is the number of query runs in flight. Starting a run
+// cancels the previous one (see startQueryLoad), so today this is 0 or 1 — it is
+// a count rather than a bool so the toolbar reads the same if that ever changes.
+func (m *Model) runningQueryCount() int {
+	if m.queryLoad == nil {
+		return 0
+	}
+	return 1
+}
+
 // anyNodeAnimating reports whether any node set the generic "animating" flag in
 // its ephemeral store — the shine indicator a plugin raises while it works.
 func (m *Model) anyNodeAnimating() bool {

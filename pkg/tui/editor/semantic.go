@@ -219,6 +219,7 @@ func semanticHits(ctx *qCtx, phrase string) map[string]bool {
 	}
 	for _, u := range qualified {
 		out[u] = true
+		ctx.recordScore(u, fused[u])
 	}
 	return out
 }

@@ -206,6 +206,16 @@ project > type(todo) after(2026-06-01)      dated todos under a "project" node
 "why the build keeps failing" as(tree)      semantic search, nested under ancestors
 ```
 
+Hits come back ranked: `/star` pins first, then relevance when a quoted atom
+scored them, then name. A purely lexical query has no score — only "matched" —
+so it stays name-ordered. A run streams its candidates, then hands the finished
+expression to a worker (`queryReadyMsg`) so a big evaluation never blocks the UI
+goroutine; the toolbar shows `N queries running` as an ultraloop shimmer
+(`ShineText`) while it works. The worker reads only frozen data — the candidate
+set stops growing and `qCtx.chips` is a snapshot — and everything touching the
+tree (mirror reconciliation, the `as(tree)` breadcrumb sort) stays on the UI
+goroutine.
+
 Qualifiers: `type()` `in()` `after()`/`since()` `before()`/`until()` `is()`
 (starred, unstarred, done, open) `has()` (note, children) `as()` (tree/list). A
 `(` opens a value only when glued to a known key, so `(project || release)`

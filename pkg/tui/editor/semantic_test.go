@@ -369,3 +369,83 @@ func TestStructureSurvivesCyclicAncestry(t *testing.T) {
 		t.Fatal("cyclic ancestry hung the semantic model build")
 	}
 }
+
+// --- ranking ------------------------------------------------------------------
+
+// TestQueryHitsSortByScore: a quoted atom ranks what it finds, and the result
+// list has to keep that order. Name order would throw the ranking away — the
+// point of scoring the candidates is that the best come out on top, not the ones
+// beginning with "a".
+func TestQueryHitsSortByScore(t *testing.T) {
+	root := &item{uuid: database.RootUUID, name: "Root"}
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root,
+		name: `"the deployment pipeline keeps failing"`}
+	// "aardvark…" sorts first by name and last by relevance; the exact match
+	// sorts last by name and first by relevance.
+	weak := &item{uuid: "weak", name: "aardvark pipeline notes", parent: root}
+	exact := &item{uuid: "exact", name: "the deployment pipeline keeps failing", parent: root}
+	mid := &item{uuid: "mid", name: "deployment pipeline flake", parent: root}
+	root.children = []*item{q, weak, exact, mid}
+	m := &Model{tree: &tree{root: root, snapshots: map[string]snapshot{}, externalNames: map[string]string{},
+		byUUID: map[string]*item{database.RootUUID: root, "q": q,
+			"weak": weak, "exact": exact, "mid": mid}}}
+
+	got := m.queryMatches(q)
+	if len(got) == 0 {
+		t.Fatal("no hits")
+	}
+	if got[0].UUID != "exact" {
+		var names []string
+		for _, n := range got {
+			names = append(names, n.UUID)
+		}
+		t.Fatalf("hit order = %v, want the exact match first (name order would give weak)", names)
+	}
+}
+
+// TestQueryStarredStillPinsAboveScore: /star is a user's explicit override and
+// outranks the matcher's opinion.
+func TestQueryStarredStillPinsAboveScore(t *testing.T) {
+	root := &item{uuid: database.RootUUID, name: "Root"}
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root,
+		name: `"the deployment pipeline keeps failing"`}
+	exact := &item{uuid: "exact", name: "the deployment pipeline keeps failing", parent: root}
+	pinned := &item{uuid: "pinned", name: "deployment pipeline flake", parent: root, starred: true}
+	root.children = []*item{q, exact, pinned}
+	m := &Model{tree: &tree{root: root, snapshots: map[string]snapshot{}, externalNames: map[string]string{},
+		byUUID: map[string]*item{database.RootUUID: root, "q": q, "exact": exact, "pinned": pinned}}}
+
+	got := m.queryMatches(q)
+	if len(got) < 2 || got[0].UUID != "pinned" {
+		t.Fatalf("starred hit must stay pinned above a better-scoring one, got %+v", got)
+	}
+}
+
+// TestLexicalQueryKeepsNameOrder: a query with no quoted atom has no notion of
+// "better", only "matched", so it must not pretend to rank.
+func TestLexicalQueryKeepsNameOrder(t *testing.T) {
+	root := &item{uuid: database.RootUUID, name: "Root"}
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root, name: "pipeline"}
+	b := &item{uuid: "b", name: "beta pipeline", parent: root}
+	a := &item{uuid: "a", name: "alpha pipeline", parent: root}
+	root.children = []*item{q, b, a}
+	m := &Model{tree: &tree{root: root, snapshots: map[string]snapshot{}, externalNames: map[string]string{},
+		byUUID: map[string]*item{database.RootUUID: root, "q": q, "a": a, "b": b}}}
+
+	got := m.queryMatches(q)
+	if len(got) != 2 || got[0].UUID != "a" {
+		t.Fatalf("lexical hits = %+v, want name order (alpha before beta)", got)
+	}
+}
+
+// TestSemanticScoreTakesStrongestPhrase: two quoted atoms are both describing the
+// wanted thing, so a node one of them is sure about must not be dragged down by
+// the other's indifference.
+func TestSemanticScoreTakesStrongestPhrase(t *testing.T) {
+	ctx := semanticCtx(map[string]string{"a": "one two three", "b": "four five six"})
+	ctx.recordScore("a", 0.2)
+	ctx.recordScore("a", 0.05)
+	if got := ctx.score["a"]; got != 0.2 {
+		t.Fatalf("score = %v, want the strongest claim (0.2) kept", got)
+	}
+}

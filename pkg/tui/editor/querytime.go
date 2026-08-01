@@ -263,7 +263,7 @@ func (e *qType) eval(ctx *qCtx) map[string]bool {
 func (e *qTime) eval(ctx *qCtx) map[string]bool {
 	out := map[string]bool{}
 	for _, c := range ctx.cands {
-		if matchDateWindow(ctx.m.nodeDates(c.name, c.addedOn, ctx.now), e.after, e.before) {
+		if matchDateWindow(nodeDates(c.name, c.addedOn, ctx.now, ctx.chips), e.after, e.before) {
 			out[c.uuid] = true
 		}
 	}
@@ -313,6 +313,27 @@ type qCtx struct {
 	// partial marks an evaluation over a candidate set the streaming scan has not
 	// finished delivering. See qSemantic.eval.
 	partial bool
+	// chips is a SNAPSHOT of the editor's chip table, taken when the run starts.
+	// Evaluation happens on a worker goroutine while the user keeps typing, and
+	// typing creates chips — reading the live map would be a concurrent map
+	// read/write, which is a hard crash in Go rather than a stale result.
+	chips map[string]database.Chip
+	// score is each hit's semantic relevance, written by the quoted atoms as they
+	// evaluate and read back to order the results. Empty for a purely lexical
+	// query, which has no notion of "better" — only "matched".
+	score map[string]float64
+}
+
+// recordScore keeps the STRONGEST claim any quoted atom made about a node. Two
+// phrases in one query are both describing the wanted thing, so a node that one
+// of them is sure about should not be dragged down by the other's indifference.
+func (ctx *qCtx) recordScore(uuid string, s float64) {
+	if ctx.score == nil {
+		ctx.score = map[string]float64{}
+	}
+	if s > ctx.score[uuid] {
+		ctx.score[uuid] = s
+	}
 }
 
 // underAny reports whether uuid is a strict descendant of any node in roots.
@@ -835,13 +856,15 @@ func parseQueryDate(operand string, now time.Time) (time.Time, bool, bool) {
 }
 
 // nodeDates is the set of times a node matches against: its creation time plus
-// every date chip / inline date in its (anchor-expanded) name.
-func (m *Model) nodeDates(name string, addedOn int64, now time.Time) []time.Time {
+// every date chip / inline date in its (anchor-expanded) name. It takes the chip
+// table rather than the Model because it runs on the query worker — see
+// qCtx.chips.
+func nodeDates(name string, addedOn int64, now time.Time, chips map[string]database.Chip) []time.Time {
 	var out []time.Time
 	if addedOn > 0 {
 		out = append(out, time.Unix(0, addedOn))
 	}
-	plain := database.ExpandAnchors(name, m.chips)
+	plain := database.ExpandAnchors(name, chips)
 	for _, dm := range detectAllDates(plain, now) {
 		out = append(out, dm.t)
 	}

@@ -786,6 +786,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.flushSync()
 	case queryLoadMsg:
 		return m, m.startAnim(m.handleQueryLoad(msg))
+	case queryReadyMsg:
+		return m, m.handleQueryReady(msg)
 	case animTickMsg:
 		animFrame++
 		if m.animActive() {
