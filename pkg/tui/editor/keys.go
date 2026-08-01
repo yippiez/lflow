@@ -631,15 +631,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case "alt+c":
-		// recolor the session chip at the caret
-		if cur := m.cursorItem(); cur != nil {
-			if c, ok := m.agentChipForKeys(cur); ok {
-				m.openAgentColor(c)
-				return m, nil
-			}
-		}
-		return m, nil
 	case "alt+enter":
 		// same as /complete: toggle done on the cursor node
 		if cur := m.cursorItem(); cur != nil {
@@ -683,8 +674,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// open the type picker directly (same as /type)
 		return m.runSlash("/type")
 	case "alt+c":
-		// open the style picker directly (same as /style) — c for colors; alt+y
-		// is the yank key, so the picker moved off it
+		// color: a session chip under the caret takes the key for its own color,
+		// the way ⌥k goes to a cmd chip's band before the node's. Everywhere else
+		// this opens the style picker (same as /style) — c for colors; alt+y is
+		// the yank key, so the picker moved off it.
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipForKeys(cur); ok {
+				m.openAgentColor(c)
+				return m, nil
+			}
+		}
 		return m.runSlash("/style")
 	case "alt+k":
 		// kill: stop a running command, keeping what was captured; when nothing is
