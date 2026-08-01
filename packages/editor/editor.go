@@ -319,6 +319,9 @@ type Model struct {
 	// surfaces like a save error (the edits stay in the DB and retry on the
 	// next save).
 	onSave func() error
+	// allowedTypes, when set, restricts the /type picker to the node types
+	// the session's file format accepts. nil = unrestricted.
+	allowedTypes map[string]bool
 }
 
 func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
@@ -1490,6 +1493,9 @@ func (m *Model) filteredTypes(query string) []string {
 		if typeOf(t).tempOnly && !m.tempActive {
 			continue // temp-only types are not offered outside the Temporary Domain
 		}
+		if m.allowedTypes != nil && !m.allowedTypes[t] {
+			continue // a file session offers only the types its format accepts
+		}
 		if q != "" && !fuzzyMatch(strings.ToLower(typeLabel(t)), q) && !fuzzyMatch(t, q) {
 			continue
 		}
@@ -1757,14 +1763,25 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 
 // Run opens the inline node editor on the given node.
 func Run(ctx context.DnoteCtx, nodeUUID string) error {
-	return RunWithOnSave(ctx, nodeUUID, nil)
+	return RunFile(ctx, nodeUUID, FileSession{})
 }
 
-// RunWithOnSave is Run with a post-save hook: onSave fires after every
-// successful saveAll (ctrl+s, auto-flush, quit), which is how `lflow file
-// open` keeps its source file bound to the tree — the tree persists to the
-// scratch DB first, then serializes to disk.
-func RunWithOnSave(ctx context.DnoteCtx, nodeUUID string, onSave func() error) error {
+// FileSession configures a file-backed editor run.
+type FileSession struct {
+	// OnSave fires after every successful saveAll (ctrl+s, auto-flush, quit):
+	// the tree persists to the scratch DB first, then serializes to disk.
+	OnSave func() error
+	// AllowedTypes restricts the /type picker to what the file format
+	// accepts (nil = unrestricted).
+	AllowedTypes map[string]bool
+	// DefaultType is the type a freshly typed node gets ("" = bullets) — a
+	// .py session types python statements, not bullets.
+	DefaultType string
+}
+
+// RunFile is Run for a file-backed session.
+func RunFile(ctx context.DnoteCtx, nodeUUID string, fs FileSession) error {
+	onSave, allowedTypes := fs.OnSave, fs.AllowedTypes
 	// Materialize the lflow CLI skill used by NLPCompute's code generator.
 	if dir, err := agent.AgentMaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
 		nlp.SetSkillDir(dir)
@@ -1774,6 +1791,7 @@ func RunWithOnSave(ctx context.DnoteCtx, nodeUUID string, onSave func() error) e
 	if err != nil {
 		return errors.Wrap(err, "loading node tree")
 	}
+	t.defaultType = fs.DefaultType // "" = bullets; a file session types its format's default
 
 	tempTree, err := loadTree(ctx.DB, database.TempUUID)
 	if err != nil {
@@ -1804,9 +1822,10 @@ func RunWithOnSave(ctx context.DnoteCtx, nodeUUID string, onSave func() error) e
 		chips:     chips,
 		tempTree:  tempTree, // the Temp root subtree, persisted alongside Root
 		viewStack: []*item{t.root},
-		wfMap:     wfMap,
-		live:      ctx.Live, // daemon connection: live sync (nil in direct runs)
-		onSave:    onSave,
+		wfMap:        wfMap,
+		live:         ctx.Live, // daemon connection: live sync (nil in direct runs)
+		onSave:       onSave,
+		allowedTypes: allowedTypes,
 	}
 	m.hydrateCmdPreviews() // rebuild → chrome from local node_output (chip label is never stored)
 	m.startFeed()          // subscribe to external changes; Init retries if it failed

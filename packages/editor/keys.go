@@ -833,11 +833,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.unsaved = true
 			return m, nil
 		}
-		// backspace on an empty non-bullet node demotes its type to a plain bullet
-		// first (e.g. Bash → bullet → delete), so a special node isn't blown away in
-		// one keypress — the next backspace then merges/removes the bullet.
-		if cur.name == "" && cur.mirrorOf == "" && typeOf(cur.typ).key != database.TypeBullets {
-			cur.typ = database.TypeBullets
+		// backspace on an empty non-default node demotes its type to the tree's
+		// plain type first (bullets, or a file session's statement type), so a
+		// special node isn't blown away in one keypress — the next backspace
+		// then merges/removes it.
+		plainType := m.tree.defaultType
+		if plainType == "" {
+			plainType = database.TypeBullets
+		}
+		if cur.name == "" && cur.mirrorOf == "" && typeOf(cur.typ).key != plainType {
+			cur.typ = plainType
 			m.unsaved = true
 			return m, nil
 		}

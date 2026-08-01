@@ -22,8 +22,9 @@ EOF
 
 launch file open "${PYFILE}"
 
-# the file parsed into an outline: header row with its body child
-wait_for "def greet():"
+# the file parsed into an outline: the def is a first-class fn node (ƒ glyph,
+# keyword-free signature) with its body as a child
+wait_for "ƒ greet()"
 wait_for "return 1"
 
 # the header shows the file name, not Root

@@ -1,0 +1,20 @@
+# examples/config.toml — a config file as an outline
+# Comments are comment nodes; every other line is a text node. Sections own
+# their keys as children, flat like TOML itself.
+# TODO pin the serde minor version — todos work here too.
+title = "lflow example"
+
+[package]
+name = "lflow-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[profile.release]
+# a section header like [profile.release] is its own node — zoom into it and
+# these keys are the whole view
+opt-level = 3
+lto = true

@@ -1,0 +1,29 @@
+{
+  "name": "lflow-example",
+  "version": 2,
+  "strict": true,
+  "threshold": 0.75,
+  "fallback": null,
+  "keywords": [
+    "outline",
+    "editor",
+    "two-way"
+  ],
+  "build": {
+    "target": "cmd/lflow",
+    "tags": [
+      "fts5"
+    ],
+    "cache": {}
+  },
+  "matrix": [
+    {
+      "os": "linux",
+      "arch": "amd64"
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64"
+    }
+  ]
+}

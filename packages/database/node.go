@@ -45,6 +45,20 @@ const (
 	// `lflow file open x.py` binds a whole file to such a tree. See
 	// nodes/python.go.
 	TypePython = "python"
+	// TypeRust is the Rust sibling of TypePython: one logical line per node,
+	// a `{`-opening header holds its block as children (braces regenerate
+	// from structure on save). See nodes/rust.go.
+	TypeRust = "rust"
+	// The language-neutral construct types — first-class citizens shared by
+	// every language codec, so a function is a function whether the file is
+	// .py or .rs. Their text is the language-neutral core (a signature, the
+	// comment body); each codec adds its own syntax back on save
+	// (`def x():` / `fn x() {`, `# c` / `// c` / `<!-- c -->`). See
+	// nodes/fn.go, nodes/class.go, nodes/comment.go, nodes/text.go.
+	TypeFn      = "fn"      // a function: text is the signature, body is the children
+	TypeClass   = "class"   // a type container (class / struct / impl / enum), members as children
+	TypeComment = "comment" // a comment line, keyword-free text
+	TypeText    = "text"    // a prose paragraph (markdown text that is NOT a list item)
 	// TypeTable reads an ordinary subtree AS a grid: the table's first-level
 	// children are its columns (their text is the header), each column's children
 	// are that column's cells top to bottom (so row n is the nth child of every
@@ -83,6 +97,11 @@ var TypeOrder = []string{
 	TypeNLPCompute,
 	TypeMath,
 	TypePython,
+	TypeRust,
+	TypeFn,
+	TypeClass,
+	TypeComment,
+	TypeText,
 	TypeTable,
 	TypeWF,
 }

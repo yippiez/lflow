@@ -10,18 +10,32 @@ import (
 	"github.com/lflow/lflow/packages/editor"
 )
 
-// The Python node: a statement composed AS an outline, the programming-language
-// sibling of the math node. A node's text is one logical line — a compound
-// statement header (`if x > 3:`, `def foo(a):`) with its BODY as children, or a
-// simple statement leaf. The subtree renders back to real indented source:
-// alt+r exports it to the run band, and `lflow file open x.py` binds a whole
-// file to such a tree (see pythonCodec below).
-//
-// Keywords color yellow like math operators; a header row shows a dim
-// `· n lines` tail for its folded body size.
+// The Python node + codec: a statement composed AS an outline, the
+// programming-language sibling of the math node. A node's text is one logical
+// line — a compound header (`if x > 3:`) with its body as children, or a leaf.
+// The first-class constructs are their own types: `def greet():` is a fn node
+// with text `greet()`, `class App:` a class node with text `App`, `# c` a
+// comment node — so a function is the same node in every language, and each
+// codec puts its own syntax back. alt+r exports any subtree as real indented
+// source; `lflow file open x.py` binds a whole file. Keywords color yellow
+// like math operators; a header row shows a dim `· n lines` tail.
 
-// pythonKeywords drives both span coloring and nothing else — one table, like
-// mathSym.
+var pythonSpec = langSpec{
+	name:        "python",
+	stmtType:    database.TypePython,
+	commentLead: "# ",
+	indentUnit:  "    ",
+	braces:      false,
+	renderFn: func(sig string) string {
+		if rest, ok := strings.CutPrefix(sig, "async "); ok {
+			return "async def " + rest + ":"
+		}
+		return "def " + sig + ":"
+	},
+	renderClass: func(head string) string { return "class " + head + ":" },
+}
+
+// pythonKeywords drives span coloring — one table, like mathSym.
 var pythonKeywords = map[string]bool{
 	"False": true, "None": true, "True": true, "and": true, "as": true,
 	"assert": true, "async": true, "await": true, "break": true, "class": true,
@@ -36,56 +50,55 @@ func isWordRune(r rune) bool {
 	return r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
-// pythonSpanColor tints keyword runes yellow, comments dim. Pure over the runes.
-func pythonSpanColor(runes []rune) map[int]string {
-	th := editor.NodeTheme()
-	colors := map[int]string{}
-	// a comment dims from '#' on (strings are not tracked — good enough inline)
-	for i, r := range runes {
-		if r == '#' {
-			for j := i; j < len(runes); j++ {
+// keywordSpanColor tints keyword runes yellow and comments dim — shared by the
+// python and rust statement nodes.
+func keywordSpanColor(keywords map[string]bool, commentMark string) func(runes []rune) map[int]string {
+	return func(runes []rune) map[int]string {
+		th := editor.NodeTheme()
+		colors := map[int]string{}
+		if i := strings.Index(string(runes), commentMark); i >= 0 {
+			pre := []rune(string(runes)[:i])
+			for j := len(pre); j < len(runes); j++ {
 				colors[j] = th.Dim
 			}
-			break
 		}
-	}
-	for i := 0; i < len(runes); {
-		if !isWordRune(runes[i]) {
-			i++
-			continue
-		}
-		j := i
-		for j < len(runes) && isWordRune(runes[j]) {
-			j++
-		}
-		if pythonKeywords[string(runes[i:j])] && colors[i] == "" {
-			for k := i; k < j; k++ {
-				colors[k] = th.Yellow
+		for i := 0; i < len(runes); {
+			if !isWordRune(runes[i]) {
+				i++
+				continue
 			}
+			j := i
+			for j < len(runes) && isWordRune(runes[j]) {
+				j++
+			}
+			if keywords[string(runes[i:j])] && colors[i] == "" {
+				for k := i; k < j; k++ {
+					colors[k] = th.Yellow
+				}
+			}
+			i = j
 		}
-		i = j
+		return colors
 	}
-	return colors
 }
 
-// pythonLineCount counts the lines a subtree renders to.
-func pythonLineCount(n editor.NodeRef) int {
+// codeLineCount counts the lines a subtree renders to.
+func codeLineCount(n editor.NodeRef) int {
 	total := 1
 	for _, c := range n.Children() {
-		total += pythonLineCount(c)
+		total += codeLineCount(c)
 	}
 	return total
 }
 
-// pythonBodyTail shows a header's folded body size: `· 12 lines`. It runs on
-// the structure-only render path — Children() only, never Text().
-func pythonBodyTail(n editor.NodeRef) string {
-	kids := n.Children()
-	if len(kids) == 0 {
+// codeBodyTail shows a header's folded body size: `· 12 lines`. Structure-only
+// render path — Children() only, never Text().
+func codeBodyTail(n editor.NodeRef) string {
+	if len(n.Children()) == 0 {
 		return ""
 	}
 	th := editor.NodeTheme()
-	lines := pythonLineCount(n) - 1
+	lines := codeLineCount(n) - 1
 	word := "lines"
 	if lines == 1 {
 		word = "line"
@@ -93,26 +106,29 @@ func pythonBodyTail(n editor.NodeRef) string {
 	return th.Dim + " · " + strconv.Itoa(lines) + " " + word + th.Reset
 }
 
-// pythonSource renders a node subtree to indented source, depth*4 spaces.
-func pythonSource(n editor.NodeRef, depth int, out *[]string) {
-	text := n.Text()
-	if text == "" && len(n.Children()) == 0 {
-		*out = append(*out, "")
-	} else {
-		*out = append(*out, strings.Repeat("    ", depth)+text)
-	}
+// refToSrc projects an editor subtree onto the neutral SrcNode form so alt+r
+// exports through the same renderer as the file codec.
+func refToSrc(n editor.NodeRef) *SrcNode {
+	s := &SrcNode{Type: n.Type(), Text: n.Text()}
 	for _, c := range n.Children() {
-		pythonSource(c, depth+1, out)
+		s.Kids = append(s.Kids, refToSrc(c))
 	}
+	return s
 }
 
-// runPythonSource is alt+r: export this subtree as python source to the run band.
-func runPythonSource(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
-	var lines []string
-	pythonSource(n, 0, &lines)
-	editor.NodeRunOut(h, n.UUID(), lines)
-	h.NodeFlash("python → output")
-	return nil
+// runCodeExport is alt+r for a language statement node: export the subtree as
+// real source to the run band.
+func runCodeExport(spec langSpec) func(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
+	return func(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
+		src, err := renderCode([]*SrcNode{refToSrc(n)}, spec)
+		if err != nil {
+			h.NodeFlash("export: " + err.Error())
+			return nil
+		}
+		editor.NodeRunOut(h, n.UUID(), strings.Split(strings.TrimRight(src, "\n"), "\n"))
+		h.NodeFlash(spec.name + " → output")
+		return nil
+	}
 }
 
 func init() {
@@ -120,9 +136,9 @@ func init() {
 		Key:            database.TypePython,
 		Label:          "Python",
 		InlineEditable: true,
-		SpanColor:      pythonSpanColor,
-		BodyTail:       pythonBodyTail,
-		Run:            runPythonSource,
+		SpanColor:      keywordSpanColor(pythonKeywords, "#"),
+		BodyTail:       codeBodyTail,
+		Run:            runCodeExport(pythonSpec),
 		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
 			return "python", "", n.Text()
 		},
@@ -131,91 +147,66 @@ func init() {
 
 // ── the .py file codec ──────────────────────────────────────────────────────
 
-// pythonCodec binds a .py file to a python-node tree: one node per logical
-// line, nesting by indentation. Rendering re-indents to 4 spaces per level —
-// a first save normalizes a differently-indented file, after which
-// parse→render round-trips byte-identically. Blank lines are empty nodes at
-// top level, so section spacing survives. Continuation lines inside
-// triple-quoted strings follow plain indentation rules: content is never
-// lost, but a docstring indented off the 4-space grid is re-aligned on save.
+// pythonCodec binds a .py file to a node tree: constructs become their
+// first-class nodes, everything else is a python statement node, nesting by
+// indentation. Rendering re-indents to 4 spaces per level — a first save
+// normalizes, after which parse→render round-trips byte-identically. Blank
+// lines are empty nodes under the previous line, so spacing survives.
 type pythonCodec struct{}
 
 func init() { fileCodecs = append(fileCodecs, pythonCodec{}) }
 
-func (pythonCodec) Name() string   { return "python" }
-func (pythonCodec) Exts() []string { return []string{".py"} }
+func (pythonCodec) Name() string          { return "python" }
+func (pythonCodec) Exts() []string        { return []string{".py"} }
+func (pythonCodec) Allowed() map[string]bool { return codeAllowed(database.TypePython) }
 
-func (pythonCodec) Parse(db *database.DB, rootUUID, src string) error {
-	lines := strings.Split(strings.TrimRight(src, "\n"), "\n")
+// classifyPython maps one trimmed line onto its node.
+func classifyPython(trimmed string) *SrcNode {
+	switch {
+	case strings.HasPrefix(trimmed, "# "):
+		return classifyComment(trimmed[2:])
+	case trimmed == "#":
+		return &SrcNode{Type: database.TypeComment}
+	case strings.HasPrefix(trimmed, "def ") && strings.HasSuffix(trimmed, ":"):
+		return &SrcNode{Type: database.TypeFn, Text: strings.TrimSuffix(trimmed[4:], ":")}
+	case strings.HasPrefix(trimmed, "async def ") && strings.HasSuffix(trimmed, ":"):
+		return &SrcNode{Type: database.TypeFn, Text: "async " + strings.TrimSuffix(trimmed[10:], ":")}
+	case strings.HasPrefix(trimmed, "class ") && strings.HasSuffix(trimmed, ":"):
+		return &SrcNode{Type: database.TypeClass, Text: strings.TrimSuffix(trimmed[6:], ":")}
+	default:
+		return &SrcNode{Type: database.TypePython, Text: trimmed}
+	}
+}
+
+func (pythonCodec) Parse(src string) ([]*SrcNode, error) {
+	root := &SrcNode{}
 	type ent struct {
-		uuid   string
+		n      *SrcNode
 		indent int
 	}
-	stack := []ent{{uuid: rootUUID, indent: -1}}
+	stack := []ent{{n: root, indent: -1}}
 
-	for _, raw := range lines {
+	for _, raw := range strings.Split(strings.TrimRight(src, "\n"), "\n") {
 		line := strings.TrimRight(raw, " \t")
-		trimmed := strings.TrimLeft(line, " \t")
+		w, trimmed := indentWidth(line)
 		if trimmed == "" {
-			// blank line: an empty node under the previous line's node, so it
-			// renders back in place ("" at any depth) without ending the block
-			// (a blank inside a body does not dedent in Python)
-			if _, err := insertFileNode(db, stack[len(stack)-1].uuid, "", database.TypePython, false); err != nil {
-				return err
-			}
+			// blank: an empty node under the previous line, renders back in
+			// place ("" at any depth) without ending the block
+			stack[len(stack)-1].n.Kid(&SrcNode{Type: database.TypePython})
 			continue
 		}
-		// tabs count as 4 for nesting decisions
-		indent := 0
-		for _, r := range line[:len(line)-len(trimmed)] {
-			if r == '\t' {
-				indent += 4
-			} else {
-				indent++
-			}
-		}
-		for len(stack) > 1 && stack[len(stack)-1].indent >= indent {
+		for len(stack) > 1 && stack[len(stack)-1].indent >= w {
 			stack = stack[:len(stack)-1]
 		}
-		n, err := insertFileNode(db, stack[len(stack)-1].uuid, trimmed, database.TypePython, false)
-		if err != nil {
-			return err
-		}
-		stack = append(stack, ent{uuid: n.UUID, indent: indent})
+		n := stack[len(stack)-1].n.Kid(classifyPython(trimmed))
+		stack = append(stack, ent{n: n, indent: w})
 	}
-	return nil
+	return root.Kids, nil
 }
 
-func (pythonCodec) Render(db *database.DB, rootUUID string) (string, error) {
-	var out []string
-	var walk func(uuid string, depth int) error
-	walk = func(uuid string, depth int) error {
-		children, err := database.GetChildren(db, uuid)
-		if err != nil {
-			return err
-		}
-		for _, c := range children {
-			if c.Deleted {
-				continue
-			}
-			if c.Name == "" {
-				out = append(out, "")
-			} else {
-				out = append(out, strings.Repeat("    ", depth)+c.Name)
-			}
-			if err := walk(c.UUID, depth+1); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := walk(rootUUID, 0); err != nil {
-		return "", err
-	}
-	s := strings.Join(out, "\n")
-	s = strings.TrimRight(s, "\n \t")
-	if s != "" {
-		s += "\n"
-	}
-	return s, nil
+func (pythonCodec) Render(doc []*SrcNode) (string, error) {
+	return renderCode(doc, pythonSpec)
 }
+
+// DefaultType: a fresh line in a .py session is a python statement.
+func (pythonCodec) DefaultType() string { return database.TypePython }

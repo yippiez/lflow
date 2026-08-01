@@ -105,20 +105,32 @@ auto-run) and their output is ephemeral — never persisted or synced.
 
 ## File editing (`lflow file open`)
 
-`lflow file open <path>` edits a supported source file (.md, .py) as a node
-outline with two-way binding: the file parses into a node tree in a THROWAWAY
-scratch database (`packages/cli/file` — direct handle, no daemon, never the
-real outline), the ordinary editor edits that tree, and every save (ctrl+s,
-quit) serializes it back through the codec (`packages/nodes/filecodec.go`) and
-writes the file atomically, with a changed-on-disk guard. Markdown maps onto
-the existing types (h1–h3 sections, bullets, todo, quote, fenced block → Code,
-divider; `packages/nodes/markdown.go`); Python is its own node type — the math
-pattern applied to code: a node's text is one logical line, a compound header
-(`if x:`, `def f():`, keywords colored yellow) holds its body as children, and
-alt+r exports the subtree as indented source to the run band
-(`packages/nodes/python.go`). Saves normalize: markdown prose becomes `- `
-items, python re-indents to the 4-space grid; after that, parse→render
-round-trips byte-identically (see `filecodec_test.go`).
+`lflow file open <path>` edits a supported file (.md, .py, .rs, .json, .toml)
+as a node outline with two-way binding: the file parses into a node tree in a
+THROWAWAY scratch database (`packages/cli/file` — direct handle, no daemon,
+never the real outline), the ordinary editor edits that tree, and every save
+(ctrl+s, quit) serializes it back through the codec and writes the file
+atomically, with a changed-on-disk guard.
+
+Codecs translate between file text and a neutral `SrcNode` tree
+(`packages/nodes/filecodec.go`); the **full node-type × file-format
+translation matrix lives in `examples/README.md`** — keep it in sync. The
+language constructs are FIRST-CLASS node types shared across languages
+(`fn` ƒ, `class` ◇, `comment` ◦, `text` ¶): a fn node's text is the
+keyword-free signature and each codec restores its own syntax (`def x():` /
+`fn x() {`). Python/rust statements are their own per-language types
+(indent- resp. brace-nested; rust braces regenerate from structure); math
+nodes render to real expressions (`^`→`**`/`.powf`, `π`→the constant);
+nlpcompute renders as its instruction comment + generated code; markdown
+prose stays prose (text nodes — never forced into `- ` items) and code
+fences keep their language tag in Note. Each codec declares `Allowed()` (the
+/type picker is filtered to it and `DefaultType()` is what typing creates);
+foreign types degrade to `lflow <type>:` marker comments that parse back, and
+JSON refuses them. Saves normalize (4-space python grid, regenerated rust
+braces, one blank between md blocks, 2-space json); after one save,
+parse→render round-trips byte-identically — `filecodec_test.go` +
+`examples_test.go` enforce it, and `examples/` holds a descriptive
+self-narrating example per format.
 
 ## Tables
 

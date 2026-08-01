@@ -79,7 +79,7 @@ func runOpen(ctx context.DnoteCtx, path string) error {
 		return errors.Wrap(err, "naming doc root")
 	}
 
-	if err := codec.Parse(db, database.RootUUID, src); err != nil {
+	if err := nodes.ParseIntoDB(db, database.RootUUID, codec, src); err != nil {
 		return errors.Wrapf(err, "parsing %s", filepath.Base(path))
 	}
 
@@ -88,7 +88,7 @@ func runOpen(ctx context.DnoteCtx, path string) error {
 	fileCtx.Live = nil // direct scratch handle: no daemon, no live sync
 
 	onSave := func() error {
-		out, err := codec.Render(db, database.RootUUID)
+		out, err := nodes.RenderFromDB(db, database.RootUUID, codec)
 		if err != nil {
 			return errors.Wrap(err, "rendering "+codec.Name())
 		}
@@ -100,7 +100,11 @@ func runOpen(ctx context.DnoteCtx, path string) error {
 		return nil
 	}
 
-	if err := editor.RunWithOnSave(fileCtx, database.RootUUID, onSave); err != nil {
+	if err := editor.RunFile(fileCtx, database.RootUUID, editor.FileSession{
+		OnSave:       onSave,
+		AllowedTypes: codec.Allowed(),
+		DefaultType:  codec.DefaultType(),
+	}); err != nil {
 		return err
 	}
 	log.Plainf("→ wrote %s\n", path)

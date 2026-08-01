@@ -1,33 +1,43 @@
 package nodes
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/lflow/lflow/packages/database"
 )
 
-// markdownCodec binds a .md file to a node subtree. The mapping is the
-// outline reading of a document:
+// markdownCodec binds a .md file to a node subtree. Markdown is NOT forced
+// into an outline: prose stays prose (text nodes), lists are lists, and the
+// richer node types serialize to their natural markdown form:
 //
-//	# / ## / ###        → h1/h2/h3 nodes; later headings nest under the
-//	                      nearest shallower heading, body lines under theirs
-//	- [ ] / - [x]       → todo (completed = [x])
-//	- item              → bullets; sub-items nest by 2-space indent
-//	> quote             → quote
-//	```fenced```        → one code node; the body (newlines included) is the name
-//	---                 → divider
-//	plain paragraph     → bullets (a save normalizes it to a "- " item)
-//	blank line          → dropped (render re-emits structural blanks)
+//	# / ## / ###        ⇄ h1/h2/h3; body nests under its heading
+//	plain line          ⇄ text (a paragraph)
+//	- [ ] / - [x]       ⇄ todo; - item ⇄ bullets, nesting by 2-space indent
+//	> quote             ⇄ quote
+//	```lang … ```       ⇄ code node; the language tag survives in Note
+//	$$ … $$             ⇄ math (renders the subtree's linear form; reopens
+//	                       as a math atom holding that expression)
+//	| a | b | grid      ⇄ table (columns = children, cells = their children)
+//	<!-- c -->          ⇄ comment
+//	<!-- nlp: i -->     ⇄ nlpcompute: instruction comment + its generated
+//	  + ```lang fence      code beneath (code reopens as a code node)
+//	---                 ⇄ divider
+//	fn / class          → readable `fn sig` / head paragraph (no md syntax)
+//	anything else       ⇄ <!-- lflow <type>: text --> marker, restored on parse
 //
-// The first save therefore normalizes prose paragraphs into list items;
-// after that parse→render round-trips byte-identically.
+// Normalizations on save: one blank line between blocks, a table's title
+// becomes a paragraph above its grid, children of a paragraph flatten to a
+// list after it. After one save, parse→render round-trips byte-identically.
 type markdownCodec struct{}
 
 func init() { fileCodecs = append(fileCodecs, markdownCodec{}) }
 
-func (markdownCodec) Name() string  { return "markdown" }
+func (markdownCodec) Name() string   { return "markdown" }
 func (markdownCodec) Exts() []string { return []string{".md", ".markdown"} }
+
+// Allowed: markdown accepts nearly everything; what it cannot express
+// natively still round-trips through marker comments.
+func (markdownCodec) Allowed() map[string]bool { return nil }
 
 // headingLevel returns 1..3 for "# ", "## ", "### " lines, else 0.
 func headingLevel(s string) int {
@@ -42,59 +52,76 @@ func headingLevel(s string) int {
 }
 
 var headingTypes = [4]string{"", database.TypeH1, database.TypeH2, database.TypeH3}
+var headingLevels = map[string]int{database.TypeH1: 1, database.TypeH2: 2, database.TypeH3: 3}
 
-func (markdownCodec) Parse(db *database.DB, rootUUID, src string) error {
-	lines := strings.Split(src, "\n")
-
-	// two independent nesting stacks: sections (headings) and list items.
-	// headings[l] = the open heading node at level l; a non-list line attaches
-	// under the deepest open heading (or the root).
-	sectionParent := func(headings []string) string {
-		if len(headings) > 0 {
-			return headings[len(headings)-1]
-		}
-		return rootUUID
+// classifyMarker restores a node carried through markdown as a comment
+// marker: `nlp: …` and `lflow <type>: …`. Plain comments return nil.
+func classifyMarker(body string) *SrcNode {
+	if rest, ok := strings.CutPrefix(body, "nlp: "); ok {
+		return &SrcNode{Type: database.TypeNLPCompute, Text: rest}
 	}
-	var headings []string   // open heading uuids, shallow→deep
-	var headingLv []int     // their levels
-	type listEnt struct {
-		uuid   string
+	if rest, ok := strings.CutPrefix(body, fallbackLead); ok {
+		if i := strings.Index(rest, ": "); i > 0 && database.ValidTypes[rest[:i]] {
+			return &SrcNode{Type: rest[:i], Text: rest[i+2:]}
+		}
+	}
+	return nil
+}
+
+func (markdownCodec) Parse(src string) ([]*SrcNode, error) {
+	lines := strings.Split(src, "\n")
+	root := &SrcNode{}
+
+	// sections: the open heading chain; a block attaches under the deepest one
+	type sec struct {
+		n  *SrcNode
+		lv int
+	}
+	secs := []sec{{n: root, lv: 0}}
+	section := func() *SrcNode { return secs[len(secs)-1].n }
+	// the open list-item chain (indent-nested)
+	type li struct {
+		n      *SrcNode
 		indent int
 	}
-	var list []listEnt // open list-item chain, shallow→deep
+	var list []li
+	// the open paragraph: consecutive prose lines join into ONE text node,
+	// the way markdown itself wraps paragraphs
+	var openPara *SrcNode
 
 	for i := 0; i < len(lines); i++ {
-		raw := lines[i]
-		line := strings.TrimRight(raw, " \t")
+		line := strings.TrimRight(lines[i], " \t")
 		trimmed := strings.TrimLeft(line, " ")
 		indent := len(line) - len(trimmed)
+		if trimmed != "" && openPara != nil && headingLevel(trimmed) == 0 &&
+			!strings.HasPrefix(trimmed, "- ") && !strings.HasPrefix(trimmed, "* ") &&
+			!strings.HasPrefix(trimmed, "> ") && !strings.HasPrefix(trimmed, "```") &&
+			!strings.HasPrefix(trimmed, "<!-- ") && !strings.HasPrefix(trimmed, "| ") &&
+			trimmed != "---" && trimmed != "$$" {
+			openPara.Text += " " + trimmed
+			continue
+		}
+		openPara = nil
 
 		switch {
 		case trimmed == "":
-			list = nil // a blank line closes the open list
+			list = nil
 
 		case indent == 0 && headingLevel(trimmed) > 0:
 			lv := headingLevel(trimmed)
-			for len(headingLv) > 0 && headingLv[len(headingLv)-1] >= lv {
-				headings = headings[:len(headings)-1]
-				headingLv = headingLv[:len(headingLv)-1]
+			for secs[len(secs)-1].lv >= lv {
+				secs = secs[:len(secs)-1]
 			}
-			n, err := insertFileNode(db, sectionParent(headings), trimmed[lv+1:], headingTypes[lv], false)
-			if err != nil {
-				return err
-			}
-			headings = append(headings, n.UUID)
-			headingLv = append(headingLv, lv)
+			h := section().Kid(&SrcNode{Type: headingTypes[lv], Text: trimmed[lv+1:]})
+			secs = append(secs, sec{n: h, lv: lv})
 			list = nil
 
 		case indent == 0 && trimmed == "---":
-			if _, err := insertFileNode(db, sectionParent(headings), "", database.TypeDivider, false); err != nil {
-				return err
-			}
+			section().Kid(&SrcNode{Type: database.TypeDivider})
 			list = nil
 
 		case strings.HasPrefix(trimmed, "```"):
-			// fenced code block: gather to the closing fence, newlines and all
+			lang := strings.TrimSpace(trimmed[3:])
 			var body []string
 			j := i + 1
 			for ; j < len(lines); j++ {
@@ -103,87 +130,129 @@ func (markdownCodec) Parse(db *database.DB, rootUUID, src string) error {
 				}
 				body = append(body, lines[j])
 			}
-			i = j // skip past the closing fence (or EOF)
-			if _, err := insertFileNode(db, sectionParent(headings), strings.Join(body, "\n"), database.TypeCode, false); err != nil {
-				return err
+			i = j
+			section().Kid(&SrcNode{Type: database.TypeCode, Text: strings.Join(body, "\n"), Note: lang})
+			list = nil
+
+		case trimmed == "$$":
+			var body []string
+			j := i + 1
+			for ; j < len(lines); j++ {
+				if strings.TrimSpace(lines[j]) == "$$" {
+					break
+				}
+				body = append(body, strings.TrimSpace(lines[j]))
+			}
+			i = j
+			section().Kid(&SrcNode{Type: database.TypeMath, Text: strings.Join(body, " ")})
+			list = nil
+
+		case strings.HasPrefix(trimmed, "<!-- ") && strings.HasSuffix(trimmed, " -->"):
+			body := strings.TrimSuffix(strings.TrimPrefix(trimmed, "<!-- "), " -->")
+			if n := classifyMarker(body); n != nil {
+				section().Kid(n)
+			} else {
+				section().Kid(&SrcNode{Type: database.TypeComment, Text: body})
 			}
 			list = nil
 
-		case strings.HasPrefix(trimmed, "> "):
-			if _, err := insertFileNode(db, sectionParent(headings), trimmed[2:], database.TypeQuote, false); err != nil {
-				return err
+		case strings.HasPrefix(trimmed, "| "):
+			// a GFM grid: header | separator | rows → a table node
+			var grid [][]string
+			j := i
+			for ; j < len(lines); j++ {
+				t := strings.TrimSpace(lines[j])
+				if !strings.HasPrefix(t, "|") {
+					break
+				}
+				grid = append(grid, splitTableRow(t))
 			}
+			i = j - 1
+			section().Kid(tableFromGrid(grid))
+			list = nil
+
+		case strings.HasPrefix(trimmed, "> "):
+			section().Kid(&SrcNode{Type: database.TypeQuote, Text: trimmed[2:]})
 			list = nil
 
 		case strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* "):
 			text := trimmed[2:]
-			typ := database.TypeBullets
-			completed := false
-			if strings.HasPrefix(text, "[ ] ") {
-				typ, text = database.TypeTodo, text[4:]
-			} else if strings.HasPrefix(text, "[x] ") || strings.HasPrefix(text, "[X] ") {
-				typ, text, completed = database.TypeTodo, text[4:], true
+			n := &SrcNode{Type: database.TypeBullets, Text: text}
+			if rest, ok := strings.CutPrefix(text, "[ ] "); ok {
+				n = &SrcNode{Type: database.TypeTodo, Text: rest}
+			} else if rest, ok := strings.CutPrefix(text, "[x] "); ok {
+				n = &SrcNode{Type: database.TypeTodo, Text: rest, Completed: true}
+			} else if rest, ok := strings.CutPrefix(text, "[X] "); ok {
+				n = &SrcNode{Type: database.TypeTodo, Text: rest, Completed: true}
 			}
 			for len(list) > 0 && list[len(list)-1].indent >= indent {
 				list = list[:len(list)-1]
 			}
-			parent := sectionParent(headings)
+			parent := section()
 			if len(list) > 0 {
-				parent = list[len(list)-1].uuid
+				parent = list[len(list)-1].n
 			}
-			n, err := insertFileNode(db, parent, text, typ, completed)
-			if err != nil {
-				return err
-			}
-			list = append(list, listEnt{uuid: n.UUID, indent: indent})
+			parent.Kid(n)
+			list = append(list, li{n: n, indent: indent})
 
 		default:
-			// plain paragraph line → a bullets node (normalized to "- " on save)
-			if _, err := insertFileNode(db, sectionParent(headings), trimmed, database.TypeBullets, false); err != nil {
-				return err
-			}
+			// prose: a paragraph node — markdown is not forced into an outline;
+			// following prose lines join it until a blank or another block
+			openPara = section().Kid(&SrcNode{Type: database.TypeText, Text: trimmed})
 			list = nil
 		}
 	}
-	return nil
+	return root.Kids, nil
 }
 
-func (markdownCodec) Render(db *database.DB, rootUUID string) (string, error) {
-	var out []string
-
-	// renderList emits a node as a "- " item at the given list depth, its
-	// children as nested items.
-	var renderList func(n database.Node, depth int) error
-	// renderBlock emits a section-level node (heading child): headings recurse
-	// as sections, everything else opens a list.
-	var renderBlock func(n database.Node) error
-
-	renderList = func(n database.Node, depth int) error {
-		indent := strings.Repeat("  ", depth)
-		switch n.Type {
-		case database.TypeTodo:
-			box := "[ ]"
-			if n.CompletedAt > 0 {
-				box = "[x]"
-			}
-			out = append(out, fmt.Sprintf("%s- %s %s", indent, box, n.Name))
-		default:
-			out = append(out, fmt.Sprintf("%s- %s", indent, n.Name))
-		}
-		children, err := database.GetChildren(db, n.UUID)
-		if err != nil {
-			return err
-		}
-		for _, c := range children {
-			if c.Deleted {
-				continue
-			}
-			if err := renderList(c, depth+1); err != nil {
-				return err
-			}
-		}
-		return nil
+// splitTableRow parses `| a | b |` into cells.
+func splitTableRow(s string) []string {
+	s = strings.Trim(s, "|")
+	parts := strings.Split(s, "|")
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		out[i] = strings.TrimSpace(p)
 	}
+	return out
+}
+
+// tableRowIsRule reports the |---|---| separator row.
+func tableRowIsRule(cells []string) bool {
+	for _, c := range cells {
+		if strings.Trim(c, "-: ") != "" {
+			return false
+		}
+	}
+	return len(cells) > 0
+}
+
+// tableFromGrid builds a table node (columns = children, cells = their
+// children) from a parsed GFM grid.
+func tableFromGrid(grid [][]string) *SrcNode {
+	t := &SrcNode{Type: database.TypeTable}
+	if len(grid) == 0 {
+		return t
+	}
+	headers := grid[0]
+	rows := grid[1:]
+	if len(rows) > 0 && tableRowIsRule(rows[0]) {
+		rows = rows[1:]
+	}
+	for c, h := range headers {
+		col := t.Kid(&SrcNode{Type: database.TypeBullets, Text: h})
+		for _, row := range rows {
+			cell := ""
+			if c < len(row) {
+				cell = row[c]
+			}
+			col.Kid(&SrcNode{Type: database.TypeBullets, Text: cell})
+		}
+	}
+	return t
+}
+
+func (markdownCodec) Render(doc []*SrcNode) (string, error) {
+	var out []string
 
 	blank := func() {
 		if len(out) > 0 && out[len(out)-1] != "" {
@@ -191,63 +260,142 @@ func (markdownCodec) Render(db *database.DB, rootUUID string) (string, error) {
 		}
 	}
 
-	renderBlock = func(n database.Node) error {
+	var renderList func(n *SrcNode, depth int)
+	renderList = func(n *SrcNode, depth int) {
+		indent := strings.Repeat("  ", depth)
 		switch n.Type {
-		case database.TypeH1, database.TypeH2, database.TypeH3:
-			lv := map[string]int{database.TypeH1: 1, database.TypeH2: 2, database.TypeH3: 3}[n.Type]
-			blank()
-			out = append(out, strings.Repeat("#", lv)+" "+n.Name)
-			out = append(out, "")
-			children, err := database.GetChildren(db, n.UUID)
-			if err != nil {
-				return err
+		case database.TypeTodo:
+			box := "[ ]"
+			if n.Completed {
+				box = "[x]"
 			}
-			for _, c := range children {
-				if c.Deleted {
-					continue
-				}
-				if err := renderBlock(c); err != nil {
-					return err
-				}
-			}
-			return nil
-		case database.TypeDivider:
-			blank()
-			out = append(out, "---", "")
-			return nil
-		case database.TypeCode:
-			blank()
-			out = append(out, "```")
-			if n.Name != "" {
-				out = append(out, strings.Split(n.Name, "\n")...)
-			}
-			out = append(out, "```", "")
-			return nil
-		case database.TypeQuote:
-			out = append(out, "> "+n.Name)
-			return nil
+			out = append(out, indent+"- "+box+" "+n.Text)
 		default:
-			return renderList(n, 0)
+			out = append(out, indent+"- "+n.Text)
+		}
+		for _, c := range n.Kids {
+			renderList(c, depth+1)
 		}
 	}
 
-	children, err := database.GetChildren(db, rootUUID)
-	if err != nil {
-		return "", err
-	}
-	for _, c := range children {
-		if c.Deleted {
-			continue
+	var renderBlock func(n *SrcNode)
+	renderBlock = func(n *SrcNode) {
+		switch n.Type {
+		case database.TypeH1, database.TypeH2, database.TypeH3:
+			blank()
+			out = append(out, strings.Repeat("#", headingLevels[n.Type])+" "+n.Text, "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
+		case database.TypeText:
+			blank()
+			out = append(out, n.Text, "")
+			for _, c := range n.Kids { // paragraph children flatten to a list after it
+				renderList(c, 0)
+			}
+			if len(n.Kids) > 0 {
+				out = append(out, "")
+			}
+		case database.TypeDivider:
+			blank()
+			out = append(out, "---", "")
+		case database.TypeCode:
+			blank()
+			out = append(out, "```"+n.Note)
+			if n.Text != "" {
+				out = append(out, strings.Split(n.Text, "\n")...)
+			}
+			out = append(out, "```", "")
+		case database.TypeMath:
+			blank()
+			out = append(out, "$$", mathLinear(n), "$$", "")
+		case database.TypeComment:
+			blank()
+			out = append(out, "<!-- "+n.Text+" -->", "")
+		case database.TypeNLPCompute:
+			blank()
+			out = append(out, "<!-- nlp: "+n.Text+" -->")
+			if n.Output != "" {
+				out = append(out, "```"+n.Note)
+				out = append(out, strings.Split(strings.TrimRight(n.Output, "\n"), "\n")...)
+				out = append(out, "```")
+			}
+			out = append(out, "")
+		case database.TypeTable:
+			blank()
+			if n.Text != "" { // a table's title becomes the paragraph above it
+				out = append(out, n.Text, "")
+			}
+			renderTable(n, &out)
+			out = append(out, "")
+		case database.TypeQuote:
+			blank()
+			out = append(out, "> "+n.Text)
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
+		case database.TypeBullets, database.TypeTodo:
+			renderList(n, 0)
+		case database.TypeFn:
+			blank()
+			out = append(out, "fn "+n.Text, "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
+		case database.TypeClass:
+			blank()
+			out = append(out, "class "+n.Text, "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
+		default:
+			// foreign type: a marker comment carries it; children follow
+			blank()
+			out = append(out, "<!-- "+fallbackLead+n.Type+": "+n.Text+" -->", "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
 		}
-		if err := renderBlock(c); err != nil {
-			return "", err
-		}
 	}
-	// single trailing newline
-	s := strings.Join(out, "\n")
-	s = strings.TrimRight(s, "\n")
-	if s != "" {
-		s += "\n"
+
+	for _, n := range doc {
+		renderBlock(n)
 	}
-	return s, nil
+	return ensureTrailingNewline(out), nil
 }
+
+// renderTable draws a table node as a GFM grid: columns are children, a
+// column's children are its cells top to bottom.
+func renderTable(t *SrcNode, out *[]string) {
+	if len(t.Kids) == 0 {
+		return
+	}
+	headers := make([]string, len(t.Kids))
+	depth := 0
+	for i, col := range t.Kids {
+		headers[i] = col.Text
+		if len(col.Kids) > depth {
+			depth = len(col.Kids)
+		}
+	}
+	row := func(cells []string) string { return "| " + strings.Join(cells, " | ") + " |" }
+	*out = append(*out, row(headers))
+	rule := make([]string, len(headers))
+	for i := range rule {
+		rule[i] = "---"
+	}
+	*out = append(*out, row(rule))
+	for r := 0; r < depth; r++ {
+		cells := make([]string, len(t.Kids))
+		for c, col := range t.Kids {
+			if r < len(col.Kids) {
+				cells[c] = col.Kids[r].Text
+			}
+		}
+		*out = append(*out, row(cells))
+	}
+}
+
+// DefaultType: fresh lines in a markdown session stay list items — lists are
+// the editor's native gesture; prose is a /type text away.
+func (markdownCodec) DefaultType() string { return "" }
