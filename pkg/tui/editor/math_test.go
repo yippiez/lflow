@@ -50,11 +50,11 @@ func TestMathPreview(t *testing.T) {
 
 func TestMathBodyTailInlineWhenSimple(t *testing.T) {
 	// a leaf is the whole expression on one row — no preview tail.
-	if got := mathBodyTail(mleaf("a + b")); got != "" {
+	if got := mathBodyTail(mleaf("a + b"), nil); got != "" {
 		t.Errorf("leaf tail = %q, want empty (simple stays inline)", got)
 	}
 	// an operator node shows the dim preview.
-	tail := mathBodyTail(mop("+", mleaf("a"), mleaf("b")))
+	tail := mathBodyTail(mop("+", mleaf("a"), mleaf("b")), nil)
 	if !strings.Contains(tail, "a + b") {
 		t.Errorf("operator tail = %q, want preview containing %q", tail, "a + b")
 	}
@@ -215,7 +215,7 @@ func TestMathNonsensical(t *testing.T) {
 			}
 			// preview and body tail must also survive without panicking
 			_ = mathPreview(c.it)
-			_ = mathBodyTail(c.it)
+			_ = mathBodyTail(c.it, nil)
 		})
 	}
 	// an empty-name operator with children must not panic and must not fake a frac.

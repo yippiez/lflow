@@ -18,6 +18,9 @@ func (m *Model) View() string {
 	}
 	maxLine := width - 1 // never touch the last column: deferred-wrap desync
 
+	// per-frame paint state: which cmd chips are mid-run (the shimmer)
+	m.syncLiveCmdRuns()
+
 	if m.quitting {
 		if m.err != nil {
 			return ""

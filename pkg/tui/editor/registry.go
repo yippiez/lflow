@@ -77,9 +77,11 @@ type nodeType struct {
 	// glyphs yellow this way. nil → no per-rune tint. (index is a rune index.)
 	spanColor func(it *item, runes []rune) map[int]string
 	// bodyTail appends already-styled text after the node's body on the same row
-	// (before the ★ mark) — the Math type's dim linear preview of its subtree.
+	// (before the ★ mark) — the Math type's dim linear preview of its subtree, the
+	// Bash type's composed command line. The chip store comes along so a tail can
+	// resolve anchors (a path chip in a command) instead of leaking sentinels.
 	// Called for the resting/selected row alike. nil → nothing. "" → nothing.
-	bodyTail func(it *item) string
+	bodyTail func(it *item, chips map[string]database.Chip) string
 
 	// toContext reserves a structured XML representation for consumers that
 	// need typed outline context. nil means the generic node representation.
@@ -181,9 +183,6 @@ var nodeTypes = []nodeType{
 		view:      jsonView{},
 		toContext: jsonToContext,
 	},
-	// there is deliberately NO bash node type: inline runnable shell is the cmd
-	// chip ("$cmd" + double space, see cmdchip.go) — legacy "bash"-typed nodes
-	// fall back to bullets like any unknown type, text intact.
 	{
 		key: database.TypeQuery, label: "Query", inlineEditable: true, disableChips: true,
 		prefix:    queryPrefix,
