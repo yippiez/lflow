@@ -87,29 +87,20 @@ What each Zotero object becomes, one for one:
 
 | Zotero | binding kind | node | mark | alt+g | alt+o |
 | --- | --- | --- | --- | --- | --- |
-| the entry (item) | `item` | mirror root, tags as colored chips, citation on its `/note` | `Z` brand red | the entry, per `zotero.open` | the other one |
-| a field (type · venue · date, DOI/URL, abstract) | `meta` | one row each | `·` dim | the entry | the other one |
-| an attachment (the PDF) | `attachment` | one row, the file resolved to a local path | `◆` dim | the PDF in Zotero's reader | the file, in the host's app |
+| the entry (item) | `item` | mirror root, tags as colored chips, fields on its `/note` | `Z` and the title, both brand red | the entry, per `zotero.open` | the other one |
+| its fields (type, venue, date, DOI/URL, abstract) | — | NOT rows: `:: name value` properties on the entry's note | — | — | — |
+| an attachment (the PDF) | `attachment` | one ordinary row — but a LONE attachment gets none, and its marks hang straight off the entry | `○` | the PDF in Zotero's reader | the file, in the host's app |
+| a second attachment onwards | `attachment` | a row each, with a divider node between documents | `○` | the PDF in Zotero's reader | the file, in the host's app |
 | a highlight / underline / sticky note | `annotation` | one row, text (or comment), `p.N` | `▍` in the highlighter's color | the reader AT that mark | the entry on the web |
 | an area crop / pen drawing (image, ink) | `annotation` | a real **image node** — the picture is its blob | the image node's own `▦` face | the reader AT that mark | the picture, in the host's viewer |
-| an annotation comment | `comment` | a child under its highlight | `▸` dim | the entry | the other one |
-| a note | `note` | an ordinary row, HTML flattened | `○` dim — a normal node that is fixed | the entry | the other one |
+| an annotation comment | `comment` | an ordinary row under its highlight | `○` | the entry | the other one |
+| a note | `note` | an ordinary row, HTML flattened | `○` | the entry | the other one |
 
-A pictorial mark's PNG is copied out of Zotero's own render cache into
-`node_blobs` and the node becomes `TypeImage` — the literal image node, so it
-renders, expands and opens through the one image implementation the outline
-already has, rather than an imitation of it. That is also why `alt+r` and the
-flash menu check `zoteroMirrored` BEFORE the node's own type: image's alt+r
-pastes the clipboard, which a mirror must never take. The cache fills lazily as
-Zotero draws pages, so a fresh crop may need one alt+r before it has a picture,
-and until then it stays a plain mirrored row (an empty image node would invite
-that paste). Collections, related items and saved searches are not mirrored.
-
-`/mirror:workflowy` is the sibling gesture for the `wf` type: it makes the node
-a Workflowy pull handle, and alt+r fetches once it holds a link. The `/mirror:*`
-family is now the one place external and internal mirrors are reached —
-`from`/`to` for another node in the outline, `workflowy`/`zotero` for a
-subtree that belongs to someone else.
+Only two rows earn a mark of their own — the entry, which is the paper, and a
+highlight, which is a mark in a margin. Everything else is an ordinary node that
+happens to be fixed. Because a lone attachment has no row, an annotation
+remembers its own document in `zotero_nodes.parent_key` (lm42) rather than
+looking upward for it.
 
 The mirror is Zotero's, not yours: the root is content-locked (movable and
 deletable as a unit), every node below it is content- AND position-locked, and
