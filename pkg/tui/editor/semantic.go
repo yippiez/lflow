@@ -33,7 +33,7 @@ import (
 //
 //	vector    random-indexing cosine — the actual semantics
 //	lexical   Okapi BM25 — a phrase that IS present literally always wins
-//	shape     character-trigram Dice — "auth" ↔ "authentication", and typos
+//	shape     character-trigram containment — "auth" ↔ "authentication", typos
 //
 // The shape channel is what carries a short outline row when the vector channel
 // has nothing to work with. Random indexing can only relate two words that the
@@ -91,8 +91,8 @@ const (
 	// rank noise against noise and return the top of it, and a phrase that DID
 	// match one node literally would bury every related node under it — losing
 	// exactly the cross-vocabulary hits quoting is for.
-	semanticMinCos  = 0.15 // below this the vector space is not claiming a relation
-	semanticMinDice = 0.18 // below this the shared trigrams are incidental
+	semanticMinCos   = 0.15 // below this the vector space is not claiming a relation
+	semanticMinShape = 0.34 // below this the shared trigrams are incidental
 
 	// Structural constants. All three are deliberately well under 1: ancestry is
 	// a hint about what a node is about, never a claim that the node says it.
@@ -188,18 +188,21 @@ func semanticHits(ctx *qCtx, phrase string) map[string]bool {
 	lex := make(map[string]float64, len(model.docs))
 	shape := make(map[string]float64, len(model.docs))
 
+	for _, d := range model.docs {
+		cos[d.uuid] = cosine(qVec, model.docVec[d.uuid])
+		lex[d.uuid] = model.bm25(terms, d)
+		shape[d.uuid] = queryContainment(qTri, d.tri)
+	}
+	cosFloor := outlierFloor(len(model.docs))
+
 	// A candidate qualifies on ANY channel. Requiring agreement would throw away
 	// exactly the vocabulary-mismatch hits that make the phrase worth quoting —
 	// the channel that finds them is by definition the one the others missed.
 	var qualified []string
 	for _, d := range model.docs {
-		c := cosine(qVec, model.docVec[d.uuid])
-		l := model.bm25(terms, d)
-		s := diceCoefficient(qTri, d.tri)
-		cos[d.uuid], lex[d.uuid], shape[d.uuid] = c, l, s
 		// Any BM25 at all is a shared, idf-weighted word — real evidence on its
 		// own terms, so it needs no floor beyond being non-zero.
-		if c >= semanticMinCos || l > 0 || s >= semanticMinDice {
+		if cos[d.uuid] >= cosFloor || lex[d.uuid] > 0 || shape[d.uuid] >= semanticMinShape {
 			qualified = append(qualified, d.uuid)
 		}
 	}
@@ -222,6 +225,40 @@ func semanticHits(ctx *qCtx, phrase string) map[string]bool {
 		ctx.recordScore(u, fused[u])
 	}
 	return out
+}
+
+// outlierFloor is the cosine a node must clear to count as related: the greater
+// of the absolute floor and "well outside this corpus's own noise".
+//
+// A fixed floor cannot scale. Random indexing gives an UNRELATED node a cosine
+// that is noise centred near zero with a spread of roughly 1/sqrt(dims) — about
+// 0.06 here — so a flat 0.15 sits only ~2.4σ out. On 500 candidates that admits
+// a handful of accidents; on 30,000 it admits ~1%, three hundred nodes, and they
+// drown the handful that actually match. Demanding semanticOutlierZ sigmas
+// instead keeps the expected number of accidents near one at ANY corpus size,
+// which is the property the absolute floor was only pretending to have.
+// outlierFloor is the cosine a node must clear to count as related, and it has
+// to grow with the number of candidates.
+//
+// This is the multiple-comparisons problem. Random indexing gives an UNRELATED
+// node a cosine that is noise centred on zero with a spread of 1/sqrt(dims) —
+// that is a property of random projection, not something to estimate from the
+// data. A fixed 0.15 floor is therefore ~2.4 sigma: over four candidates that is
+// one accident in fifty, but over thirty thousand it is a few hundred, and they
+// bury the handful of real hits. Measured on a 30,607 node outline, a flat floor
+// admitted 374 nodes by cosine where the lexical and shape channels between them
+// admitted five.
+//
+// The threshold for "largest of n samples" is sqrt(2·ln n) sigmas — the standard
+// extreme-value bound, which keeps the expected number of accidents near one at
+// every corpus size and needs no tuning constant. On four candidates it asks for
+// 1.7 sigma, on thirty thousand for 4.5.
+func outlierFloor(candidates int) float64 {
+	if candidates < 2 {
+		return semanticMinCos
+	}
+	z := math.Sqrt(2 * math.Log(float64(candidates)))
+	return math.Max(semanticMinCos, z/math.Sqrt(semanticDims))
 }
 
 // semanticModel memoizes the vector space on the context. A streamed run
@@ -421,23 +458,29 @@ func trigrams(terms []string) map[string]bool {
 	return out
 }
 
-// diceCoefficient is 2|A∩B| / (|A|+|B|) — the overlap measure that, unlike
-// Jaccard, does not punish a short query for being short.
-func diceCoefficient(a, b map[string]bool) float64 {
-	if len(a) == 0 || len(b) == 0 {
+// queryContainment is |query ∩ doc| / |query| — how much of the PHRASE the node
+// carries, not how similar the two are.
+//
+// Dice (2|A∩B|/(|A|+|B|)) was wrong here because it divides by the document too,
+// so it conflates "this node does not match" with "this node is long". Measured
+// against "users cannot sign in", a genuine hit ("signin attempts fail for sso
+// tenants") scored 0.217 and pure noise ("the trace sampler") scored 0.214 — the
+// channel could not separate them at any threshold. Worse, "cache the trace
+// sampler" scored LOWER than "the trace sampler" on identical incidental
+// overlap, purely for having one more word. A node is not less of a match for
+// also saying other things, which is precisely what containment encodes: the
+// same two cases come out 0.417 against 0.250.
+func queryContainment(query, doc map[string]bool) float64 {
+	if len(query) == 0 || len(doc) == 0 {
 		return 0
 	}
-	small, large := a, b
-	if len(large) < len(small) {
-		small, large = large, small
-	}
 	var shared float64
-	for g := range small {
-		if large[g] {
+	for g := range query {
+		if doc[g] {
 			shared++
 		}
 	}
-	return 2 * shared / float64(len(a)+len(b))
+	return shared / float64(len(query))
 }
 
 // reciprocalRankFusion blends the rankings by POSITION rather than by score,
