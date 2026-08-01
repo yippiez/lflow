@@ -261,6 +261,19 @@ var nodeTypes = []nodeType{
 		// would land as a bullet and need retyping.
 		continueOnEnter: true,
 	},
+	// a Line is ordinary dialogue text with a character attached (see line.go):
+	// the character renders as a colored "[NAME] " prefix, never baked into the
+	// stored name. alt+e (and landing here fresh via /type) opens the character
+	// picker — pick one already used in the outline or write a new one; alt+c
+	// there recolors the highlighted character, and that color follows it to
+	// every Line node that names it.
+	{
+		key: database.TypeLine, label: "Line", inlineEditable: true,
+		prefix:    linePrefix,
+		expand:    func(m *Model, it *item) tea.Cmd { m.openCharacterPicker(it); return nil },
+		onType:    func(m *Model, it *item) { m.openCharacterPicker(it) },
+		toContext: lineToContext,
+	},
 	// An agentic coding SESSION is not a node type: it is an inline chip only
 	// (see agent.go), so there is no entry here.
 	// Thinking is a plain marker node: always the muted-gray thinking glyph,

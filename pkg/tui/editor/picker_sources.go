@@ -37,6 +37,10 @@ func (m *Model) listSource() pickerSource {
 		return agentStartSource{}
 	case modeAgentColor:
 		return agentColorSource{}
+	case modeCharacterPick:
+		return characterSource{}
+	case modeCharacterColor:
+		return characterColorSource{}
 	}
 	return nil
 }
@@ -305,7 +309,11 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	m.mode = modeOutline
+	// an onType hook may have moved the mode elsewhere on its own (the Line node's
+	// character picker) — only fall back to the outline if it left mode alone.
+	if m.mode == modeType {
+		m.mode = modeOutline
+	}
 	return m, nil
 }
 

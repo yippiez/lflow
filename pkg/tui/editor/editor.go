@@ -33,18 +33,20 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm    // inline delete confirmation for nodes with children
-	modeType       // the /type picker: choose one of the node types
-	modeStyle      // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme      // the /theme picker: choose a color palette
-	modeSettings   // the /settings picker: global preferences (theme, image preview, …)
-	modeComplete   // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit   // the alt+e link-chip editor: edit a link's name and target
-	modeFlash      // flash jump/act: every visible row's actions get a typed label (see flash.go)
-	modeTagColor   // the alt+e tag color picker: assign a pill color to a tag
-	modeInsert     // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
-	modeAgentPick  // /agent: start a coding session here, or attach one from a CLI's own store
-	modeAgentColor // ⌥c on a session chip: its color
+	modeConfirm        // inline delete confirmation for nodes with children
+	modeType           // the /type picker: choose one of the node types
+	modeStyle          // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme          // the /theme picker: choose a color palette
+	modeSettings       // the /settings picker: global preferences (theme, image preview, …)
+	modeComplete       // the inline completer: "#" tags, ":" query commands
+	modeLinkEdit       // the alt+e link-chip editor: edit a link's name and target
+	modeFlash          // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeTagColor       // the alt+e tag color picker: assign a pill color to a tag
+	modeInsert         // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
+	modeAgentPick      // /agent: start a coding session here, or attach one from a CLI's own store
+	modeAgentColor     // ⌥c on a session chip: its color
+	modeCharacterPick  // the alt+e character picker on a Line node: pick or write a character
+	modeCharacterColor // the character picker's recolor key: assign a pill color to a character
 )
 
 type finderAction int
@@ -282,6 +284,9 @@ type Model struct {
 	queryGeneration int
 
 	tagColorWord string // the tag word the alt+e color picker is assigning
+
+	characterPickUUID  string // the Line node uuid the character picker is assigning to
+	characterColorName string // the character name the nested recolor picker is assigning
 
 	// hideCompleted is the /hide:complete toggle: when true, completed nodes (and their
 	// subtrees) drop out of the visible outline. Session-only — not persisted.
@@ -1796,6 +1801,12 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	}
 	if sp, err := database.AllNodeSpans(ctx.DB); err == nil {
 		nodeSpans = sp // styled text runs (see spans.go)
+	}
+	if lc, err := database.AllLineCharacters(ctx.DB); err == nil {
+		lineCharacters = lc // package var, like tagColors: the render path is Model-free
+	}
+	if cc, err := database.AllCharacterColors(ctx.DB); err == nil {
+		characterColors = cc
 	}
 
 	m := &Model{
