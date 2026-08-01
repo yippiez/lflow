@@ -135,6 +135,7 @@ const (
 	glyphTodoDone  = "■"
 	glyphQuoteBar  = "▎"
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
+	glyphSuggest   = "○" // a node with a proposal waiting on review (painted yellow)
 	glyphCloud     = "☁" // a HOSTED coding session (started on the web or a phone)
 )
 

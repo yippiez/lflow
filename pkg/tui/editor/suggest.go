@@ -226,14 +226,15 @@ func (m *Model) suggestInline(it *item) string {
 	return out
 }
 
-// suggestGlyphColor paints a node's glyph yellow while something is proposed
-// for it, so a row carries the proposal even when the arrow text is clipped.
-// The cursor and multi-select red still win — those say where you are.
-func (m *Model) suggestGlyphColor(it *item, current string) string {
+// suggestGlyph turns a node carrying a proposal into a yellow outline circle:
+// the marker belongs ON the node that needs review, not on a line under it, and
+// it survives a row whose arrow text is clipped. The cursor and multi-select red
+// still win — those say where you are, not what needs answering.
+func (m *Model) suggestGlyph(it *item, glyph, color string) (string, string) {
 	if len(m.suggestsFor(it.uuid)) == 0 {
-		return current
+		return glyph, color
 	}
-	return cYellow
+	return glyphSuggest, cYellow
 }
 
 // suggestBandLines is the review surface under a node: nothing while the
@@ -261,15 +262,18 @@ func (m *Model) suggestBlockLines(r row, subtreeBelow bool, maxLine int) []strin
 	rail := continuationPrefix(r, subtreeBelow)
 	var lines []string
 	if inline := m.suggestInline(r.it); inline != "" {
-		lines = append(lines, clip(rail+cReset+" "+strings.TrimPrefix(inline, " "), maxLine))
+		lines = append(lines, clip(rail+cReset+strings.TrimPrefix(inline, " "), maxLine))
 	}
 	return append(lines, m.suggestBandLines(r, subtreeBelow, maxLine)...)
 }
 
 // suggestReviewLines is the expanded proposal: who and why, the before/after,
-// and the keys that settle it.
+// and the keys that settle it. It sits at the node's own column — the node's
+// yellow circle already says which node this belongs to, so indenting the
+// proposal under it would only push the before/after away from the text it is
+// comparing against.
 func (m *Model) suggestReviewLines(rail string, s database.Suggestion, idx, total, maxLine int) []string {
-	head := "  " + cYellow + "○ " + cReset + cDim + suggestBy(s)
+	head := cDim + suggestBy(s)
 	if total > 1 {
 		head += fmt.Sprintf(" · %d/%d", idx+1, total)
 	}
@@ -283,10 +287,10 @@ func (m *Model) suggestReviewLines(rail string, s database.Suggestion, idx, tota
 		if d.remove {
 			mark, color = "-", cRed
 		}
-		lines = append(lines, clip(rail+cReset+"    "+color+mark+" "+cReset+cDim+d.text+cReset, maxLine))
+		lines = append(lines, clip(rail+cReset+color+mark+" "+cReset+cDim+d.text+cReset, maxLine))
 	}
 
-	keys := "    " + cGreen + "y" + cDim + " approve · " + cRed + "n" + cDim + " reject"
+	keys := cGreen + "y" + cDim + " approve · " + cRed + "n" + cDim + " reject"
 	if total > 1 {
 		keys += " · ↑↓ next"
 	}

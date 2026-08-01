@@ -53,8 +53,9 @@ func TestSuggestShowsInlineOnTheNode(t *testing.T) {
 	if !strings.Contains(inline, cYellow) {
 		t.Fatalf("the proposal is not yellow: %q", inline)
 	}
-	if got := m.suggestGlyphColor(cur, cDim); got != cYellow {
-		t.Fatalf("glyph color = %q, want yellow", got)
+	glyph, color := m.suggestGlyph(cur, glyphTodo, cDim)
+	if glyph != glyphSuggest || color != cYellow {
+		t.Fatalf("node glyph = %q/%q, want a yellow outline circle", glyph, color)
 	}
 	// nothing hangs under the node until review opens on it
 	if band := m.suggestBandLines(m.rows[m.cursor], false, 80); band != nil {
@@ -108,8 +109,9 @@ func TestSuggestShowsOnBlockFacedTypes(t *testing.T) {
 			if !strings.Contains(lines, "→ func main() { run() }") {
 				t.Fatalf("%s block carried no proposal: %q", typ, lines)
 			}
-			if got := m.suggestGlyphColor(cur, cDim); got != cYellow {
-				t.Fatalf("%s glyph color = %q, want yellow", typ, got)
+			glyph, color := m.suggestGlyph(cur, glyphOpen, cDim)
+			if glyph != glyphSuggest || color != cYellow {
+				t.Fatalf("%s glyph = %q/%q, want a yellow outline circle", typ, glyph, color)
 			}
 		})
 	}
@@ -347,5 +349,51 @@ func TestSuggestReviewOpensOnTheInlineOne(t *testing.T) {
 	}
 	if strings.Contains(band, "and an owner column") {
 		t.Fatalf("review showed the second proposal too: %q", band)
+	}
+}
+
+// TestSuggestReviewIsFlushAndUnmarked: the expanded proposal sits at the node's
+// own column and repeats no circle — the node already wears the yellow one.
+func TestSuggestReviewIsFlushAndUnmarked(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing",
+		Message: "clearer", Author: "agent"})
+	m.loadSuggests()
+	m.press("alt+v")
+
+	band := m.suggestBandLines(m.rows[m.cursor], false, 80)
+	if len(band) == 0 {
+		t.Fatal("review drew no band")
+	}
+	rail := stripSGR(continuationPrefix(m.rows[m.cursor], false))
+	for _, l := range band {
+		plain := stripSGR(l)
+		if strings.Contains(plain, glyphSuggest) {
+			t.Fatalf("the band repeated the node's circle: %q", plain)
+		}
+		if !strings.HasPrefix(plain, rail) {
+			t.Fatalf("band line does not start at the node's column: %q", plain)
+		}
+		if strings.HasPrefix(plain[len(rail):], "  ") {
+			t.Fatalf("band line is indented past the node's column: %q", plain)
+		}
+	}
+}
+
+// TestSuggestToolbarCountHasNoCircle: the bar counts what waits, without the
+// glyph — the circle belongs on the node.
+func TestSuggestToolbarCountHasNoCircle(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing"})
+	m.loadSuggests()
+
+	bar := stripSGR(strings.Join(m.bottomBar(80), "\n"))
+	if !strings.Contains(bar, "1 suggestion") {
+		t.Fatalf("bar dropped the count: %q", bar)
+	}
+	if strings.Contains(bar, glyphSuggest+" 1 suggestion") {
+		t.Fatalf("bar still wears the circle: %q", bar)
 	}
 }

@@ -210,23 +210,26 @@ says so, `--force` applies anyway. On the wire a suggestions write flags
 nothing a client renders — and `lflow serve` logs it as `→ suggested`.
 
 In the EDITOR (`pkg/tui/editor/suggest.go`) a pending proposal reads INLINE on
-the node itself: the glyph turns yellow and the row gains `→ <proposed text>`
-(`+ text` for a proposed child, `· +N` when more wait behind it). It is a
+the node itself: its glyph becomes a yellow outline circle (`glyphSuggest`, in
+place of whatever the type would draw) and the row gains `→ <proposed text>`
+(`+ text` for a proposed child, `· +N` when more wait behind it). The arrow is a
 suffix on the rendered line — like the mirror/locked/child-count one — so every
 row-shaped type carries it for free (bullets, todo, headings, table, query,
 math, json, wf, the nlpcompute prose face); types whose row is REPLACED by a
 block (Code, the nlpcompute code face) and the divider rule take the same text
 as one line under the block instead (`suggestBlockLines`). Proposals arrive live
-when the feed reports one, and the bar carries `○ N suggestions`.
+when the feed reports one, and the bar counts them (`N suggestions`, no glyph —
+the circle belongs on the node).
 
-`alt+v` opens review on the cursor node (`modeSuggest`): a band expands under it
-with author, message and the before/after, `y` approves, `n` rejects, `esc`
-leaves it pending, ↑↓ walks a node's queue, and `/suggestions` jumps to the next
-node carrying one. The inline arrow and the band are a READING of the
-suggestions table — approving is the only path that writes, and it goes through
-`database.ApplySuggestion` and then resyncs. A proposal against the current
-view's own root has no row to hang from; `/suggestions` says so instead of
-pretending there is nothing.
+`alt+v` opens review on the cursor node (`modeSuggest`): the proposal expands
+under it AT THE NODE'S OWN COLUMN — not indented, and carrying no circle of its
+own, since the node already wears one — with author, message, the before/after,
+then `y` approves, `n` rejects, `esc` leaves it pending, ↑↓ walks a node's
+queue, and `/suggestions` jumps to the next node carrying one. The inline arrow
+and the expansion are a READING of the suggestions table — approving is the only
+path that writes, and it goes through `database.ApplySuggestion` and then
+resyncs. A proposal against the current view's own root has no row to hang from;
+`/suggestions` says so instead of pretending there is nothing.
 
 ## NLPCompute code generation
 

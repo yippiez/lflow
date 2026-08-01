@@ -120,7 +120,7 @@ func (m *Model) finalView(maxLine int) []string {
 		if rm := typeOf(shown.typ).renderM; rm != nil {
 			body = rm(m, shown)
 		}
-		glyphColor = m.suggestGlyphColor(r.it, glyphColor)
+		glyph, glyphColor = m.suggestGlyph(r.it, glyph, glyphColor)
 		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body +
 			m.typeSuffix(r) + m.suggestInline(r.it)
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
@@ -206,7 +206,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				if m.tempActive && !r.mirrored {
 					glyph = glyphDotted
 				}
-				glyphColor = m.suggestGlyphColor(it, glyphColor)
+				glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
 				if selected || m.inSelection(i) {
 					glyphColor = cRed
 				}
@@ -231,7 +231,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		if m.tempActive && !r.mirrored {
 			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
 		}
-		glyphColor = m.suggestGlyphColor(it, glyphColor)
+		glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
 		if selected || m.inSelection(i) {
 			glyphColor = cRed
 		}
@@ -699,7 +699,7 @@ func (m *Model) bottomBar(maxLine int) []string {
 	// a proposal waiting on review is worth seeing even when its node is off
 	// screen — it changes nothing until somebody settles it
 	if n := m.pendingSuggestCount(); n > 0 {
-		state += " · " + cYellow + "○ " + suggestNoun(n) + cDim
+		state += " · " + cYellow + suggestNoun(n) + cDim
 	}
 	if m.flash != "" {
 		state += " · " + m.flash
