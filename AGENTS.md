@@ -44,17 +44,21 @@ free-string `type`.
 
 ## Zotero citations
 
-`pkg/tui/zotero` reads the LOCAL Zotero library — the desktop apps
+`pkg/tui/zotero` reads the LOCAL Zotero library — the desktop app's
 `zotero.sqlite` — and never writes: it copies the file (plus any `-wal`) to a
 throwaway snapshot and reads that, so a running Zotero is never disturbed. The
 data directory is found via `LFLOW_ZOTERO_DIR`, `ZOTERO_DATA_DIR`, the
-`dataDir` in a Zotero profiles `prefs.js`, `<home>/Zotero`, and — for lflow in
+`dataDir` in a Zotero profile's `prefs.js`, `<home>/Zotero`, and — for lflow in
 WSL with Zotero on the Windows side — `/mnt/<drive>/Users/<user>/Zotero`. The
 whole library loads once per session (lazily, re-read when its mtime moves) and
 is searched in process, because the picker filters on every keystroke.
 
+There are two surfaces, and they are deliberately different things: a **chip**
+is a citation inside a sentence, a **node** is the paper itself living in the
+tree.
+
 In the editor (`editor/zotero.go`) a citation is a **chip**, not a node type:
-kind `zotero`, value = Zoteros own `zotero://select/…` URI (so the stored value
+kind `zotero`, value = Zotero's own `zotero://select/…` URI (so the stored value
 IS the local-open target), label = the compact author-year form. `@@` — or
 `/cite`, or `/insert` → cite — opens the library picker; `alt+g` opens the paper
 where `/settings` → "Zotero opens" points (local app or zotero.org), `alt+o`
@@ -62,8 +66,31 @@ opens the other one, and the chip carries the same target as an OSC 8 hyperlink
 so a terminal ctrl+click lands there too. The local hop goes through
 `browser.OpenApp`, which prefers the Windows shell under WSL because that is
 where the `zotero://` handler is registered. The personal web-library URL needs
-the account name: taken from the librarys own account settings, else
-`credentials.json`, else the entrys DOI.
+where the `zotero://` handler is registered. The personal web-library URL needs
+the account name: taken from the library's own account settings, else
+`credentials.json`, else the entry's DOI.
+
+A whole entry mirrors into the outline as the `zotero` **node type**
+(`editor/zoteroitem.go`): `/zotero` — or `/type` → Zotero item — picks the entry
+through the same library picker, and its tags land on the title row as colored
+chips with its attachments, annotations and notes beneath it. Every node of the
+mirror wears the `zotero` type and is bound in `zotero_nodes` (node uuid → item
+key + kind: item / attachment / annotation / note / meta), which is what gives
+each row its own mark and its own alt+g: the entry, the PDF in Zotero's reader,
+or `?annotation=` at one highlight. Annotation and tag colors are Zotero's own
+hex mapped to the nearest color in the LIVE palette (`zoteroNearestColor`), so
+an import sits inside the active theme; a tag the user already colored keeps
+their choice. `alt+r` re-reads the entry and reconciles against those keys —
+in place, so a refresh updates what changed instead of duplicating the subtree.
+
+The mirror is Zotero's, not yours: the root is content-locked (movable and
+deletable as a unit), every node below it is content- AND position-locked, and
+`/lock` and `/note` refuse on all of them — an edit there would be silently
+discarded by the next refresh. The generic guards that enforce it are
+`lockedSlot` / `acceptsChildren` in `model.go`; a refused splice returns
+`errStructureLocked`, which callers flash rather than treating as fatal.
+
+Remaining doc-level rules:
 
 Remaining doc-level rules:
 
