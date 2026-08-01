@@ -50,7 +50,7 @@ func TestDividerLineCentered(t *testing.T) {
 	dashes := strings.Count(line, "─")
 	leading := len(line) - len(strings.TrimLeft(line, " "))
 
-	const prefixW = 1 // " " before the (empty) depth-0 connector
+	const prefixW = 3 // " " before the (empty) depth-0 connector + blank glyph slot + separator
 	avail := maxLine - prefixW
 	if want := avail * 24 / 25; dashes != want {
 		t.Errorf("rule width = %d, want %d (~96%% of %d)", dashes, want, avail)

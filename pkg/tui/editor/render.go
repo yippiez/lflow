@@ -197,15 +197,19 @@ func connector(r row) string {
 }
 
 // dividerLine renders a divider node as a single horizontal rule. The glyph
-// (circle) is hidden: the rule is ~90% of the width available after the row's
-// indent/rail, CENTERED in that space so equal gaps hang on the left and right.
+// (circle) is hidden, but its SLOT is still reserved — a normal row is
+// " connector ○ body", so the rule starts where the body would, and the ~96%
+// footprint is of the content width after that bump, not the whole line. The
+// rule is CENTERED in that space so equal gaps hang on the left and right.
 // A non-empty body (the node's text, already rendered by renderBody with chips,
 // styles and caret) sits on the midpoint of the rule — equal rule runs on each
 // side center the text, with one space of breathing room around it; if the text
 // leaves no room for a rule it stands alone. Muted gray normally, red under the
 // cursor — the rule itself is the selection cue since there's no glyph.
 func dividerLine(r row, maxLine int, body string, selected bool) string {
-	prefix := " " + cDim + connector(r)
+	// same indent as an ordinary row — connector, then a blank cell where the
+	// glyph would sit, then the separator space
+	prefix := " " + cDim + connector(r) + cReset + "  "
 	col := cDim
 	if selected {
 		col = cRed
@@ -225,19 +229,19 @@ func dividerLine(r row, maxLine int, body string, selected bool) string {
 	}
 
 	if visibleWidth(body) == 0 {
-		return prefix + cReset + strings.Repeat(" ", lead) + col + strings.Repeat("─", span) + cReset
+		return prefix + strings.Repeat(" ", lead) + col + strings.Repeat("─", span) + cReset
 	}
 
 	ruleW := span - visibleWidth(body) - 2
 	if ruleW < 1 {
-		return prefix + cReset + strings.Repeat(" ", lead) + body + cReset // text wider than the row — bare text
+		return prefix + strings.Repeat(" ", lead) + body + cReset // text wider than the row — bare text
 	}
 	if ruleW%2 == 1 {
 		ruleW-- // keep the rule runs equal so the text stays dead-center
 	}
 	left := ruleW / 2
 	right := ruleW - left
-	return prefix + cReset + strings.Repeat(" ", lead) + col + strings.Repeat("─", left) + cReset + " " + body + cReset + " " + col + strings.Repeat("─", right) + cReset
+	return prefix + strings.Repeat(" ", lead) + col + strings.Repeat("─", left) + cReset + " " + body + cReset + " " + col + strings.Repeat("─", right) + cReset
 }
 
 // continuationPrefix builds the dim-styled hanging indent for a row's wrapped
