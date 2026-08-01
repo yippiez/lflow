@@ -95,12 +95,29 @@ func bashPreview(it *item, chips map[string]database.Chip) string {
 // glyph never changes: not on a fold, not while the run's terminal is open.
 func bashGlyph(*item) (string, string) { return glyphBashPrompt, cRed }
 
-// bashBodyTail hangs the composed command after a parent row, dim — the same
-// service math's linear preview does: the tree stays readable while the row still
-// says exactly what alt+r would run. A leaf's text IS its command, so it gets no
-// tail.
+// bashBodyTail is the row's "→" section, and it is the SAME surface a cmd chip's
+// tail is — a bash node is only the tree form of that chip, so the two must read
+// alike (see runTails):
+//
+//   - with a run in hand it hangs that run's headline: the newest line while the
+//     command is in flight (shimmering, the way the running chip's cell does), the
+//     first line once it has settled. The row IS the live surface — a running node
+//     claims no band beneath it, exactly like the chip.
+//   - with no run it falls back to the composed command, the same service math's
+//     linear preview does: the tree stays readable while the row still says
+//     exactly what alt+r would run. A leaf's text IS its command, so a leaf with
+//     nothing to show gets no tail at all.
 func bashBodyTail(it *item, chips map[string]database.Chip) string {
-	if it == nil || len(it.children) == 0 {
+	if it == nil {
+		return ""
+	}
+	if t, ok := runTails[it.uuid]; ok && t.text != "" {
+		if t.running {
+			return cReset + shimmerLabel("→ "+t.text) + cReset
+		}
+		return cDim + "→ " + t.text + cReset
+	}
+	if len(it.children) == 0 {
 		return ""
 	}
 	p := bashPreview(it, chips)

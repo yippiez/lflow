@@ -225,11 +225,17 @@ func wrapSGR(s string, width int) []string {
 // line, which would repaint a flood back to the default background. Every
 // reset inside the content re-arms the background so mixed-color rows keep
 // the highlight; the frame wrapper's trailing cReset closes it.
-func selFill(s string, width int) string {
+func selFill(s string, width int) string { return bgFill(s, width, bgPill) }
+
+// bgFill is that same edge-to-edge paint over any background: pad the styled
+// line to width with real cells and re-arm bg after every reset inside it. The
+// terminal pane (bgTerm) fills its rows this way, so the block reads as one
+// surface however the program colored its own output.
+func bgFill(s string, width int, bg string) string {
 	if pad := width - visibleWidth(s); pad > 0 {
 		s += strings.Repeat(" ", pad)
 	}
-	return bgPill + strings.ReplaceAll(s, cReset, cReset+bgPill)
+	return bg + strings.ReplaceAll(s, cReset, cReset+bg)
 }
 
 // elideMiddle shortens plain text s to at most width display cells, dropping the

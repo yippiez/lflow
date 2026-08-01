@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +87,45 @@ func TestCmdChipRunClearsStalePreview(t *testing.T) {
 	}
 	if m.run(c.ID).started.IsZero() {
 		t.Error("run did not stamp its start time (no elapsed clock)")
+	}
+}
+
+// TestExpandedViewHeightNeverMoves: the terminal pane is a WINDOW, not a
+// growing list — an empty run opens at exactly the height it will have at a
+// thousand lines, so nothing below it shifts while output streams in. It also
+// follows the tail, the way a terminal scrolls itself.
+func TestExpandedViewHeightNeverMoves(t *testing.T) {
+	m, c, _ := liveCmdChip(t, "build")
+	m.focusCmdChip(m.chips[c.ID])
+	it := m.cursorItem()
+
+	const winH = 8
+	empty := (cmdChipView{}).Bands(m, it, "", 80, 0, winH, true)
+	if len(empty) != winH {
+		t.Fatalf("an empty run drew %d rows, want the full %d-row pane", len(empty), winH)
+	}
+	for i, n := range []int{1, 3, 12, 400} {
+		for len(m.run(c.ID).out) < n {
+			m.appendRunOut(c.ID, outLine{text: fmt.Sprintf("line %d", len(m.run(c.ID).out)+1)})
+		}
+		got := (cmdChipView{}).Bands(m, it, "", 80, 0, winH, true)
+		if len(got) != winH {
+			t.Errorf("step %d (%d lines): pane is %d rows, want a fixed %d", i, n, len(got), winH)
+		}
+		// following the tail: the newest line is on screen, the oldest is not
+		flat := stripSGR(strings.Join(got, "\n"))
+		if newest := fmt.Sprintf("line %d", n); !strings.Contains(flat, newest) {
+			t.Errorf("%d lines: pane lost the tail (%q):\n%s", n, newest, flat)
+		}
+	}
+	// scrolling up stops the follow and shows the head — still the same height
+	m.focusFollow = false
+	top := (cmdChipView{}).Bands(m, it, "", 80, 0, winH, true)
+	if len(top) != winH {
+		t.Errorf("scrolled pane is %d rows, want %d", len(top), winH)
+	}
+	if flat := stripSGR(strings.Join(top, "\n")); !strings.Contains(flat, "line 1") {
+		t.Errorf("scrolled to the top, want the first line:\n%s", flat)
 	}
 }
 

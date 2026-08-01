@@ -82,6 +82,11 @@ type nodeType struct {
 	// resolve anchors (a path chip in a command) instead of leaking sentinels.
 	// Called for the resting/selected row alike. nil → nothing. "" → nothing.
 	bodyTail func(it *item, chips map[string]database.Chip) string
+	// runInTail says this type's run lives in the row's bodyTail — the streaming
+	// headline after its "→" — and so claims NO output band beneath the row. The
+	// Bash type sets it to read exactly like the cmd chip it is the tree form of:
+	// the row streams, alt+e opens the terminal, nothing hangs in between.
+	runInTail bool
 
 	// toContext reserves a structured XML representation for consumers that
 	// need typed outline context. nil means the generic node representation.
@@ -197,6 +202,7 @@ var nodeTypes = []nodeType{
 		view:         runOutView{},
 		flashActions: bashFlashActions,
 		cliDeps:      []string{"bash"},
+		runInTail:    true,
 	},
 	{
 		key: database.TypeQuery, label: "Query", inlineEditable: true, disableChips: true,
