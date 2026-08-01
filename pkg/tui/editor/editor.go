@@ -33,16 +33,18 @@ const (
 	modeSlash
 	modeFinder
 	modeNote
-	modeConfirm  // inline delete confirmation for nodes with children
-	modeType     // the /type picker: choose one of the node types
-	modeStyle    // the /style picker: toggle bold, italic, underline, strikethrough, color
-	modeTheme    // the /theme picker: choose a color palette
-	modeSettings // the /settings picker: global preferences (theme, image preview, …)
-	modeComplete // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit // the alt+e link-chip editor: edit a link's name and target
-	modeFlash    // flash jump/act: every visible row's actions get a typed label (see flash.go)
-	modeTagColor // the alt+e tag color picker: assign a pill color to a tag
-	modeInsert   // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
+	modeConfirm    // inline delete confirmation for nodes with children
+	modeType       // the /type picker: choose one of the node types
+	modeStyle      // the /style picker: toggle bold, italic, underline, strikethrough, color
+	modeTheme      // the /theme picker: choose a color palette
+	modeSettings   // the /settings picker: global preferences (theme, image preview, …)
+	modeComplete   // the inline completer: "#" tags, ":" query commands
+	modeLinkEdit   // the alt+e link-chip editor: edit a link's name and target
+	modeFlash      // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeTagColor   // the alt+e tag color picker: assign a pill color to a tag
+	modeInsert     // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
+	modeAgentPick  // /agent: start a coding session here, or attach one from a CLI's own store
+	modeAgentColor // ⌥c on a session chip: its color
 )
 
 type finderAction int
@@ -69,7 +71,7 @@ var slashCommands = []slashCommand{
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
 	{"/hide:complete", "Hide or show completed nodes"},
-	{"/insert", "Insert at caret: cmd, date, icon, link, path, tag"},
+	{"/insert", "Insert at caret: agent, cmd, date, icon, link, path, tag"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
 	{"/mirror:from", "Mirror another node here"},
@@ -179,7 +181,17 @@ type Model struct {
 
 	// the focused cmd chip (alt+e): its output renders as an inline band beneath
 	// the node — the same surface as a focused bash node — keyed by this chip id.
+	// A focused SESSION chip uses the same field, with the transcript as its band.
 	focusChip string
+
+	// the agentic coding session pickers (/agent, /agents). agentStore is the
+	// sessions discovered in the CLIs' own stores when the start/attach picker
+	// opened.
+	// Both are snapshots — a picker never re-walks a store while it is being
+	// typed in.
+	agentStore []agentStoreSession
+	// agentColorChip is the chip ⌥c is picking a color for.
+	agentColorChip string
 
 	// live cmd-chip draft gate: where the last text edit left the caret.
 	// activeCmdDraftRange is purely positional, so without this gate merely
@@ -522,6 +534,9 @@ func (m *Model) undo() {
 func (m *Model) refreshRows() {
 	m.rows = m.tree.visibleRows(m.viewRoot(), m.hideCompleted, m.unroll)
 	m.clampCursor()
+	// publish the look of every visible coding session (color + status tail) for
+	// the Model-less render path — see agentLooks
+	m.refreshAgentLooks()
 }
 
 // expandStep opens the cursor node one visible level: uncollapse it, and when
@@ -821,6 +836,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.flash = "opened in " + msg.via
 		}
+		return m, nil
+	case agentClosedMsg:
+		// the CLI lflow suspended for has exited — record the session and repaint
+		m.handleAgentClosed(msg)
+		m.refreshRows()
 		return m, nil
 	}
 	return m, nil
@@ -1789,6 +1809,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		live:      ctx.Live, // daemon connection: live sync (nil in direct runs)
 	}
 	m.hydrateCmdPreviews() // rebuild → chrome from local node_output (chip label is never stored)
+	m.hydrateAgentChips()  // same for session chips: the label is the session's live title
 	m.startFeed()          // subscribe to external changes; Init retries if it failed
 	m.loadSettings()       // apply persisted preferences (theme, …) before the first render
 	m.loadDeps()           // NodeCLIDeps: which CLI backends the daemon can exec

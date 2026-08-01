@@ -12,6 +12,10 @@ func (m *Model) loadDeps() {
 			set[bin] = true
 		}
 	}
+	// the session chips are not a node type, so they declare their CLIs directly
+	for _, bin := range agentBins() {
+		set[bin] = true
+	}
 	bins := make([]string, 0, len(set))
 	for bin := range set {
 		bins = append(bins, bin)

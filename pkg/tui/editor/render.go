@@ -3,6 +3,7 @@ package editor
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -66,6 +67,66 @@ var (
 // color on it. Themed, so a /theme change moves them together.
 func bgTextSel() string { return bgPill }
 
+// A FILLED surface (the session pill worn by a chip, a node and a menu row)
+// writes in whatever INK contrasts with its fill: near-black on a light fill —
+// what makes Claude Code's orange read — and near-white on a dark one. Not
+// themed, for the same reason the painter's bar is not: contrast is contrast.
+const (
+	cInkDark  = "\x1b[38;2;18;18;18m"
+	cInkLight = "\x1b[38;2;245;245;245m"
+)
+
+// contrastInk picks the ink for a fill given as a foreground SGR: whichever of
+// the two inks actually contrasts MORE with it, by WCAG contrast ratio. There is
+// no knee to tune — a knee on raw channel values ignores sRGB gamma, and a
+// saturated red is exactly where that goes wrong: it looks dark to the arithmetic
+// while the eye reads it as light, so the glyph came out white-on-red and all but
+// vanished. Decoding gamma first puts that red on black ink, where it belongs.
+func contrastInk(fill string) string {
+	r, g, b, ok := sgrRGB(fill)
+	if !ok {
+		return cInkDark
+	}
+	l := relLuminance(r, g, b)
+	// contrast ratio is (lighter+0.05)/(darker+0.05); the fill sits between the
+	// two inks, so each side is one division
+	vsDark := (l + 0.05) / (relLuminance(18, 18, 18) + 0.05)
+	vsLight := (relLuminance(245, 245, 245) + 0.05) / (l + 0.05)
+	if vsDark >= vsLight {
+		return cInkDark
+	}
+	return cInkLight
+}
+
+// relLuminance is the WCAG relative luminance of an sRGB triple — channels
+// gamma-decoded to light before they are weighted.
+func relLuminance(r, g, b int) float64 {
+	lin := func(c int) float64 {
+		v := float64(c) / 255
+		if v <= 0.04045 {
+			return v / 12.92
+		}
+		return math.Pow((v+0.055)/1.055, 2.4)
+	}
+	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+}
+
+// sgrRGB reads the channels out of a truecolor SGR sequence ("\x1b[38;2;r;g;bm").
+func sgrRGB(s string) (r, g, b int, ok bool) {
+	i := strings.Index(s, ";2;")
+	if i < 0 || !strings.HasSuffix(s, "m") {
+		return 0, 0, 0, false
+	}
+	parts := strings.Split(strings.TrimSuffix(s[i+3:], "m"), ";")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	if _, err := fmt.Sscanf(strings.Join(parts, " "), "%d %d %d", &r, &g, &b); err != nil {
+		return 0, 0, 0, false
+	}
+	return r, g, b, true
+}
+
 // glyphs (locked)
 const (
 	glyphOpen      = "○"
@@ -74,6 +135,7 @@ const (
 	glyphTodoDone  = "■"
 	glyphQuoteBar  = "▎"
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
+	glyphCloud     = "☁" // a HOSTED coding session (started on the web or a phone)
 )
 
 // underCompleted reports whether it sits under a completed ancestor in the
@@ -444,6 +506,52 @@ func renderCmdChip(c database.Chip, caretOn bool) string {
 	return b.String()
 }
 
+// renderAgentChip draws a session chip as a filled PILL: the agent's glyph and
+// the session's name on the session's own color, near-black ink on top. A hosted
+// session carries the cloud mark inside the pill (see refreshAgentChip). Like
+// the cmd chip this owns its whole look, so the generic chip-color path in
+// renderBody steps aside for it.
+//
+// struck carries the completed row's strikethrough INTO the pill. The pill keeps
+// its color when the row is done — a finished session is still the agent it was —
+// so the line through it is what says finished, and it is drawn in the pill's own
+// ink, which contrastInk keeps dark against every fill in the palette.
+func renderAgentChip(c database.Chip, caretOn, struck bool) string {
+	glyph, col := "◈", cDim
+	if v, ok := agentVariantByID(c.Value); ok {
+		glyph = v.glyph
+		col = v.colorSGR()
+	}
+	if l, ok := agentLooks[c.ID]; ok && l != "" {
+		col = l // the session's own color, when its CLI gave it one
+	}
+	label := c.Label
+	if label == "" {
+		label = c.Value // no session yet: the pill names the CLI
+	}
+	var b strings.Builder
+	b.WriteString(cReset)
+	if caretOn {
+		b.WriteString(cInvert)
+	}
+	b.WriteString(bgOf(col) + contrastInk(col))
+	if struck {
+		b.WriteString(cStrike)
+	}
+	b.WriteString(" " + glyph + " " + label + " " + cReset)
+	return b.String()
+}
+
+// bgOf turns a foreground SGR ("\x1b[38;2;r;g;bm") into the matching BACKGROUND
+// sequence, so a chip can be filled with the color a session is themed in
+// without a second palette. A code it cannot read leaves the pill unfilled.
+func bgOf(fg string) string {
+	if s, ok := strings.CutPrefix(fg, "\x1b[38;"); ok {
+		return "\x1b[48;" + s
+	}
+	return ""
+}
+
 // activeCmdDraftRange returns the not-yet-committed cmd chip range that contains
 // the caret. A standalone "$" starts the draft immediately; single spaces stay
 // in the command, while a double space means the draft has ended (and normally
@@ -602,6 +710,16 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			// the colors, so a chip that wraps stays tinted on every continuation.
 			if c, ok := chips[sp.id]; ok && c.Kind == chipKindCmd {
 				b.WriteString(renderCmdChip(c, caret == sp.start))
+				cur = ""
+				i = sp.end
+				continue
+			}
+			// a session chip is a filled pill in the agent's (or the session's)
+			// own color — it owns its whole look, like the cmd chip's code cell.
+			// The row's strike is the one attribute that carries into it: a chip
+			// in a finished row is a finished session.
+			if c, ok := chips[sp.id]; ok && c.Kind == chipKindAgent {
+				b.WriteString(renderAgentChip(c, caret == sp.start, strings.Contains(attrs, cStrike)))
 				cur = ""
 				i = sp.end
 				continue

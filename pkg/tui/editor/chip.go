@@ -128,6 +128,10 @@ const (
 	chipKindLink = "link"
 	chipKindCmd  = "cmd"
 	chipKindIcon = "icon" // painted service glyph; value=glyph, label=shortcode
+	// an agentic coding session inline: value=the CLI variant id ("claude"), the
+	// session itself in local node_output keyed by the chip id. alt+r opens or
+	// resumes it, alt+e shows its transcript (see agent.go).
+	chipKindAgent = "agent"
 )
 
 var chipKinds = map[string]chipKind{
@@ -162,6 +166,16 @@ var chipKinds = map[string]chipKind{
 		key:     chipKindCmd,
 		color:   cYellow,
 		display: func(v string) string { return "$ " + v },
+		expand:  func(v string) string { return v },
+	},
+	// a session chip is a handle on one agentic coding session. value is the CLI
+	// variant id; the label carries the session's live title (refreshed from the
+	// CLI's store, never persisted — see refreshAgentChip). Color is per-chip
+	// (the variant's, or the session's own), applied in renderBody.
+	chipKindAgent: {
+		key:     chipKindAgent,
+		color:   cFG,
+		display: func(v string) string { return v },
 		expand:  func(v string) string { return v },
 	},
 	// an icon chip is a painted service glyph from the :shortcode picker.
@@ -204,6 +218,10 @@ func chipDisplay(c database.Chip) string {
 			return "→" + chiptext.ServiceDisplay(svc, c.Label)
 		}
 		return "→" + linkChipLabel(c)
+	}
+	if c.Kind == chipKindAgent {
+		// glyph + the session's live title (see agentChipDisplay)
+		return agentChipDisplay(c)
 	}
 	if c.Kind == chipKindCmd {
 		// the label holds the run preview (set by setCmdPreview / hydrateCmdPreviews;
@@ -381,11 +399,16 @@ func (m *Model) createLabeledChip(kind, value, label string) string {
 }
 
 // deleteChipID drops a chip record (in-memory and on disk). The caller removes
-// its anchor from the node name.
+// its anchor from the node name. A chip's LOCAL sidecar row goes with it — a cmd
+// chip's run band, a session chip's session pointer — since both are keyed by the
+// chip id and nothing can reach them once the chip is gone.
 func (m *Model) deleteChipID(id string) {
 	delete(m.chips, id)
+	delete(m.nodeData, id)
+	delete(agentLooks, id)
 	if m.ctx.DB != nil {
 		_ = database.DeleteChip(m.ctx.DB, id)
+		_ = database.DeleteNodeOutput(m.ctx.DB, id)
 	}
 }
 

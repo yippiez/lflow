@@ -314,23 +314,10 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		}
 	case actGoto, actBacklinks:
 		// save, then reopen on the target (/backlinks picks jump the same way)
-		if _, err := m.saveAll(); err != nil {
+		if err := m.jumpTo(target); err != nil {
 			m.err = err
 			return m.quit()
 		}
-		t, err := loadTree(m.db, target.UUID)
-		if err != nil {
-			m.err = err
-			return m.quit()
-		}
-		m.tree = t
-		m.viewStack = []*item{t.root}
-		m.undoStack = nil
-		m.clearOnFrame = true // /goto jumps to a new view root: wipe the old one
-		m.refreshAncestors()
-		m.cursor = 0
-		m.caret = 0
-		m.unsaved = false
 	case actQueryScope:
 		// Persist the selected node identity as a regular node-link chip. Query
 		// parsing consumes this chip after :in:, so a rename cannot change scope.
@@ -372,6 +359,30 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 
 	m.refreshRows()
 	return m, nil
+}
+
+// jumpTo saves the open subtree and REOPENS the editor on target — the /goto
+// move. Shared with /backlinks and the /agents index, so every "take me to that
+// node" surface lands the same way: everything persisted, the target as the new
+// view root, no undo history carried across the jump.
+func (m *Model) jumpTo(target database.Node) error {
+	if _, err := m.saveAll(); err != nil {
+		return err
+	}
+	t, err := loadTree(m.db, target.UUID)
+	if err != nil {
+		return err
+	}
+	m.tree = t
+	m.viewStack = []*item{t.root}
+	m.undoStack = nil
+	m.clearOnFrame = true // a jump lands on a new view root: wipe the old one
+	m.refreshAncestors()
+	m.cursor = 0
+	m.caret = 0
+	m.unsaved = false
+	m.refreshRows()
+	return nil
 }
 
 // clampRow bounds a row index into [0, n-1] (0 when the list is empty).

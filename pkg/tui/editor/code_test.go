@@ -43,7 +43,7 @@ func TestCodeViewTypesMultiLine(t *testing.T) {
 	focusCode(t, m, "c")
 
 	typeInto(m, "def f(xs):\n")
-	typeInto(m, "  total = 0\n")   // two-space indent, must stay literal
+	typeInto(m, "  total = 0\n")    // two-space indent, must stay literal
 	typeInto(m, "    return total") // deeper indent, still literal
 
 	if !m.focused {

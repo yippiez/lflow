@@ -46,7 +46,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.mode {
-	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert:
+	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert,
+		modeAgentPick, modeAgentColor:
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
@@ -565,6 +566,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if c, ok := m.cmdChipAtCaret(cur); ok {
 				m.focusCmdChip(c) // ⌥e on a cmd chip: its run output as an inline band
 				return m, nil
+			} else if c, ok := m.agentChipForKeys(cur); ok {
+				m.focusAgentChip(c) // ⌥e on a session chip: its transcript as a band
+				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
 				return m, nil
@@ -582,6 +586,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
+			}
+			if c, ok := m.agentChipForKeys(cur); ok {
+				return m, m.runAgentChip(c) // an inline session chip opens its CLI
 			}
 			// running a link chip IS opening it — the browser for a URL (a Google
 			// Sheets/Docs chip lands in the host browser), a jump for a node link.
@@ -610,6 +617,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if open := typeOf(cur.typ).openHost; open != nil {
 				return m, open(m, cur)
+			}
+		}
+		return m, nil
+	case "alt+n":
+		// rename the session chip at the caret, in place
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipForKeys(cur); ok {
+				m.openAgentRename(c)
+				return m, nil
 			}
 		}
 		return m, nil
@@ -656,8 +672,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// open the type picker directly (same as /type)
 		return m.runSlash("/type")
 	case "alt+c":
-		// open the style picker directly (same as /style) — c for colors; alt+y
-		// is the yank key, so the picker moved off it
+		// color: a session chip under the caret takes the key for its own color,
+		// the way ⌥k goes to a cmd chip's band before the node's. Everywhere else
+		// this opens the style picker (same as /style) — c for colors; alt+y is
+		// the yank key, so the picker moved off it.
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipForKeys(cur); ok {
+				m.openAgentColor(c)
+				return m, nil
+			}
+		}
 		return m.runSlash("/style")
 	case "alt+k":
 		// kill: stop a running command, keeping what was captured; when nothing is
