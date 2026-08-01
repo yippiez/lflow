@@ -1,8 +1,15 @@
 package editor
 
 import (
+	"bytes"
+	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	imagelib "image"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -403,5 +410,153 @@ func TestMirrorDeleteIsRefusedBeforeTheConfirmation(t *testing.T) {
 	}
 	if !strings.Contains(m.flash, "read-only") {
 		t.Errorf("flash = %q, want the refusal", m.flash)
+	}
+}
+
+// pngBytes is a tiny valid PNG (a 2×2 image), so a test can put a real picture
+// where Zotero would have cached one.
+func pngBytes(t *testing.T) []byte {
+	t.Helper()
+	img := imagelib.NewRGBA(imagelib.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.RGBA{255, 212, 0, 255})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// withImageMark returns the fixture with its second highlight replaced by an
+// area crop whose picture sits at path.
+func withImageMark(path string) *zotero.Details {
+	d := fakeDetails()
+	d.Attachments[0].Annotations[1] = zotero.Annotation{
+		Key: "ANN00002", Kind: "image", Comment: "figure 1", Color: "#a28ae5",
+		Page: "4", ImagePath: path,
+	}
+	return d
+}
+
+func TestMirrorPictorialMark(t *testing.T) {
+	m := mirrorModel(t)
+	path := filepath.Join(t.TempDir(), "ANN00002.png")
+	if err := os.WriteFile(path, pngBytes(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := pullMirror(m, withImageMark(path))
+	crop := root.children[3].children[1]
+
+	// the picture came into the outline, so it travels with the file
+	blob, ok, err := database.GetBlob(m.db, crop.uuid)
+	if err != nil || !ok {
+		t.Fatalf("no blob for the crop: ok=%v err=%v", ok, err)
+	}
+	if blob.Mime != "image/png" || blob.W != 2 || blob.H != 2 {
+		t.Errorf("blob = %s %dx%d", blob.Mime, blob.W, blob.H)
+	}
+	if !zoteroHasImage(crop) {
+		t.Error("the crop is not known to carry a picture")
+	}
+	// and it wears the image mark rather than the quote bar, in its own color
+	glyph, col := zoteroGlyph(crop)
+	if glyph != zoteroImageMark {
+		t.Errorf("crop glyph = %q, want the image mark", glyph)
+	}
+	if col != styleColorCode["purple"] {
+		t.Errorf("crop glyph color = %q, want Zotero's purple", col)
+	}
+	// a textual highlight is untouched by any of this
+	highlight := root.children[3].children[0]
+	if zoteroHasImage(highlight) {
+		t.Error("a textual highlight was given a picture")
+	}
+	if g, _ := zoteroGlyph(highlight); g != "▍" {
+		t.Errorf("highlight glyph = %q, want the margin bar", g)
+	}
+}
+
+func TestMirrorPictureRendersAndOpens(t *testing.T) {
+	m := mirrorModel(t)
+	path := filepath.Join(t.TempDir(), "ANN00002.png")
+	if err := os.WriteFile(path, pngBytes(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := pullMirror(m, withImageMark(path))
+	crop := root.children[3].children[1]
+
+	// the picture hangs beneath the row as half-blocks (a real row, so the tree
+	// rail it hangs from is the one the outline actually drew)
+	r := m.rows[m.rowIndexOf(crop)]
+	if got := m.zoteroImageBands(r, false, 80); len(got) != 1 {
+		t.Errorf("compact preview gave %d band lines, want a one-row strip", len(got))
+	}
+	m.setSetting("image.preview", "true")
+	if got := m.zoteroImageBands(r, false, 80); len(got) < 1 {
+		t.Error("true preview gave no thumbnail")
+	}
+	// a row with no picture hangs nothing
+	if got := m.zoteroImageBands(m.rows[m.rowIndexOf(root)], false, 80); got != nil {
+		t.Errorf("the title row grew bands: %v", got)
+	}
+
+	// alt+e expands the picture; on everything else in the mirror it declines
+	if !(zoteroView{}).Enter(m, crop) {
+		t.Error("alt+e declined on a crop")
+	}
+	if (zoteroView{}).Enter(m, root) {
+		t.Error("alt+e opened an image view on the title row")
+	}
+	// and the flash menu names it for what it is
+	verbs := ""
+	for _, a := range zoteroFlashActions(m, crop) {
+		verbs += a.verb + " "
+	}
+	if !strings.Contains(verbs, "crop") {
+		t.Errorf("flash verbs = %q, want a crop action", verbs)
+	}
+}
+
+func TestMirrorSkipsAnUnreadablePicture(t *testing.T) {
+	m := mirrorModel(t)
+	// a path that is not there, and one that is not an image
+	notThere := filepath.Join(t.TempDir(), "missing.png")
+	root := pullMirror(m, withImageMark(notThere))
+	crop := root.children[3].children[1]
+	if zoteroHasImage(crop) {
+		t.Error("a missing picture was mirrored anyway")
+	}
+
+	junk := filepath.Join(t.TempDir(), "junk.png")
+	if err := os.WriteFile(junk, []byte("not a png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pullMirror(m, withImageMark(junk))
+	if zoteroHasImage(root.children[3].children[1]) {
+		t.Error("a file that is not a picture was mirrored")
+	}
+	// the mark itself still mirrors — just without a picture
+	if got := root.children[3].children[1].name; got != "figure 1  p.4" {
+		t.Errorf("crop row = %q", got)
+	}
+}
+
+func TestMirrorNoteIsAnOrdinaryBullet(t *testing.T) {
+	m := mirrorModel(t)
+	root := pullMirror(m, fakeDetails())
+	note := root.children[4]
+
+	if b, _ := zoteroBindingFor(note); b.Kind != database.ZoteroKindNote {
+		t.Fatalf("expected the note row, got %v", b.Kind)
+	}
+	glyph, col := zoteroGlyph(note)
+	if glyph != glyphOpen {
+		t.Errorf("note glyph = %q, want the ordinary bullet", glyph)
+	}
+	if col != cDim {
+		t.Errorf("note glyph color = %q, want dim", col)
+	}
+	// it is still fixed, like everything else in the mirror
+	if !note.readonly || !note.structureLocked {
+		t.Error("the note is not locked")
 	}
 }

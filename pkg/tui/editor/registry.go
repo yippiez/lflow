@@ -324,8 +324,12 @@ var nodeTypes = []nodeType{
 	// in zotero_nodes says which Zotero object each one stands for.
 	{
 		key: database.TypeZotero, label: "Zotero item", inlineEditable: false,
-		glyph:        zoteroGlyph,
-		run:          runZoteroPull, // alt+r: re-read this entry from the library
+		glyph: zoteroGlyph,
+		run:   runZoteroPull, // alt+r: re-read this entry from the library
+		// an area crop or a pen drawing carries real pixels: they hang under the
+		// row as half-blocks and open larger on alt+e, exactly like an image node
+		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.zoteroImageBands(r, below, maxLine) },
+		view:         zoteroView{},
 		toContextM:   zoteroToContext,
 		flashActions: zoteroFlashActions,
 	},

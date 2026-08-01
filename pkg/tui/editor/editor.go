@@ -1967,6 +1967,14 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	}
 	if zb, err := database.AllZoteroNodes(ctx.DB); err == nil {
 		zoteroBindings = zb // mirrored Zotero entries (see zoteroitem.go)
+		if blobs, err := database.BlobUUIDs(ctx.DB); err == nil {
+			zoteroImageNodes = map[string]bool{}
+			for uuid := range zb {
+				if blobs[uuid] {
+					zoteroImageNodes[uuid] = true // a mirrored crop or pen drawing
+				}
+			}
+		}
 	}
 
 	m := &Model{
