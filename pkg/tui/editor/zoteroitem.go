@@ -26,8 +26,8 @@ import (
 //	  · doi.org/10.48550/arXiv.1706.03762
 //	  ◆ paper.pdf
 //	    ▍ "the encoder is composed of a stack of N = 6 layers"
-//	      · check this against the diagram
-//	    ▦ figure 1 · the scaling curve          (an area crop, drawn below)
+//	      ▸ check this against the diagram
+//	    ○ ▦ 220×120 · figure 1                  (an area crop: a real image node)
 //	  ○ reading notes · the residual stream framing…
 //
 // The whole subtree is Zotero's, not yours: every node is content-locked, and
@@ -60,20 +60,21 @@ func zoteroBindingFor(it *item) (database.ZoteroBinding, bool) {
 // zoteroGlyphs is the mark each mirrored node wears, by binding kind. A note is
 // deliberately the ORDINARY bullet: it is a normal node that happens to be
 // fixed, and it reads as prose, not as a special object. A field row is the
-// small dot, an attachment the filled diamond, and a highlight the margin bar —
-// painted in the highlighter's own color (see zoteroGlyph).
+// small dot, your own remark on a mark is the pointer that leans back at it, an
+// attachment the filled diamond, and a highlight the margin bar — painted in
+// the highlighter's own color (see zoteroGlyph).
+//
+// An area crop and a pen drawing are absent from this table on purpose: they
+// become real IMAGE nodes (see applyZoteroChild), so they wear the image type's
+// own face rather than an imitation of it.
 var zoteroGlyphs = map[string]string{
 	database.ZoteroKindItem:       zoteroMark,
 	database.ZoteroKindAttachment: "◆",
 	database.ZoteroKindAnnotation: "▍",
 	database.ZoteroKindNote:       glyphOpen,
+	database.ZoteroKindComment:    "▸",
 	database.ZoteroKindMeta:       "·",
 }
-
-// zoteroImageMark is what a PICTORIAL mark wears instead of the margin bar: an
-// area crop or a pen drawing is an image, and it wears the image node's marker
-// so it reads as one wherever it appears.
-const zoteroImageMark = "▦"
 
 // zoteroRootOf walks up to the mirror's item node — the refresh handle and the
 // node every descendant belongs to. ok=false when it is outside any mirror.
@@ -108,9 +109,6 @@ func zoteroGlyph(it *item) (string, string) {
 	case database.ZoteroKindItem:
 		return glyph, iconColorSGR(zoteroBrandColor())
 	case database.ZoteroKindAnnotation:
-		if zoteroHasImage(it) {
-			glyph = zoteroImageMark // a crop or a drawing is a picture, not a quote
-		}
 		// the mark wears the node's own /color — the one carried over from the
 		// highlighter — so a yellow highlight reads yellow in the outline
 		if c := styleColor(it.style); c != "" {
@@ -155,7 +153,7 @@ func (m *Model) mirrorZoteroItem(it zotero.Item) tea.Cmd {
 func runZoteroPull(m *Model, it *item) tea.Cmd {
 	root, ok := zoteroRootOf(it)
 	if !ok {
-		m.flash = "zotero · /type → Zotero item picks the entry to mirror"
+		m.flash = "zotero · /mirror:zotero picks the entry to mirror"
 		return nil
 	}
 	return m.zoteroPull(root)
@@ -314,7 +312,7 @@ func zoteroAnnotation(an zotero.Annotation, groupID string) zoteroChild {
 	// the comment only earns its own row when the highlight itself is showing
 	if an.Comment != "" && an.Text != "" {
 		child.children = append(child.children, zoteroChild{
-			binding: database.ZoteroBinding{Kind: database.ZoteroKindMeta},
+			binding: database.ZoteroBinding{Kind: database.ZoteroKindComment},
 			name:    an.Comment,
 		})
 	}
@@ -417,7 +415,14 @@ func (m *Model) applyZoteroChild(it *item, w zoteroChild) {
 	it.readonly = true
 	it.structureLocked = true
 	m.bindZotero(it, w.binding)
-	m.loadZoteroImage(it, w.image)
+	// an area crop or a pen drawing IS a picture: once its pixels are in the
+	// node it becomes an actual image node, so it renders, expands and opens
+	// through the one image implementation the outline already has. A mark
+	// Zotero has not drawn yet stays a plain mirrored row — an image node with
+	// nothing in it would invite a paste, which a mirror must never take.
+	if m.loadZoteroImage(it, w.image) {
+		it.typ = database.TypeImage
+	}
 }
 
 // zoteroImageMax caps what a mirrored picture may bring into the outline. A
@@ -430,47 +435,33 @@ const zoteroImageMax = 8 << 20
 // through the same half-block machinery as an image node. The file is re-read on
 // every refresh: Zotero draws these lazily, so a mark with no picture yet gets
 // one the next time you press alt+r.
-func (m *Model) loadZoteroImage(it *item, path string) {
+func (m *Model) loadZoteroImage(it *item, path string) bool {
 	if path == "" || m.db == nil {
-		return
+		return false
 	}
 	st, err := os.Stat(path)
 	if err != nil || st.IsDir() || st.Size() > zoteroImageMax {
-		return
+		return false
 	}
 	if have, ok, _ := database.GetBlob(m.db, it.uuid); ok && int64(len(have.Bytes)) == st.Size() {
-		return // already mirrored, unchanged
+		return true // already mirrored, unchanged
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return false
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return // not a picture we can draw
+		return false // not a picture we can draw
 	}
 	if database.PutBlob(m.db, database.Blob{
 		UUID: it.uuid, Mime: "image/png", Bytes: data, W: cfg.Width, H: cfg.Height,
-	}) == nil {
-		zoteroImageNodes[it.uuid] = true
-		m.imageInvalidate(it.uuid) // drop any stale decode
-	}
-}
-
-// zoteroHasImage reports whether a mirrored node carries a picture. Model-free
-// (the glyph path calls it), so it reads the decode cache the render already
-// populated rather than the database.
-func zoteroHasImage(it *item) bool {
-	if it == nil {
+	}) != nil {
 		return false
 	}
-	_, ok := zoteroImageNodes[it.uuid]
-	return ok
+	m.imageInvalidate(it.uuid) // drop any stale decode
+	return true
 }
-
-// zoteroImageNodes is the set of mirrored nodes that carry a picture, kept
-// beside zoteroBindings for the same reason: the glyph path is Model-free.
-var zoteroImageNodes = map[string]bool{}
 
 // setZoteroRootName writes the title row, with the entry's tags as chips after
 // it. The name is left alone when it already reads the same, so a refresh does
@@ -535,7 +526,6 @@ func (m *Model) dropZoteroSubtree(it *item) {
 	release = func(x *item) {
 		x.structureLocked = false
 		delete(zoteroBindings, x.uuid)
-		delete(zoteroImageNodes, x.uuid)
 		if m.db != nil {
 			_ = database.DeleteZoteroNode(m.db, x.uuid)
 		}
@@ -547,47 +537,10 @@ func (m *Model) dropZoteroSubtree(it *item) {
 	m.tombstoneItem(it)
 }
 
-// ── a mirrored picture ─────────────────────────────────────────────────────
-
-// zoteroImageBands hangs a pictorial mark's picture beneath its row, through the
-// same half-block renderer an image node uses. The "image.preview" preference
-// decides how big: a one-row color strip in compact mode, the aspect-fit
-// thumbnail in true mode — so a crop is always visible, at the size the user
-// already asked pictures to be.
-func (m *Model) zoteroImageBands(r row, below bool, maxLine int) []string {
-	if !zoteroHasImage(r.it) {
-		return nil
-	}
-	if m.focused && m.cursorItem() == r.it {
-		return nil // the alt+e view is showing it larger
-	}
-	info, ok := m.imageLoad(r.it.uuid)
-	if !ok {
-		return nil
-	}
-	rail := continuationPrefix(r, below)
-	avail := maxLine - visibleWidth(rail) - 2
-	if avail < 4 {
-		return nil
-	}
-	cols, rows := imageStripCols, 1
-	if m.setting("image.preview") == "true" {
-		cols, rows = halfBlockBox(info.img, min(avail, thumbMaxCols), thumbMaxRows)
-	}
-	out := make([]string, 0, rows)
-	for _, l := range halfBlockRender(info.img, cols, rows) {
-		out = append(out, clip(rail+cReset+"  "+l, maxLine))
-	}
-	return out
-}
-
-// zoteroView is the mirror's alt+e: on a pictorial mark it is the image node's
-// own scrollable preview, and on every other mirrored node there is nothing to
-// expand, so it declines and alt+e falls through.
-type zoteroView struct{ imageView }
-
-func (v zoteroView) Enter(m *Model, it *item) bool {
-	return zoteroHasImage(it) && v.imageView.Enter(m, it)
+// zoteroPictorial reports whether a mirrored node is a picture — a crop or a
+// drawing that became an image node.
+func zoteroPictorial(it *item) bool {
+	return it != nil && it.typ == database.TypeImage && zoteroMirrored(it)
 }
 
 // ── opening a mirrored node ────────────────────────────────────────────────
@@ -612,11 +565,6 @@ func (m *Model) zoteroOpenNode(it *item, other bool) (tea.Model, tea.Cmd) {
 		return m.zoteroOpenURI(zotero.Ref{Key: b.Key, GroupID: b.GroupID}.PDFURI(""), "the reader")
 	case database.ZoteroKindAnnotation:
 		if other {
-			// a crop or a drawing IS a picture: hand it to the desktop's own
-			// viewer, which is the only place its real pixels can be seen
-			if zoteroHasImage(it) {
-				return m, imageOpenHost(m, it)
-			}
 			return m.openZoteroEntry(item, true)
 		}
 		// the mark lives in its attachment: open that document, at this mark
@@ -758,10 +706,23 @@ func zoteroFlashActions(m *Model, it *item) []flashAction {
 		open = "pdf"
 	} else if b.Kind == database.ZoteroKindAnnotation {
 		open = "mark"
-		if zoteroHasImage(it) {
+		if zoteroPictorial(it) {
 			open = "crop"
 		}
 	}
+	if zoteroPictorial(it) {
+		// a picture keeps the image node's own verbs alongside the mirror's
+		return append([]flashAction{
+			{verb: "view", color: cCyan, do: flashExpandDo},
+			{verb: "open", color: cAccent, do: imageOpenHost},
+		}, zoteroMarkActions(m, it, open)...)
+	}
+	return zoteroMarkActions(m, it, open)
+}
+
+// zoteroMarkActions is the pair every mirrored node offers: go to the thing in
+// Zotero, and re-read the entry.
+func zoteroMarkActions(m *Model, it *item, open string) []flashAction {
 	return []flashAction{
 		{verb: open, color: cRed, do: func(m *Model, it *item) tea.Cmd {
 			m.zoteroOpenNode(it, false)

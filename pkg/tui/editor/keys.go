@@ -641,6 +641,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// run / re-run a runnable node's own action (bash/query/voice). Never
 		// auto-runs.
 		if cur := m.cursorItem(); cur != nil {
+			// inside a Zotero mirror alt+r always means "re-read the entry",
+			// whatever the node's own type would otherwise run — a mirrored crop
+			// is a real image node, and image's alt+r pastes the clipboard
+			if zoteroMirrored(cur) {
+				return m, runZoteroPull(m, cur)
+			}
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
 			}
@@ -683,11 +689,15 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if c, ok := m.zoteroChipAtCaret(cur); ok {
 				return m.openZoteroChip(c, !zoteroTargetLocal())
 			}
-			if zoteroMirrored(cur) {
-				return m.zoteroOpenNode(cur, true)
-			}
+			// a type that knows how to hand ITSELF to the desktop does that — so
+			// a mirrored crop opens in the image viewer, which is the only place
+			// its real pixels can be seen; everything else in a mirror offers the
+			// destination alt+g did not take
 			if open := typeOf(cur.typ).openHost; open != nil {
 				return m, open(m, cur)
+			}
+			if zoteroMirrored(cur) {
+				return m.zoteroOpenNode(cur, true)
 			}
 		}
 		return m, nil

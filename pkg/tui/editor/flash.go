@@ -51,6 +51,11 @@ type flashTarget struct {
 func (m *Model) flashActionsFor(it *item) []flashAction {
 	nt := typeOf(it.typ)
 	out := m.flashInlineRunActions(it)
+	// a mirrored node answers to the mirror, whatever its type: a Zotero crop is
+	// a real image node, and image's own actions include pasting over it
+	if zoteroMirrored(it) {
+		return append(out, zoteroFlashActions(m, it)...)
+	}
 	if nt.flashActions != nil {
 		return append(out, nt.flashActions(m, it)...)
 	}

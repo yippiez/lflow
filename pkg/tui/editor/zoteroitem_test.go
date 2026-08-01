@@ -94,7 +94,7 @@ func TestMirrorShape(t *testing.T) {
 		"  meta:The dominant sequence transduction models are based on recurrent networks.",
 		"  attachment:paper.pdf",
 		"    annotation:the encoder is composed of a stack of N = 6 layers  p.3",
-		"      meta:check against the diagram",
+		"      comment:check against the diagram",
 		"    annotation:we propose a new simple network architecture",
 		"  note:the residual stream framing",
 	}, "\n")
@@ -454,21 +454,21 @@ func TestMirrorPictorialMark(t *testing.T) {
 	if blob.Mime != "image/png" || blob.W != 2 || blob.H != 2 {
 		t.Errorf("blob = %s %dx%d", blob.Mime, blob.W, blob.H)
 	}
-	if !zoteroHasImage(crop) {
-		t.Error("the crop is not known to carry a picture")
+	// it IS an image node — not an imitation of one
+	if crop.typ != database.TypeImage {
+		t.Errorf("crop type = %q, want the image node type", crop.typ)
 	}
-	// and it wears the image mark rather than the quote bar, in its own color
-	glyph, col := zoteroGlyph(crop)
-	if glyph != zoteroImageMark {
-		t.Errorf("crop glyph = %q, want the image mark", glyph)
+	if !zoteroPictorial(crop) {
+		t.Error("the crop does not read as a mirrored picture")
 	}
-	if col != styleColorCode["purple"] {
-		t.Errorf("crop glyph color = %q, want Zotero's purple", col)
+	// so it renders through the image node's own face
+	if body := m.imageRender(crop); !strings.Contains(body, "▦") || !strings.Contains(body, "2×2") {
+		t.Errorf("crop row = %q, want the image node's header", body)
 	}
 	// a textual highlight is untouched by any of this
 	highlight := root.children[3].children[0]
-	if zoteroHasImage(highlight) {
-		t.Error("a textual highlight was given a picture")
+	if highlight.typ != database.TypeZotero || zoteroPictorial(highlight) {
+		t.Errorf("a textual highlight became %q", highlight.typ)
 	}
 	if g, _ := zoteroGlyph(highlight); g != "▍" {
 		t.Errorf("highlight glyph = %q, want the margin bar", g)
@@ -484,35 +484,60 @@ func TestMirrorPictureRendersAndOpens(t *testing.T) {
 	root := pullMirror(m, withImageMark(path))
 	crop := root.children[3].children[1]
 
-	// the picture hangs beneath the row as half-blocks (a real row, so the tree
-	// rail it hangs from is the one the outline actually drew)
-	r := m.rows[m.rowIndexOf(crop)]
-	if got := m.zoteroImageBands(r, false, 80); len(got) != 1 {
-		t.Errorf("compact preview gave %d band lines, want a one-row strip", len(got))
-	}
+	// the picture hangs beneath the row through the image type's own band hook
 	m.setSetting("image.preview", "true")
-	if got := m.zoteroImageBands(r, false, 80); len(got) < 1 {
-		t.Error("true preview gave no thumbnail")
+	r := m.rows[m.rowIndexOf(crop)]
+	bands := typeOf(crop.typ).bands
+	if bands == nil {
+		t.Fatal("a mirrored crop has no image bands")
 	}
-	// a row with no picture hangs nothing
-	if got := m.zoteroImageBands(m.rows[m.rowIndexOf(root)], false, 80); got != nil {
-		t.Errorf("the title row grew bands: %v", got)
+	if got := bands(m, r, false, 80); len(got) < 1 {
+		t.Error("the crop drew no thumbnail")
 	}
-
-	// alt+e expands the picture; on everything else in the mirror it declines
-	if !(zoteroView{}).Enter(m, crop) {
+	// alt+e is the image node's own view
+	if v := nodeViewOf(crop); v == nil || !v.Enter(m, crop) {
 		t.Error("alt+e declined on a crop")
 	}
-	if (zoteroView{}).Enter(m, root) {
+	if v := nodeViewOf(root); v != nil && v.Enter(m, root) {
 		t.Error("alt+e opened an image view on the title row")
 	}
-	// and the flash menu names it for what it is
+
+	// the flash menu names it a crop and offers the image verbs — but NOT the
+	// image node's paste, which would overwrite the mirror
 	verbs := ""
-	for _, a := range zoteroFlashActions(m, crop) {
+	for _, a := range m.flashActionsFor(crop) {
 		verbs += a.verb + " "
 	}
-	if !strings.Contains(verbs, "crop") {
-		t.Errorf("flash verbs = %q, want a crop action", verbs)
+	for _, want := range []string{"crop", "view", "open", "refresh"} {
+		if !strings.Contains(verbs, want) {
+			t.Errorf("flash verbs = %q, want %q among them", verbs, want)
+		}
+	}
+	if strings.Contains(verbs, "paste") {
+		t.Errorf("flash verbs = %q — a mirrored picture must not offer a paste", verbs)
+	}
+}
+
+func TestMirrorPictureRefusesAPaste(t *testing.T) {
+	m := mirrorModel(t)
+	path := filepath.Join(t.TempDir(), "ANN00002.png")
+	if err := os.WriteFile(path, pngBytes(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := pullMirror(m, withImageMark(path))
+	crop := root.children[3].children[1]
+	before, _, _ := database.GetBlob(m.db, crop.uuid)
+
+	// alt+r on an image node pastes the clipboard; inside a mirror it must mean
+	// "re-read the entry" instead, or a crop would be overwritten
+	m.cursor = m.rowIndexOf(crop)
+	m.feed(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r"), Alt: true})
+	if m.imagePasting(crop.uuid) {
+		t.Fatal("alt+r started a clipboard paste over a mirrored picture")
+	}
+	after, ok, _ := database.GetBlob(m.db, crop.uuid)
+	if !ok || len(after.Bytes) != len(before.Bytes) {
+		t.Error("the mirrored picture changed under alt+r")
 	}
 }
 
@@ -522,8 +547,8 @@ func TestMirrorSkipsAnUnreadablePicture(t *testing.T) {
 	notThere := filepath.Join(t.TempDir(), "missing.png")
 	root := pullMirror(m, withImageMark(notThere))
 	crop := root.children[3].children[1]
-	if zoteroHasImage(crop) {
-		t.Error("a missing picture was mirrored anyway")
+	if zoteroPictorial(crop) || crop.typ != database.TypeZotero {
+		t.Errorf("a missing picture became an image node (%q)", crop.typ)
 	}
 
 	junk := filepath.Join(t.TempDir(), "junk.png")
@@ -531,7 +556,7 @@ func TestMirrorSkipsAnUnreadablePicture(t *testing.T) {
 		t.Fatal(err)
 	}
 	pullMirror(m, withImageMark(junk))
-	if zoteroHasImage(root.children[3].children[1]) {
+	if zoteroPictorial(root.children[3].children[1]) {
 		t.Error("a file that is not a picture was mirrored")
 	}
 	// the mark itself still mirrors — just without a picture
@@ -558,5 +583,64 @@ func TestMirrorNoteIsAnOrdinaryBullet(t *testing.T) {
 	// it is still fixed, like everything else in the mirror
 	if !note.readonly || !note.structureLocked {
 		t.Error("the note is not locked")
+	}
+}
+
+func TestMirrorCommentHasItsOwnMark(t *testing.T) {
+	m := mirrorModel(t)
+	root := pullMirror(m, fakeDetails())
+	highlight := root.children[3].children[0]
+	comment := highlight.children[0]
+
+	b, _ := zoteroBindingFor(comment)
+	if b.Kind != database.ZoteroKindComment {
+		t.Fatalf("the comment's kind = %q", b.Kind)
+	}
+	// your own remark and a bibliographic field are different things, so they do
+	// not share a mark
+	cg, _ := zoteroGlyph(comment)
+	mg, _ := zoteroGlyph(root.children[0]) // a field row
+	if cg == mg {
+		t.Errorf("a comment and a field both wear %q", cg)
+	}
+	if cg != "▸" {
+		t.Errorf("comment glyph = %q", cg)
+	}
+	if got := zoteroToContext(m, comment); got.tag != "zotero-comment" {
+		t.Errorf("comment context = %+v", got)
+	}
+	// and it still reconciles in place, matched by its position under the mark
+	uuid := comment.uuid
+	pullMirror(m, fakeDetails())
+	if got := root.children[3].children[0].children[0].uuid; got != uuid {
+		t.Error("the comment was rebuilt instead of updated in place")
+	}
+}
+
+func TestMirrorSlashCommands(t *testing.T) {
+	m := mirrorModel(t)
+	m.runSlash("/mirror:zotero")
+	if m.mode != modeCite || m.citeAct != citeMirror {
+		t.Errorf("/mirror:zotero left mode %v act %v", m.mode, m.citeAct)
+	}
+	m.mode = modeOutline
+
+	// the Workflowy sibling turns the node into a pull handle and says what next
+	m.runSlash("/mirror:workflowy")
+	if cur := m.cursorItem(); cur.typ != database.TypeWF {
+		t.Errorf("node type = %q, want the workflowy type", cur.typ)
+	}
+	if !strings.Contains(m.flash, "paste a link") {
+		t.Errorf("flash = %q, want the next step", m.flash)
+	}
+	// both are offered in the slash menu, next to the node mirrors
+	names := ""
+	for _, c := range m.filteredSlash("mirror") {
+		names += c.name + " "
+	}
+	for _, want := range []string{"/mirror:from", "/mirror:to", "/mirror:workflowy", "/mirror:zotero"} {
+		if !strings.Contains(names, want) {
+			t.Errorf("slash menu = %q, want %q", names, want)
+		}
 	}
 }

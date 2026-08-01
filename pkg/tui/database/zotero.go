@@ -15,7 +15,8 @@ const (
 	ZoteroKindAttachment = "attachment"
 	ZoteroKindAnnotation = "annotation"
 	ZoteroKindNote       = "note"
-	ZoteroKindMeta       = "meta" // a field row (venue, date, doi) — no Zotero object of its own
+	ZoteroKindComment    = "comment" // what you typed next to a mark; hangs under it
+	ZoteroKindMeta       = "meta"    // a field row (venue, date, doi) — no Zotero object of its own
 )
 
 // ZoteroBinding is one node's link to Zotero.
