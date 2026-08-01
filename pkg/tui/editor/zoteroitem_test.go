@@ -387,3 +387,21 @@ func TestOrdinaryNodesAreUnaffectedByTheGuards(t *testing.T) {
 		t.Error("reparent onto a plain node was refused")
 	}
 }
+
+func TestMirrorDeleteIsRefusedBeforeTheConfirmation(t *testing.T) {
+	m := mirrorModel(t)
+	root := pullMirror(m, fakeDetails())
+	attachment := root.children[3] // has annotations under it
+
+	m.cursor = m.rowIndexOf(attachment)
+	m.feed(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.mode == modeConfirm {
+		t.Error("ctrl+d on a locked node opened a confirmation it could never honor")
+	}
+	if len(root.children) != 5 || len(attachment.children) != 2 {
+		t.Error("the mirror was carved up")
+	}
+	if !strings.Contains(m.flash, "read-only") {
+		t.Errorf("flash = %q, want the refusal", m.flash)
+	}
+}

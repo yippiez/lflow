@@ -389,7 +389,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if cur := m.cursorItem(); cur != nil {
-			if len(cur.children) > 0 {
+			if cur.structureLocked {
+				// refuse here rather than at the end of a confirmation the answer
+				// to which cannot matter
+				m.flash = lockedFlash(cur)
+			} else if len(cur.children) > 0 {
 				// children go with the node: confirm inline first
 				m.mode = modeConfirm
 			} else {
