@@ -46,7 +46,7 @@ func shineColorAt(n, j, frame int, speed float64, base, peak [3]int) string {
 	if t < 0 {
 		t = 0
 	}
-	r, g, b := lerpRGB(base, peak, t)
+	r, g, b := lerpRGB3(base, peak, t)
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
 }
 
@@ -127,7 +127,7 @@ func shimmerAt(n, j, frame int) float64 {
 }
 
 // lerpRGB mixes base→peak by t (0..1).
-func lerpRGB(base, peak [3]int, t float64) (int, int, int) {
+func lerpRGB3(base, peak [3]int, t float64) (int, int, int) {
 	return base[0] + int(float64(peak[0]-base[0])*t),
 		base[1] + int(float64(peak[1]-base[1])*t),
 		base[2] + int(float64(peak[2]-base[2])*t)
@@ -136,7 +136,7 @@ func lerpRGB(base, peak [3]int, t float64) (int, int, int) {
 // shimmerBG is the background SGR for cell j of an n-cell code cell at the given
 // frame — bgCode at rest, lifted where the band passes.
 func shimmerBG(n, j, frame int) string {
-	r, g, b := lerpRGB(shimmerBase, shimmerPeak, shimmerAt(n, j, frame))
+	r, g, b := lerpRGB3(shimmerBase, shimmerPeak, shimmerAt(n, j, frame))
 	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
 }
 
@@ -148,7 +148,7 @@ func shimmerLabel(s string) string {
 	runes := []rune(s)
 	var b strings.Builder
 	for j, c := range runes {
-		r, g, bl := lerpRGB(base, peak, shimmerAt(len(runes), j, animFrame))
+		r, g, bl := lerpRGB3(base, peak, shimmerAt(len(runes), j, animFrame))
 		fmt.Fprintf(&b, "\x1b[38;2;%d;%d;%dm", r, g, bl)
 		b.WriteRune(c)
 	}

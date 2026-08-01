@@ -3,6 +3,8 @@ package editor
 import (
 	"fmt"
 	"strings"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // A Molecule node can be written two ways, and this file is the second one: the
@@ -92,7 +94,7 @@ func moleculeGraphOf(it *item) (*molGraph, error) {
 // shown after the atom on its row — the flattened SMILES plus the formula, so
 // the whole structure reads at a glance without expanding it. A leaf already IS
 // its own notation, so it gets no tail.
-func molTreeBodyTail(it *item) string {
+func molTreeBodyTail(it *item, _ map[string]database.Chip) string {
 	if it == nil || len(it.children) == 0 {
 		return ""
 	}
