@@ -44,6 +44,9 @@ const (
 	// moves when a node becomes a table — it is a reading, so any node converts and
 	// the grid ⇄ nodes toggle is lossless. See editor/table.go.
 	TypeTable = "table"
+	// TypeThinking is a plain muted-gray marker node — Claude Code's thinking
+	// glyph and nothing else (no special editor behavior).
+	TypeThinking = "thinking"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -76,6 +79,7 @@ var TypeOrder = []string{
 	TypeMath,
 	TypeTable,
 	TypeWF,
+	TypeThinking,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.

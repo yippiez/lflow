@@ -248,10 +248,15 @@ var nodeTypes = []nodeType{
 	},
 	// An agentic coding SESSION is not a node type: it is an inline chip only
 	// (see agent.go), so there is no entry here.
+	// Thinking is a plain marker node: always the muted-gray thinking glyph,
+	// no other behavior.
+	{key: database.TypeThinking, label: "Thinking", glyph: thinkingGlyph, inlineEditable: true},
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see
 	// nodeplugin.go.
 }
+
+func thinkingGlyph(it *item) (string, string) { return glyphThinking, cDim }
 
 // byType fills in init() — a var initializer would cycle: nodeTypes references
 // runQuery, which reaches typeOf/byType through the query type filter.

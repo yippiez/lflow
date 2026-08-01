@@ -136,6 +136,7 @@ const (
 	glyphQuoteBar  = "▎"
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
 	glyphCloud     = "☁" // a HOSTED coding session (started on the web or a phone)
+	glyphThinking  = "※" // Claude Code's thinking-spinner glyph, always muted gray
 )
 
 // underCompleted reports whether it sits under a completed ancestor in the
