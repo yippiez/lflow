@@ -133,7 +133,7 @@ func (m *Model) finalView(maxLine int) []string {
 func (m *Model) viewOutline(maxLine int) []string {
 	groups, bands := m.viewRenderRows(maxLine)
 	bar := m.bottomBar(maxLine)
-	lay := m.viewBudgets(len(bar))
+	lay := m.viewBudgets(len(bar), maxLine)
 	m.viewFocusedBand(groups, bands, lay, maxLine)
 	body := m.viewWindow(groups, bands, lay, maxLine)
 	body = append(body, m.viewOverlays(lay, maxLine)...)
@@ -303,8 +303,9 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 
 // viewBudgets computes the frame's height budgets (stage 2) and the picker /
 // settings overlay carve-out that shrinks the body window (stage 4). barLines is
-// len(m.bottomBar(...)) — the status bar can wrap to several lines.
-func (m *Model) viewBudgets(barLines int) viewLayout {
+// len(m.bottomBar(...)) — the status bar can wrap to several lines. maxLine
+// lets the picker budget count a header that WRAPS instead of truncating.
+func (m *Model) viewBudgets(barLines, maxLine int) viewLayout {
 	// The Temporary Domain panel is always visible during normal editing — only
 	// modal overlays (slash menu, pickers, prompts) take the full body. Layout:
 	// main notes on top, the status bar acting as the divider, then the
@@ -344,7 +345,7 @@ func (m *Model) viewBudgets(barLines int) viewLayout {
 	// /type search header.
 	pickerItems, headerRows := 0, 0
 	if src := m.listSource(); src != nil {
-		pickerItems, headerRows = m.list.counts(m, src)
+		pickerItems, headerRows = m.list.counts(m, src, maxLine)
 	} else if m.mode == modeSettings {
 		pickerItems = len(settingDefs)
 	}

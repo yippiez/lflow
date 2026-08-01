@@ -187,23 +187,26 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 }
 
 // counts reports the number of item rows and header rows the picker will draw,
-// for View's body-budget math.
-func (p *listPicker) counts(m *Model, src pickerSource) (items, header int) {
+// for View's body-budget math. A header that wraps counts as all its wrapped
+// lines — nothing in the picker truncates, so the budget must match the real
+// height or the frame would clip it.
+func (p *listPicker) counts(m *Model, src pickerSource, maxLine int) (items, header int) {
 	items = len(src.items(m, p.query))
-	if src.header(m, p) != "" {
-		header = 1
+	if h := src.header(m, p); h != "" {
+		header = len(wrapSGR(h, maxLine))
 	}
 	return items, header
 }
 
 // render draws src.header (if any) plus a scrollStart-windowed slice of items —
 // each via item.render or the default label+desc formatting, with the "→"/"  "
-// selection mark — clipped to maxLine. Replaces the five copy-pasted blocks in
-// View; trusts sel is in range (handleKey guarantees it).
+// selection mark. Everything WRAPS to maxLine; nothing truncates. Replaces the
+// five copy-pasted blocks in View; trusts sel is in range (handleKey guarantees
+// it).
 func (p *listPicker) render(m *Model, src pickerSource, maxLine int) []string {
 	var lines []string
 	if h := src.header(m, p); h != "" {
-		lines = append(lines, clip(h, maxLine))
+		lines = append(lines, wrapSGR(h, maxLine)...)
 	}
 	items := src.items(m, p.query)
 	if len(items) == 0 {
@@ -229,7 +232,7 @@ func (p *listPicker) render(m *Model, src pickerSource, maxLine int) []string {
 				content += cDim + "  " + items[i].desc + cReset
 			}
 		}
-		lines = append(lines, clip(" "+mark+content, maxLine))
+		lines = append(lines, wrapSGR(" "+mark+content, maxLine)...)
 	}
 	return lines
 }
