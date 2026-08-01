@@ -246,6 +246,21 @@ var nodeTypes = []nodeType{
 		onType:       tableOnType,
 		toContextM:   tableToContext,
 	},
+	// a molecule is an ordinary subtree READ as a structure: one atom per node,
+	// the bond to the parent as a prefix (=O), children the atoms bonded to it —
+	// so the outline IS the molecular graph, the way the Math node is the AST.
+	// alt+e draws it. A notation string mentioned inline is a ⌬ chip instead.
+	{
+		key: database.TypeMol, label: "Molecule", inlineEditable: true,
+		glyph:     moleculeGlyph,
+		spanColor: molSpanColor,
+		bodyTail:  molTreeBodyTail,
+		view:      moleculeView{},
+		// building a molecule as an outline is atom-after-atom, so Enter keeps the
+		// type going (the todo-list continuation) — otherwise every second atom
+		// would land as a bullet and need retyping.
+		continueOnEnter: true,
+	},
 	// An agentic coding SESSION is not a node type: it is an inline chip only
 	// (see agent.go), so there is no entry here.
 	// Thinking is a plain marker node: always the muted-gray thinking glyph,

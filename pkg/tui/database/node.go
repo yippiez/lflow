@@ -47,6 +47,9 @@ const (
 	// TypeThinking is a plain muted-gray marker node — Claude Code's thinking
 	// glyph and nothing else (no special editor behavior).
 	TypeThinking = "thinking"
+	// TypeMol is a molecule composed AS an outline: one atom per node, children
+	// are the atoms bonded to it; alt+e draws the structure. See editor/molecule.go.
+	TypeMol = "molecule"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -78,6 +81,7 @@ var TypeOrder = []string{
 	TypeNLPCompute,
 	TypeMath,
 	TypeTable,
+	TypeMol,
 	TypeWF,
 	TypeThinking,
 }
