@@ -52,7 +52,7 @@ wait_for "molecule · tree"
 assert_contains "C2H4O2"
 assert_contains "4 atoms"
 assert_contains "MW 60.05"
-assert_contains "tab switch"
+assert_not_contains "────────"   # no rules: properties + drawing only
 
 # esc closes the viewer, leaving the outline intact
 send Escape

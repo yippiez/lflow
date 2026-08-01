@@ -558,26 +558,19 @@ func hydrogenCount(formula string) int {
 	return 0
 }
 
-// moleculeView is the molecule node's inline expanded view: a full-width framed
-// panel — muted-gray top/bottom borders and a divider, an info bar, and a
-// glyph-colored depth-shaded 2D node-link drawing — rendered as bands beneath
-// the node (never a separate screen). Read-only; state is cached ephemerally.
+// moleculeView is the molecule node's inline expanded view: one line of
+// properties and the drawing, rendered as bands beneath the node (never a
+// separate screen). No rules, no frame — the properties line and the picture
+// are the whole panel. Read-only; state is cached ephemerally.
 type moleculeView struct{}
 
-// state returns the info-bar text and the (uncached → cached) canvas lines for
-// the given interior width, recomputing only when the text or width changes.
-func (moleculeView) viewIndex(m *Model, it *item) int {
-	vi, _ := m.nodeStore(it.uuid)["molView"].(int)
-	n := molViewCount()
-	return ((vi % n) + n) % n
-}
-
+// state returns the properties line and the (uncached → cached) drawing for the
+// given interior width, recomputing only when the notation or width changes.
 func (v moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 	d := m.nodeStore(it.uuid)
-	vi := v.viewIndex(m, it)
 	// the cache key is the FLATTENED subtree, so editing any descendant atom of
 	// an outline-composed molecule re-renders (it.name alone would miss that).
-	key := fmt.Sprintf("%d|%d|%s", vi, innerW, molTreeSMILES(it))
+	key := fmt.Sprintf("%d|%s", innerW, molTreeSMILES(it))
 	if d["molKey"] == key {
 		info, _ := d["molInfo"].(string)
 		lines, _ := d["molLines"].([]string)
@@ -590,10 +583,9 @@ func (v moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 		info = "molecule · cannot parse · esc close"
 		lines = []string{cRed + "  " + err.Error() + cReset}
 	} else {
-		name, rendered := molViewAt(vi, g, innerW)
-		lines = rendered
-		info = fmt.Sprintf("molecule · %s · %s · MW %.2f · %d atoms · view: %s [%d/%d] · tab switch · esc",
-			g.format, g.formula(), g.weight(), len(g.atoms), name, vi+1, molViewCount())
+		lines = renderMolecule(g, innerW)
+		info = fmt.Sprintf("molecule · %s · %s · MW %.2f · %d atoms · %d bonds · esc",
+			g.format, g.formula(), g.weight(), len(g.atoms), len(g.bonds))
 	}
 	d["molKey"] = key
 	d["molInfo"] = info
@@ -623,14 +615,6 @@ func (v moleculeView) Lines(m *Model, it *item, width int) int {
 	return molChrome + len(lines)
 }
 
-func (v moleculeView) cycle(m *Model, it *item, delta int) {
-	d := m.nodeStore(it.uuid)
-	vi, _ := d["molView"].(int)
-	d["molView"] = vi + delta
-	delete(d, "molKey") // force a re-render in the new view
-	m.focusScroll = 0
-}
-
 func (v moleculeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "down", "j":
@@ -641,28 +625,14 @@ func (v moleculeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 			m.focusScroll--
 		}
 		return nil, true
-	case "tab", "right", "l":
-		v.cycle(m, it, +1)
-		return nil, true
-	case "shift+tab", "left", "h":
-		v.cycle(m, it, -1)
-		return nil, true
 	}
 	return nil, false // esc / ctrl+c handled centrally
 }
 
-// molChrome is the fixed band count around the scrollable canvas: top border,
-// info bar, divider, bottom border.
-const molChrome = 4
-
-// grayRule is a full-width muted-gray horizontal line (border / divider).
-func grayRule(rail string, width int) string {
-	n := width - visibleWidth(rail)
-	if n < 1 {
-		n = 1
-	}
-	return rail + cReset + cDim + strings.Repeat("─", n) + cReset
-}
+// molChrome is the band count around the scrollable drawing: the properties
+// line alone. The panel carries no rules — the properties and the picture are
+// the whole thing.
+const molChrome = 1
 
 func (v moleculeView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	innerW := width - visibleWidth(rail)
@@ -690,12 +660,9 @@ func (v moleculeView) Bands(m *Model, it *item, rail string, width, scroll, winH
 		end = len(canvas)
 	}
 
-	out := []string{grayRule(rail, width)}                           // top border
-	out = append(out, clip(rail+cReset+cDim+" "+info+cReset, width)) // info bar
-	out = append(out, grayRule(rail, width))                         // divider through
+	out := []string{clip(rail+cReset+cDim+" "+info+cReset, width)} // properties
 	for _, line := range canvas[scroll:end] {
 		out = append(out, clip(rail+cReset+line, width))
 	}
-	out = append(out, grayRule(rail, width)) // bottom border
 	return out
 }
