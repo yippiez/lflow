@@ -52,6 +52,17 @@ var settingDefs = []settingDef{
 		def: "compact",
 	},
 	{
+		// how finely a CAD node meshes on alt+r: cells across the model's longest
+		// axis. Coarse is instant on a big model, fine resolves a thin wall.
+		key: "cad.detail", label: "CAD detail",
+		options: []settingOption{
+			{"coarse", "coarse · fast"},
+			{"normal", "normal"},
+			{"fine", "fine · slow"},
+		},
+		def: "normal",
+	},
+	{
 		// select: the terminal owns the mouse — native drag-select works (and
 		// copy-on-select where the terminal offers it); the wheel scrolls the
 		// terminal, pgup/pgdn scroll the outline. wheel: lflow captures the

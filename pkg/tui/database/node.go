@@ -47,6 +47,11 @@ const (
 	// TypeThinking is a plain muted-gray marker node — Claude Code's thinking
 	// glyph and nothing else (no special editor behavior).
 	TypeThinking = "thinking"
+	// TypeCAD is a solid model composed AS an outline: a row is a shape
+	// (sphere r=1), a boolean whose operands are its children (difference), a
+	// modifier (translate z=2), or a preset (preset mug). alt+r meshes it to an
+	// STL, alt+e draws it, alt+o opens it. See editor/nodes/cad.go.
+	TypeCAD = "cad"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -80,6 +85,7 @@ var TypeOrder = []string{
 	TypeTable,
 	TypeWF,
 	TypeThinking,
+	TypeCAD,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.

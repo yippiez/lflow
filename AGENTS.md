@@ -72,7 +72,8 @@ per-feature column — and no scattered `switch typ`:
    `onType` to land on a face right after /type, and `toContext`/`toContextM`
    for structured XML context).
 3. Put the behavior in its own file. PLUGGABLE types live in
-   `pkg/tui/editor/nodes/<type>.go` — ONE file per node — registered at init
+   `pkg/tui/editor/nodes/<type>.go` — ONE file per node (nlpcompute, cad) —
+   registered at init
    via `editor.RegisterNodePlugin` (see `editor/nodeplugin.go`): the editor
    hosts the generic plugin API (`NodeHost` = editor surface, `NodeRef` = the
    node, both interfaces so a node file tests against fakes), async work flows
@@ -191,6 +192,46 @@ WARNING (invariant): lflow never copies a conversation into the outline. A chip
 stores only `{variant, cwd, session id}` plus your own name and color in LOCAL
 `node_output` — never in the chip row, never synced — and everything else is read
 back out of the CLI's own store (`agentstore.go`) on demand.
+
+## CAD nodes
+
+The CAD node (`pkg/tui/editor/nodes/cad.go`) is the Math node's idea for SOLIDS:
+a model composed AS an outline, one call per row — a shape (`sphere r=1`), a
+boolean whose operands are its CHILD rows (`difference`), a modifier
+(`translate z=2`), or a preset (`preset mug`). The outline IS the CSG tree, so
+geometry is edited with the ordinary outline keys: indent a cylinder under a
+difference to drill it.
+
+It is ONE plugin file, and it stays that way by leaning on signed distance
+fields: a single `dist(p)` per op gives CSG (booleans are min/max on two
+distances), meshing (walk a grid for the zero crossing — naive surface nets, no
+256-case table) and drawing (sphere-trace a ray). Rows compile ONCE into `cadOp`
+before any of that, so the distance function never parses text. The presets are
+written in the node language itself, so the library doubles as worked examples.
+
+- `⌥r` meshes the model and writes a binary STL — that is "the model", and it is
+  what `⌥o` opens. `⌥e` draws it inline in half-blocks (rendered on demand and
+  cached under the rows it drew). `⌥o` hands it to a real 3D viewer when the
+  machine has one (`$LFLOW_CAD_VIEWER`, f3d, fstl, meshlab, a slicer …), else
+  draws a full-size PNG for the host's image viewer (`editor.NodeOpenInHost`,
+  the image node's escape hatch).
+- ONE visual signal, like Math: the head word in yellow — LEXICALLY the first
+  word, so a half-typed row looks right and the render path consults no
+  vocabulary — plus the dim subtree preview. No per-family palette, no glyph.
+- An empty row's `⌥r` prints the whole language into the run band (`cadHelp`);
+  build errors name the offending row (`cadRowErr`) and land in the same band.
+- Mesh detail is the `cad.detail` setting (coarse/normal/fine).
+
+The node needed three generic additions to the plugin API, and any plugin can
+use them: `SpanColor` (per-rune tint of an editable body), `BodyTail` (a dim
+tail after the row, fed a pure `NodeSubtree` because the row render has no
+Model) and `OpenHost` (⌥o). `NodeSubtreeOf` snapshots a subtree for work that
+runs inside a tea.Cmd, where touching live items would race.
+
+WARNING (invariant): the mesh is EPHEMERAL like every run output — the STL and
+the PNG are cache files keyed by node uuid (`~/.cache/lflow/cad/`), never blobs
+in the DB and never synced. The outline stores the model's SOURCE; the geometry
+rebuilds from it in well under a second.
 
 ## NLPCompute code generation
 

@@ -2,8 +2,10 @@ package editor
 
 import (
 	"context"
+	"image"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/pkg/errors"
 
 	"github.com/lflow/lflow/pkg/tui/compute"
 	"github.com/lflow/lflow/pkg/tui/database"
@@ -16,6 +18,35 @@ import (
 // NodeRef — no editor internals leak, so a node file reads standalone.
 //
 // Everything in this file wears the Node prefix: it is the node-facing API.
+
+// NodeSubtree is a pure snapshot of a node and its descendants — text only. It
+// is what a plugin walks when it needs the SHAPE of the subtree away from the
+// Model: in a BodyTail (the row render has no Model) or inside a tea.Cmd, where
+// touching live items from another goroutine would race. Build one from a
+// NodeRef with NodeSubtreeOf.
+type NodeSubtree struct {
+	Text string
+	Kids []NodeSubtree
+}
+
+// NodeSubtreeOf snapshots a node and its children, chips expanded.
+func NodeSubtreeOf(n NodeRef) NodeSubtree {
+	t := NodeSubtree{Text: n.Text()}
+	for _, c := range n.Children() {
+		t.Kids = append(t.Kids, NodeSubtreeOf(c))
+	}
+	return t
+}
+
+// subtreeOfItem is the internal producer: the same snapshot straight off the
+// item tree, for hooks the render path calls without a Model.
+func subtreeOfItem(it *item) NodeSubtree {
+	t := NodeSubtree{Text: it.name}
+	for _, c := range it.children {
+		t.Kids = append(t.Kids, subtreeOfItem(c))
+	}
+	return t
+}
 
 // NodeRef is a plugin's handle on one outline node — an interface, so node
 // tests can fake it without an editor Model.
@@ -99,6 +130,12 @@ type NodeHost interface {
 	// NodeDepOK reports a CLI binary's availability (NodeCLIDeps; judged by
 	// the daemon — the execution side).
 	NodeDepOK(bin string) bool
+	// NodeSetting reads a /settings preference (its default when unset).
+	NodeSetting(key string) string
+	// NodeSetRunOut replaces the node's run band — the ⌥r output that hangs
+	// beneath the row — and persists it like any other run. isErr paints the
+	// lines as failure.
+	NodeSetRunOut(uuid string, lines []string, isErr bool)
 	// NodeComputeTurn runs one raw code-generation turn (system+prompt as-is) —
 	// on the daemon when connected, locally otherwise. Cancel ctx to stop it.
 	NodeComputeTurn(ctx context.Context, system, prompt, cwd string) (<-chan compute.Event, error)
@@ -133,7 +170,20 @@ type NodePlugin struct {
 	BlockCode func(h NodeHost, n NodeRef, focused bool) (code string, caret int, ok bool)
 	// Preview renders always-on band lines beneath the unfocused node (the
 	// image-thumbnail slot); focused reports the expanded view being open.
-	Preview   func(h NodeHost, n NodeRef, rail string, maxLine int, focused bool) []string
+	Preview func(h NodeHost, n NodeRef, rail string, maxLine int, focused bool) []string
+	// SpanColor tints individual runes of an EDITABLE node's body without taking
+	// over the whole render (unlike Render): it returns index→SGR for the runes to
+	// recolor, applied through the same per-rune path as magic keywords, so the
+	// caret and selection still work. Indices are RUNE indices. (The CAD node
+	// marks its head word this way, as the Math node marks its operator.)
+	SpanColor func(runes []rune) map[int]string
+	// BodyTail appends already-styled text after the node's body on the same row —
+	// a dim summary of what the row contains. It takes a pure subtree snapshot
+	// because the row render has no Model to hand it. "" → nothing.
+	BodyTail func(t NodeSubtree) string
+	// OpenHost is the alt+o action: hand the node's content to the HOST — the
+	// desktop's own viewer/app, outside the terminal entirely. nil → none.
+	OpenHost  func(h NodeHost, n NodeRef) tea.Cmd
 	ToContext func(h NodeHost, n NodeRef) (tag, attrs, body string)
 	// OnRemove fires when a node of this type leaves the tree — cancel any
 	// in-flight work keyed on it.
@@ -222,6 +272,18 @@ func RegisterNodePlugin(p NodePlugin) {
 			return pv(m, nodeRef{m: m, it: r.it}, continuationPrefix(r, below), maxLine, focused)
 		}
 	}
+	if p.SpanColor != nil {
+		sc := p.SpanColor
+		nt.spanColor = func(_ *item, runes []rune) map[int]string { return sc(runes) }
+	}
+	if p.BodyTail != nil {
+		bt := p.BodyTail
+		nt.bodyTail = func(it *item) string { return bt(subtreeOfItem(it)) }
+	}
+	if p.OpenHost != nil {
+		oh := p.OpenHost
+		nt.openHost = func(m *Model, it *item) tea.Cmd { return oh(m, nodeRef{m: m, it: it}) }
+	}
 	if p.ToContext != nil {
 		tc := p.ToContext
 		nt.toContextM = func(m *Model, it *item) contextXML {
@@ -260,9 +322,23 @@ func (a nodePluginViewAdapter) Leave(m *Model, it *item) {
 // ── NodeHost implementation on the Model ────────────────────────────────────
 
 func (m *Model) NodeStore(uuid string) map[string]any { return m.nodeStore(uuid) }
-func (m *Model) NodeDB() *database.DB                 { return m.db }
-func (m *Model) NodeFlash(msg string)                 { m.flash = msg }
-func (m *Model) NodeDepOK(bin string) bool            { return m.depOK(bin) }
+func (m *Model) NodeSetting(key string) string        { return m.setting(key) }
+
+// NodeSetRunOut writes a plugin's output into the node's run band, the same
+// band a bash node fills, so it persists and scrolls like any other.
+func (m *Model) NodeSetRunOut(uuid string, lines []string, isErr bool) {
+	r := m.ensureRun(uuid)
+	r.dropped = 0
+	r.out = make([]outLine, 0, len(lines))
+	for _, l := range lines {
+		r.out = append(r.out, outLine{text: l, err: isErr})
+	}
+	m.persistRunOut(uuid)
+	m.refreshRows()
+}
+func (m *Model) NodeDB() *database.DB      { return m.db }
+func (m *Model) NodeFlash(msg string)      { m.flash = msg }
+func (m *Model) NodeDepOK(bin string) bool { return m.depOK(bin) }
 
 // NodeComputeTurn runs a raw generation turn — daemon-side when connected and
 // local otherwise.
@@ -347,3 +423,26 @@ func NodeCaretAt(s string, line, col int) int         { return jsonLCCaret(s, li
 
 // NodeFuzzyMatch reports whether needle subsequence-matches hay.
 func NodeFuzzyMatch(hay, needle string) bool { return fuzzyMatch(hay, needle) }
+
+// NodeHalfBlocks paints an image as SGR text: ▀ cells whose foreground is the
+// top pixel and background the bottom, so one text row shows two pixel rows.
+// The picture is sampled to the cols×rows grid, so any source size fits.
+func NodeHalfBlocks(img image.Image, cols, rows int) []string {
+	return halfBlockRender(img, cols, rows)
+}
+
+// NodeOpenInHost hands a file to the desktop's own app (the image node's
+// opener), returning the opener that ran. The child is Start-ed, never Wait-ed —
+// the window outlives the call and the editor keeps taking keys.
+func NodeOpenInHost(path string) (via string, err error) {
+	cmd, via, ok := hostOpener(path)
+	if !ok {
+		return "", errors.New("no way to reach a desktop from here (no open/xdg-open/wslview)")
+	}
+	cmd.Stdout, cmd.Stderr = nil, nil
+	if err := cmd.Start(); err != nil {
+		return via, errors.Wrapf(err, "launching %s", via)
+	}
+	go func() { _ = cmd.Wait() }()
+	return via, nil
+}
