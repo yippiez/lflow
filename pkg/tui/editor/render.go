@@ -212,25 +212,32 @@ func dividerLine(r row, maxLine int, body string, selected bool) string {
 	}
 	avail := maxLine - visibleWidth(prefix) // content width after the indent/rail
 
-	if body == "" {
-		ruleW := avail * 24 / 25 // ~96%, a small centered gap each side
-		if ruleW < 1 {
-			ruleW = 1
-		}
-		leftGap := (avail - ruleW) / 2
-		if leftGap < 0 {
-			leftGap = 0
-		}
-		return prefix + cReset + strings.Repeat(" ", leftGap) + col + strings.Repeat("─", ruleW) + cReset
+	// the whole divider — rule with or without text — keeps the same ~96%
+	// footprint, CENTERED, so a named divider hangs short like an empty one
+	// instead of stretching the full width.
+	span := avail * 24 / 25
+	if span < 1 {
+		span = 1
+	}
+	lead := (avail - span) / 2
+	if lead < 0 {
+		lead = 0
 	}
 
-	ruleW := avail - visibleWidth(body) - 2
+	if visibleWidth(body) == 0 {
+		return prefix + cReset + strings.Repeat(" ", lead) + col + strings.Repeat("─", span) + cReset
+	}
+
+	ruleW := span - visibleWidth(body) - 2
 	if ruleW < 1 {
-		return prefix + cReset + body + cReset // text wider than the row — bare text
+		return prefix + cReset + strings.Repeat(" ", lead) + body + cReset // text wider than the row — bare text
+	}
+	if ruleW%2 == 1 {
+		ruleW-- // keep the rule runs equal so the text stays dead-center
 	}
 	left := ruleW / 2
 	right := ruleW - left
-	return prefix + cReset + col + strings.Repeat("─", left) + cReset + " " + body + cReset + " " + col + strings.Repeat("─", right) + cReset
+	return prefix + cReset + strings.Repeat(" ", lead) + col + strings.Repeat("─", left) + cReset + " " + body + cReset + " " + col + strings.Repeat("─", right) + cReset
 }
 
 // continuationPrefix builds the dim-styled hanging indent for a row's wrapped

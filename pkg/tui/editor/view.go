@@ -171,7 +171,9 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			shown := m.renderItem(it)
 			name := m.tree.displayName(it)
 			caret := -1
-			if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
+			// only a named divider carries a caret slot on the rule — an empty
+			// one stays a clean rule (the red rule is itself the selection cue)
+			if selected && name != "" && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
 				caret = m.caret
 			}
 			body := renderBody(shown, name, caret, selected, m.chips, m.cmdDraftLive(shown))

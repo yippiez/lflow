@@ -127,3 +127,50 @@ func TestDividerTextRendersInline(t *testing.T) {
 		t.Errorf("caret at 5 should invert the 'T' of 'Two': %q", div)
 	}
 }
+
+// TestDividerEmptySelectedNoCaretSlot: an empty divider under the cursor is
+// still just a clean rule — the caret must not draw a slot that splits the rule
+// into two runs around empty space.
+func TestDividerEmptySelectedNoCaretSlot(t *testing.T) {
+	m := newTestModel(60, "above", "div", "below")
+	m.tree.root.children[1].typ = database.TypeDivider
+	m.tree.root.children[1].name = ""
+	m.refreshRows()
+	m.cursor = 1
+	m.caret = 0
+
+	out := strings.Join(m.viewOutline(m.width-1), "\n")
+	div := strings.Split(out, "\n")[1]
+	plain := stripSGR(div)
+	if strings.Count(plain, "─") == 0 {
+		t.Fatalf("empty divider should still render a rule: %q", plain)
+	}
+	// the rule must be one unbroken run: any gap in the dashes means the caret
+	// slot wedged into the middle
+	if s := strings.Index(plain, "─"); s >= 0 {
+		if strings.Contains(plain[s:], " ") {
+			t.Errorf("empty selected divider must be one unbroken rule, got: %q", plain)
+		}
+	}
+}
+
+// TestDividerTextKeepsCenteredFootprint: a named divider spans the same ~96%
+// centered footprint as an empty one — the text never stretches the rule out to
+// 100% of the available width.
+func TestDividerTextKeepsCenteredFootprint(t *testing.T) {
+	m := newTestModel(60, "x")
+	m.tree.root.children[0].name = "Part Two"
+	r := m.rows[0]
+	maxLine := m.width - 1
+
+	named := visibleWidth(stripSGR(dividerLine(r, maxLine, "Part Two", false)))
+	empty := visibleWidth(stripSGR(dividerLine(r, maxLine, "", false)))
+	if named >= maxLine {
+		t.Errorf("named divider spans %d of %d columns — should hang short", named, maxLine)
+	}
+	// the text eats into the rule, but the total footprint stays ~equal: the
+	// named divider is not wider than the empty one
+	if named > empty+2 {
+		t.Errorf("named divider footprint %d exceeds empty %d", named, empty)
+	}
+}
