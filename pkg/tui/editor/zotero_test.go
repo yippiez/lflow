@@ -269,7 +269,7 @@ func TestCitationRendersInBrandColor(t *testing.T) {
 	m.insertZoteroCite(fakeLibrary().Items[0])
 	m.refreshRows()
 	out := strings.Join(m.viewOutline(200), "\n")
-	if !strings.Contains(out, "Z Vaswani & Shazeer 2017") {
+	if !strings.Contains(out, nonBreaking("Z Vaswani & Shazeer 2017")) {
 		t.Errorf("the citation does not render:\n%s", out)
 	}
 	brand := iconColorSGR(zoteroBrandColor())

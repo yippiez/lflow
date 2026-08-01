@@ -105,7 +105,6 @@ var TypeOrder = []string{
 	TypeWebResult,
 	TypeZotero,
 }
-}
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.
 var ValidTypes = func() map[string]bool {

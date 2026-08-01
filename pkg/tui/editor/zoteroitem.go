@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -682,42 +681,6 @@ func zoteroNearestColor(hex string) string {
 		}
 	}
 	return best
-}
-
-// parseHexColor reads "#rrggbb" (or "rrggbb").
-func parseHexColor(s string) (r, g, b int, ok bool) {
-	s = strings.TrimPrefix(strings.TrimSpace(s), "#")
-	if len(s) != 6 {
-		return 0, 0, 0, false
-	}
-	v, err := strconv.ParseUint(s, 16, 32)
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	return int(v>>16) & 0xff, int(v>>8) & 0xff, int(v) & 0xff, true
-}
-
-// sgrRGB pulls the r,g,b back out of a truecolor foreground SGR
-// ("\x1b[38;2;r;g;bm"), so matching follows whatever the theme currently is.
-func sgrRGB(sgr string) (r, g, b int, ok bool) {
-	i := strings.Index(sgr, "38;2;")
-	if i < 0 {
-		return 0, 0, 0, false
-	}
-	rest := strings.TrimSuffix(sgr[i+len("38;2;"):], "m")
-	parts := strings.Split(rest, ";")
-	if len(parts) != 3 {
-		return 0, 0, 0, false
-	}
-	vals := make([]int, 3)
-	for k, p := range parts {
-		n, err := strconv.Atoi(p)
-		if err != nil {
-			return 0, 0, 0, false
-		}
-		vals[k] = n
-	}
-	return vals[0], vals[1], vals[2], true
 }
 
 // ── context + flash ────────────────────────────────────────────────────────
