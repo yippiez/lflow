@@ -71,8 +71,8 @@ the account name: taken from the library's own account settings, else
 `credentials.json`, else the entry's DOI.
 
 A whole entry mirrors into the outline as the `zotero` **node type**
-(`editor/zoteroitem.go`): `/zotero` — or `/type` → Zotero item — picks the entry
-through the same library picker, and its tags land on the title row as colored
+(`editor/zoteroitem.go`): `/mirror:zotero` — or `/type` → Zotero item — picks the
+entry through the same library picker, and its tags land on the title row as colored
 chips with its attachments, annotations and notes beneath it. Every node of the
 mirror wears the `zotero` type and is bound in `zotero_nodes` (node uuid → item
 key + kind: item / attachment / annotation / note / meta), which is what gives
@@ -91,14 +91,25 @@ What each Zotero object becomes, one for one:
 | a field (type · venue · date, DOI/URL, abstract) | `meta` | one row each | `·` dim | the entry | the other one |
 | an attachment (the PDF) | `attachment` | one row, the file resolved to a local path | `◆` dim | the PDF in Zotero's reader | the file, in the host's app |
 | a highlight / underline / sticky note | `annotation` | one row, text (or comment), `p.N` | `▍` in the highlighter's color | the reader AT that mark | the entry on the web |
-| an area crop / pen drawing (image, ink) | `annotation` | one row + the picture as half-blocks, alt+e larger | `▦` in its color | the reader AT that mark | the picture, in the host's viewer |
-| an annotation comment | `meta` | a child under its highlight | `·` dim | the entry | the other one |
+| an area crop / pen drawing (image, ink) | `annotation` | a real **image node** — the picture is its blob | the image node's own `▦` face | the reader AT that mark | the picture, in the host's viewer |
+| an annotation comment | `comment` | a child under its highlight | `▸` dim | the entry | the other one |
 | a note | `note` | an ordinary row, HTML flattened | `○` dim — a normal node that is fixed | the entry | the other one |
 
 A pictorial mark's PNG is copied out of Zotero's own render cache into
-`node_blobs`, so the picture travels inside the outline file; the cache fills
-lazily as Zotero draws pages, so a fresh crop may need one alt+r before it has
-a picture. Collections, related items and saved searches are not mirrored.
+`node_blobs` and the node becomes `TypeImage` — the literal image node, so it
+renders, expands and opens through the one image implementation the outline
+already has, rather than an imitation of it. That is also why `alt+r` and the
+flash menu check `zoteroMirrored` BEFORE the node's own type: image's alt+r
+pastes the clipboard, which a mirror must never take. The cache fills lazily as
+Zotero draws pages, so a fresh crop may need one alt+r before it has a picture,
+and until then it stays a plain mirrored row (an empty image node would invite
+that paste). Collections, related items and saved searches are not mirrored.
+
+`/mirror:workflowy` is the sibling gesture for the `wf` type: it makes the node
+a Workflowy pull handle, and alt+r fetches once it holds a link. The `/mirror:*`
+family is now the one place external and internal mirrors are reached —
+`from`/`to` for another node in the outline, `workflowy`/`zotero` for a
+subtree that belongs to someone else.
 
 The mirror is Zotero's, not yours: the root is content-locked (movable and
 deletable as a unit), every node below it is content- AND position-locked, and
