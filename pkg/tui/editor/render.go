@@ -759,15 +759,17 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			}
 			b.WriteString(cReset + col)
 			if osc8 != "" {
-				b.WriteString("\x1b]8;;" + osc8 + "\x1b\\")
+				b.WriteString(oscLink(osc8))
 			}
 			if caret == sp.start {
 				b.WriteString(cInvert) // cursor sits on the whole chip
 			}
-			b.WriteString(dispByID(sp.id, chips))
+			// atomic on screen as well as to the caret: a soft wrap never breaks
+			// a chip apart mid-name (see nonBreaking)
+			b.WriteString(nonBreaking(dispByID(sp.id, chips)))
 			b.WriteString(cReset)
 			if osc8 != "" {
-				b.WriteString("\x1b]8;;\x1b\\")
+				b.WriteString(oscLink(""))
 			}
 			cur = ""
 			i = sp.end

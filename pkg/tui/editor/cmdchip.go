@@ -166,23 +166,26 @@ func (m *Model) hydrateCmdPreviews() {
 	}
 }
 
-// stripSGR removes ANSI SGR escapes from s, leaving plain text — used to derive a
-// clean inline preview from coloured command output.
+// stripSGR removes ANSI escapes from s, leaving plain text — used to derive a
+// clean inline preview from coloured command output. Command output can carry
+// OSC 8 hyperlinks too (ls --hyperlink), so it scans with the shared,
+// OSC-aware ansiEscapeEnd rather than running to the next 'm'.
 func stripSGR(s string) string {
+	if !strings.ContainsRune(s, '\x1b') {
+		return s
+	}
 	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if r == 'm' {
-				inEsc = false
-			}
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			i = ansiEscapeEnd(s, i)
 			continue
 		}
-		if r == '\x1b' {
-			inEsc = true
-			continue
+		j := i
+		for j < len(s) && s[j] != '\x1b' {
+			j++
 		}
-		b.WriteRune(r)
+		b.WriteString(s[i:j])
+		i = j
 	}
 	return b.String()
 }

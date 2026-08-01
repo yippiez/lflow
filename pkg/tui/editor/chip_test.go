@@ -99,3 +99,27 @@ func TestVisualRowsWideRuneNarrowLineTerminates(t *testing.T) {
 		t.Fatal("visualRows hung on a wide rune in a 1-cell line")
 	}
 }
+
+// TestChipMovesWholeAcrossAWrap: a chip is atomic on screen too — when it does
+// not fit on the current visual line it moves down whole instead of splitting
+// at the space inside its own name, which is what the caret model (chipVisualRows,
+// which walks anchors as one cluster) already assumes.
+func TestChipMovesWholeAcrossAWrap(t *testing.T) {
+	chips := map[string]database.Chip{
+		"c1": {ID: "c1", Kind: chipKindLink, Value: "https://example.com/x", Label: "Q3 planning notes"},
+	}
+	name := "some text ahead of it " + chipAnchor("c1")
+	body := renderBody(&item{typ: database.TypeBullets}, name, -1, false, chips, false)
+	lines := wrapLine(" ○ "+body, 40, cDim+" │ "+cReset)
+
+	if len(lines) != 2 {
+		t.Fatalf("want 2 visual lines, got %d: %q", len(lines), lines)
+	}
+	const disp = "→Q3 planning notes"
+	if got := stripSGR(lines[1]); !strings.Contains(got, nonBreaking(disp)) {
+		t.Errorf("the chip did not move down whole: %q", got)
+	}
+	if got := stripSGR(lines[0]); strings.Contains(got, "Q3") {
+		t.Errorf("the chip was split across the wrap: %q", got)
+	}
+}
