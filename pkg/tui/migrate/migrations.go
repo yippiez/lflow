@@ -1363,3 +1363,26 @@ var lm41 = migration{
 		return nil
 	},
 }
+
+// lm42 adds the Line node's two tables (see editor/line.go): line_characters
+// assigns a character to each Line node (one row per node), and character_colors
+// assigns a color to a character name (one row per character, like tag_colors) so
+// the same character reads in the same color everywhere it speaks.
+var lm42 = migration{
+	name: "add-line-character-tables",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS line_characters (
+			node_uuid text PRIMARY KEY,
+			character text NOT NULL DEFAULT ''
+		);`); err != nil {
+			return errors.Wrap(err, "creating line_characters table")
+		}
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS character_colors (
+			character text PRIMARY KEY,
+			color text NOT NULL DEFAULT ''
+		);`); err != nil {
+			return errors.Wrap(err, "creating character_colors table")
+		}
+		return nil
+	},
+}

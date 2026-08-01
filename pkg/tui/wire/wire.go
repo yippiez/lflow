@@ -94,10 +94,12 @@ type Msg struct {
 
 // AuxTables are the render-support tables whose changes flag Event.Aux.
 var AuxTables = map[string]bool{
-	"chips":      true,
-	"tag_colors": true,
-	"node_spans": true,
-	"settings":   true,
+	"chips":            true,
+	"tag_colors":       true,
+	"node_spans":       true,
+	"settings":         true,
+	"line_characters":  true,
+	"character_colors": true,
 }
 
 // EncodeValue converts a driver-level value into its wire form: nil stays

@@ -68,6 +68,14 @@ CREATE TABLE node_spans (
 			style text NOT NULL DEFAULT '',
 			PRIMARY KEY (node_uuid, start)
 		);
+CREATE TABLE line_characters (
+			node_uuid text PRIMARY KEY,
+			character text NOT NULL DEFAULT ''
+		);
+CREATE TABLE character_colors (
+			character text PRIMARY KEY,
+			color text NOT NULL DEFAULT ''
+		);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 41);
+INSERT INTO system (key, value) VALUES ('schema', 42);

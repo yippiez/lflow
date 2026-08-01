@@ -50,6 +50,13 @@ const (
 	// TypeMol is a molecule composed AS an outline: one atom per node, children
 	// are the atoms bonded to it; alt+e draws the structure. See editor/molecule.go.
 	TypeMol = "molecule"
+	// TypeLine is a dialogue line: ordinary editable text prefixed with a
+	// character name, e.g. "[ALICE] be right there" — the bracket is a render-time
+	// prefix, never baked into the stored name. The character assigned to each Line
+	// node lives in the line_characters table (keyed by node uuid) and each
+	// character's color in character_colors (keyed by character name), so the same
+	// character stays consistent everywhere it speaks. See editor/line.go.
+	TypeLine = "line"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -84,6 +91,7 @@ var TypeOrder = []string{
 	TypeMol,
 	TypeWF,
 	TypeThinking,
+	TypeLine,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.
