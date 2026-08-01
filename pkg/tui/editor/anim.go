@@ -46,9 +46,7 @@ func shineColorAt(n, j, frame int, speed float64, base, peak [3]int) string {
 	if t < 0 {
 		t = 0
 	}
-	r := base[0] + int(float64(peak[0]-base[0])*t)
-	g := base[1] + int(float64(peak[1]-base[1])*t)
-	b := base[2] + int(float64(peak[2]-base[2])*t)
+	r, g, b := lerpRGB(base, peak, t)
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
 }
 
@@ -92,11 +90,91 @@ func ShineText(s string) string {
 	return b.String()
 }
 
+// ── run shimmer ─────────────────────────────────────────────────────────────
+
+// A command in flight animates what is already on screen instead of adding
+// chrome: a running cmd chip's code cell gets a soft lighter band sliding across
+// its BACKGROUND (the text never moves, so the row stays readable), and the
+// "running…" line under the node shimmers on its FOREGROUND in the same rhythm.
+// Both read the shared animFrame, so every busy surface pulses together — and
+// the tick keeps running while any command is live (see animActive), which is
+// what lets a silent `sleep 30` still look alive.
+const (
+	shimmerSpeed = 0.55 // cells per animation frame (~10 cells/s at animEvery)
+	shimmerHalf  = 5.0  // half-width of the highlight band, in cells
+	shimmerGap   = 6    // cells of travel past the ends, so sweeps arrive in waves
+)
+
+var (
+	shimmerBase = [3]int{31, 31, 31}  // bgCode — the resting code cell
+	shimmerPeak = [3]int{74, 90, 116} // cool blue-gray lift at the highlight's centre
+)
+
+// shimmerAt returns how strongly cell j of an n-cell span is lit at the given
+// frame, 0 (resting) to 1 (the centre of the band). The centre is fractional and
+// wraps over n+shimmerGap cells, so the sweep is smooth and comes in waves.
+func shimmerAt(n, j, frame int) float64 {
+	if n <= 0 {
+		return 0
+	}
+	span := float64(n + shimmerGap)
+	center := math.Mod(float64(frame)*shimmerSpeed, span) - shimmerGap/2
+	t := 1 - math.Abs(float64(j)-center)/shimmerHalf
+	if t < 0 {
+		return 0
+	}
+	return t
+}
+
+// lerpRGB mixes base→peak by t (0..1).
+func lerpRGB(base, peak [3]int, t float64) (int, int, int) {
+	return base[0] + int(float64(peak[0]-base[0])*t),
+		base[1] + int(float64(peak[1]-base[1])*t),
+		base[2] + int(float64(peak[2]-base[2])*t)
+}
+
+// shimmerBG is the background SGR for cell j of an n-cell code cell at the given
+// frame — bgCode at rest, lifted where the band passes.
+func shimmerBG(n, j, frame int) string {
+	r, g, b := lerpRGB(shimmerBase, shimmerPeak, shimmerAt(n, j, frame))
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+}
+
+// shimmerLabel paints a short indicator ("running…") with the same sliding
+// highlight on its foreground: muted gray that brightens to a cool near-white as
+// the band passes. Callers pass plain text (no existing SGR).
+func shimmerLabel(s string) string {
+	base, peak := [3]int{122, 122, 122}, [3]int{216, 229, 245} // cDim → blue-white
+	runes := []rune(s)
+	var b strings.Builder
+	for j, c := range runes {
+		r, g, bl := lerpRGB(base, peak, shimmerAt(len(runes), j, animFrame))
+		fmt.Fprintf(&b, "\x1b[38;2;%d;%d;%dm", r, g, bl)
+		b.WriteRune(c)
+	}
+	b.WriteString(cReset)
+	return b.String()
+}
+
 // animActive reports whether anything on screen needs the animation tick — a
-// magic keyword, an in-flight image paste (its spinner), or a plugin node marked
-// animating (nlpcompute while generating).
+// magic keyword, an in-flight image paste (its spinner), a plugin node marked
+// animating (nlpcompute while generating), or a shell command still running (its
+// shimmer and elapsed clock).
 func (m *Model) animActive() bool {
-	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating() || m.queryLoad != nil
+	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating() ||
+		m.queryLoad != nil || m.anyRunning()
+}
+
+// anyRunning reports whether any run band has a command in flight — a cmd chip
+// or a runnable node. Keeps the shimmer sliding and the elapsed clock ticking
+// even for a command that prints nothing for minutes.
+func (m *Model) anyRunning() bool {
+	for _, r := range m.runs {
+		if r.cancel != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // anyNodeAnimating reports whether any node set the generic "animating" flag in

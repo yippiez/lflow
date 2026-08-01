@@ -104,7 +104,7 @@ func (m *Model) persistRunOut(uuid string) {
 		return
 	}
 
-	out := r.out
+	out := r.lines()
 	if len(out) == 0 {
 		_ = database.DeleteNodeOutput(m.ctx.DB, uuid)
 		return

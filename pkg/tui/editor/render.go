@@ -136,6 +136,8 @@ const (
 	glyphQuoteBar  = "▎"
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
 	glyphCloud     = "☁" // a HOSTED coding session (started on the web or a phone)
+	// a Bash node wears the cmd chip's prompt, always (see bashGlyph)
+	glyphBashPrompt = "$"
 )
 
 // underCompleted reports whether it sits under a completed ancestor in the
@@ -276,26 +278,20 @@ func styleOutLine(l outLine) string {
 	return col + l.text + cReset
 }
 
-// runBandLines renders a bash node's run output beneath it: stdout in the normal
-// color, stderr red, capped to the last few lines, with a running indicator. The
-// band is hydrated from its on-disk cache on first render (see runout.go) so it
-// survives a restart, but it never enters the DB or sync.
-func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
-	uuid := r.it.uuid
-	m.ensureRunOutLoaded(uuid)
-	rs := m.run(uuid) // non-nil after ensureRunOutLoaded
-	out := rs.out
-	running := rs.cancel != nil
-	if len(out) == 0 && !running {
-		return nil
-	}
-	rail := continuationPrefix(r, subtreeBelow)
+// runBandCap is how many of the newest output lines an inline run band shows —
+// the rest is one "⋯ N more" line, with the whole band an alt+e away.
+const runBandCap = 3
+
+// runOutTail renders the tail of a run band as rail-prefixed rows: an optional
+// "⋯ N more" head line, then the newest capN lines with the program's own
+// colors. (A running cmd chip shows no band — its tail lives in the chip label —
+// so this serves the runnable-node band alone.)
+func runOutTail(rail string, rs *runState, capN, maxLine int) []string {
 	var lines []string
-	shown := out
-	const capN = 3
+	shown := rs.lines()
 	if len(shown) > capN {
 		more := fmt.Sprintf("  ⋯ %d more", len(shown)-capN)
-		if d := rs.dropped; d > 0 {
+		if d := rs.dropCount(); d > 0 {
 			more += fmt.Sprintf(" · %d dropped", d)
 		}
 		lines = append(lines, clip(rail+cReset+cDim+more+cReset, maxLine))
@@ -304,8 +300,27 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 	for _, l := range shown {
 		lines = append(lines, clip(rail+cReset+"  "+styleOutLine(l), maxLine))
 	}
+	return lines
+}
+
+// runBandLines renders a runnable node's run output beneath it: stdout in the
+// normal color, stderr red, capped to the last few lines, with a shimmering
+// running indicator and its elapsed clock while the command is still going. The
+// band is hydrated from its on-disk cache on first render (see runout.go) so it
+// survives a restart, but it never enters the DB or sync.
+func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
+	uuid := r.it.uuid
+	m.ensureRunOutLoaded(uuid)
+	rs := m.run(uuid) // non-nil after ensureRunOutLoaded
+	running := rs.cancel != nil
+	if len(rs.lines()) == 0 && !running {
+		return nil
+	}
+	rail := continuationPrefix(r, subtreeBelow)
+	lines := runOutTail(rail, rs, runBandCap, maxLine)
 	if running {
-		lines = append(lines, clip(rail+cReset+cDim+"  running… · ⌥k stop"+cReset, maxLine))
+		foot := "  " + runningTag(rs) + cDim + " · ⌥k stop"
+		lines = append(lines, clip(rail+cReset+cDim+foot+cReset, maxLine))
 	}
 	return lines
 }
@@ -493,13 +508,56 @@ func inlineSpans(runes []rune) []spanFlags {
 // code cell; the output preview (in-memory label, rehydrated from node_output)
 // is muted text after the cell, with no background, so "$ ls" reads as the
 // runnable part and "→ result" as last-run chrome.
+//
+// While the command is RUNNING (cmdChipRunning, refreshed per frame by
+// syncLiveCmdRuns) that flat code cell becomes a shimmer: the same cell colors
+// with a soft highlight sliding across the background, text untouched. Only
+// colors change — the chip's display width stays chipDisplay's, which the caret
+// and wrap math depend on.
+//
+// The caret is normally the whole chip inverted, but alt+r runs the chip the
+// caret sits on, so that is exactly the state a running chip is in — and reverse
+// video would swallow the pulse (dark text on a bright block). A running chip
+// under the caret therefore inverts ONE cell, its "$" prompt, the same one-cell
+// cursor the rest of the editor draws, and shimmers the rest.
 func renderCmdChip(c database.Chip, caretOn bool) string {
 	var b strings.Builder
 	b.WriteString(cReset)
-	if caretOn {
-		b.WriteString(cInvert)
+	switch {
+	case cmdChipRunning(c.ID):
+		runes := []rune("$ " + c.Value)
+		bg, fg := "", ""
+		for j, r := range runes {
+			// the "$ " prompt keeps its red, the command the normal text color;
+			// only the background moves. Re-emit an SGR only when it changes, so a
+			// long command is not a per-cell escape storm.
+			want := cRed
+			if j >= 2 {
+				want = cFG
+			}
+			if s := shimmerBG(len(runes), j, animFrame); s != bg {
+				b.WriteString(s)
+				bg = s
+			}
+			if want != fg {
+				b.WriteString(want)
+				fg = want
+			}
+			if caretOn && j == 0 {
+				// the caret cell: reset after it and let the next cell re-arm its
+				// colors, so reverse video covers this one cell only
+				b.WriteString(cInvert + string(r) + cReset)
+				bg, fg = "", ""
+				continue
+			}
+			b.WriteRune(r)
+		}
+		b.WriteString(cReset)
+	case caretOn:
+		b.WriteString(cInvert + bgCode + cRed + "$ " + cFG + c.Value + cReset)
+	default:
+		b.WriteString(bgCode + cRed + "$ " + cFG + c.Value + cReset)
 	}
-	b.WriteString(bgCode + cRed + "$ " + cFG + c.Value + cReset)
 	if c.Label != "" {
 		b.WriteString(cDim + " → " + c.Label + cReset)
 	}
@@ -847,7 +905,7 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 	}
 	if bt := desc.bodyTail; bt != nil {
-		if tail := bt(it); tail != "" {
+		if tail := bt(it, chips); tail != "" {
 			b.WriteString(cReset + " " + tail) // math's dim subtree preview
 		}
 	}
