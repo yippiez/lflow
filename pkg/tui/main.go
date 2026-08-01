@@ -15,6 +15,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/cmd/node"
 	"github.com/lflow/lflow/pkg/tui/cmd/root"
 	"github.com/lflow/lflow/pkg/tui/cmd/serve"
+	"github.com/lflow/lflow/pkg/tui/cmd/suggest"
 	"github.com/lflow/lflow/pkg/tui/cmd/version"
 )
 
@@ -42,6 +43,7 @@ func main() {
 	defer ctx.DB.Close()
 
 	root.Register(node.NewCmd(*ctx))
+	root.Register(suggest.NewCmd(*ctx))
 	root.Register(auth.NewCmd(*ctx))
 	root.Register(export.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))

@@ -120,7 +120,9 @@ func (m *Model) finalView(maxLine int) []string {
 		if rm := typeOf(shown.typ).renderM; rm != nil {
 			body = rm(m, shown)
 		}
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r)
+		glyph, glyphColor = m.suggestGlyph(r.it, glyph, glyphColor)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body +
+			m.typeSuffix(r) + m.suggestInline(r.it)
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 		if b := typeOf(r.it.typ).bands; b != nil {
@@ -189,6 +191,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				noteCaret = m.caret
 			}
 			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+			bands[i] = append(bands[i], m.suggestBlockLines(r, below, maxLine)...)
 			continue
 		}
 
@@ -205,6 +208,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				if m.tempActive && !r.mirrored {
 					glyph = glyphDotted
 				}
+				glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
 				if selected || m.inSelection(i) {
 					glyphColor = cRed
 				}
@@ -219,6 +223,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 					noteCaret = m.caret
 				}
 				bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+				bands[i] = append(bands[i], m.suggestBlockLines(r, below, maxLine)...)
 				continue
 			}
 		}
@@ -228,6 +233,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		if m.tempActive && !r.mirrored {
 			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
 		}
+		glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
 		if selected || m.inSelection(i) {
 			glyphColor = cRed
 		}
@@ -251,7 +257,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			}
 		}
 
-		suffix := m.typeSuffix(r)
+		suffix := m.typeSuffix(r) + m.suggestInline(it)
 		// flash mode grays the whole outline so the colored action chips are the only
 		// highlights: dim the glyph, the body and the type suffix down to plain gray.
 		if m.mode == modeFlash {
@@ -291,6 +297,9 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				bands[i] = append(bands[i], b(m, r, below, maxLine)...)
 			}
 		}
+		// a proposal pending on this node hangs beneath it, unapplied, until
+		// alt+v review settles it
+		bands[i] = append(bands[i], m.suggestBandLines(r, below, maxLine)...)
 		// flash grays the note / run-output bands too, so nothing competes with the chips
 		if m.mode == modeFlash {
 			for k := range bands[i] {
@@ -689,6 +698,11 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	if n := m.computingNodeCount(); n > 0 {
 		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
+	}
+	// a proposal waiting on review is worth seeing even when its node is off
+	// screen — it changes nothing until somebody settles it
+	if n := m.pendingSuggestCount(); n > 0 {
+		state += " · " + cYellow + suggestNoun(n) + cDim
 	}
 	if m.flash != "" {
 		state += " · " + m.flash

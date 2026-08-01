@@ -147,6 +147,11 @@ func (m *Model) applyEvent(ev wire.Event) {
 	if ev.Aux {
 		m.reloadAux()
 	}
+	// somebody filed or settled a proposal: the review queue moved, the tree
+	// did not (an approval carries its node rows in this same event)
+	if ev.Suggest {
+		m.loadSuggests()
+	}
 	pending := ev.Nodes
 	changed := false
 	sawMirror := false

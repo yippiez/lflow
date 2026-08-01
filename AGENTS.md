@@ -192,6 +192,45 @@ stores only `{variant, cwd, session id}` plus your own name and color in LOCAL
 `node_output` — never in the chip row, never synced — and everything else is read
 back out of the CLI's own store (`agentstore.go`) on demand.
 
+## Edit suggestions
+
+`lflow suggest` is the review queue: a proposed change lives in the
+`suggestions` table (lm42) and touches NOTHING until somebody approves it —
+kind `add` carries a node proposed under a parent, kind `edit` carries the
+fields (`name`/`note`/`type`) proposed for one node. `suggest add` / `suggest
+edit` file one, `list` / `show` read them (both take `--format json`, the
+machine face agents use), `approve` applies through
+`database.ApplySuggestion` — node write and settled status in ONE transaction,
+so an approval can never half-land or apply twice — and `reject` settles
+without touching the outline. Chips are created at approval time, so a
+rejected suggestion leaves none behind. An edit snapshots the target text
+(`base_name`/`base_note`): if the node moved on since, approve refuses and
+says so, `--force` applies anyway. On the wire a suggestions write flags
+`Event.Suggest` — deliberately NOT an aux table, since a proposal changes
+nothing a client renders — and `lflow serve` logs it as `→ suggested`.
+
+In the EDITOR (`pkg/tui/editor/suggest.go`) a pending proposal reads INLINE on
+the node itself: its glyph becomes a yellow outline circle (`glyphSuggest`, in
+place of whatever the type would draw) and the row gains `→ <proposed text>`
+(`+ text` for a proposed child, `· +N` when more wait behind it). The arrow is a
+suffix on the rendered line — like the mirror/locked/child-count one — so every
+row-shaped type carries it for free (bullets, todo, headings, table, query,
+math, json, wf, the nlpcompute prose face); types whose row is REPLACED by a
+block (Code, the nlpcompute code face) and the divider rule take the same text
+as one line under the block instead (`suggestBlockLines`). Proposals arrive live
+when the feed reports one, and the bar counts them (`N suggestions`, no glyph —
+the circle belongs on the node).
+
+`alt+v` opens review on the cursor node (`modeSuggest`): the proposal expands
+under it AT THE NODE'S OWN COLUMN — not indented, and carrying no circle of its
+own, since the node already wears one — with author, message, the before/after,
+then `y` approves, `n` rejects, `esc` leaves it pending, ↑↓ walks a node's
+queue, and `/suggestions` jumps to the next node carrying one. The inline arrow
+and the expansion are a READING of the suggestions table — approving is the only
+path that writes, and it goes through `database.ApplySuggestion` and then
+resyncs. A proposal against the current view's own root has no row to hang from;
+`/suggestions` says so instead of pretending there is nothing.
+
 ## NLPCompute code generation
 
 NLPCompute is the only in-editor Pi surface. `alt+r` sends its natural-language

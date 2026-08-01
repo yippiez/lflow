@@ -1163,3 +1163,35 @@ func TestLM41ConvertsPathChipsToText(t *testing.T) {
 		t.Fatalf("pathChips=%d remainingChips=%d spans=%d", pathChips, remainingChips, spans)
 	}
 }
+
+func TestLM43AddsSuggestions(t *testing.T) {
+	db := database.InitTestMemoryDBRaw(t, "")
+	ctx := context.InitTestCtxWithDB(t, db)
+	database.MustExec(t, "drop suggestions", db, "DROP TABLE IF EXISTS suggestions")
+
+	if err := lm43.run(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	var table int
+	database.MustScan(t, "suggestions table",
+		db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='suggestions'"), &table)
+	if table != 1 {
+		t.Fatal("suggestions table was not created")
+	}
+
+	// a suggestion round-trips through the new table with defaults intact
+	database.MustExec(t, "suggestion row", db,
+		"INSERT INTO suggestions (uuid, kind, target_uuid, name) VALUES ('s1', 'edit', 'n1', 'proposed')")
+	var status string
+	database.MustScan(t, "default status",
+		db.QueryRow("SELECT status FROM suggestions WHERE uuid = 's1'"), &status)
+	if status != database.SuggestPending {
+		t.Fatalf("default status = %q", status)
+	}
+
+	// re-running is a no-op: the table already exists
+	if err := lm43.run(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+}

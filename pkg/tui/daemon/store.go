@@ -24,6 +24,7 @@ import (
 type changeLog struct {
 	nodeRowIDs map[int64]bool
 	aux        bool // a render-support table (chips, tag_colors, …) changed
+	suggest    bool // the suggestions review queue changed
 }
 
 // collector is the changeLog the update hook currently feeds. One daemon per
@@ -47,6 +48,8 @@ func registerDriver() {
 				switch {
 				case table == "nodes":
 					cl.nodeRowIDs[rowid] = true
+				case table == wire.SuggestTable:
+					cl.suggest = true
 				case wire.AuxTables[table]:
 					cl.aux = true
 				}
@@ -305,7 +308,7 @@ func (s *Store) Subscribe() (<-chan wire.Event, func()) {
 // subscriber. A subscriber that cannot keep up is closed — on close the
 // client reconnects and resyncs in full, so nothing is silently missed.
 func (s *Store) broadcast(cl *changeLog, sess *session) {
-	if cl == nil || (len(cl.nodeRowIDs) == 0 && !cl.aux) {
+	if cl == nil || (len(cl.nodeRowIDs) == 0 && !cl.aux && !cl.suggest) {
 		return
 	}
 	nodes, err := s.nodesByRowID(cl.nodeRowIDs)
@@ -313,9 +316,10 @@ func (s *Store) broadcast(cl *changeLog, sess *session) {
 		nodes = nil // the event still ships for its aux flag; rows just absent
 	}
 	ev := wire.Event{
-		Seq:   s.seq.Add(1),
-		Nodes: nodes,
-		Aux:   cl.aux,
+		Seq:     s.seq.Add(1),
+		Nodes:   nodes,
+		Aux:     cl.aux,
+		Suggest: cl.suggest,
 	}
 	if sess != nil {
 		ev.Instance = sess.instance

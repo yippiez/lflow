@@ -20,6 +20,19 @@ lflow node open
 # List nodes, or dump a subtree as JSON for scripting
 lflow node list
 lflow node list "reading list" --format json | jq -r '.children[].name'
+
+# Suggest changes instead of making them: a proposal waits for review and
+# touches nothing until it is approved
+lflow suggest add --parent "reading list" "Designing Data-Intensive Applications"
+lflow suggest edit "ship the thing" --name "ship the other thing" --message "clearer"
+
+# In the editor a pending suggestion hangs under its node as you work:
+# alt+v reviews it, y approves, n rejects. From the CLI:
+lflow suggest list
+lflow suggest list --format json | jq -r '.[].uuid'
+lflow suggest show 4cad8e
+lflow suggest approve 4cad8e
+lflow suggest reject 8626b1
 ```
 
 Run `--help` on any command for the full flag reference.
