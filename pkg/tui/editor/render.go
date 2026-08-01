@@ -55,6 +55,7 @@ var (
 	bgTerm   = "\x1b[48;2;30;34;48m"    // #1e2230 terminal block behind bash rows
 	bgPill   = "\x1b[48;2;38;79;120m"   // #264f78 behind date pills
 	bgHit    = "\x1b[48;2;92;72;12m"    // yellow-brown query match highlight
+	bgMol    = "\x1b[48;2;31;56;50m"    // #1f3832 block behind a ⌬ molecule chip
 	// bgPage paints the MAIN region's page background ("" = the terminal's own,
 	// i.e. transparent). Scope: the rows above the status bar only — the bar
 	// (divider) and the Temporary Domain panel below it always stay transparent.

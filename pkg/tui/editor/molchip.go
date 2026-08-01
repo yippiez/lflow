@@ -23,19 +23,21 @@ import (
 // long structures stay one glanceable token instead of taking over the row.
 const molChipMaxDisplay = 12
 
-// molChipDisplay is the chip's compact form: the benzene ring plus the notation,
-// truncated with an ellipsis. An empty chip shows the ring alone, so a chip you
-// have not filled in yet is still visible and selectable.
+// molChipDisplay is the chip's compact form: the benzene ring with the notation
+// inside it, truncated with an ellipsis. The padding matters — the kind's colour
+// paints a background block behind this string (see chipKinds), so the spaces
+// are what give the chip its pill shape. An empty chip shows the ring alone, so
+// one you have not filled in yet is still visible and selectable.
 func molChipDisplay(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" {
-		return "⌬"
+		return " ⌬ "
 	}
 	r := []rune(v)
 	if len(r) > molChipMaxDisplay {
-		return "⌬" + string(r[:molChipMaxDisplay]) + "…"
+		v = string(r[:molChipMaxDisplay]) + "…"
 	}
-	return "⌬" + string(r)
+	return " ⌬ " + v + " "
 }
 
 // molNotationChar reports whether r is part of the notation grammar. Anything
@@ -66,7 +68,7 @@ func molLooksLikeNotation(tok string) bool {
 	}
 	// SELFIES is unambiguous — bracket tokens only — so it needs no heuristics.
 	if looksLikeSELFIES(tok) {
-		g, err := parseSELFIES(tok)
+		g, err := parseMolecule(tok)
 		return err == nil && len(g.atoms) >= 2
 	}
 	structural := false
@@ -109,7 +111,7 @@ func molLooksLikeNotation(tok string) bool {
 			return false
 		}
 	}
-	g, err := parseSMILES(tok)
+	g, err := parseMolecule(tok)
 	return err == nil && len(g.atoms) >= 2
 }
 

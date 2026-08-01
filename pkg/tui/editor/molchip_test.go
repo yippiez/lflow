@@ -1,6 +1,9 @@
 package editor
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMolLooksLikeNotationAccepts(t *testing.T) {
 	for _, s := range []string{
@@ -38,15 +41,19 @@ func TestMolLooksLikeNotationRejectsProse(t *testing.T) {
 }
 
 func TestMolChipDisplayTruncates(t *testing.T) {
-	if got := molChipDisplay("CCO"); got != "⌬CCO" {
-		t.Fatalf("display = %q, want ⌬CCO", got)
+	// the chip is a painted block: the ring, the notation, and the padding that
+	// gives the background its pill shape.
+	if got := molChipDisplay("CCO"); got != " ⌬ CCO " {
+		t.Fatalf("display = %q, want \" ⌬ CCO \"", got)
 	}
 	long := molChipDisplay("CN1C=NC2=C1C(=O)N(C(=O)N2C)C")
-	if got := []rune(long); len(got) != 1+molChipMaxDisplay+1 {
-		t.Fatalf("truncated display = %q (%d runes), want ring + %d + ellipsis",
-			long, len(got), molChipMaxDisplay)
+	if !strings.HasPrefix(long, " ⌬ ") || !strings.HasSuffix(long, "… ") {
+		t.Fatalf("truncated display = %q, want ring + clipped notation + ellipsis", long)
 	}
-	if got := molChipDisplay(""); got != "⌬" {
+	if got := len([]rune(long)); got != 3+molChipMaxDisplay+2 {
+		t.Fatalf("truncated display %q is %d runes, want %d", long, got, 3+molChipMaxDisplay+2)
+	}
+	if got := molChipDisplay(""); got != " ⌬ " {
 		t.Fatalf("empty display = %q, want the bare ring", got)
 	}
 }

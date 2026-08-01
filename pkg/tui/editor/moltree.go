@@ -68,23 +68,24 @@ func molTreeSMILES(it *item) string {
 	return b.String()
 }
 
-// moleculeGraphOf resolves whichever form the node uses: a node WITH children is
-// an outline-composed molecule (flattened, then parsed); a leaf is a typed
-// SMILES/SELFIES string. Every consumer — the viewer, the preview, the formula —
-// goes through here, so the two input forms stay interchangeable.
+// moleculeGraphOf builds the node's molecule from its OUTLINE — the one form a
+// molecule node takes. Every consumer (the viewer, the preview, the formula)
+// goes through here.
+//
+// A molecule node is always composed as a tree; a notation string pasted into
+// prose is a molecule CHIP instead (see molchip.go), which is what an inline
+// reference to a structure should be. The two do not compete: the node is the
+// structure you build and inspect, the chip is the structure you mention.
 func moleculeGraphOf(it *item) (*molGraph, error) {
 	if it == nil {
 		return nil, fmt.Errorf("empty")
 	}
-	if len(it.children) > 0 {
-		g, err := parseSMILES(molTreeSMILES(it))
-		if err != nil {
-			return nil, err
-		}
-		g.format = "tree"
-		return g, nil
+	g, err := parseSMILES(molTreeSMILES(it))
+	if err != nil {
+		return nil, err
 	}
-	return parseMolecule(it.name)
+	g.format = "tree"
+	return g, nil
 }
 
 // molTreeBodyTail is the dim linear preview of an outline-composed molecule,

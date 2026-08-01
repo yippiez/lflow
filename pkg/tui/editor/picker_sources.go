@@ -144,7 +144,7 @@ func (insertSource) items(m *Model, q string) []pickerItem {
 		// is what turns a pasted SMILES into a one-key conversion.
 		if k.value == chipKindMol {
 			if tok, _, _, ok := molTokenBeforeCaret(m.cursorItem(), m.caret); ok {
-				desc = "convert " + molChipDisplay(tok)
+				desc = "convert " + strings.TrimSpace(molChipDisplay(tok))
 			}
 		}
 		out = append(out, pickerItem{value: k.value, render: func(bool) string {

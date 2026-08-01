@@ -67,21 +67,22 @@ func TestMolTreeRingClosure(t *testing.T) {
 	}
 }
 
-func TestMolLeafStillParsesNotation(t *testing.T) {
-	// a childless node keeps the original typed-notation behavior.
-	g, err := moleculeGraphOf(molNode("CCO"))
-	if err != nil {
-		t.Fatal(err)
+// A molecule node has exactly ONE form: the outline. Even a childless node is
+// read as a one-node tree, never as a typed-notation leaf — an inline notation
+// reference is a molecule CHIP instead.
+func TestMoleculeNodeIsAlwaysTreeFormat(t *testing.T) {
+	for _, name := range []string{"CCO", "c1ccccc1"} {
+		g, err := moleculeGraphOf(molNode(name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if g.format != "tree" {
+			t.Fatalf("%s: format = %q, want tree", name, g.format)
+		}
 	}
-	if g.format != "SMILES" || len(g.atoms) != 3 {
-		t.Fatalf("leaf = %+v, want SMILES with 3 atoms", g.format)
-	}
-	sel, err := moleculeGraphOf(molNode("[C][C][O]"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sel.format != "SELFIES" {
-		t.Fatalf("format = %q, want SELFIES", sel.format)
+	// the notation string itself still parses — that is the chip's job
+	if !molLooksLikeNotation("[C][C][O]") {
+		t.Fatal("SELFIES should still be detectable as chip notation")
 	}
 }
 

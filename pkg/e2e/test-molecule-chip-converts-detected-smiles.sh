@@ -27,8 +27,8 @@ wait_for "convert ⌬"
 
 send Enter
 
-# the notation is folded into one compact chip: ring glyph + truncated notation
-wait_for "⌬CN1C"
+# the notation is folded into one painted chip: ring glyph + truncated notation
+wait_for "⌬ CN1C"
 assert_contains "…"
 # the raw notation no longer sprawls across the row
 assert_not_contains "N(C(=O)N2C)C"

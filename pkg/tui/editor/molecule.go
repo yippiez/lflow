@@ -516,7 +516,9 @@ func hillFormula(counts map[string]int) string {
 
 // ── inline 2D viewer (alt+e) ────────────────────────────────────────────────
 
-func moleculeGlyph(it *item) (string, string) { return "⬡", cAccent }
+// moleculeGlyph is the benzene ring, muted — the row's chemistry is carried by
+// the atom text and its preview, so the glyph stays quiet like a bullet.
+func moleculeGlyph(it *item) (string, string) { return "⌬", cDim }
 
 // atomicWeight is the standard atomic weight for the common organic-subset
 // elements, used for the best-effort MW readout in the info bar.
