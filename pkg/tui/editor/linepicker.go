@@ -73,7 +73,8 @@ func (characterSource) header(m *Model, p *listPicker) string {
 	} else {
 		query = cFG + query + cReset
 	}
-	return " " + cDim + "character: " + cReset + query
+	return " " + cDim + "character: " + cReset + query +
+		cDim + "   alt+c color · alt+d delete" + cReset
 }
 
 func (characterSource) initialSel(m *Model) int {
