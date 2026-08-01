@@ -22,13 +22,15 @@ import (
 // annotations and notes as children:
 //
 //	Z Vaswani et al. 2017 · Attention is all you need   #transformers #nlp
-//	  · journalArticle · NeurIPS · June 12, 2017
-//	  · doi.org/10.48550/arXiv.1706.03762
-//	  ◆ paper.pdf
-//	    ▍ "the encoder is composed of a stack of N = 6 layers"
-//	      ▸ check this against the diagram
-//	    ○ ▦ 220×120 · figure 1                  (an area crop: a real image node)
+//	  │ :: type journalArticle :: venue NeurIPS :: date June 12, 2017 :: doi …
+//	  ▍ "the encoder is composed of a stack of N = 6 layers"
+//	    ○ check this against the diagram
+//	  ○ ▦ 220×120 · figure 1                    (an area crop: a real image node)
 //	  ○ reading notes · the residual stream framing…
+//
+// The entry's fields are properties on its note, not rows. A lone attachment
+// gets no row either — its marks hang straight off the entry; two or more, and
+// each document gets its row back with a divider between them.
 //
 // The whole subtree is Zotero's, not yours: every node is content-locked, and
 // every node below the root is position-locked too, so the mirror can be
@@ -57,23 +59,19 @@ func zoteroBindingFor(it *item) (database.ZoteroBinding, bool) {
 	return b, ok
 }
 
-// zoteroGlyphs is the mark each mirrored node wears, by binding kind. A note is
-// deliberately the ORDINARY bullet: it is a normal node that happens to be
-// fixed, and it reads as prose, not as a special object. A field row is the
-// small dot, your own remark on a mark is the pointer that leans back at it, an
-// attachment the filled diamond, and a highlight the margin bar — painted in
-// the highlighter's own color (see zoteroGlyph).
+// zoteroGlyphs is the mark each mirrored node wears, by binding kind. Only two
+// rows earn a mark of their own: the ENTRY, which is the paper and wears the
+// brand, and a HIGHLIGHT, which is a mark in a margin and wears one. Everything
+// else — a document, your remark on a highlight, a note — is an ordinary node
+// that happens to be fixed, and reads better as one than as a row of dim
+// punctuation.
 //
-// An area crop and a pen drawing are absent from this table on purpose: they
-// become real IMAGE nodes (see applyZoteroChild), so they wear the image type's
-// own face rather than an imitation of it.
+// An area crop and a pen drawing are absent on purpose: they become real IMAGE
+// nodes (see applyZoteroChild), so they wear the image type's own face rather
+// than an imitation of it.
 var zoteroGlyphs = map[string]string{
 	database.ZoteroKindItem:       zoteroMark,
-	database.ZoteroKindAttachment: "◆",
 	database.ZoteroKindAnnotation: "▍",
-	database.ZoteroKindNote:       glyphOpen,
-	database.ZoteroKindComment:    "▸",
-	database.ZoteroKindMeta:       "·",
 }
 
 // zoteroRootOf walks up to the mirror's item node — the refresh handle and the
@@ -94,29 +92,39 @@ func zoteroMirrored(it *item) bool {
 	return ok
 }
 
-// zoteroGlyph paints the per-kind mark: the item's brand Z, an annotation's
-// mark in the highlighter's own color, and dim marks for the rest.
+// zoteroGlyph paints the entry's brand mark and a highlight's margin bar;
+// everything else in a mirror keeps the outline's ordinary bullet.
 func zoteroGlyph(it *item) (string, string) {
 	b, ok := zoteroBindingFor(it)
 	if !ok {
 		return zoteroGlyphs[database.ZoteroKindItem], iconColorSGR(zoteroBrandColor())
 	}
-	glyph := zoteroGlyphs[b.Kind]
-	if glyph == "" {
-		glyph = glyphOpen
-	}
 	switch b.Kind {
 	case database.ZoteroKindItem:
-		return glyph, iconColorSGR(zoteroBrandColor())
+		return zoteroGlyphs[b.Kind], iconColorSGR(zoteroBrandColor())
 	case database.ZoteroKindAnnotation:
 		// the mark wears the node's own /color — the one carried over from the
 		// highlighter — so a yellow highlight reads yellow in the outline
 		if c := styleColor(it.style); c != "" {
-			return glyph, styleColorCode[c]
+			return zoteroGlyphs[b.Kind], styleColorCode[c]
 		}
-		return glyph, cYellow
+		return zoteroGlyphs[b.Kind], cYellow
 	}
-	return glyph, cDim
+	if len(it.children) > 0 && it.collapsed {
+		return glyphCollapsed, cDim
+	}
+	return glyphOpen, cDim
+}
+
+// zoteroBaseColor paints the ENTRY's title in the brand color, so the paper
+// itself reads as one thing — mark and name together — and the rows beneath it
+// stay ordinary text. Everything else takes the outline's usual color, or its
+// own /color where the highlighter gave it one.
+func zoteroBaseColor(it *item) string {
+	if b, ok := zoteroBindingFor(it); ok && b.Kind == database.ZoteroKindItem {
+		return iconColorSGR(zoteroBrandColor())
+	}
+	return ""
 }
 
 // ── pulling one entry in ───────────────────────────────────────────────────
@@ -226,6 +234,7 @@ func (m *Model) handleZoteroPull(msg zoteroPullMsg) {
 type zoteroChild struct {
 	binding  database.ZoteroBinding
 	name     string
+	typ      string // "" = the zotero type; a divider row says so here
 	style    string
 	image    string // a pictorial mark's rendered PNG on disk; "" for everything else
 	children []zoteroChild
@@ -234,63 +243,88 @@ type zoteroChild struct {
 // zoteroShape lays out what an entry looks like as an outline. Pure: it maps
 // the details onto nodes and decides nothing about the tree, so the shape is
 // readable in one place and testable without a Model.
+//
+// The entry's FIELDS are not rows — they are properties on its note (see
+// zoteroProperties). What hangs beneath an entry is the things you made: the
+// marks in its documents, and its notes.
 func zoteroShape(d *zotero.Details) []zoteroChild {
 	var out []zoteroChild
-	meta := func(text string) {
-		if text != "" {
-			out = append(out, zoteroChild{
-				binding: database.ZoteroBinding{Kind: database.ZoteroKindMeta},
-				name:    text,
-			})
-		}
-	}
+	group := d.Item.GroupID
 
-	// the fields worth a row of their own: what kind of thing it is, where it
-	// appeared, when, and how to find it
-	where := []string{d.Item.Type}
-	if d.Item.Journal != "" {
-		where = append(where, d.Item.Journal)
-	}
-	if d.Date != "" {
-		where = append(where, d.Date)
-	}
-	meta(strings.Join(where, " · "))
-	if url := zotero.DOIURL(d.Item.DOI); url != "" {
-		meta(url)
-	} else if d.Item.URL != "" {
-		meta(d.Item.URL)
-	}
-	if d.Abstract != "" {
-		out = append(out, zoteroChild{
-			binding: database.ZoteroBinding{Kind: database.ZoteroKindMeta},
-			name:    d.Abstract,
-		})
-	}
-
-	for _, at := range d.Attachments {
-		child := zoteroChild{
-			binding: database.ZoteroBinding{Key: at.Key, Kind: database.ZoteroKindAttachment, GroupID: d.Item.GroupID},
-			name:    at.Title,
+	// one attachment earns no row of its own: a paper has a PDF, and saying so
+	// once per entry is furniture. Its marks hang straight off the entry, each
+	// remembering the document it was made in. Two or more, and each document
+	// gets its row back, with a divider between them.
+	switch {
+	case len(d.Attachments) == 1:
+		for _, an := range d.Attachments[0].Annotations {
+			out = append(out, zoteroAnnotation(an, group, d.Attachments[0].Key))
 		}
-		for _, an := range at.Annotations {
-			child.children = append(child.children, zoteroAnnotation(an, d.Item.GroupID))
+	default:
+		for i, at := range d.Attachments {
+			if i > 0 {
+				out = append(out, zoteroDivider())
+			}
+			child := zoteroChild{
+				binding: database.ZoteroBinding{Key: at.Key, Kind: database.ZoteroKindAttachment, GroupID: group},
+				name:    at.Title,
+			}
+			for _, an := range at.Annotations {
+				child.children = append(child.children, zoteroAnnotation(an, group, at.Key))
+			}
+			out = append(out, child)
 		}
-		out = append(out, child)
 	}
 
 	for _, n := range d.Notes {
 		out = append(out, zoteroChild{
-			binding: database.ZoteroBinding{Key: n.Key, Kind: database.ZoteroKindNote, GroupID: d.Item.GroupID},
+			binding: database.ZoteroBinding{Key: n.Key, Kind: database.ZoteroKindNote, GroupID: group},
 			name:    n.Text,
 		})
 	}
 	return out
 }
 
+// zoteroDivider is the rule between one document's marks and the next's. It
+// stands for no Zotero object, so it binds as meta and reconciles by position.
+func zoteroDivider() zoteroChild {
+	return zoteroChild{
+		binding: database.ZoteroBinding{Kind: database.ZoteroKindMeta},
+		typ:     database.TypeDivider,
+	}
+}
+
+// zoteroProperties is the entry's fields, written onto its note as
+// ":: name value" pairs — the note is where a node's own particulars already
+// live, and a field is a particular, not a child.
+func zoteroProperties(d *zotero.Details) string {
+	var b strings.Builder
+	add := func(name, value string) {
+		if value == "" {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(":: " + name + " " + value)
+	}
+	// no "cite" pair: these properties ARE the citation, taken apart — repeating
+	// it whole above them says the same thing twice, at four times the length
+	add("type", d.Item.Type)
+	add("venue", d.Item.Journal)
+	add("date", firstNonEmptyStr(d.Date, d.Item.Year))
+	if url := zotero.DOIURL(d.Item.DOI); url != "" {
+		add("doi", url)
+	}
+	add("url", d.Item.URL)
+	add("abstract", d.Abstract)
+	return b.String()
+}
+
 // zoteroAnnotation maps one mark onto a node: the highlighted text as a quote
 // in the highlighter's color, with your comment as its child. A mark with no
 // text (an image or ink region) shows its comment, or says what it is.
-func zoteroAnnotation(an zotero.Annotation, groupID string) zoteroChild {
+func zoteroAnnotation(an zotero.Annotation, groupID, attachmentKey string) zoteroChild {
 	name := an.Text
 	if name == "" {
 		name = an.Comment
@@ -304,10 +338,13 @@ func zoteroAnnotation(an zotero.Annotation, groupID string) zoteroChild {
 		name += "  p." + an.Page
 	}
 	child := zoteroChild{
-		binding: database.ZoteroBinding{Key: an.Key, Kind: database.ZoteroKindAnnotation, GroupID: groupID},
-		name:    name,
-		style:   styleSetColor("", zoteroNearestColor(an.Color)),
-		image:   an.ImagePath,
+		binding: database.ZoteroBinding{
+			Key: an.Key, Kind: database.ZoteroKindAnnotation,
+			GroupID: groupID, ParentKey: attachmentKey,
+		},
+		name:  name,
+		style: styleSetColor("", zoteroNearestColor(an.Color)),
+		image: an.ImagePath,
 	}
 	// the comment only earns its own row when the highlight itself is showing
 	if an.Comment != "" && an.Text != "" {
@@ -342,7 +379,7 @@ func (m *Model) reconcileZotero(root *item, d *zotero.Details) int {
 	m.bindZotero(root, database.ZoteroBinding{
 		Key: d.Item.Key, Kind: database.ZoteroKindItem, GroupID: d.Item.GroupID,
 	})
-	root.note = d.Item.Citation() // the full reference, one keystroke away
+	root.note = zoteroProperties(d) // the entry's fields, as :: name value pairs
 	return 1 + m.reconcileZoteroChildren(root, zoteroShape(d))
 }
 
@@ -410,7 +447,7 @@ func (m *Model) reconcileZoteroChildren(parent *item, want []zoteroChild) int {
 // subtree is Zotero's shape, so nothing may be reordered into or out of it.
 func (m *Model) applyZoteroChild(it *item, w zoteroChild) {
 	it.name = w.name
-	it.typ = database.TypeZotero
+	it.typ = firstNonEmptyStr(w.typ, database.TypeZotero)
 	it.style = w.style
 	it.readonly = true
 	it.structureLocked = true
@@ -567,9 +604,10 @@ func (m *Model) zoteroOpenNode(it *item, other bool) (tea.Model, tea.Cmd) {
 		if other {
 			return m.openZoteroEntry(item, true)
 		}
-		// the mark lives in its attachment: open that document, at this mark
-		if parent, ok := zoteroBindingFor(it.parent); ok && parent.Kind == database.ZoteroKindAttachment {
-			ref := zotero.Ref{Key: parent.Key, GroupID: parent.GroupID}
+		// the mark lives in a document: open that one, at this mark. The key is
+		// the mark's own — a lone attachment has no row to look up to.
+		if b.ParentKey != "" {
+			ref := zotero.Ref{Key: b.ParentKey, GroupID: b.GroupID}
 			return m.zoteroOpenURI(ref.PDFURI(b.Key), "the highlight")
 		}
 	}

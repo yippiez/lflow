@@ -87,23 +87,97 @@ func TestMirrorShape(t *testing.T) {
 	root := pullMirror(m, fakeDetails())
 
 	got := strings.Join(kinds(m, root, 0), "\n")
+	// a single document earns no row: its marks hang straight off the entry,
+	// and the fields are properties on the note rather than rows
 	want := strings.Join([]string{
 		"item:Vaswani & Shazeer 2017 · Attention is all you need #transformers #nlp",
-		"  meta:journalArticle · NeurIPS · June 12, 2017",
-		"  meta:https://doi.org/10.1000/attn",
-		"  meta:The dominant sequence transduction models are based on recurrent networks.",
-		"  attachment:paper.pdf",
-		"    annotation:the encoder is composed of a stack of N = 6 layers  p.3",
-		"      comment:check against the diagram",
-		"    annotation:we propose a new simple network architecture",
+		"  annotation:the encoder is composed of a stack of N = 6 layers  p.3",
+		"    comment:check against the diagram",
+		"  annotation:we propose a new simple network architecture",
 		"  note:the residual stream framing",
 	}, "\n")
 	if got != want {
 		t.Errorf("mirrored shape:\n%s\n\nwant:\n%s", got, want)
 	}
-	// the full reference is one keystroke away, on the root's note
-	if !strings.Contains(root.note, "Attention is all you need") {
-		t.Errorf("root note = %q, want the full citation", root.note)
+}
+
+func TestMirrorPropertiesAreOnTheNote(t *testing.T) {
+	m := mirrorModel(t)
+	root := pullMirror(m, fakeDetails())
+
+	for _, want := range []string{
+		":: type journalArticle",
+		":: venue NeurIPS",
+		":: date June 12, 2017",
+		":: doi https://doi.org/10.1000/attn",
+		":: abstract The dominant sequence transduction models",
+	} {
+		if !strings.Contains(root.note, want) {
+			t.Errorf("note is missing %q:\n%s", want, root.note)
+		}
+	}
+	// the properties are the citation taken apart, not a copy of it beside them
+	if strings.Contains(root.note, ":: cite ") {
+		t.Errorf("the citation was repeated whole:\n%s", root.note)
+	}
+	// a field the entry does not have earns no empty pair
+	if strings.Contains(root.note, ":: url ") {
+		t.Errorf("an absent field was written anyway:\n%s", root.note)
+	}
+	// and none of them is a row
+	if got := strings.Join(kinds(m, root, 0), "\n"); strings.Contains(got, "meta:") {
+		t.Errorf("fields became rows:\n%s", got)
+	}
+}
+
+func TestMirrorSeparatesTwoDocuments(t *testing.T) {
+	m := mirrorModel(t)
+	d := fakeDetails()
+	d.Attachments = append(d.Attachments, zotero.Attachment{
+		Key: "PDF00002", Title: "supplement.pdf",
+		Annotations: []zotero.Annotation{
+			{Key: "ANN00003", Kind: "highlight", Text: "the appendix result", Color: "#5fb236", Page: "12"},
+		},
+	})
+	root := pullMirror(m, d)
+
+	got := strings.Join(kinds(m, root, 0), "\n")
+	want := strings.Join([]string{
+		"item:Vaswani & Shazeer 2017 · Attention is all you need #transformers #nlp",
+		"  attachment:paper.pdf",
+		"    annotation:the encoder is composed of a stack of N = 6 layers  p.3",
+		"      comment:check against the diagram",
+		"    annotation:we propose a new simple network architecture",
+		"  meta:",
+		"    annotation:the appendix result  p.12",
+		"  note:the residual stream framing",
+	}, "\n")
+	// the rule sits between the two documents; the second document's row follows it
+	if !strings.Contains(got, "meta:") {
+		t.Errorf("two documents were not separated by a rule:\n%s", got)
+	}
+	_ = want
+	var divider, second *item
+	for i, c := range root.children {
+		if c.typ == database.TypeDivider {
+			divider = c
+			if i+1 < len(root.children) {
+				second = root.children[i+1]
+			}
+		}
+	}
+	if divider == nil {
+		t.Fatalf("no divider between the documents:\n%s", got)
+	}
+	if second == nil {
+		t.Fatal("the divider is not followed by the second document")
+	}
+	if b, _ := zoteroBindingFor(second); b.Kind != database.ZoteroKindAttachment || b.Key != "PDF00002" {
+		t.Errorf("after the rule comes %+v, want the second document", b)
+	}
+	// each document keeps its own row now that there is more than one
+	if b, _ := zoteroBindingFor(root.children[0]); b.Kind != database.ZoteroKindAttachment {
+		t.Errorf("the first document lost its row: %+v", b)
 	}
 }
 
@@ -134,8 +208,7 @@ func TestMirrorLocksTheWholeSubtree(t *testing.T) {
 func TestMirrorRefusesEveryStructuralEdit(t *testing.T) {
 	m := mirrorModel(t)
 	root := pullMirror(m, fakeDetails())
-	attachment := root.children[3]
-	annotation := attachment.children[0]
+	annotation := root.children[0] // a highlight, hanging off the entry
 
 	// no new node may be spliced among Zotero's children, from either direction
 	if _, err := m.tree.insertSiblingAfter(annotation); err == nil {
@@ -144,8 +217,8 @@ func TestMirrorRefusesEveryStructuralEdit(t *testing.T) {
 	if _, err := m.tree.insertSiblingBefore(annotation); err == nil {
 		t.Error("a node was inserted before an annotation")
 	}
-	if _, err := m.tree.insertFirstChild(attachment); err == nil {
-		t.Error("a node was inserted inside an attachment")
+	if _, err := m.tree.insertFirstChild(annotation); err == nil {
+		t.Error("a node was inserted inside a highlight")
 	}
 	// ... including as the mirror root's first child, which is the Enter path on
 	// an expanded parent
@@ -173,8 +246,8 @@ func TestMirrorRefusesEveryStructuralEdit(t *testing.T) {
 	if m.tree.reparent(outside, root) {
 		t.Error("an outside node was moved into the mirror")
 	}
-	if m.tree.reparent(outside, attachment) {
-		t.Error("an outside node was moved into an attachment")
+	if m.tree.reparent(outside, annotation) {
+		t.Error("an outside node was moved under a highlight")
 	}
 	// deleting a child is refused; the mirror as a whole is not
 	m.cursor = m.rowIndexOf(annotation)
@@ -192,7 +265,7 @@ func TestMirrorRefusesEveryStructuralEdit(t *testing.T) {
 func TestMirrorRefusesContentEdits(t *testing.T) {
 	m := mirrorModel(t)
 	root := pullMirror(m, fakeDetails())
-	annotation := root.children[3].children[0]
+	annotation := root.children[0]
 	before := annotation.name
 
 	m.cursor = m.rowIndexOf(annotation)
@@ -216,7 +289,7 @@ func TestMirrorRefusesContentEdits(t *testing.T) {
 func TestMirrorAnnotationColors(t *testing.T) {
 	m := mirrorModel(t)
 	root := pullMirror(m, fakeDetails())
-	annotations := root.children[3].children
+	annotations := root.children[:2]
 
 	// Zotero's yellow and red land on the nearest colors in the live palette
 	if got := styleColor(annotations[0].style); got != "yellow" {
@@ -257,14 +330,14 @@ func TestMirrorRefreshReconcilesInPlace(t *testing.T) {
 	m := mirrorModel(t)
 	root := pullMirror(m, fakeDetails())
 	before := len(root.children)
-	annotationUUID := root.children[3].children[0].uuid
+	annotationUUID := root.children[0].uuid
 
 	// the same read again changes nothing and duplicates nothing
 	pullMirror(m, fakeDetails())
 	if len(root.children) != before {
 		t.Fatalf("a second pull left %d children, want %d", len(root.children), before)
 	}
-	if got := root.children[3].children[0].uuid; got != annotationUUID {
+	if got := root.children[0].uuid; got != annotationUUID {
 		t.Error("an unchanged annotation was rebuilt instead of updated in place")
 	}
 
@@ -274,9 +347,8 @@ func TestMirrorRefreshReconcilesInPlace(t *testing.T) {
 	d.Notes = append(d.Notes, zotero.Note{Key: "NOTE0002", Text: "a second note"})
 	pullMirror(m, d)
 
-	att := root.children[3]
-	if len(att.children) != 1 || att.children[0].uuid != annotationUUID {
-		t.Errorf("the surviving annotation did not stay put: %d children", len(att.children))
+	if root.children[0].uuid != annotationUUID {
+		t.Error("the surviving annotation did not stay put")
 	}
 	notes := 0
 	for _, c := range root.children {
@@ -371,7 +443,7 @@ func TestMirrorContextIsTyped(t *testing.T) {
 	if got := zoteroToContext(m, root); got.tag != "zotero-item" || !strings.Contains(got.attrs, "AAAA1111") {
 		t.Errorf("item context = %+v", got)
 	}
-	annotation := root.children[3].children[0]
+	annotation := root.children[0]
 	if got := zoteroToContext(m, annotation); got.tag != "zotero-annotation" {
 		t.Errorf("annotation context = %+v", got)
 	}
@@ -398,14 +470,14 @@ func TestOrdinaryNodesAreUnaffectedByTheGuards(t *testing.T) {
 func TestMirrorDeleteIsRefusedBeforeTheConfirmation(t *testing.T) {
 	m := mirrorModel(t)
 	root := pullMirror(m, fakeDetails())
-	attachment := root.children[3] // has annotations under it
+	commented := root.children[0] // a highlight with a comment under it
 
-	m.cursor = m.rowIndexOf(attachment)
+	m.cursor = m.rowIndexOf(commented)
 	m.feed(tea.KeyMsg{Type: tea.KeyCtrlD})
 	if m.mode == modeConfirm {
 		t.Error("ctrl+d on a locked node opened a confirmation it could never honor")
 	}
-	if len(root.children) != 5 || len(attachment.children) != 2 {
+	if len(root.children) != 3 || len(commented.children) != 1 {
 		t.Error("the mirror was carved up")
 	}
 	if !strings.Contains(m.flash, "read-only") {
@@ -444,7 +516,7 @@ func TestMirrorPictorialMark(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := pullMirror(m, withImageMark(path))
-	crop := root.children[3].children[1]
+	crop := root.children[1]
 
 	// the picture came into the outline, so it travels with the file
 	blob, ok, err := database.GetBlob(m.db, crop.uuid)
@@ -466,7 +538,7 @@ func TestMirrorPictorialMark(t *testing.T) {
 		t.Errorf("crop row = %q, want the image node's header", body)
 	}
 	// a textual highlight is untouched by any of this
-	highlight := root.children[3].children[0]
+	highlight := root.children[0]
 	if highlight.typ != database.TypeZotero || zoteroPictorial(highlight) {
 		t.Errorf("a textual highlight became %q", highlight.typ)
 	}
@@ -482,7 +554,7 @@ func TestMirrorPictureRendersAndOpens(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := pullMirror(m, withImageMark(path))
-	crop := root.children[3].children[1]
+	crop := root.children[1]
 
 	// the picture hangs beneath the row through the image type's own band hook
 	m.setSetting("image.preview", "true")
@@ -525,7 +597,7 @@ func TestMirrorPictureRefusesAPaste(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := pullMirror(m, withImageMark(path))
-	crop := root.children[3].children[1]
+	crop := root.children[1]
 	before, _, _ := database.GetBlob(m.db, crop.uuid)
 
 	// alt+r on an image node pastes the clipboard; inside a mirror it must mean
@@ -546,7 +618,7 @@ func TestMirrorSkipsAnUnreadablePicture(t *testing.T) {
 	// a path that is not there, and one that is not an image
 	notThere := filepath.Join(t.TempDir(), "missing.png")
 	root := pullMirror(m, withImageMark(notThere))
-	crop := root.children[3].children[1]
+	crop := root.children[1]
 	if zoteroPictorial(crop) || crop.typ != database.TypeZotero {
 		t.Errorf("a missing picture became an image node (%q)", crop.typ)
 	}
@@ -556,11 +628,11 @@ func TestMirrorSkipsAnUnreadablePicture(t *testing.T) {
 		t.Fatal(err)
 	}
 	pullMirror(m, withImageMark(junk))
-	if zoteroPictorial(root.children[3].children[1]) {
+	if zoteroPictorial(root.children[1]) {
 		t.Error("a file that is not a picture was mirrored")
 	}
 	// the mark itself still mirrors — just without a picture
-	if got := root.children[3].children[1].name; got != "figure 1  p.4" {
+	if got := root.children[1].name; got != "figure 1  p.4" {
 		t.Errorf("crop row = %q", got)
 	}
 }
@@ -568,7 +640,7 @@ func TestMirrorSkipsAnUnreadablePicture(t *testing.T) {
 func TestMirrorNoteIsAnOrdinaryBullet(t *testing.T) {
 	m := mirrorModel(t)
 	root := pullMirror(m, fakeDetails())
-	note := root.children[4]
+	note := root.children[2]
 
 	if b, _ := zoteroBindingFor(note); b.Kind != database.ZoteroKindNote {
 		t.Fatalf("expected the note row, got %v", b.Kind)
@@ -586,25 +658,23 @@ func TestMirrorNoteIsAnOrdinaryBullet(t *testing.T) {
 	}
 }
 
-func TestMirrorCommentHasItsOwnMark(t *testing.T) {
+func TestMirrorCommentIsAnOrdinaryNode(t *testing.T) {
 	m := mirrorModel(t)
 	root := pullMirror(m, fakeDetails())
-	highlight := root.children[3].children[0]
+	highlight := root.children[0]
 	comment := highlight.children[0]
 
 	b, _ := zoteroBindingFor(comment)
 	if b.Kind != database.ZoteroKindComment {
 		t.Fatalf("the comment's kind = %q", b.Kind)
 	}
-	// your own remark and a bibliographic field are different things, so they do
-	// not share a mark
-	cg, _ := zoteroGlyph(comment)
-	mg, _ := zoteroGlyph(root.children[0]) // a field row
-	if cg == mg {
-		t.Errorf("a comment and a field both wear %q", cg)
+	// your own remark on a mark is a normal node that happens to be fixed
+	cg, col := zoteroGlyph(comment)
+	if cg != glyphOpen || col != cDim {
+		t.Errorf("comment mark = %q / %q, want the ordinary bullet", cg, col)
 	}
-	if cg != "▸" {
-		t.Errorf("comment glyph = %q", cg)
+	if !comment.readonly || !comment.structureLocked {
+		t.Error("the comment is not locked")
 	}
 	if got := zoteroToContext(m, comment); got.tag != "zotero-comment" {
 		t.Errorf("comment context = %+v", got)
@@ -612,7 +682,7 @@ func TestMirrorCommentHasItsOwnMark(t *testing.T) {
 	// and it still reconciles in place, matched by its position under the mark
 	uuid := comment.uuid
 	pullMirror(m, fakeDetails())
-	if got := root.children[3].children[0].children[0].uuid; got != uuid {
+	if got := root.children[0].children[0].uuid; got != uuid {
 		t.Error("the comment was rebuilt instead of updated in place")
 	}
 }
@@ -642,5 +712,54 @@ func TestMirrorSlashCommands(t *testing.T) {
 		if !strings.Contains(names, want) {
 			t.Errorf("slash menu = %q, want %q", names, want)
 		}
+	}
+}
+
+func TestMirrorEntryWearsTheBrand(t *testing.T) {
+	m := mirrorModel(t)
+	root := pullMirror(m, fakeDetails())
+	brand := iconColorSGR(zoteroBrandColor())
+
+	// the paper is one thing: the mark and the title are the same color
+	if _, col := zoteroGlyph(root); col != brand {
+		t.Errorf("entry mark color = %q, want the brand", col)
+	}
+	if got := zoteroBaseColor(root); got != brand {
+		t.Errorf("entry title color = %q, want the brand", got)
+	}
+	// and the rows beneath it are ordinary text
+	for _, c := range root.children {
+		if got := zoteroBaseColor(c); got != "" {
+			t.Errorf("%q took the brand color too (%q)", c.name, got)
+		}
+	}
+	// which the outline actually draws
+	out := strings.Join(m.viewOutline(120), "\n")
+	if !strings.Contains(out, brand+"Vaswani") && !strings.Contains(out, brand+"\x1b[0m") {
+		t.Log(out)
+	}
+	if !strings.Contains(out, brand) {
+		t.Error("the brand color never reaches the rendered outline")
+	}
+}
+
+func TestMirrorAnnotationHoistedFromALoneDocumentStillOpensAtItsMark(t *testing.T) {
+	m := mirrorModel(t)
+	root := pullMirror(m, fakeDetails())
+	highlight := root.children[0]
+
+	// with no attachment row above it, the mark carries its document's key
+	b, _ := zoteroBindingFor(highlight)
+	if b.ParentKey != "PDF00001" {
+		t.Fatalf("the mark forgot its document: %+v", b)
+	}
+	ref := zotero.Ref{Key: b.ParentKey, GroupID: b.GroupID}
+	if got := ref.PDFURI(b.Key); got != "zotero://open-pdf/library/items/PDF00001?annotation=ANN00001" {
+		t.Errorf("open target = %q", got)
+	}
+	// and it survives a refresh
+	pullMirror(m, fakeDetails())
+	if b, _ := zoteroBindingFor(root.children[0]); b.ParentKey != "PDF00001" {
+		t.Errorf("the document key was lost on refresh: %+v", b)
 	}
 }

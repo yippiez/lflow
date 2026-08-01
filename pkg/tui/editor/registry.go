@@ -325,6 +325,7 @@ var nodeTypes = []nodeType{
 	{
 		key: database.TypeZotero, label: "Zotero item", inlineEditable: false,
 		glyph:        zoteroGlyph,
+		baseColor:    zoteroBaseColor,
 		run:          runZoteroPull, // alt+r: re-read this entry from the library
 		toContextM:   zoteroToContext,
 		flashActions: zoteroFlashActions,
