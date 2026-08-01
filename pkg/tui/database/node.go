@@ -19,9 +19,12 @@ const (
 	TypeQuote   = "quote"
 	TypeLog     = "log" // a timestamped journal line: → glyph, dim time chip
 	TypeJSON    = "json"
-	// TypeBash is LEGACY: the bash node type was removed 2026-07-09 in favor of
-	// inline cmd chips ("$cmd" + double space). Old rows keep the value and
-	// render as bullets; it is no longer in TypeOrder/ValidTypes.
+	// TypeBash is a shell command composed AS an outline (reinstated 2026-07-31,
+	// after a spell where inline cmd chips were the only shell surface): a "$"
+	// glyph row whose children are its arguments, and whose text may be a join
+	// operator (| && || ;) or a wrapper ($() ()) that composes them — so a long
+	// pipeline is written as a readable tree instead of one wide line. alt+r runs
+	// the composed subtree. See editor/bashnode.go.
 	TypeBash    = "bash"
 	TypeQuery   = "query"
 	TypeVoice   = "voice"
@@ -69,6 +72,7 @@ var TypeOrder = []string{
 	TypeQuote,
 	TypeLog,
 	TypeJSON,
+	TypeBash,
 	TypeQuery,
 	TypeVoice,
 	TypeImage,
