@@ -50,7 +50,7 @@ func zoteroChipOf(m *Model) (database.Chip, bool) {
 
 func TestCitePickerInsertsAChip(t *testing.T) {
 	m := citeModel(t)
-	if _, cmd := m.openCitePicker(); cmd != nil {
+	if _, cmd := m.openCitePicker(citeChip); cmd != nil {
 		t.Fatal("opening the cite picker should not fire a command")
 	}
 	if m.mode != modeCite {
@@ -287,7 +287,7 @@ func TestCitePickerRefusesANodeThatCannotHoldAChip(t *testing.T) {
 	cur := m.cursorItem()
 
 	cur.readonly = true
-	m.openCitePicker()
+	m.openCitePicker(citeChip)
 	if m.mode == modeCite || m.flash != "node is not editable" {
 		t.Errorf("a locked node accepted a citation (mode %v, flash %q)", m.mode, m.flash)
 	}
@@ -296,7 +296,7 @@ func TestCitePickerRefusesANodeThatCannotHoldAChip(t *testing.T) {
 	// a query node keeps its own syntax literal — chips are off there
 	cur.typ = database.TypeQuery
 	m.mode = modeOutline
-	m.openCitePicker()
+	m.openCitePicker(citeChip)
 	if m.mode == modeCite || !strings.Contains(m.flash, "chips are disabled") {
 		t.Errorf("a query node accepted a citation (mode %v, flash %q)", m.mode, m.flash)
 	}
@@ -304,7 +304,7 @@ func TestCitePickerRefusesANodeThatCannotHoldAChip(t *testing.T) {
 	// and a type with no inline surface at all
 	cur.typ = database.TypeJSON
 	m.mode = modeOutline
-	m.openCitePicker()
+	m.openCitePicker(citeChip)
 	if m.mode == modeCite {
 		t.Error("a JSON node accepted a citation")
 	}

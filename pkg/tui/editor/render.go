@@ -931,7 +931,9 @@ func (m *Model) typeSuffix(r row) string {
 	if it.mirrorOf != "" {
 		parts = append(parts, "mirror")
 	}
-	if it.readonly {
+	// a mirrored Zotero entry is locked on every one of its rows; saying so ten
+	// times down a subtree is noise, and its own marks already say whose it is
+	if it.readonly && !zoteroMirrored(it) {
 		parts = append(parts, "locked")
 	}
 	if it.structureLocked && !it.readonly {

@@ -317,6 +317,18 @@ var nodeTypes = []nodeType{
 	// (title + URL link chip). Internal, so the /type picker never offers it; a
 	// re-run replaces the rows by type.
 	{key: database.TypeWebResult, label: "Web Result", internal: true, inlineEditable: false},
+	// a mirrored Zotero entry (see zoteroitem.go): the paper itself in the tree,
+	// its tags on the title row and its attachments, annotations and notes as
+	// locked children. Never inline-editable — the subtree is Zotero's, and
+	// alt+r re-reads it. Every node of the mirror wears this type; the binding
+	// in zotero_nodes says which Zotero object each one stands for.
+	{
+		key: database.TypeZotero, label: "Zotero item", inlineEditable: false,
+		glyph:        zoteroGlyph,
+		run:          runZoteroPull, // alt+r: re-read this entry from the library
+		toContextM:   zoteroToContext,
+		flashActions: zoteroFlashActions,
+	},
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see
 	// nodeplugin.go.

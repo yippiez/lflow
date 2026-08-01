@@ -32,9 +32,10 @@ import (
 // keystroke; the list itself only ever shows pickerMaxRows of them.
 const zoteroPickerLimit = 60
 
-// zoteroGlyph marks a citation chip. It is the ":zotero" icon from the icon
-// catalog, so the brand mark is the same one everywhere in the outline.
-const zoteroGlyph = "Z"
+// zoteroMark is the brand mark: the ":zotero" icon from the icon catalog, worn
+// by a citation chip and by a mirrored entry's title row alike, so Zotero looks
+// the same everywhere in the outline.
+const zoteroMark = "Z"
 
 // zoteroOpenMode is the /settings "zotero.open" preference ("local" or
 // "cloud"): which destination alt+g and the chip's terminal hyperlink go to.
@@ -136,11 +137,15 @@ func zoteroTargetLocal() bool { return zoteroOpenMode != "cloud" }
 // public home, and the only thing a library with no signed-in account can
 // offer. Returns "" plus the reason when neither is available.
 func (m *Model) zoteroWebURL(ref zotero.Ref) (string, string) {
+	// the library is what KNOWS the account name, so it is read first: asking
+	// before loading would miss the username on a cold start and fall through to
+	// the DOI even for a synced library
+	lib, loaded := m.zoteroRefresh()
 	if url, ok := ref.WebURL(m.zoteroUsername()); ok {
 		return url, ""
 	}
 	// no username: fall back to the entry's own public identifier
-	if lib, ok := m.zoteroRefresh(); ok {
+	if loaded {
 		if it, found := lib.ByKey(ref.Key); found {
 			if url := zotero.DOIURL(it.DOI); url != "" {
 				return url, ""
@@ -216,22 +221,44 @@ func zoteroLinkTarget(c database.Chip) string {
 
 // ── the cite picker (modeCite) ─────────────────────────────────────────────
 
+// citeAction is what picking a library entry does: splice a citation chip at
+// the caret, or turn the node into a mirror of that entry (see zoteroitem.go).
+// One picker, two destinations — the library search is identical either way.
+type citeAction int
+
+const (
+	citeChip   citeAction = iota // "@@" / /cite / /insert → cite
+	citeMirror                   // /zotero, and /type → Zotero item
+)
+
 // openCitePicker opens the library picker at the caret, reading the library
-// first (the one place a cite costs a disk read). A node that cannot hold a
-// chip refuses, the same way /insert does.
-func (m *Model) openCitePicker() (tea.Model, tea.Cmd) {
+// first (the one place a cite costs a disk read). A node that cannot take the
+// chosen action refuses, the same way /insert does.
+func (m *Model) openCitePicker(act citeAction) (tea.Model, tea.Cmd) {
 	cur := m.cursorItem()
 	if cur == nil {
 		return m, nil
 	}
-	if !m.mirrorContext().editable || !typeOf(cur.typ).inlineEditable || cur.readonly {
+	if !m.mirrorContext().editable || cur.readonly {
 		m.flash = "node is not editable"
 		return m, nil
 	}
-	if !chipsEnabled(cur) {
-		m.flash = "chips are disabled for this node type"
+	if act == citeChip {
+		if !typeOf(cur.typ).inlineEditable {
+			m.flash = "node is not editable"
+			return m, nil
+		}
+		if !chipsEnabled(cur) {
+			m.flash = "chips are disabled for this node type"
+			return m, nil
+		}
+	} else if len(cur.children) > 0 || strings.TrimSpace(cur.name) != "" {
+		// mirroring OWNS the node: it takes over the row's text and its whole
+		// child list, so it only ever lands on an empty one
+		m.flash = "zotero · mirror an entry into an empty node"
 		return m, nil
 	}
+	m.citeAct = act
 	m.mode = modeCite
 	m.list.open(m, zoteroSource{}, true)
 	if _, ok := m.zoteroRefresh(); !ok {
@@ -268,7 +295,7 @@ func zoteroRowRender(it zotero.Item) string {
 	if pad < 1 {
 		pad = 1
 	}
-	row := brand + zoteroGlyph + cReset + " " + cFG + label + cReset + strings.Repeat(" ", pad)
+	row := brand + zoteroMark + cReset + " " + cFG + label + cReset + strings.Repeat(" ", pad)
 	if detail != "" {
 		row += cDim + detail + cReset
 	}
@@ -285,14 +312,18 @@ func zoteroBrandColor() string {
 }
 
 func (zoteroSource) header(m *Model, p *listPicker) string {
+	label := "cite: "
+	if m.citeAct == citeMirror {
+		label = "mirror: "
+	}
 	if _, ok := m.zoteroLibrary(); !ok {
-		return " " + cDim + "cite: " + cReset + cRed + m.zoteroErr + cReset
+		return " " + cDim + label + cReset + cRed + m.zoteroErr + cReset
 	}
 	query := cDim + "search your Zotero library" + cReset
 	if p.query != "" {
 		query = cFG + p.query + cReset
 	}
-	return " " + cDim + "cite: " + cReset + query
+	return " " + cDim + label + cReset + query
 }
 
 func (zoteroSource) initialSel(*Model) int { return 0 }
@@ -309,6 +340,11 @@ func (zoteroSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	entry, found := lib.ByKey(it.value)
 	if !found {
 		return m, nil
+	}
+	if m.citeAct == citeMirror {
+		cmd := m.mirrorZoteroItem(entry)
+		m.flash = "zotero · mirroring " + clipStr(entry.Label(), 28)
+		return m, cmd
 	}
 	m.insertZoteroCite(entry)
 	m.flash = "cited · " + clipStr(entry.Label(), 28)

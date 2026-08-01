@@ -203,7 +203,7 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")
 	case "cite":
-		return m.openCitePicker()
+		return m.openCitePicker(citeChip)
 	case "link":
 		m.openFinder(actLinkInsert)
 	case "date":
@@ -281,6 +281,13 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		m.mode = modeOutline
 		m.errorFlash("Missing dependency: " + bin)
 		return m, nil
+	}
+	// a Zotero item is only ever made by choosing WHICH entry it mirrors, so the
+	// pick hands straight over to the library picker — which sets the type
+	// itself once an entry is chosen, leaving nothing behind if you escape.
+	if it.value == database.TypeZotero {
+		m.mode = modeOutline
+		return m.openCitePicker(citeMirror)
 	}
 	if it.value != "" {
 		targets := m.selectedItems() // multi-select: retype the whole range

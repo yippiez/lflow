@@ -208,7 +208,7 @@ var chipKinds = map[string]chipKind{
 	chipKindZotero: {
 		key:     chipKindZotero,
 		color:   cRed,
-		display: func(v string) string { return zoteroGlyph + " " + v },
+		display: func(v string) string { return zoteroMark + " " + v },
 		expand:  func(v string) string { return v },
 	},
 }
@@ -247,7 +247,7 @@ func chipDisplay(c database.Chip) string {
 		return agentChipDisplay(c)
 	}
 	if c.Kind == chipKindZotero {
-		return zoteroGlyph + " " + zoteroChipLabel(c)
+		return zoteroMark + " " + zoteroChipLabel(c)
 	}
 	if c.Kind == chipKindCmd {
 		// the label holds the run preview (set by setCmdPreview / hydrateCmdPreviews;

@@ -95,6 +95,7 @@ var slashCommands = []slashCommand{
 	{"/suggestions", "Go to the next node with a pending suggestion (alt+v reviews)"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
+	{"/zotero", "Mirror a Zotero entry here: tags, attachments, annotations"},
 }
 
 // stylePickerItem groups the text-attribute toggles and the color choices
@@ -290,6 +291,14 @@ type Model struct {
 	// picker can say so instead of retrying a missing install on every keystroke.
 	zoteroLib *zotero.Library
 	zoteroErr string
+	// The Zotero item mirror (see zoteroitem.go): node uuid → the Zotero object
+	// that node stands for, busy flags per mirror root, and where each mirrored
+	// attachment's file lives on THIS machine (session-only — a path is
+	// machine-specific and the next pull recomputes it).
+	zoteroBusy  map[string]bool
+	zoteroPaths map[string]string
+	// citeAct is what the open cite picker will do with the entry you pick.
+	citeAct citeAction
 
 	// Ancestor path strings used to sort :breadcrumb: query hits before their
 	// nested result tree is reconciled; cleared whenever a query re-runs.
@@ -858,6 +867,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case wfDoneMsg:
 		m.handleWFDone(msg)
+		return m, nil
+	case zoteroPullMsg:
+		m.handleZoteroPull(msg)
 		return m, nil
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
@@ -1717,6 +1729,11 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// Toggle only LOCK_READ_WRITE. The independent structural lock bit remains
 		// intact, so generated query rows can be content+structure locked or only
 		// structure locked without /lock collapsing the union.
+		if zoteroMirrored(cur) {
+			// unlocking would promise an edit that the next alt+r silently discards
+			m.flash = "zotero · a mirrored entry is read-only · alt+r refreshes it"
+			return m, nil
+		}
 		m.pushUndo("")
 		cur.readonly = !cur.readonly
 		m.unsaved = true
@@ -1797,6 +1814,10 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/note":
 		// a mirror is the same node everywhere: edit the original's note
 		cur = m.tree.resolve(cur)
+		if zoteroMirrored(cur) {
+			m.flash = "zotero · a mirrored entry is read-only · alt+r refreshes it"
+			return m, nil
+		}
 		m.mode = modeNote
 		m.notePrev = cur.note
 		m.caret = len([]rune(cur.note))
@@ -1814,7 +1835,10 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.openFinder(actLinkInsert)
 	case "/cite":
 		// splice a citation chip from the local Zotero library (same as "@@")
-		return m.openCitePicker()
+		return m.openCitePicker(citeChip)
+	case "/zotero":
+		// mirror a whole Zotero entry into this node as a locked subtree
+		return m.openCitePicker(citeMirror)
 	case "/move:to":
 		m.openFinder(actMoveTo)
 	case "/goto":
@@ -1893,7 +1917,8 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 			// edits, or nodes tombstoned this session)
 			if m.ctx.DB != nil {
 				_ = database.GCChips(m.ctx.DB)
-				_ = database.GCBlobs(m.ctx.DB) // drop image blobs whose node is gone
+				_ = database.GCBlobs(m.ctx.DB)       // drop image blobs whose node is gone
+				_ = database.GCZoteroNodes(m.ctx.DB) // drop mirror bindings whose node is gone
 			}
 		}
 	}
@@ -1939,6 +1964,9 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 	}
 	if cc, err := database.AllCharacterColors(ctx.DB); err == nil {
 		characterColors = cc
+	}
+	if zb, err := database.AllZoteroNodes(ctx.DB); err == nil {
+		zoteroBindings = zb // mirrored Zotero entries (see zoteroitem.go)
 	}
 
 	m := &Model{
