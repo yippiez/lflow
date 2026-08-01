@@ -24,16 +24,21 @@ type ZoteroBinding struct {
 	Key     string // the Zotero object's key ("" for a meta row)
 	Kind    string // one of the ZoteroKind* constants
 	GroupID string // group library id; "" = the personal library
+	// ParentKey is the attachment an annotation was made in. An entry with a
+	// single attachment shows no row for it, so the mark cannot find its
+	// document by looking upward — it remembers the key itself.
+	ParentKey string
 }
 
 // UpsertZoteroNode records (or refreshes) a node's Zotero binding.
 func UpsertZoteroNode(db *DB, nodeUUID string, b ZoteroBinding, syncedAt int64) error {
-	_, err := db.Exec(`INSERT INTO zotero_nodes (node_uuid, item_key, kind, group_id, synced_at)
-		VALUES (?, ?, ?, ?, ?)
+	_, err := db.Exec(`INSERT INTO zotero_nodes (node_uuid, item_key, kind, group_id, parent_key, synced_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(node_uuid) DO UPDATE SET
 			item_key = excluded.item_key, kind = excluded.kind,
-			group_id = excluded.group_id, synced_at = excluded.synced_at`,
-		nodeUUID, b.Key, b.Kind, b.GroupID, syncedAt)
+			group_id = excluded.group_id, parent_key = excluded.parent_key,
+			synced_at = excluded.synced_at`,
+		nodeUUID, b.Key, b.Kind, b.GroupID, b.ParentKey, syncedAt)
 	return errors.Wrap(err, "upserting zotero node map")
 }
 
@@ -45,7 +50,7 @@ func DeleteZoteroNode(db *DB, nodeUUID string) error {
 
 // AllZoteroNodes loads the whole mirror map: node uuid → binding.
 func AllZoteroNodes(db *DB) (map[string]ZoteroBinding, error) {
-	rows, err := db.Query("SELECT node_uuid, item_key, kind, group_id FROM zotero_nodes")
+	rows, err := db.Query("SELECT node_uuid, item_key, kind, group_id, parent_key FROM zotero_nodes")
 	if err != nil {
 		return nil, errors.Wrap(err, "querying zotero node map")
 	}
@@ -54,7 +59,7 @@ func AllZoteroNodes(db *DB) (map[string]ZoteroBinding, error) {
 	for rows.Next() {
 		var uuid string
 		var b ZoteroBinding
-		if err := rows.Scan(&uuid, &b.Key, &b.Kind, &b.GroupID); err != nil {
+		if err := rows.Scan(&uuid, &b.Key, &b.Kind, &b.GroupID, &b.ParentKey); err != nil {
 			return nil, errors.Wrap(err, "scanning zotero node map")
 		}
 		out[uuid] = b
