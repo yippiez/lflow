@@ -198,28 +198,72 @@ func (m *Model) reviewVerdict(approve bool) {
 	m.clampSuggestSel()
 }
 
-// suggestBandLines renders a node's pending proposals under it. Collapsed to
-// one line each until review opens on this node, where the selected proposal
-// expands into its before/after and the verdict keys.
-func (m *Model) suggestBandLines(r row, subtreeBelow bool, maxLine int) []string {
-	list := m.suggestsFor(r.it.uuid)
+// suggestInline is how a pending proposal reads on the node itself: a yellow
+// arrow and the text it proposes, hanging off the node's own row. The node
+// still shows its CURRENT text — the arrow is what somebody wants it to become,
+// not what it is.
+//
+// Every row-shaped node type gets this for free (bullets, todo, headings,
+// quote, log, json, math, query, table, wf, image, the nlpcompute prose face):
+// it is a suffix on the rendered line, like the mirror/locked/child-count one.
+// Types whose row is REPLACED by a block — the Code node and the nlpcompute
+// code face — have no line to hang it on, so they take the same text as one
+// band line instead (see suggestBlockLines).
+func (m *Model) suggestInline(it *item) string {
+	list := m.suggestsFor(it.uuid)
 	if len(list) == 0 {
+		return ""
+	}
+	// while review is open the expanded band carries the proposal in full;
+	// repeating it on the row would just be noise
+	if m.mode == modeSuggest && m.suggestUUID == it.uuid {
+		return " " + cYellow + "→ reviewing" + cReset
+	}
+	out := " " + cYellow + "→ " + suggestGist(list[0]) + cReset
+	if n := len(list) - 1; n > 0 {
+		out += cDim + fmt.Sprintf(" · +%d", n) + cReset
+	}
+	return out
+}
+
+// suggestGlyphColor paints a node's glyph yellow while something is proposed
+// for it, so a row carries the proposal even when the arrow text is clipped.
+// The cursor and multi-select red still win — those say where you are.
+func (m *Model) suggestGlyphColor(it *item, current string) string {
+	if len(m.suggestsFor(it.uuid)) == 0 {
+		return current
+	}
+	return cYellow
+}
+
+// suggestBandLines is the review surface under a node: nothing while the
+// proposal only shows inline, the expanded before/after once alt+v opens
+// review on this node.
+func (m *Model) suggestBandLines(r row, subtreeBelow bool, maxLine int) []string {
+	if m.mode != modeSuggest || m.suggestUUID != r.it.uuid {
+		return nil
+	}
+	list := m.suggestsFor(r.it.uuid)
+	if m.suggestSel >= len(list) {
 		return nil
 	}
 	rail := continuationPrefix(r, subtreeBelow)
-	reviewing := m.mode == modeSuggest && m.suggestUUID == r.it.uuid
+	return m.suggestReviewLines(rail, list[m.suggestSel], m.suggestSel, len(list), maxLine)
+}
 
-	var lines []string
-	for i, s := range list {
-		if reviewing && i == m.suggestSel {
-			lines = append(lines, m.suggestReviewLines(rail, s, i, len(list), maxLine)...)
-			continue
-		}
-		head := cDim + "  " + cYellow + "○" + cDim + " " + suggestBy(s) + " · " +
-			suggestGist(s) + suggestHint(reviewing) + cReset
-		lines = append(lines, clip(rail+cReset+head, maxLine))
+// suggestBlockLines is suggestInline for the types whose row is replaced by a
+// block (Code, the nlpcompute code face): the same yellow arrow, as a line
+// hanging under the block, plus the review band when review is open on it.
+func (m *Model) suggestBlockLines(r row, subtreeBelow bool, maxLine int) []string {
+	if len(m.suggestsFor(r.it.uuid)) == 0 {
+		return nil
 	}
-	return lines
+	rail := continuationPrefix(r, subtreeBelow)
+	var lines []string
+	if inline := m.suggestInline(r.it); inline != "" {
+		lines = append(lines, clip(rail+cReset+" "+strings.TrimPrefix(inline, " "), maxLine))
+	}
+	return append(lines, m.suggestBandLines(r, subtreeBelow, maxLine)...)
 }
 
 // suggestReviewLines is the expanded proposal: who and why, the before/after,
@@ -321,14 +365,6 @@ func suggestBy(s database.Suggestion) string {
 		return "suggested"
 	}
 	return "suggested by " + s.Author
-}
-
-// suggestHint offers the review key, unless review is already open on this node.
-func suggestHint(reviewing bool) string {
-	if reviewing {
-		return ""
-	}
-	return " · ⌥v review"
 }
 
 func suggestNoun(n int) string {

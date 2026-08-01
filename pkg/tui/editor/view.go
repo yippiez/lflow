@@ -120,7 +120,9 @@ func (m *Model) finalView(maxLine int) []string {
 		if rm := typeOf(shown.typ).renderM; rm != nil {
 			body = rm(m, shown)
 		}
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + m.typeSuffix(r)
+		glyphColor = m.suggestGlyphColor(r.it, glyphColor)
+		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body +
+			m.typeSuffix(r) + m.suggestInline(r.it)
 		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
 		if b := typeOf(r.it.typ).bands; b != nil {
@@ -187,7 +189,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				noteCaret = m.caret
 			}
 			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-			bands[i] = append(bands[i], m.suggestBandLines(r, below, maxLine)...)
+			bands[i] = append(bands[i], m.suggestBlockLines(r, below, maxLine)...)
 			continue
 		}
 
@@ -204,6 +206,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 				if m.tempActive && !r.mirrored {
 					glyph = glyphDotted
 				}
+				glyphColor = m.suggestGlyphColor(it, glyphColor)
 				if selected || m.inSelection(i) {
 					glyphColor = cRed
 				}
@@ -218,7 +221,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 					noteCaret = m.caret
 				}
 				bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-				bands[i] = append(bands[i], m.suggestBandLines(r, below, maxLine)...)
+				bands[i] = append(bands[i], m.suggestBlockLines(r, below, maxLine)...)
 				continue
 			}
 		}
@@ -228,6 +231,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		if m.tempActive && !r.mirrored {
 			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
 		}
+		glyphColor = m.suggestGlyphColor(it, glyphColor)
 		if selected || m.inSelection(i) {
 			glyphColor = cRed
 		}
@@ -251,7 +255,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			}
 		}
 
-		suffix := m.typeSuffix(r)
+		suffix := m.typeSuffix(r) + m.suggestInline(it)
 		// flash mode grays the whole outline so the colored action chips are the only
 		// highlights: dim the glyph, the body and the type suffix down to plain gray.
 		if m.mode == modeFlash {

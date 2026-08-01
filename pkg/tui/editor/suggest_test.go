@@ -37,30 +37,104 @@ func fileSuggestion(t *testing.T, db *database.DB, s database.Suggestion) databa
 	return s
 }
 
-// TestSuggestBandShowsPendingProposal: an arriving proposal is visible under
-// its node, and it has changed nothing.
-func TestSuggestBandShowsPendingProposal(t *testing.T) {
+// TestSuggestShowsInlineOnTheNode: an arriving proposal reads on the node's own
+// row — a yellow arrow and the text it proposes — and it has changed nothing.
+func TestSuggestShowsInlineOnTheNode(t *testing.T) {
 	m, db, cur := suggestModel(t, "ship the thing")
 	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
 		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing",
 		Author: "agent"})
 	m.loadSuggests()
 
-	band := strings.Join(m.suggestBandLines(m.rows[m.cursor], false, 80), "\n")
-	if !strings.Contains(band, "suggested by agent") {
-		t.Fatalf("band did not name the author: %q", band)
+	inline := m.suggestInline(cur)
+	if !strings.Contains(inline, "→ ship the other thing") {
+		t.Fatalf("row did not carry the proposal: %q", inline)
 	}
-	if !strings.Contains(band, "ship the other thing") {
-		t.Fatalf("band did not show the proposal: %q", band)
+	if !strings.Contains(inline, cYellow) {
+		t.Fatalf("the proposal is not yellow: %q", inline)
 	}
-	if !strings.Contains(band, "review") {
-		t.Fatalf("band did not offer review: %q", band)
+	if got := m.suggestGlyphColor(cur, cDim); got != cYellow {
+		t.Fatalf("glyph color = %q, want yellow", got)
+	}
+	// nothing hangs under the node until review opens on it
+	if band := m.suggestBandLines(m.rows[m.cursor], false, 80); band != nil {
+		t.Fatalf("an unreviewed proposal drew a band: %#v", band)
 	}
 	if cur.name != "ship the thing" {
 		t.Fatalf("a pending proposal changed the node: %q", cur.name)
 	}
 	if got := m.pendingSuggestCount(); got != 1 {
 		t.Fatalf("pending count = %d", got)
+	}
+}
+
+// TestSuggestInlineCountsTheRest: several proposals on one node still read as
+// one row — the first, then how many more wait behind it.
+func TestSuggestInlineCountsTheRest(t *testing.T) {
+	m, db, cur := suggestModel(t, "inbox")
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "first idea", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "second idea", CreatedOn: 2})
+	m.loadSuggests()
+
+	inline := m.suggestInline(cur)
+	if !strings.Contains(inline, "→ + first idea") {
+		t.Fatalf("inline missed the first proposal: %q", inline)
+	}
+	if !strings.Contains(inline, "+1") {
+		t.Fatalf("inline did not count the rest: %q", inline)
+	}
+}
+
+// TestSuggestShowsOnBlockFacedTypes: a Code node's row IS its block, so the
+// proposal hangs as a line under the block instead of a row suffix. Every other
+// type gets it through the shared row suffix.
+func TestSuggestShowsOnBlockFacedTypes(t *testing.T) {
+	for _, typ := range []string{database.TypeCode, database.TypeNLPCompute} {
+		t.Run(typ, func(t *testing.T) {
+			m, db, cur := suggestModel(t, "func main() {}")
+			cur.typ = typ
+			if _, err := db.Exec("UPDATE nodes SET type = ? WHERE uuid = ?", typ, cur.uuid); err != nil {
+				t.Fatal(err)
+			}
+			m.refreshRows()
+			fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit,
+				TargetUUID: cur.uuid, Name: "func main() { run() }", Fields: database.FieldName,
+				BaseName: "func main() {}", Author: "agent"})
+			m.loadSuggests()
+
+			lines := strings.Join(m.suggestBlockLines(m.rows[m.cursor], false, 80), "\n")
+			if !strings.Contains(lines, "→ func main() { run() }") {
+				t.Fatalf("%s block carried no proposal: %q", typ, lines)
+			}
+			if got := m.suggestGlyphColor(cur, cDim); got != cYellow {
+				t.Fatalf("%s glyph color = %q, want yellow", typ, got)
+			}
+		})
+	}
+}
+
+// TestSuggestShowsOnTableAndOtherRowTypes: every row-shaped type carries the
+// proposal through the same suffix, so a table or a heading reads like a bullet.
+func TestSuggestShowsOnTableAndOtherRowTypes(t *testing.T) {
+	for _, typ := range []string{database.TypeTable, database.TypeH1, database.TypeTodo,
+		database.TypeQuery, database.TypeMath, database.TypeJSON} {
+		t.Run(typ, func(t *testing.T) {
+			m, db, cur := suggestModel(t, "quarter plan")
+			cur.typ = typ
+			if _, err := db.Exec("UPDATE nodes SET type = ? WHERE uuid = ?", typ, cur.uuid); err != nil {
+				t.Fatal(err)
+			}
+			m.refreshRows()
+			fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestAdd,
+				TargetUUID: cur.uuid, Name: "add a risks column", Author: "agent"})
+			m.loadSuggests()
+
+			if inline := m.suggestInline(cur); !strings.Contains(inline, "→ + add a risks column") {
+				t.Fatalf("%s row carried no proposal: %q", typ, inline)
+			}
+		})
 	}
 }
 

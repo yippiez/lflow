@@ -195,7 +195,7 @@ back out of the CLI's own store (`agentstore.go`) on demand.
 ## Edit suggestions
 
 `lflow suggest` is the review queue: a proposed change lives in the
-`suggestions` table (lm41) and touches NOTHING until somebody approves it —
+`suggestions` table (lm42) and touches NOTHING until somebody approves it —
 kind `add` carries a node proposed under a parent, kind `edit` carries the
 fields (`name`/`note`/`type`) proposed for one node. `suggest add` / `suggest
 edit` file one, `list` / `show` read them (both take `--format json`, the
@@ -209,16 +209,24 @@ says so, `--force` applies anyway. On the wire a suggestions write flags
 `Event.Suggest` — deliberately NOT an aux table, since a proposal changes
 nothing a client renders — and `lflow serve` logs it as `→ suggested`.
 
-In the EDITOR (`pkg/tui/editor/suggest.go`) a pending proposal hangs under the
-node it is about, the same band surface as a note or run output, and appears
-live when the feed reports one (the bar carries `○ N suggestions`). `alt+v`
-opens review on the cursor node (`modeSuggest`): the band expands to author,
-message and the before/after, `y` approves, `n` rejects, `esc` leaves it
-pending, ↑↓ walks a node's queue, and `/suggestions` jumps to the next node
-carrying one. The band is a READING of the suggestions table — approving is the
-only path that writes, and it goes through `database.ApplySuggestion` and then
-resyncs. A proposal against the current view's own root has no row to hang
-from; `/suggestions` says so instead of pretending there is nothing.
+In the EDITOR (`pkg/tui/editor/suggest.go`) a pending proposal reads INLINE on
+the node itself: the glyph turns yellow and the row gains `→ <proposed text>`
+(`+ text` for a proposed child, `· +N` when more wait behind it). It is a
+suffix on the rendered line — like the mirror/locked/child-count one — so every
+row-shaped type carries it for free (bullets, todo, headings, table, query,
+math, json, wf, the nlpcompute prose face); types whose row is REPLACED by a
+block (Code, the nlpcompute code face) and the divider rule take the same text
+as one line under the block instead (`suggestBlockLines`). Proposals arrive live
+when the feed reports one, and the bar carries `○ N suggestions`.
+
+`alt+v` opens review on the cursor node (`modeSuggest`): a band expands under it
+with author, message and the before/after, `y` approves, `n` rejects, `esc`
+leaves it pending, ↑↓ walks a node's queue, and `/suggestions` jumps to the next
+node carrying one. The inline arrow and the band are a READING of the
+suggestions table — approving is the only path that writes, and it goes through
+`database.ApplySuggestion` and then resyncs. A proposal against the current
+view's own root has no row to hang from; `/suggestions` says so instead of
+pretending there is nothing.
 
 ## NLPCompute code generation
 
