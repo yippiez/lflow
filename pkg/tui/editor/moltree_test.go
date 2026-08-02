@@ -87,10 +87,10 @@ func TestMoleculeNodeIsAlwaysTreeFormat(t *testing.T) {
 }
 
 func TestMolTreeBodyTailOnlyWhenComposed(t *testing.T) {
-	if tail := molTreeBodyTail(molNode("CCO")); tail != "" {
+	if tail := molTreeBodyTail(molNode("CCO"), nil); tail != "" {
 		t.Fatalf("leaf tail = %q, want empty", tail)
 	}
-	tail := molTreeBodyTail(molNode("C", molNode("C", molNode("=O"), molNode("O"))))
+	tail := molTreeBodyTail(molNode("C", molNode("C", molNode("=O"), molNode("O"))), nil)
 	if tail == "" {
 		t.Fatal("composed node should carry a preview tail")
 	}

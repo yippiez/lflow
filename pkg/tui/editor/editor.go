@@ -242,6 +242,10 @@ type Model struct {
 	// and renders bands beneath it (replaces the per-feature full-screen modes).
 	focused     bool // is the cursor node's inline view capturing input
 	focusScroll int  // first visible line of the focused view's self-window
+	// focusFollow pins a run's expanded band to its tail as output arrives — a
+	// terminal following its own output. Scrolling up drops it, end/G takes it
+	// back (see runViewKey).
+	focusFollow bool
 	// auto-focus (Code node): the cursor resting on an autoFocus type enters its
 	// view without alt+e. autoFocused tracks that node (nil = manual/no focus, so
 	// reconcileAutoFocus leaves alt+e-focused json/bash untouched); autoFocusHold
@@ -818,7 +822,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, l := range msg.lines {
 			m.appendRunOut(msg.uuid, l)
 		}
-		return m, waitBashCmd(r.ch)
+		// a cmd chip's inline → tail tracks the newest line as it arrives, so a
+		// long-running command streams in place instead of staying blank until it
+		// exits (setCmdPreview is a no-op for a node uuid). startAnim keeps the
+		// shimmer sliding for the rest of the run.
+		m.setCmdPreview(msg.uuid)
+		return m, m.startAnim(waitBashCmd(r.ch))
+	case bashBytesMsg:
+		r := m.run(msg.uuid)
+		// r.scr is set with r.cancel (startShellRun) and only cleared once the
+		// run is over, so a live run always has its screen
+		if r == nil || r.cancel == nil {
+			return m, nil // canceled — stop streaming
+		}
+		// raw PTY bytes go to the run's terminal screen, which interprets them the
+		// way a terminal would (overwrites, clears, cursor moves) — see term.go
+		r.scr.Write(msg.data)
+		m.setCmdPreview(msg.uuid)
+		return m, m.startAnim(waitBashCmd(r.ch))
 	case bashDoneMsg:
 		m.finishRun(msg.uuid) // cache the finished band so it survives a restart
 		return m, nil
@@ -1191,12 +1212,50 @@ func (m *Model) deleteNode(it *item) {
 // for a running command. All of it is keyed by ONE id (node uuid or cmd-chip id),
 // so dropping a run = delete(m.runs, id) — one atomic delete instead of six.
 type runState struct {
-	out     []outLine    // captured stdout/stderr lines (the band)
+	out     []outLine    // line producers' output (query, math's LaTeX export)
+	scr     *termScreen  // a SHELL run's terminal screen (see term.go); nil = line band
 	cancel  func()       // cancels the running command; nil once finished
 	ch      chan tea.Msg // stream channel for a running command
 	loaded  bool         // band hydrated from node_output (see runout.go)
 	dropped int          // lines dropped off the band's head (see maxRunLines)
 	pwd     string       // cwd captured when the band was run
+	started time.Time    // launch instant; drives the elapsed clock while running
+}
+
+// lines is the band's content, whatever produced it: a shell run renders its
+// terminal screen (scrollback then the live grid — what a terminal would show),
+// a line producer returns what it appended. Every read path — the inline band,
+// the expanded view, the chip's → tail, persistence — goes through here, so the
+// two producers stay interchangeable.
+func (r *runState) lines() []outLine {
+	if r == nil {
+		return nil
+	}
+	if r.scr != nil {
+		return r.scr.lines()
+	}
+	return r.out
+}
+
+// dropCount is how many lines fell off the band's head — the screen counts its
+// own scrollback drops.
+func (r *runState) dropCount() int {
+	if r == nil {
+		return 0
+	}
+	if r.scr != nil {
+		return r.scr.dropped
+	}
+	return r.dropped
+}
+
+// elapsed reports how long a live run has been going, or 0 when it never started
+// (a rehydrated band, a synthesised run in a test).
+func (r *runState) elapsed() time.Duration {
+	if r == nil || r.started.IsZero() {
+		return 0
+	}
+	return time.Since(r.started)
 }
 
 // run returns the existing run state for an id, or nil if none — nil-safe for

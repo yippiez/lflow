@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/coder/websocket v1.8.14
+	github.com/creack/pty v1.1.24
 	github.com/dnote/actions v0.2.0
 	github.com/fatih/color v1.18.0
 	github.com/google/go-cmp v0.7.0

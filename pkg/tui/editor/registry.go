@@ -77,9 +77,16 @@ type nodeType struct {
 	// glyphs yellow this way. nil → no per-rune tint. (index is a rune index.)
 	spanColor func(it *item, runes []rune) map[int]string
 	// bodyTail appends already-styled text after the node's body on the same row
-	// (before the ★ mark) — the Math type's dim linear preview of its subtree.
+	// (before the ★ mark) — the Math type's dim linear preview of its subtree, the
+	// Bash type's composed command line. The chip store comes along so a tail can
+	// resolve anchors (a path chip in a command) instead of leaking sentinels.
 	// Called for the resting/selected row alike. nil → nothing. "" → nothing.
-	bodyTail func(it *item) string
+	bodyTail func(it *item, chips map[string]database.Chip) string
+	// runInTail says this type's run lives in the row's bodyTail — the streaming
+	// headline after its "→" — and so claims NO output band beneath the row. The
+	// Bash type sets it to read exactly like the cmd chip it is the tree form of:
+	// the row streams, alt+e opens the terminal, nothing hangs in between.
+	runInTail bool
 
 	// toContext reserves a structured XML representation for consumers that
 	// need typed outline context. nil means the generic node representation.
@@ -181,9 +188,22 @@ var nodeTypes = []nodeType{
 		view:      jsonView{},
 		toContext: jsonToContext,
 	},
-	// there is deliberately NO bash node type: inline runnable shell is the cmd
-	// chip ("$cmd" + double space, see cmdchip.go) — legacy "bash"-typed nodes
-	// fall back to bullets like any unknown type, text intact.
+	// a shell command composed AS an outline (see bashnode.go): a "$" row whose
+	// children are its parts — a join operator (| && || ;) or a wrapper ($() ())
+	// composes them, anything else heads them — so a long pipeline is written as
+	// a tree. alt+r runs THIS node's subtree, alt+e opens the output. The inline
+	// cmd chip ("$cmd" + double space, cmdchip.go) remains the one-liner surface.
+	{
+		key: database.TypeBash, label: "Bash", inlineEditable: true,
+		glyph:        bashGlyph,
+		spanColor:    bashSpanColor,
+		bodyTail:     bashBodyTail,
+		run:          runBashNode,
+		view:         runOutView{},
+		flashActions: bashFlashActions,
+		cliDeps:      []string{"bash"},
+		runInTail:    true,
+	},
 	{
 		key: database.TypeQuery, label: "Query", inlineEditable: true, disableChips: true,
 		prefix:    queryPrefix,

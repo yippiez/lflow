@@ -1,6 +1,8 @@
 # DEMO.md — recording a demo video of an lflow change
 
-A visible change ships with a short video. There is no committed demo tooling:
+EVERY visible change ships with its own short video — including the small ones (a
+color, a glyph, a fold state), and a still is not a substitute for one. A change
+with nothing on screen needs none. There is no committed demo tooling:
 you assemble the recipe below in a scratch directory, record, render, and throw
 the scratch away. This file is the spec — follow it and every clip looks the
 same.

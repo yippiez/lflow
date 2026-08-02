@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // The Math node (database.TypeMath) is a mathematical expression composed AS an
@@ -320,13 +321,23 @@ func mathWordLatex(w string) (string, bool) {
 	return "", false
 }
 
-// matchSymOp reports the longest multi-char symbolic operator starting at rs[i].
-func matchSymOp(rs []rune, i int) (latex string, n int, ok bool) {
-	for _, tok := range mathSymOpTokens {
+// matchTok reports the rune length of the first token in toks (sorted
+// longest-first) found at rs[i], 0 when none matches. Shared by math's operator
+// scan and bash's (bashSpanColor).
+func matchTok(toks []string, rs []rune, i int) int {
+	for _, tok := range toks {
 		tr := []rune(tok)
 		if i+len(tr) <= len(rs) && string(rs[i:i+len(tr)]) == tok {
-			return mathMultiOp[tok], len(tr), true
+			return len(tr)
 		}
+	}
+	return 0
+}
+
+// matchSymOp reports the longest multi-char symbolic operator starting at rs[i].
+func matchSymOp(rs []rune, i int) (latex string, n int, ok bool) {
+	if n := matchTok(mathSymOpTokens, rs, i); n > 0 {
+		return mathMultiOp[string(rs[i:i+n])], n, true
 	}
 	return "", 0, false
 }
@@ -389,7 +400,7 @@ func mathSpanColor(it *item, runes []rune) map[int]string {
 // mathBodyTail is the dim linear preview of an operator node's subtree, shown
 // after the operator glyph. A leaf (no children) is already the whole expression
 // inline, so it gets no tail — that is the "simple stays inline" behavior.
-func mathBodyTail(it *item) string {
+func mathBodyTail(it *item, _ map[string]database.Chip) string {
 	if it == nil || len(it.children) == 0 {
 		return ""
 	}

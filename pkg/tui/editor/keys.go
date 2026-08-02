@@ -716,8 +716,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if r != nil && r.cancel != nil {
 				r.cancel()
 				m.finishRun(id)
-			} else if r != nil && len(r.out) > 0 {
+			} else if r != nil && len(r.lines()) > 0 {
 				r.out = nil
+				r.scr = nil // drop the terminal screen with the band
 				r.dropped = 0
 				r.pwd = ""
 				m.persistRunOut(id) // an empty band deletes the row

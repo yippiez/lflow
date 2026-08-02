@@ -86,7 +86,14 @@ per-feature column — and no scattered `switch typ`:
    table (mathSym) drives both operator coloring and LaTeX — arithmetic, Greek,
    relations, calculus, set/logic, plus programming/bitwise/tensor operators;
    `bash.go` holds the shared
-   shell-run machinery, `code.go` the shared multi-line **code block** —
+   shell-run machinery and `bashnode.go` the **Bash node** — a shell command
+   composed AS an outline, the same idea as math: a red `$` row — the cmd chip's
+   prompt, always, fold or no fold — whose children are its parts, where a join operator (`|` `&&` `||` `;`) joins them, a wrapper (`$()`
+   `()`) wraps them, empty text is a plain container and anything else heads them;
+   a completed node is commented out of the command, chips resolve on the way
+   through, the row hangs the composed line dim (`bodyTail`) — replaced by the
+   run's streaming headline once there is one — and alt+r runs THIS node's
+   subtree — `code.go` the shared multi-line **code block** —
    `codeBlockLines`: a borderless gray block (no rule box, no header) whose every
    line is the dim line number, a white vertical rule to its RIGHT, then the
    highlighted code; the block REPLACES the node's row via the `blockCode` hook
@@ -244,7 +251,12 @@ or resumable external coding-session reference.
 
 ## Demo videos
 
-A visible change ships with a short video. **`DEMO.md` in the repo root is the
+EVERY visible change ships with a short video — one per change, handed over as
+soon as the change is done, so it can be re-watched later. That includes the
+small ones: a color, a glyph, a fold state. A still frame is not a substitute
+(the thing being judged is usually motion or a transition); attach a still only
+as an extra. A change with nothing on screen — docs, refactors, test-only work —
+needs none. **`DEMO.md` in the repo root is the
 recipe** — tmux drives the editor against a throwaway DB, `scripts/ansishot.py`
 paints the captured frames, ffmpeg muxes them, and captions are burned along the
 top. There is no committed demo tooling on purpose: assemble it in a scratch
@@ -264,6 +276,25 @@ Remaining doc-level rules:
 
 - Never auto-run runnable nodes (alt+r only) — an agentic coding session chip is
   opened by that same key and by nothing else.
+- A run is LIVE, never a wait: output streams in as it arrives (~50ms batches).
+  **Both shell surfaces stream in their ROW, not under it** — a cmd chip in its
+  label, a Bash node in its `→` tail (`runInTail` in the registry, fed by
+  `runTails`): the newest line while the command is in flight, the first line
+  once it settles, clipped to `runTailWidth` so a torrent cannot rewrap the row.
+  A running chip's cell shimmers and a running node's tail does; neither claims a
+  single line beneath itself. The whole output is alt+e away, and the two
+  surfaces read 1:1 there — same header, same pane, same keys.
+- The expanded run view is a terminal WINDOW, never a growing list: it opens at
+  the height it will keep (`winH-1` filled rows over `bgTerm`) and the output
+  scrolls inside it, so nothing on screen shifts as lines arrive. One line of
+  chrome — state, elapsed clock, and where it ran, right-aligned — then the pane.
+- A shell run IS a terminal, not a captured log: `bash -c` runs on a **PTY** and
+  its raw bytes drive a VT screen (`pkg/tui/editor/term.go`) — so programs detect
+  a tty and colour themselves, `\r` progress bars overwrite in place, `clear`
+  clears, cursor work lands, and the expanded band shows exactly what a terminal
+  would, following the tail until you scroll up. Every band reads
+  `runState.lines()`: the screen for a shell run, the appended list for a line
+  producer (query, math's LaTeX export). On a PTY there is no separate stderr.
 - Secrets live in local config — Pi in `~/.pi/agent/settings.json`, service keys
   in `~/.config/lflow/credentials.json` (e.g. `{"workflowy":{"api_key":"…"}}`).
   Never synced, never written into the DB.

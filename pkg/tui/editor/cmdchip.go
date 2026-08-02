@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -105,31 +104,23 @@ func (m *Model) cmdChipAtCaret(cur *item) (database.Chip, bool) {
 	return database.Chip{}, false
 }
 
-// runCmdChip runs (or cancels a running) cmd chip. Output streams into the run
-// band keyed by the chip id, mirroring runBash; a second alt+r cancels.
+// runCmdChip runs (or cancels a running) cmd chip: the exact toggle and launch
+// path a Bash node takes (runShell — a PTY + a terminal screen), keyed by chip
+// id instead of node uuid. The previous run's → tail would otherwise sit there
+// looking like this run's result until the first line arrives; refresh it, the
+// shimmer says "working".
 func (m *Model) runCmdChip(c database.Chip) tea.Cmd {
-	if r := m.run(c.ID); r != nil && r.cancel != nil {
-		r.cancel()
-		m.finishRun(c.ID)
-		return nil
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	r := m.ensureRun(c.ID)
-	r.cancel = cancel
-	r.dropped = 0
-	r.loaded = true // a fresh run owns the band; memory is authoritative
-	r.out = nil
-	m.captureRunPWD(c.ID)
-	ch := make(chan tea.Msg, 1024)
-	r.ch = ch
-	go startBash(c.ID, c.Value, ctx, ch)
-	return waitBashCmd(ch)
+	cmd := runShell(m, c.ID, c.Value)
+	m.setCmdPreview(c.ID)
+	return cmd
 }
 
-// setCmdPreview refreshes a cmd chip's inline preview — its in-memory label — from
-// the first non-blank line of its run output. The label is mutated in m.chips
-// only and never upserted into the chips table: the command persists, the →
-// chrome does not (WARNING (invariant): run output is never synced). The full
+// setCmdPreview refreshes a cmd chip's inline preview — its in-memory label. A
+// finished band settles on its FIRST non-blank line (the run's headline); a band
+// still running shows its NEWEST non-blank line instead, so a long-running
+// command streams its progress in place on the row. The label is mutated in
+// m.chips only and never upserted into the chips table: the command persists, the
+// → chrome does not (WARNING (invariant): run output is never synced). The full
 // band lives in local node_output; ensureRunOutLoaded rehydrates it so a reopen
 // can rebuild this label without re-running.
 func (m *Model) setCmdPreview(id string) {
@@ -138,20 +129,74 @@ func (m *Model) setCmdPreview(id string) {
 		return
 	}
 	m.ensureRunOutLoaded(id)
-	preview := ""
-	var out []outLine
-	if r := m.run(id); r != nil {
-		out = r.out
-	}
-	for _, l := range out {
-		if t := strings.TrimSpace(stripSGR(l.text)); t != "" {
-			preview = t
-			break
-		}
-	}
-	c.Label = clipStr(preview, 32)
+	c.Label = runHeadline(m.run(id))
 	m.chips[id] = c
 }
+
+// runHeadline is the one-line summary of a run that both shell surfaces hang
+// after their "→": a band still running shows its NEWEST non-blank line, so a
+// long command streams its progress in place; a finished band settles on its
+// FIRST non-blank line, the run's headline. Clipped to a fixed width so a
+// torrent of output cannot rewrap the row it sits on.
+func runHeadline(r *runState) string {
+	if r == nil {
+		return ""
+	}
+	out := r.lines()
+	pick := func(i int) string { return strings.TrimSpace(stripSGR(out[i].text)) }
+	if r.cancel != nil {
+		// walk back from the newest line, stopping at the first with content (a
+		// trailing blank line must not blank the preview)
+		for i := len(out) - 1; i >= 0; i-- {
+			if t := pick(i); t != "" {
+				return clipStr(t, runTailWidth)
+			}
+		}
+		return ""
+	}
+	for i := range out {
+		if t := pick(i); t != "" {
+			return clipStr(t, runTailWidth)
+		}
+	}
+	return ""
+}
+
+// ── live run feedback ────────────────────────────────────────────────────────
+
+// liveCmdRuns is the render-time set of cmd chips with a command in flight, so a
+// running chip can be painted with the shimmering code cell. It is a render-time
+// global for the same reason animFrame is: renderBody/renderCmdChip are pure
+// functions of (item, name, chips) reached from several surfaces (outline, temp
+// panel, final frame, tests), and threading a model handle through all of them
+// just to answer "is this chip running" would touch every caller. syncLiveCmdRuns
+// refreshes it once per frame, and both it and the readers run on bubbletea's
+// single event-loop goroutine, so no synchronization is needed.
+var liveCmdRuns map[string]bool
+
+// syncLiveCmdRuns snapshots which cmd chips are running, for this frame's render.
+func (m *Model) syncLiveCmdRuns() {
+	live := map[string]bool{}
+	for id, r := range m.runs {
+		if r.cancel == nil {
+			continue
+		}
+		if c, ok := m.chips[id]; ok && c.Kind == chipKindCmd {
+			live[id] = true
+		}
+	}
+	liveCmdRuns = live
+}
+
+// cmdChipRunning reports whether a chip id is mid-run for this frame's render.
+func cmdChipRunning(id string) bool { return liveCmdRuns[id] }
+
+// A running cmd chip claims NO space under its row: a collapsed chip streams
+// entirely on the row itself — the shimmering cell says it is working and the →
+// tail carries the newest line — and the output band belongs to the expanded view
+// (alt+e, cmdChipView), which streams the same live feed. So a run never pushes
+// the outline around, and the row's height is the same whether it is running or
+// idle.
 
 // hydrateCmdPreviews rebuilds every cmd chip's in-memory → preview from local
 // node_output (via setCmdPreview). Called after LoadChips — on editor open and
@@ -193,8 +238,8 @@ func stripSGR(s string) string {
 // ── alt+e inline cmd-output view ─────────────────────────────────────────────
 
 // cmdChipView is a cmd chip's inline expanded output viewer: the same
-// band-beneath-the-node surface as a focused bash node (see bashView), keyed by
-// the focused chip id (m.focusChip) instead of the node uuid. Stateless like
+// band-beneath-the-node surface as a focused bash node (see runOutView), keyed
+// by the focused chip id (m.focusChip) instead of the node uuid. Stateless like
 // every nodeView; it is reached through m.activeView, never the type registry —
 // the chip lives inside a plain text node whose type has no view of its own.
 type cmdChipView struct{}
@@ -203,7 +248,7 @@ type cmdChipView struct{}
 func (m *Model) focusCmdChip(c database.Chip) {
 	m.focusChip = c.ID
 	m.focused = true
-	m.focusScroll = 0
+	m.focusScroll, m.focusFollow = 0, true // open at the tail, following output
 	m.ensureRunOutLoaded(c.ID)
 }
 
@@ -221,100 +266,32 @@ func (m *Model) activeView(it *item) nodeView {
 
 func (cmdChipView) Enter(m *Model, it *item) bool { return m.focusChip != "" }
 
-func (cmdChipView) Leave(m *Model, it *item) { m.focusChip = "" }
+func (cmdChipView) Leave(m *Model, it *item) { m.focusChip, m.focusFollow = "", false }
 
-// Lines is a header plus optional pwd row plus one row per output line (or a
-// placeholder when empty).
 func (cmdChipView) Lines(m *Model, it *item, width int) int {
-	m.ensureRunOutLoaded(m.focusChip)
-	r := m.run(m.focusChip) // non-nil after ensureRunOutLoaded
-	n := len(r.out)
-	if n == 0 {
-		n = 1 // the "no output" placeholder
-	}
-	if r.pwd != "" {
-		n++
-	}
-	return 1 + n
+	return runViewLines(m, m.focusChip)
 }
 
 // Key scrolls the band; alt+r re-runs (or cancels) the chip in place; esc/alt+e
 // fall through to central defocus.
 func (cmdChipView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
-	switch k.String() {
-	case "alt+r":
+	if k.String() == "alt+r" {
 		if c, ok := m.chips[m.focusChip]; ok && c.Kind == chipKindCmd {
 			return m.runCmdChip(c), true
 		}
-	case "down", "j", "pgdown":
-		step := 1
-		if k.String() == "pgdown" {
-			step = 10
-		}
-		m.focusScroll += step
-		return nil, true
-	case "up", "k", "pgup":
-		step := 1
-		if k.String() == "pgup" {
-			step = 10
-		}
-		m.focusScroll -= step
-		if m.focusScroll < 0 {
-			m.focusScroll = 0
-		}
-		return nil, true
-	case "home", "g":
-		m.focusScroll = 0
-		return nil, true
-	case "end", "G":
-		m.focusScroll = 1 << 30 // central clamp pins it to the last page
-		return nil, true
 	}
-	return nil, false
+	return runViewKey(m, k)
 }
 
-// Bands renders the header and output lines, self-windowed to [scroll, scroll+winH).
+// Bands renders the chip's terminal: the same shared surface a Bash node's
+// expanded view uses, headed by the command itself.
 func (cmdChipView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	m.ensureRunOutLoaded(m.focusChip)
 	r := m.run(m.focusChip) // non-nil after ensureRunOutLoaded
-	out := r.out
-	running := r.cancel != nil
-
 	cmd := ""
 	if c, ok := m.chips[m.focusChip]; ok {
 		cmd = c.Value
 	}
-	hdr := fmt.Sprintf("  $ %s · %d lines", cmd, len(out))
-	if d := r.dropped; d > 0 {
-		hdr += fmt.Sprintf(" · %d dropped", d)
-	}
-	if running {
-		hdr += " · running… · ⌥r stop"
-	} else {
-		hdr += " · ⌥r re-run"
-	}
-	hdr += " · ↑↓ scroll · esc close"
-	content := []string{clip(rail+cReset+cDim+hdr+cReset, width)}
-	if pwd := r.pwd; pwd != "" {
-		content = append(content, clip(rail+cReset+cDim+"  pwd: "+pwd+cReset, width))
-	}
-
-	if len(out) == 0 {
-		content = append(content, clip(rail+cReset+cDim+"  no output yet · ⌥r runs"+cReset, width))
-	}
-	for _, l := range out {
-		content = append(content, clip(rail+cReset+"  "+styleOutLine(l), width))
-	}
-
-	if scroll < 0 {
-		scroll = 0
-	}
-	if scroll > len(content) {
-		scroll = len(content)
-	}
-	end := scroll + winH
-	if end > len(content) {
-		end = len(content)
-	}
-	return content[scroll:end]
+	hdr := fmt.Sprintf("  $ %s · %d lines", cmd, len(r.lines()))
+	return runViewBands(m, r, hdr, "⌥r", rail, width, scroll, winH)
 }
