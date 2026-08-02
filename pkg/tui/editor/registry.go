@@ -207,6 +207,7 @@ var nodeTypes = []nodeType{
 	{
 		key: database.TypeQuery, label: "Query", inlineEditable: true, disableChips: true,
 		prefix:    queryPrefix,
+		spanColor: querySpanColor, // "semantic phrase" marks tint yellow
 		run:       runQuery,
 		toContext: xmlTag("query"),
 	},

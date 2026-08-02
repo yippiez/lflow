@@ -59,7 +59,7 @@ func TestNodeDatesIncludeCreatedAndChips(t *testing.T) {
 	created := mustDate("2026-06-15")
 	// name carries an inline date too (no chips map needed — ExpandAnchors is a
 	// no-op without anchors, and detectAllDates finds the plain date)
-	dates := m.nodeDates("shipped on 2026-03-02", created.UnixNano(), now)
+	dates := nodeDates("shipped on 2026-03-02", created.UnixNano(), now, m.chips)
 	var sawCreated, sawInline bool
 	for _, d := range dates {
 		if d.Year() == 2026 && d.Month() == 6 && d.Day() == 15 {

@@ -198,16 +198,28 @@ func TestQueryStreamsPersistedCandidates(t *testing.T) {
 	if m.queryLoad == nil || cmd == nil {
 		t.Fatal("persisted query must start a streamed load")
 	}
-	if bar := stripSGR(strings.Join(m.bottomBar(120), "\n")); !strings.Contains(bar, "loading query") {
-		t.Fatalf("loading query state missing from bar: %q", bar)
+	if bar := stripSGR(strings.Join(m.bottomBar(120), "\n")); !strings.Contains(bar, "1 query running") {
+		t.Fatalf("running-query count missing from bar: %q", bar)
 	}
+	// The scan streams batches, then hands the finished expression to a worker
+	// (queryReadyMsg) so a long evaluation never blocks the UI goroutine.
+	sawReady := false
 	for steps := 0; m.queryLoad != nil && steps < 100; steps++ {
-		msg := cmd()
-		loadMsg, ok := msg.(queryLoadMsg)
-		if !ok {
-			t.Fatalf("stream command returned %T, want queryLoadMsg", msg)
+		switch msg := cmd().(type) {
+		case queryLoadMsg:
+			cmd = m.handleQueryLoad(msg)
+		case queryReadyMsg:
+			sawReady = true
+			cmd = m.handleQueryReady(msg)
+		default:
+			t.Fatalf("stream command returned %T, want a query message", msg)
 		}
-		cmd = m.handleQueryLoad(loadMsg)
+		if cmd == nil {
+			break
+		}
+	}
+	if !sawReady {
+		t.Fatal("query never completed through the worker (queryReadyMsg)")
 	}
 	if m.queryLoad != nil {
 		t.Fatal("query stream did not finish")
@@ -294,5 +306,39 @@ func TestQueryReconcileIdempotentAndStale(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("user (non-mirror) child was not preserved")
+	}
+}
+
+// TestRunningQueryShimmerInBar: the house loading indicator is the ultraloop
+// sliding shine, not a spinner glyph, and the toolbar carries a count.
+func TestRunningQueryShimmerInBar(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "query", Name: "needle", Type: database.TypeQuery},
+		database.Node{UUID: "hit", Name: "needle in the database"},
+	)
+	q := m.tree.byUUID["query"]
+	if n := m.runningQueryCount(); n != 0 {
+		t.Fatalf("idle editor reports %d running queries", n)
+	}
+	runQuery(m, q)
+	if n := m.runningQueryCount(); n != 1 {
+		t.Fatalf("running queries = %d, want 1", n)
+	}
+	bar := strings.Join(m.bottomBar(120), "\n")
+	if !strings.Contains(stripSGR(bar), "1 query running") {
+		t.Fatalf("bar missing the count: %q", stripSGR(bar))
+	}
+	// the shine paints per-rune color, so the phrase carries SGR runs rather than
+	// one flat span — a spinner glyph would not
+	if !strings.Contains(bar, ShineText("1 query running")) {
+		t.Error("running-query text is not the ultraloop shimmer")
+	}
+	for _, glyph := range []string{"◜", "◠", "◝", "◞", "◡", "◟"} {
+		if strings.Contains(bar, glyph) {
+			t.Errorf("bar still shows the old spinner glyph %q", glyph)
+		}
+	}
+	if !m.animActive() {
+		t.Error("a running query must keep the animation tick alive")
 	}
 }

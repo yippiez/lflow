@@ -41,15 +41,36 @@ type queryLoadMsg struct {
 	err        error
 }
 
+// queryReadyMsg carries the finished match list back from the worker. Matching
+// runs off the UI goroutine so the toolbar can keep shimmering while it works —
+// on a large outline the evaluation is seconds, and doing it inline froze the
+// editor with the "running" indicator never getting a frame to paint in.
+type queryReadyMsg struct {
+	generation int
+	matches    []database.Node
+}
+
+// chipSnapshot copies the chip table for a query worker. Chips are created as
+// the user types, so a worker reading the live map races the editor — in Go a
+// concurrent map read/write is a hard crash, not a stale read.
+func (m *Model) chipSnapshot() map[string]database.Chip {
+	out := make(map[string]database.Chip, len(m.chips))
+	for k, v := range m.chips {
+		out[k] = v
+	}
+	return out
+}
+
 // queryPrefix is deliberately scope-neutral: query scope is expressed by the
 // persisted :in: parameter, whose omitted value is the outline root.
 func queryPrefix(*item) string { return cDim + "⌕" + cReset + " " }
 
-// queryTextAndScope removes :in: selectors from q's searchable expression and
+// queryTextAndScope removes in: selectors from q's searchable expression and
 // returns their selected subtree root. An omitted selector means the permanent
 // outline root. The picker stores a selected node as a link chip, preserving its
-// UUID even when the node is renamed; :in:<uuid> and :in:root also work in plain
-// text for scripts and old hand-written queries.
+// UUID even when the node is renamed; in:<uuid> and in:root also work in plain
+// text for scripts and hand-written queries. The legacy :in: spelling still
+// parses (see the compatibility invariant in querytime.go).
 func (m *Model) queryTextAndScope(q *item) (string, string) {
 	if q == nil {
 		return "", database.RootUUID
@@ -64,13 +85,13 @@ func (m *Model) queryTextAndScope(q *item) (string, string) {
 	scope := database.RootUUID
 	var out []rune
 	for i := 0; i < len(runes); {
-		if !strings.HasPrefix(strings.ToLower(string(runes[i:])), ":in:") ||
-			(i > 0 && !unicode.IsSpace(runes[i-1])) {
+		marker, bracket := queryScopeMarker(runes[i:])
+		if marker == 0 || (i > 0 && !unicode.IsSpace(runes[i-1]) && runes[i-1] != '(') {
 			out = append(out, runes[i])
 			i++
 			continue
 		}
-		j := i + len(":in:")
+		j := i + marker
 		for j < len(runes) && unicode.IsSpace(runes[j]) {
 			j++
 		}
@@ -80,23 +101,79 @@ func (m *Model) queryTextAndScope(q *item) (string, string) {
 					scope = uuid
 				}
 			}
-			i = sp.End
+			i = closeBracket(runes, sp.End, bracket)
 			continue
 		}
 		end := j
-		for end < len(runes) && !unicode.IsSpace(runes[end]) {
-			end++
+		if bracket {
+			for end < len(runes) && runes[end] != ')' {
+				end++
+			}
+		} else {
+			for end < len(runes) && !unicode.IsSpace(runes[end]) {
+				end++
+			}
 		}
-		value := string(runes[j:end])
+		value := strings.TrimSpace(string(runes[j:end]))
 		switch strings.ToLower(value) {
 		case "", "root":
 			scope = database.RootUUID
 		default:
 			scope = value
 		}
-		i = end
+		i = closeBracket(runes, end, bracket)
 	}
 	return strings.TrimSpace(database.ExpandAnchors(string(out), m.chips)), scope
+}
+
+// queryScopeMarker returns the rune length of the scope selector starting at
+// runes and whether its value is bracketed, or 0 when there is no selector.
+// "in(" is the current spelling; "in:" and the legacy ":in:" still resolve.
+func queryScopeMarker(runes []rune) (n int, bracket bool) {
+	head := strings.ToLower(string(runes[:min(len(runes), 4)]))
+	switch {
+	case strings.HasPrefix(head, "in("):
+		return 3, true
+	case strings.HasPrefix(head, ":in:"):
+		return 4, false
+	case strings.HasPrefix(head, "in:"):
+		return 3, false
+	}
+	return 0, false
+}
+
+// closeBracket steps past the ")" that ends a bracketed selector, so the closing
+// paren never survives into the searchable text as a stray grouping token.
+func closeBracket(runes []rune, at int, bracket bool) int {
+	if !bracket {
+		return at
+	}
+	for at < len(runes) && unicode.IsSpace(runes[at]) {
+		at++
+	}
+	if at < len(runes) && runes[at] == ')' {
+		at++
+	}
+	return at
+}
+
+// querySpanColor tints the semantic-search delimiters. A "quoted" phrase is the
+// query language's one operator that changes HOW matching works, so — as with
+// the math node's yellow operators — the marks carry the color and the phrase
+// inside stays ordinary text. An unterminated opening quote is tinted too: the
+// atom is already live while the closing quote is still being typed.
+func querySpanColor(_ *item, runes []rune) map[int]string {
+	var quotes []int
+	for i, r := range runes {
+		if r == '"' {
+			quotes = append(quotes, i)
+		}
+	}
+	out := make(map[int]string, len(quotes))
+	for _, i := range quotes {
+		out[i] = cYellow
+	}
+	return out
 }
 
 func runQuery(m *Model, it *item) tea.Cmd {
@@ -147,6 +224,9 @@ func (m *Model) startQueryLoad(it *item) tea.Cmd {
 		ch:         make(chan queryLoadMsg, 1),
 		done:       make(chan struct{}),
 	}
+	// Batches land one at a time; a "quoted" atom holds until the last one is in
+	// (see qSemantic.eval) and finishQueryRun clears this.
+	load.ctx.partial = true
 	m.queryLoad = load
 	if load.parsed.empty() {
 		m.finishQueryRun(it, nil)
@@ -193,7 +273,7 @@ func (m *Model) handleQueryLoad(msg queryLoadMsg) tea.Cmd {
 			continue
 		}
 		load.ctx.add(q, qCand{uuid: n.UUID, name: n.Name, note: n.Note, typ: n.Type,
-			parent: n.ParentUUID, addedOn: n.AddedOn, starred: n.Starred})
+			parent: n.ParentUUID, addedOn: n.AddedOn, completedAt: n.CompletedAt, starred: n.Starred})
 	}
 	if len(msg.nodes) > 0 {
 		m.reconcileQueryMirrors(q, m.queryMatchesInCtx(q, load.parsed, load.scope, load.ctx))
@@ -203,11 +283,40 @@ func (m *Model) handleQueryLoad(msg queryLoadMsg) tea.Cmd {
 		if msg.err != nil {
 			m.flash = "query: " + msg.err.Error()
 		}
-		m.finishQueryRun(q, m.queryMatchesInCtx(q, load.parsed, load.scope, load.ctx))
-		m.queryLoad = nil
-		return m.scheduleSync()
+		load.ctx.partial = false // the corpus is complete — semantic atoms may run
+		return m.evaluateQuery(q, load)
 	}
 	return m.waitQueryLoad(load)
+}
+
+// evaluateQuery runs the finished expression on a worker. The candidate set stops
+// growing once the scan is done, and the context holds a chip snapshot, so the
+// worker reads only frozen data — everything that touches the tree stays on the
+// UI goroutine, in handleQueryReady.
+func (m *Model) evaluateQuery(q *item, load *queryLoad) tea.Cmd {
+	return func() tea.Msg {
+		return queryReadyMsg{generation: load.generation,
+			matches: evalMatches(q, load.parsed, load.scope, load.ctx)}
+	}
+}
+
+// handleQueryReady lands a finished evaluation: reconcile the mirrors and drop
+// the running indicator.
+func (m *Model) handleQueryReady(msg queryReadyMsg) tea.Cmd {
+	load := m.queryLoad
+	if load == nil || msg.generation != load.generation {
+		return nil // a newer alt+r superseded this run
+	}
+	q := m.tree.byUUID[load.uuid]
+	m.queryLoad = nil
+	if q == nil || q.typ != database.TypeQuery {
+		return nil
+	}
+	if load.parsed.breadcrumb {
+		m.sortByCrumb(msg.matches)
+	}
+	m.finishQueryRun(q, msg.matches)
+	return m.scheduleSync()
 }
 
 // waitQueryLoad waits for the next batch from the current scan without blocking
@@ -251,10 +360,31 @@ func (m *Model) queryMatches(q *item) []database.Node {
 	return m.queryMatchesInCtx(q, pq, scope, ctx)
 }
 
-// queryMatchesInCtx evaluates an already-populated candidate context. Streamed
-// query runs call it after each database batch; synchronous callers use the
-// complete context from buildQueryCtx.
+// queryMatchesInCtx evaluates a context and applies every display ordering,
+// including the breadcrumb sort that walks the tree. It therefore belongs to the
+// UI goroutine; a worker calls evalMatches and lets handleQueryReady finish.
 func (m *Model) queryMatchesInCtx(q *item, pq parsedQuery, scope string, ctx *qCtx) []database.Node {
+	out := evalMatches(q, pq, scope, ctx)
+	if pq.breadcrumb {
+		m.sortByCrumb(out)
+	}
+	return out
+}
+
+// sortByCrumb groups hits by ancestor path so same-parent matches sit together
+// and the render can show one breadcrumb per group. It reads the tree, so it
+// never runs off the UI goroutine.
+func (m *Model) sortByCrumb(out []database.Node) {
+	m.qCrumbs = nil
+	sort.SliceStable(out, func(i, j int) bool {
+		return m.crumbOf(out[i].UUID) < m.crumbOf(out[j].UUID)
+	})
+}
+
+// evalMatches is the pure half: it reads only the candidate context, which stops
+// changing once the scan is done. That is what lets a large query evaluate on a
+// worker while the editor keeps drawing.
+func evalMatches(q *item, pq parsedQuery, scope string, ctx *qCtx) []database.Node {
 	ctx = ctx.scoped(q, scope)
 	if len(ctx.cands) == 0 {
 		return nil
@@ -273,24 +403,23 @@ func (m *Model) queryMatchesInCtx(q *item, pq parsedQuery, scope string, ctx *qC
 		})
 	}
 
-	// /star pins first; name order within each half. Stable so ties keep UUID order.
+	// /star pins first. Then relevance, when the query has any: a "quoted" atom
+	// ranks its hits, and name order would throw that away — the whole point of
+	// scoring 50,000 candidates is that the best few come out on top, not the ones
+	// that happen to start with "a". A purely lexical query has no score and falls
+	// back to name order, since "matched" is all it ever knows.
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Starred != out[j].Starred {
 			return out[i].Starred
+		}
+		if si, sj := ctx.score[out[i].UUID], ctx.score[out[j].UUID]; si != sj {
+			return si > sj
 		}
 		if out[i].Name == out[j].Name {
 			return out[i].UUID < out[j].UUID
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
-	// :breadcrumb: groups hits by their ancestor path, so same-parent matches
-	// sit together and the render can show one breadcrumb per group
-	if pq.breadcrumb {
-		m.qCrumbs = nil
-		sort.SliceStable(out, func(i, j int) bool {
-			return m.crumbOf(out[i].UUID) < m.crumbOf(out[j].UUID)
-		})
-	}
 	return out
 }
 
@@ -305,7 +434,7 @@ func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
 		for _, n := range nodes {
 			if n.MirrorOf == "" {
 				ctx.add(q, qCand{uuid: n.UUID, name: n.Name, note: n.Note, typ: n.Type,
-					parent: n.ParentUUID, addedOn: n.AddedOn, starred: n.Starred})
+					parent: n.ParentUUID, addedOn: n.AddedOn, completedAt: n.CompletedAt, starred: n.Starred})
 			}
 		}
 		return true
@@ -319,7 +448,8 @@ func (m *Model) buildQueryCtx(q *item, now time.Time) *qCtx {
 // adds persisted candidates later, without ever reading or mutating the tree
 // from its worker goroutine.
 func (m *Model) buildQueryCtxMemory(q *item, now time.Time) *qCtx {
-	ctx := &qCtx{m: m, now: now, parent: map[string]string{}, byUUID: map[string]*qCand{}, seen: map[string]bool{}}
+	ctx := &qCtx{m: m, now: now, chips: m.chipSnapshot(),
+		parent: map[string]string{}, byUUID: map[string]*qCand{}, seen: map[string]bool{}}
 	if m.tree == nil {
 		return ctx
 	}
@@ -332,7 +462,7 @@ func (m *Model) buildQueryCtxMemory(q *item, now time.Time) *qCtx {
 			parent = it.parent.uuid
 		}
 		ctx.add(q, qCand{uuid: uuid, name: it.name, note: it.note, typ: it.typ,
-			parent: parent, addedOn: it.addedOn, starred: it.starred})
+			parent: parent, addedOn: it.addedOn, completedAt: it.completedAt, starred: it.starred})
 	}
 	return ctx
 }
@@ -344,12 +474,16 @@ func (ctx *qCtx) add(q *item, c qCand) {
 		return
 	}
 	ctx.seen[c.uuid] = true
-	c.searchName = database.ExpandAnchors(c.name, ctx.m.chips)
-	c.searchNote = database.ExpandAnchors(c.note, ctx.m.chips)
+	c.searchName = database.ExpandAnchors(c.name, ctx.chips)
+	c.searchNote = database.ExpandAnchors(c.note, ctx.chips)
 	if c.parent != "" {
 		ctx.parent[c.uuid] = c.parent
 	}
-	if c.name == "" {
+	// An empty structural node has no text to match. The forest root is chrome
+	// the same way it is chrome in a breadcrumb path: it is every node's
+	// ancestor, so returning it as a hit says nothing. Both still contributed
+	// their parent link above, which is what `>` and in: scoping actually need.
+	if c.name == "" || c.uuid == database.RootUUID || c.parent == "" {
 		return
 	}
 	ctx.cands = append(ctx.cands, c)
@@ -367,7 +501,8 @@ func (ctx *qCtx) scoped(q *item, scope string) *qCtx {
 	if scope == "" {
 		scope = database.RootUUID
 	}
-	out := &qCtx{m: ctx.m, now: ctx.now, parent: ctx.parent, byUUID: map[string]*qCand{}, seen: ctx.seen}
+	out := &qCtx{m: ctx.m, now: ctx.now, chips: ctx.chips, parent: ctx.parent,
+		byUUID: map[string]*qCand{}, seen: ctx.seen, partial: ctx.partial}
 	qRoot := map[string]bool{q.uuid: true}
 	scopeRoot := map[string]bool{scope: true}
 	for _, c := range ctx.cands {

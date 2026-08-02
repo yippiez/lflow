@@ -695,9 +695,15 @@ func (m *Model) bottomBar(maxLine int) []string {
 			state = " · unsaved"
 		}
 	}
-	if m.queryLoad != nil {
-		spinner := []string{"◜", "◠", "◝", "◞", "◡", "◟"}[animFrame%6]
-		state += " · " + cYellow + spinner + " loading query" + cDim
+	if n := m.runningQueryCount(); n > 0 {
+		// a shimmer, not a spinner: the house loading indicator is the ultraloop
+		// sliding shine (see ShineText), and it reads as "working" without
+		// stealing the eye the way a rotating glyph does
+		noun := "query"
+		if n > 1 {
+			noun = "queries"
+		}
+		state += " · " + ShineText(fmt.Sprintf("%d %s running", n, noun)) + cDim
 	}
 	if m.selOn {
 		lo, hi := m.selectionBounds()

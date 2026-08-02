@@ -320,7 +320,7 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		}
 	case actQueryScope:
 		// Persist the selected node identity as a regular node-link chip. Query
-		// parsing consumes this chip after :in:, so a rename cannot change scope.
+		// parsing consumes this chip inside in(…), so a rename cannot change scope.
 		dst := m.resolveSourceNode(target)
 		label := displayAnchors(dst.Name, m.chips)
 		anchor := m.createLabeledChip(chipKindLink, nodeLinkURI(dst.UUID), label)
@@ -328,8 +328,17 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 			m.pushUndo("")
 			runes := []rune(cur.name)
 			m.boundCaret(len(runes))
-			cur.name = string(runes[:m.caret]) + anchor + " " + string(runes[m.caret:])
-			m.caret += len([]rune(anchor)) + 1
+			// The completer left the caret inside "in()", so the chip fills the
+			// brackets and the caret steps out past ")". Only the older unbracketed
+			// spelling needs a separating space after the chip.
+			inBrackets := m.caret < len(runes) && runes[m.caret] == ')'
+			tail := " "
+			if inBrackets {
+				tail = ""
+			}
+			cur.name = string(runes[:m.caret]) + anchor + tail + string(runes[m.caret:])
+			m.caret += len([]rune(anchor)) + len([]rune(tail))
+			m.skipClosingParen(cur)
 			m.unsaved = true
 			m.flash = "query in → " + clipStr(label, 24)
 		}

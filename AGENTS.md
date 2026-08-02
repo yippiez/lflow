@@ -238,6 +238,61 @@ path that writes, and it goes through `database.ApplySuggestion` and then
 resyncs. A proposal against the current view's own root has no row to hang from;
 `/suggestions` says so instead of pretending there is nothing.
 
+## Query nodes
+
+A Query node's name IS its search; `alt+r` runs it and reconciles the hits as
+mirror children. Every filter is a `key(value)` call — never a `:key:value`
+sandwich — alongside bare words, `#tag`, `&&`/`||`/`>`/parens, and `-x` to
+negate:
+
+```
+buy type(todo) is(open)                     todos still open that mention "buy"
+project > type(todo) after(2026-06-01)      dated todos under a "project" node
+#urgent -is(done) in(<picked node>)         open urgent work inside one subtree
+"why the build keeps failing" as(tree)      semantic search, nested under ancestors
+```
+
+Hits come back ranked: `/star` pins first, then relevance when a quoted atom
+scored them, then name. A purely lexical query has no score — only "matched" —
+so it stays name-ordered. A run streams its candidates, then hands the finished
+expression to a worker (`queryReadyMsg`) so a big evaluation never blocks the UI
+goroutine; the toolbar shows `N queries running` as an ultraloop shimmer
+(`ShineText`) while it works. The worker reads only frozen data — the candidate
+set stops growing and `qCtx.chips` is a snapshot — and everything touching the
+tree (mirror reconciliation, the `as(tree)` breadcrumb sort) stays on the UI
+goroutine.
+
+Qualifiers: `type()` `in()` `after()`/`since()` `before()`/`until()` `is()`
+(starred, unstarred, done, open) `has()` (note, children) `as()` (tree/list). A
+`(` opens a value only when glued to a known key, so `(project || release)`
+still groups; brackets also hold a value with spaces together, which is how
+`before(2026-06-20 14:30)` keeps its clock time. The `:` completer inserts
+`type()` with the caret between the brackets, and typing a key out by hand
+lands the same text. Every colon spelling (`type:todo`, `:type:todo`) still
+parses — query text is persisted node text, so old queries must keep matching
+(invariant noted in `querytime.go`).
+
+**A `"quoted phrase"` is a SEMANTIC atom** (`semantic.go`): it matches by meaning,
+so it can return a node sharing no word with the phrase. The quote marks render
+yellow like a math operator; the phrase inside stays ordinary text. The model is
+built from the outline itself on every run — random indexing over the candidate
+set, fused by Reciprocal Rank Fusion with BM25 and character-trigram Dice — so
+there is no model file, no download, and no network call.
+
+The model is **outline-native**: the tree is evidence, not just layout. A node's
+fingerprint carries a decayed share of its ancestors', and its vector blends its
+ancestors' and children's, so a query about a container reaches what is filed
+inside it (including rows that share no word with it) and a query about a child
+reaches its container. Each ancestor is damped by `sqrt(children)` — a parent of
+three is making a claim about all three, a bucket of fifty is barely making one
+about any. That damping is load-bearing: without it a subtree collapses into one
+blob where every node is "related" to every other, and a query for one child
+returns all its siblings. Nodes reach up and down, never sideways. Quality is bounded by
+what the outline itself makes available: with no co-occurrence evidence linking
+two vocabularies, the honest answer is no hits, and the matcher returns none
+rather than the top of the noise. Swapping in static embeddings later changes
+only the vector channel, not the fusion or the syntax.
+
 ## NLPCompute code generation
 
 NLPCompute is the only in-editor Pi surface. `alt+r` sends its natural-language
