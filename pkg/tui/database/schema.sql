@@ -99,4 +99,4 @@ CREATE INDEX idx_suggestions_status
 			ON suggestions(status, created_on);
 
 -- Migration version data.
-INSERT INTO system (key, value) VALUES ('schema', 42);
+INSERT INTO system (key, value) VALUES ('schema', 44);

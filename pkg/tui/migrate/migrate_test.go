@@ -1195,3 +1195,72 @@ func TestLM43AddsSuggestions(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLM44RewritesQueryNodeSyntax(t *testing.T) {
+	db := database.InitTestMemoryDBRaw(t, "")
+	ctx := context.InitTestCtxWithDB(t, db)
+
+	queries := []struct {
+		uuid, old, want string
+	}{
+		{"q1", "buy :type:todo", "buy type(todo)"},
+		{"q2", "project > :type:todo :after:2026-06-01", "project > type(todo) after(2026-06-01)"},
+		{"q3", "#urgent :in:root", "#urgent in(root)"},
+		{"q4", ":breadcrumb: todo", "as(tree) todo"},
+		{"q5", ":list: shipped", "as(list) shipped"},
+		{"q6", "(:type:h1) :since:2026-06-01 :until:2026-06-20", "(type(h1)) since(2026-06-01) until(2026-06-20)"},
+		{"q7", ":tree: archive", "as(tree) archive"},
+		{"q8", "already type(todo) in(root)", "already type(todo) in(root)"},
+		{"q9", "plain words #tag && || >", "plain words #tag && || >"},
+		{"q10", ":type:todo", "type(todo)"},
+	}
+	for _, q := range queries {
+		if err := (database.Node{UUID: q.uuid, Name: q.old, Type: database.TypeQuery}).Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a ":type:" inside a non-query node is prose, never a filter
+	if err := (database.Node{UUID: "note", Name: "write :type:todo on the whiteboard", Type: database.TypeBullets}).Insert(db); err != nil {
+		t.Fatal(err)
+	}
+	// the scope chip anchor is the identity of the scoped node and must survive
+	anchor := database.ChipAnchor("scoped-node")
+	if err := (database.Node{UUID: "chip-scope", Name: ":in:" + anchor, Type: database.TypeQuery}).Insert(db); err != nil {
+		t.Fatal(err)
+	}
+	database.MustExec(t, "rewind schema", db, "UPDATE system SET value = 43 WHERE key = ?", consts.SystemSchema)
+
+	if err := Run(ctx, LocalSequence); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, q := range queries {
+		var name string
+		database.MustScan(t, "query name", db.QueryRow("SELECT name FROM nodes WHERE uuid = ?", q.uuid), &name)
+		if name != q.want {
+			t.Errorf("node %s = %q, want %q", q.uuid, name, q.want)
+		}
+	}
+	var note string
+	database.MustScan(t, "prose untouched", db.QueryRow("SELECT name FROM nodes WHERE uuid = 'note'"), &note)
+	if note != "write :type:todo on the whiteboard" {
+		t.Errorf("non-query prose was rewritten: %q", note)
+	}
+	var scoped string
+	database.MustScan(t, "scope chip preserved", db.QueryRow("SELECT name FROM nodes WHERE uuid = 'chip-scope'"), &scoped)
+	if scoped != "in("+anchor+")" {
+		t.Errorf("scope chip = %q, want in(%s)", scoped, anchor)
+	}
+
+	// re-running is a no-op: already-bracketed text has nothing left to convert
+	if err := Run(ctx, LocalSequence); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range queries {
+		var name string
+		database.MustScan(t, "query name stable", db.QueryRow("SELECT name FROM nodes WHERE uuid = ?", q.uuid), &name)
+		if name != q.want {
+			t.Errorf("node %s drifted on re-run = %q, want %q", q.uuid, name, q.want)
+		}
+	}
+}

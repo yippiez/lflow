@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/dnote/actions"
 	"github.com/lflow/lflow/pkg/tui/config"
@@ -1422,4 +1423,163 @@ var lm43 = migration{
 		}
 		return nil
 	},
+}
+
+// lm44 rewrites every persisted query node's name from the pre-semantic colon
+// syntax to the key(value) syntax that arrived with semantic search: the old
+// `:type:todo` / `:after:2026-06-01` / `:breadcrumb:` spellings become
+// `type(todo)` / `after(2026-06-01)` / `as(tree)`, and the `:in:` scope
+// selector becomes `in(...)`. The new parser still accepts the colon forms (see
+// the compatibility invariant in querytime.go), so this migration is
+// presentation-first: it keeps stored text reading as the current language
+// rather than as an ever-growing pile of aliases. Only type=query rows are
+// touched; a ":type:" inside a prose note is a word, not a query filter. The
+// scope chip anchor inside an in(...) is preserved exactly (it is the identity
+// of the scoped node, chips are not rewritten).
+var lm44 = migration{
+	name: "rewrite-query-node-syntax",
+	run: func(ctx context.DnoteCtx, tx *database.DB) error {
+		rows, err := tx.Query("SELECT uuid, name FROM nodes WHERE type = ?", database.TypeQuery)
+		if err != nil {
+			return errors.Wrap(err, "querying query nodes")
+		}
+		type rewrite struct{ uuid, name string }
+		var rewrites []rewrite
+		for rows.Next() {
+			var uuid, name string
+			if err := rows.Scan(&uuid, &name); err != nil {
+				rows.Close()
+				return errors.Wrap(err, "scanning query node")
+			}
+			if converted := rewriteQuerySyntax(name); converted != name {
+				rewrites = append(rewrites, rewrite{uuid, converted})
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return errors.Wrap(err, "closing query node scan")
+		}
+
+		for _, r := range rewrites {
+			if _, err := tx.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", r.name, r.uuid); err != nil {
+				return errors.Wrapf(err, "rewriting query node %s", r.uuid)
+			}
+			// spans are rune offsets into the old name; a rewritten name must not
+			// inherit styling aimed at different characters
+			if _, err := tx.Exec("DELETE FROM node_spans WHERE node_uuid = ?", r.uuid); err != nil {
+				return errors.Wrapf(err, "dropping stale spans from query node %s", r.uuid)
+			}
+		}
+		return nil
+	},
+}
+
+// rewriteQuerySyntax converts one persisted query name to the key(value)
+// spelling. Everything the old tokenizer understood is mapped; anything else
+// (bare words, tags, && || > parens, and already-bracketed text) passes through
+// untouched, so re-running is a no-op. The scope chip anchor — a sentinel-run
+// ￼<id>￼ glued right after the old ":in:" marker — is kept verbatim inside the
+// brackets: it is the identity of the scoped node and must not change.
+func rewriteQuerySyntax(name string) string {
+	runes := []rune(name)
+	spans := database.AnchorSpans(runes)
+	spanAt := make(map[int]database.AnchorSpan, len(spans))
+	for _, sp := range spans {
+		spanAt[sp.Start] = sp
+	}
+
+	var out []rune
+	changed := false
+	for i := 0; i < len(runes); {
+		if unicode.IsSpace(runes[i]) {
+			out = append(out, runes[i])
+			i++
+			continue
+		}
+		// the old ":in:" scope selector: skip the marker, then take either the
+		// glued chip anchor or the next whitespace-delimited value (root/uuid)
+		if i == 0 || unicode.IsSpace(runes[i-1]) {
+			if strings.HasPrefix(strings.ToLower(string(runes[i:])), ":in:") {
+				j := i + len(":in:")
+				for j < len(runes) && unicode.IsSpace(runes[j]) {
+					j++
+				}
+				if sp, ok := spanAt[j]; ok {
+					out = append(out, []rune("in(")...)
+					out = append(out, runes[j:sp.End]...)
+					out = append(out, ')')
+					changed = true
+					i = sp.End
+					continue
+				}
+				end := j
+				for end < len(runes) && !unicode.IsSpace(runes[end]) && runes[end] != ')' {
+					end++
+				}
+				value := string(runes[j:end])
+				if value == "" {
+					value = "root"
+				}
+				out = append(out, []rune("in("+value+")")...)
+				changed = true
+				i = end
+				continue
+			}
+		}
+		// ordinary token: convert the old colon qualifiers, keep everything else
+		start := i
+		for i < len(runes) && !unicode.IsSpace(runes[i]) {
+			i++
+		}
+		field := string(runes[start:i])
+		if converted, ok := rewriteQueryToken(field); ok {
+			out = append(out, []rune(converted)...)
+			changed = true
+		} else {
+			out = append(out, []rune(field)...)
+		}
+	}
+	if !changed {
+		return name
+	}
+	return string(out)
+}
+
+// rewriteQueryToken maps one colon-qualified field to its key(value) spelling.
+// It peels trailing ":" off the value marker the same way the old tokenizer
+// tolerated both ":breadcrumb:" and ":breadcrumb", and peels leading/trailing
+// parens (the old splitQueryFields broke "(a && b)" apart) so a grouped
+// qualifier like "(:type:todo)" becomes "(type(todo))". A field with no known
+// prefix is returned unchanged.
+func rewriteQueryToken(field string) (string, bool) {
+	lead, trail := "", ""
+	for strings.HasPrefix(field, "(") {
+		lead += "("
+		field = field[1:]
+	}
+	for strings.HasSuffix(field, ")") && field != "" {
+		trail = ")" + trail
+		field = field[:len(field)-1]
+	}
+	lower := strings.ToLower(field)
+	pre := []struct{ old, key string }{
+		{":after:", "after"}, {":since:", "since"},
+		{":before:", "before"}, {":until:", "until"},
+		{":type:", "type"},
+	}
+	for _, p := range pre {
+		if strings.HasPrefix(lower, p.old) {
+			return lead + p.key + "(" + field[len(p.old):] + ")" + trail, true
+		}
+	}
+	switch lower {
+	case ":breadcrumb:", ":breadcrumb":
+		return lead + "as(tree)" + trail, true
+	case ":list:", ":list":
+		return lead + "as(list)" + trail, true
+	case ":tree:", ":tree":
+		// the old removed display flag was tree-ish; the as() qualifier is its
+		// home now, so the migration promotes it rather than dropping it
+		return lead + "as(tree)" + trail, true
+	}
+	return lead + field + trail, false
 }
