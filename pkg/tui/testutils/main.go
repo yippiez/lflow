@@ -3,91 +3,14 @@ package testutils
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/lflow/lflow/pkg/tui/context"
-	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/utils"
-	"github.com/lflow/lflow/pkg/utils/assert"
 	"github.com/pkg/errors"
 )
-
-// Prompts for user input
-const (
-	PromptRemoveNote = "remove this note?"
-	PromptDeleteBook = "delete book"
-)
-
-// Timeout for waiting for prompts in tests
-const promptTimeout = 10 * time.Second
-
-// RemoveDir cleans up the test env represented by the given context
-func RemoveDir(t *testing.T, dir string) {
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(errors.Wrap(err, "removing the directory"))
-	}
-}
-
-// CopyFixture writes the content of the given fixture to the filename inside the lflow dir
-func CopyFixture(t *testing.T, ctx context.DnoteCtx, fixturePath string, filename string) {
-	fp, err := filepath.Abs(fixturePath)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "getting the absolute path for fixture"))
-	}
-
-	dp, err := filepath.Abs(filepath.Join(ctx.Paths.LegacyDnote, filename))
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "getting the absolute path lflow dir"))
-	}
-
-	err = utils.CopyFile(fp, dp)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "copying the file"))
-	}
-}
-
-// WriteFile writes a file with the given content and  filename inside the lflow dir
-func WriteFile(ctx context.DnoteCtx, content []byte, filename string) {
-	dp, err := filepath.Abs(filepath.Join(ctx.Paths.LegacyDnote, filename))
-	if err != nil {
-		panic(err)
-	}
-
-	if err := os.WriteFile(dp, content, 0644); err != nil {
-		panic(err)
-	}
-}
-
-// ReadFile reads the content of the file with the given name in lflow dir
-func ReadFile(ctx context.DnoteCtx, filename string) []byte {
-	path := filepath.Join(ctx.Paths.LegacyDnote, filename)
-
-	b, err := os.ReadFile(path)
-	if err != nil {
-		panic(err)
-	}
-
-	return b
-}
-
-// ReadJSON reads JSON fixture to the struct at the destination address
-func ReadJSON(path string, destination interface{}) {
-	var dat []byte
-	dat, err := os.ReadFile(path)
-	if err != nil {
-		panic(errors.Wrap(err, "Failed to load fixture payload"))
-	}
-	if err := json.Unmarshal(dat, destination); err != nil {
-		panic(errors.Wrap(err, "Failed to get event"))
-	}
-}
 
 // NewDnoteCmd returns a new Dnote command and a pointer to stderr
 func NewDnoteCmd(opts RunDnoteCmdOptions, binaryName string, arg ...string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer, error) {
@@ -192,78 +115,4 @@ func MustWaitDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, runFunc func(io.Rea
 	}
 
 	return output
-}
-
-// MustWaitForPrompt waits for an expected prompt with a default timeout.
-// Fails the test if the prompt is not found or an error occurs.
-func MustWaitForPrompt(t *testing.T, stdout io.Reader, expectedPrompt string) {
-	if err := assert.WaitForPrompt(stdout, expectedPrompt, promptTimeout); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// ConfirmRemoveNote waits for prompt for removing a note and confirms.
-func ConfirmRemoveNote(stdout io.Reader, stdin io.WriteCloser) error {
-	return assert.RespondToPrompt(stdout, stdin, PromptRemoveNote, "y\n", promptTimeout)
-}
-
-// ConfirmRemoveBook waits for prompt for deleting a book confirms.
-func ConfirmRemoveBook(stdout io.Reader, stdin io.WriteCloser) error {
-	return assert.RespondToPrompt(stdout, stdin, PromptDeleteBook, "y\n", promptTimeout)
-}
-
-// UserContent simulates content from the user by writing to stdin.
-// This is used for piped input where no prompt is shown.
-func UserContent(stdout io.Reader, stdin io.WriteCloser) error {
-	longText := `Lorem ipsum dolor sit amet, consectetur adipiscing elit,
-	sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.`
-
-	if _, err := io.WriteString(stdin, longText); err != nil {
-		return errors.Wrap(err, "creating note from stdin")
-	}
-
-	// stdin needs to close so stdin reader knows to stop reading
-	// otherwise test case would wait until test timeout
-	stdin.Close()
-
-	return nil
-}
-
-// MustMarshalJSON marshalls the given interface into JSON.
-// If there is any error, it fails the test.
-func MustMarshalJSON(t *testing.T, v interface{}) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("%s: marshalling data: %s", t.Name(), err.Error())
-	}
-
-	return b
-}
-
-// MustUnmarshalJSON marshalls the given interface into JSON.
-// If there is any error, it fails the test.
-func MustUnmarshalJSON(t *testing.T, data []byte, v interface{}) {
-	err := json.Unmarshal(data, v)
-	if err != nil {
-		t.Fatalf("%s: unmarshalling data: %s", t.Name(), err.Error())
-	}
-}
-
-// MustGenerateUUID generates the uuid. If error occurs, it fails the test.
-func MustGenerateUUID(t *testing.T) string {
-	ret, err := utils.GenerateUUID()
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "generating uuid").Error())
-	}
-
-	return ret
-}
-
-func MustOpenDatabase(t *testing.T, dbPath string) *database.DB {
-	db, err := database.Open(dbPath)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "opening database"))
-	}
-
-	return db
 }

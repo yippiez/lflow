@@ -15,6 +15,11 @@ per type in `pkg/tui/editor/registry.go`.
   `go build --tags fts5 ./pkg/tui`
 - After every change, install the dev binary so the user can test it:
   `go build --tags fts5 -ldflags "-X main.versionTag=0.1.0-dev" -o ~/.local/bin/lflow ./pkg/tui`
+- The database has **no migrations**: `pkg/tui/database/schema.sql` is the
+  canonical schema, applied wholesale by `infra.InitDB` when a fresh database
+  appears (`database.DefaultSchemaSQL()` embeds it). Schema changes are edits
+  to that file — `infra.InitDB` skips existing databases, so a running outline
+  is never touched.
 - Verification (tests, e2e, ast-grep, isolation rules) lives in
   `.claude/agents/verifier.md` — Claude Code calls it as the `verifier`
   subagent; other agents follow the same steps manually. Verify before
@@ -133,11 +138,11 @@ so a caret index in the grid is not an index into the stored text.
 
 ## Node priority
 
-`nodes.priority` (lm39) says where INCOMING nodes land among a node's children:
+`nodes.priority` says where INCOMING nodes land among a node's children:
 `up` = top, `down` = bottom. New children (CLI `add`) and moved-in nodes (`/move:to`, `mv`, indent,
 multi-select, `/mirror:from`) route through it (`database.PlaceRank`,
 `tree.reparent`). New nodes default
-up; everything that existed before lm39 is down. `/priority:up` /
+up; rows created before the column existed are down. `/priority:up` /
 `/priority:down` set it immediately, like /star.
 
 ## Agentic coding sessions
@@ -202,7 +207,7 @@ back out of the CLI's own store (`agentstore.go`) on demand.
 ## Edit suggestions
 
 `lflow suggest` is the review queue: a proposed change lives in the
-`suggestions` table (lm42) and touches NOTHING until somebody approves it —
+`suggestions` table and touches NOTHING until somebody approves it —
 kind `add` carries a node proposed under a parent, kind `edit` carries the
 fields (`name`/`note`/`type`) proposed for one node. `suggest add` / `suggest
 edit` file one, `list` / `show` read them (both take `--format json`, the

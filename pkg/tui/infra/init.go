@@ -13,7 +13,6 @@ import (
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
-	"github.com/lflow/lflow/pkg/tui/migrate"
 	"github.com/lflow/lflow/pkg/utils"
 	"github.com/lflow/lflow/pkg/utils/clock"
 	"github.com/lflow/lflow/pkg/utils/dirs"
@@ -25,29 +24,10 @@ import (
 // RunEFunc is a function type of lflow commands
 type RunEFunc func(*cobra.Command, []string) error
 
-func checkLegacyDBPath() (string, bool) {
-	legacyDnoteDir := getLegacyDnotePath(dirs.Home)
-	ok, err := utils.FileExists(legacyDnoteDir)
-	if ok {
-		return legacyDnoteDir, true
-	}
-
-	if err != nil {
-		log.Error(errors.Wrapf(err, "checking legacy dnote directory at %s", legacyDnoteDir).Error())
-	}
-
-	return "", false
-}
-
 func getDBPath(paths context.Paths, customPath string) string {
 	// If custom path is provided, use it
 	if customPath != "" {
 		return customPath
-	}
-
-	legacyDnoteDir, ok := checkLegacyDBPath()
-	if ok {
-		return fmt.Sprintf("%s/%s", legacyDnoteDir, consts.LflowDBFileName)
 	}
 
 	return fmt.Sprintf("%s/%s/%s", paths.Data, consts.LflowDirName, consts.LflowDBFileName)
@@ -56,16 +36,15 @@ func getDBPath(paths context.Paths, customPath string) string {
 // ResolvePaths returns the standard lflow directories.
 func ResolvePaths() context.Paths {
 	return context.Paths{
-		Home:        dirs.Home,
-		Config:      dirs.ConfigHome,
-		Data:        dirs.DataHome,
-		Cache:       dirs.CacheHome,
-		LegacyDnote: getLegacyDnotePath(dirs.Home),
+		Home:   dirs.Home,
+		Config: dirs.ConfigHome,
+		Data:   dirs.DataHome,
+		Cache:  dirs.CacheHome,
 	}
 }
 
-// ResolveDBPath resolves the database location: the config override, the
-// legacy dnote dir, or the standard data dir.
+// ResolveDBPath resolves the database location: the config override or the
+// standard data dir.
 func ResolveDBPath() (string, error) {
 	paths := ResolvePaths()
 	// the config file is the only way to relocate the database; on a first
@@ -77,9 +56,9 @@ func ResolveDBPath() (string, error) {
 	return getDBPath(paths, customDBPath), nil
 }
 
-// PrepareDB creates the schema and system rows and runs every migration.
-// The daemon runs it once at startup as the database's single owner; a
-// direct (LFLOW_NO_DAEMON) run does it for itself.
+// PrepareDB creates the schema and system rows. The daemon runs it once at
+// startup as the database's single owner; a direct (LFLOW_NO_DAEMON) run does
+// it for itself.
 func PrepareDB(db *database.DB, versionTag string) error {
 	ctx := context.DnoteCtx{Paths: ResolvePaths(), Version: versionTag, DB: db}
 	if err := InitDB(ctx); err != nil {
@@ -87,12 +66,6 @@ func PrepareDB(db *database.DB, versionTag string) error {
 	}
 	if err := InitSystem(ctx); err != nil {
 		return errors.Wrap(err, "initializing system data")
-	}
-	if err := migrate.Legacy(ctx); err != nil {
-		return errors.Wrap(err, "running legacy migration")
-	}
-	if err := migrate.Run(ctx, migrate.LocalSequence); err != nil {
-		return errors.Wrap(err, "running migration")
 	}
 	return nil
 }
@@ -172,34 +145,16 @@ func setupCtx(ctx context.DnoteCtx) (context.DnoteCtx, error) {
 	return ret, nil
 }
 
-// getLegacyDnotePath returns a legacy dnote directory path placed under
-// the user's home directory
-func getLegacyDnotePath(homeDir string) string {
-	return fmt.Sprintf("%s/%s", homeDir, consts.LegacyDnoteDirName)
-}
-
 // InitDB initializes the database.
-// Ideally this process must be a part of migration sequence. But it is performed
-// seaprately because it is a prerequisite for legacy migration.
 //
-// The legacy dnote tables (notes/books/actions) are only created when the
-// database has not yet been converted to the node model: the lm1..lm14 legacy
-// migrations expect them, and lm15 converts them into nodes and drops them.
+// lflow has no migrations: a fresh database is created by applying the
+// canonical schema.sql wholesale, and an existing one is left untouched.
 func InitDB(ctx context.DnoteCtx) error {
 	log.Debug("initializing the database\n")
 
 	db := ctx.DB
 
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS system
-		(
-			key string NOT NULL,
-			value text NOT NULL
-		)`)
-	if err != nil {
-		return errors.Wrap(err, "creating system table")
-	}
-
-	// if the node model already exists, the legacy tables are gone for good
+	// if the node model already exists, the database is already initialized
 	var nodesCount int
 	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'nodes'").Scan(&nodesCount); err != nil {
 		return errors.Wrap(err, "checking for nodes table")
@@ -208,48 +163,8 @@ func InitDB(ctx context.DnoteCtx) error {
 		return nil
 	}
 
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS notes
-		(
-			id integer PRIMARY KEY AUTOINCREMENT,
-			uuid text NOT NULL,
-			book_uuid text NOT NULL,
-			content text NOT NULL,
-			added_on integer NOT NULL,
-			edited_on integer DEFAULT 0,
-			public bool DEFAULT false
-		)`)
-	if err != nil {
-		return errors.Wrap(err, "creating notes table")
-	}
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS books
-		(
-			uuid text PRIMARY KEY,
-			label text NOT NULL
-		)`)
-	if err != nil {
-		return errors.Wrap(err, "creating books table")
-	}
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS actions
-		(
-			uuid text PRIMARY KEY,
-			schema integer NOT NULL,
-			type text NOT NULL,
-			data text NOT NULL,
-			timestamp integer NOT NULL
-		)`)
-	if err != nil {
-		return errors.Wrap(err, "creating actions table")
-	}
-
-	_, err = db.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_books_label ON books(label);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_uuid ON notes(uuid);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_books_uuid ON books(uuid);
-		CREATE INDEX IF NOT EXISTS idx_notes_book_uuid ON notes(book_uuid);`)
-	if err != nil {
-		return errors.Wrap(err, "creating indices")
+	if _, err := db.Exec(database.DefaultSchemaSQL()); err != nil {
+		return errors.Wrap(err, "applying schema.sql")
 	}
 
 	return nil

@@ -2,7 +2,6 @@ package database
 
 import (
 	"database/sql"
-	_ "embed"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -11,14 +10,6 @@ import (
 	"github.com/lflow/lflow/pkg/utils"
 	"github.com/pkg/errors"
 )
-
-//go:embed schema.sql
-var defaultSchemaSQL string
-
-// GetDefaultSchemaSQL returns the default schema SQL for tests
-func GetDefaultSchemaSQL() string {
-	return defaultSchemaSQL
-}
 
 // MustScan scans the given row and fails a test in case of any errors
 func MustScan(t *testing.T, message string, row *sql.Row, args ...interface{}) {
@@ -58,7 +49,7 @@ func InitTestFileDBRaw(t *testing.T, dbPath string) *DB {
 		t.Fatal(errors.Wrap(err, "opening database"))
 	}
 
-	if _, err := db.Exec(defaultSchemaSQL); err != nil {
+	if _, err := db.Exec(DefaultSchemaSQL()); err != nil {
 		t.Fatal(errors.Wrap(err, "running schema sql"))
 	}
 
@@ -66,8 +57,8 @@ func InitTestFileDBRaw(t *testing.T, dbPath string) *DB {
 	return db
 }
 
-// InitTestMemoryDBRaw initializes an in-memory test database without marking migrations complete.
-// If schemaPath is empty, uses the default schema. Used for migration testing.
+// InitTestMemoryDBRaw initializes an in-memory test database with the default
+// schema. If schemaPath is non-empty, that SQL file is used instead.
 func InitTestMemoryDBRaw(t *testing.T, schemaPath string) *DB {
 	uuid := mustGenerateTestUUID(t)
 	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared", uuid)
@@ -81,7 +72,7 @@ func InitTestMemoryDBRaw(t *testing.T, schemaPath string) *DB {
 	if schemaPath != "" {
 		schemaSQL = string(utils.ReadFileAbs(schemaPath))
 	} else {
-		schemaSQL = defaultSchemaSQL
+		schemaSQL = DefaultSchemaSQL()
 	}
 
 	if _, err := db.Exec(schemaSQL); err != nil {

@@ -70,7 +70,7 @@ func InitTestCtxWithFileDB(t *testing.T) DnoteCtx {
 		t.Fatal(errors.Wrap(err, "opening database"))
 	}
 
-	if _, err := db.Exec(database.GetDefaultSchemaSQL()); err != nil {
+	if _, err := db.Exec(database.DefaultSchemaSQL()); err != nil {
 		t.Fatal(errors.Wrap(err, "running schema sql"))
 	}
 

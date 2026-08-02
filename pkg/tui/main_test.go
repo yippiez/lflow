@@ -60,7 +60,7 @@ func TestInit(t *testing.T) {
 		t.Errorf("settings file was not initialized")
 	}
 
-	// the node model should exist; legacy tables should be gone (converted)
+	// the node model should exist; legacy tables never do (lflow has no migrations)
 	var nodesTableCount, booksTableCount, systemTableCount int
 	database.MustScan(t, "counting nodes table",
 		db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = ? AND name = ?", "table", "nodes"), &nodesTableCount)
@@ -70,7 +70,7 @@ func TestInit(t *testing.T) {
 		db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = ? AND name = ?", "table", "system"), &systemTableCount)
 
 	assert.Equal(t, nodesTableCount, 1, "nodes table count mismatch")
-	assert.Equal(t, booksTableCount, 0, "books table should have been dropped")
+	assert.Equal(t, booksTableCount, 0, "books table should not exist")
 	assert.Equal(t, systemTableCount, 1, "system table count mismatch")
 
 	var lastUpgrade string

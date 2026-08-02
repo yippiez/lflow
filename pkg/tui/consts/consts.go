@@ -2,8 +2,6 @@
 package consts
 
 var (
-	// LegacyDnoteDirName is the name of the legacy directory containing dnote files (for migration)
-	LegacyDnoteDirName = ".dnote"
 	// LflowDirName is the name of the directory containing lflow files
 	LflowDirName = "lflow"
 	// LflowDBFileName is a filename for the Lflow SQLite database
@@ -20,8 +18,6 @@ var (
 	// SettingsFilename is the JSON settings file inside LflowHomeDirName
 	SettingsFilename = "settings.json"
 
-	// SystemSchema is the key for schema in the system table
-	SystemSchema = "schema"
 	// SystemLastUpgrade is the timestamp at which the system more recently checked for an upgrade
 	SystemLastUpgrade = "last_upgrade"
 	// SystemColabAuth holds the Google OAuth token (JSON) for the Colab compute

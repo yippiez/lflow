@@ -9,11 +9,10 @@ import (
 
 // Paths contain directory definitions
 type Paths struct {
-	Home        string
-	Config      string
-	Data        string
-	Cache       string
-	LegacyDnote string
+	Home   string
+	Config string
+	Data   string
+	Cache  string
 }
 
 // DnoteCtx is a context holding the information of the current runtime
