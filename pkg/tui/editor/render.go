@@ -52,7 +52,6 @@ var (
 	cMagenta = "\x1b[38;2;197;134;192m" // #c586c0
 	cCyan    = "\x1b[38;2;78;201;176m"  // #4ec9b0
 	bgCode   = "\x1b[48;2;31;31;31m"    // #1f1f1f block behind code rows
-	bgTerm   = "\x1b[48;2;30;34;48m"    // #1e2230 terminal block behind bash rows
 	bgPill   = "\x1b[48;2;38;79;120m"   // #264f78 behind date pills
 	bgHit    = "\x1b[48;2;92;72;12m"    // yellow-brown query match highlight
 	bgMol    = "\x1b[48;2;31;56;50m"    // #1f3832 block behind a ⌬ molecule chip
@@ -629,33 +628,6 @@ func bgOf(fg string) string {
 	return ""
 }
 
-// activeCmdDraftRange returns the not-yet-committed cmd chip range that contains
-// the caret. A standalone "$" starts the draft immediately; single spaces stay
-// in the command, while a double space means the draft has ended (and normally
-// commits before render). Anchor interiors are ignored so other chips can still
-// be folded into the command when the double space arrives.
-func activeCmdDraftRange(runes []rune, caret int, spans []anchorSpan) (int, int) {
-	if caret <= 0 || caret > len(runes) {
-		return -1, -1
-	}
-	for i := caret - 1; i >= 0; {
-		if sp := spanEndingAt(spans, i+1); sp != nil {
-			i = sp.start - 1
-			continue
-		}
-		if runes[i] == '$' && (i == 0 || runes[i-1] == ' ') {
-			for j := i + 1; j < caret; j++ {
-				if runes[j] == ' ' && j+1 < caret && runes[j+1] == ' ' {
-					return -1, -1
-				}
-			}
-			return i, caret
-		}
-		i--
-	}
-	return -1, -1
-}
-
 // renderBody renders a node name wysiwyg. Text keeps its normal color on
 // every row — selection is carried by the red glyph alone. Unselected rows
 // hide the markdown markers; the selected row shows them and the block
@@ -663,7 +635,7 @@ func activeCmdDraftRange(runes []rune, caret int, spans []anchorSpan) (int, int)
 // A per-type prefix/color/muteFrom comes from the descriptor hooks, not a
 // switch here.
 
-func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip, cmdDraft bool) string {
+func renderBody(it *item, name string, caret int, selected bool, chips map[string]database.Chip) string {
 	name = stripControlBytes(name)
 	if r := typeOf(it.typ).render; r != nil {
 		return r(it, name) // per-type inline-body override (json preview)
@@ -719,12 +691,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 	selLive := textSelUUID != "" && textSelUUID == it.uuid
 	selLo, selHi := textSelLo, textSelHi
 	chipsp := anchorSpans(runes) // inline chip anchors, drawn collapsed
-	// the "$…" draft tint only while the caret sits where typing left it
-	// (cmdDraft, see cmdDraftLive) — never on a mere caret walk through text
-	cmdDraftStart, cmdDraftEnd := -1, -1
-	if cmdDraft {
-		cmdDraftStart, cmdDraftEnd = activeCmdDraftRange(runes, caret, chipsp)
-	}
 	if desc.muteFrom != nil {
 		// a type may mute a tail — the log type mutes from the first " · "
 		if d := desc.muteFrom(name); d >= 0 && d < len(runes) {
@@ -854,30 +820,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		}
 		r := runes[i]
 		f := flags[i]
-		if i >= cmdDraftStart && i < cmdDraftEnd {
-			// Live cmd-chip draft: as soon as a standalone "$" is typed, the
-			// not-yet-committed command wears the same gray cell as the final chip.
-			// A double space commits it; until then the stored text remains plain.
-			s := cReset + bgCode
-			if r == '$' && i == cmdDraftStart {
-				s += cRed
-			} else {
-				s += cFG + attrs
-			}
-			if spanSGR != nil && spanSGR[i] != "" {
-				s += spanSGR[i]
-			}
-			if i == caret {
-				s += cInvert
-			}
-			if s != cur {
-				b.WriteString(s)
-				cur = s
-			}
-			b.WriteRune(r)
-			i++
-			continue
-		}
 		if i == caret {
 			// the block cursor sits ON the rune: same colors as the cell —
 			// including its styled run — so the block wears the character's
@@ -915,13 +857,8 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		i++
 	}
 	if caret >= len(runes) && caret >= 0 {
-		// past the last rune: paint one trailing cell; keep a live cmd draft's
-		// cursor inside the gray cell until the double-space commits it.
-		if cmdDraftStart >= 0 && cmdDraftEnd == len(runes) {
-			b.WriteString(cReset + bgCode + cFG + cInvert + " ")
-		} else {
-			b.WriteString(cReset + cFG + cInvert + " ")
-		}
+		// past the last rune: paint one trailing block-cursor cell
+		b.WriteString(cReset + cFG + cInvert + " ")
 	}
 	if bt := desc.bodyTail; bt != nil {
 		if tail := bt(it, chips); tail != "" {

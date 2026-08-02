@@ -16,106 +16,93 @@ func cmdChipOf(m *Model) (database.Chip, bool) {
 	return database.Chip{}, false
 }
 
-// TestCmdChipCreateViaDoubleSpace: typing "$ls -la" then a DOUBLE space commits an
-// inline cmd chip whose value is the command (single spaces stay in the command).
-func TestCmdChipCreateViaDoubleSpace(t *testing.T) {
+// typeCmdChip drives "$$" into the node at the caret: the two-stroke cmd-chip
+// trigger. It returns the created chip.
+func typeCmdChip(t *testing.T, m *Model) database.Chip {
+	t.Helper()
+	m.press("$")
+	m.press("$")
+	c, ok := cmdChipOf(m)
+	if !ok {
+		t.Fatal("$$ did not create a cmd chip")
+	}
+	return c
+}
+
+// setCmdChipValue writes a command into an empty chip the way alt+i's save
+// does — the edited value lands in the chip row and in-memory store.
+func setCmdChipValue(m *Model, id, value string) {
+	c := m.chips[id]
+	c.Value = value
+	m.chips[id] = c
+	if m.ctx.DB != nil {
+		_ = database.UpsertChip(m.ctx.DB, c)
+	}
+}
+
+// TestCmdChipCreateViaDoubleDollar: typing "$$" lands an EMPTY cmd chip — the
+// two-stroke trigger. A single "$" stays literal (no chip), and the empty chip
+// is the blank to fill in with alt+i.
+func TestCmdChipCreateViaDoubleDollar(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
 	m.caret = 0
 
-	m.press("$ls -la")
-	m.press(" ") // first space: stays part of the command
+	m.press("$") // single $: literal, never a chip
 	if _, ok := cmdChipOf(m); ok {
-		t.Fatal("a single space must not commit the cmd chip")
+		t.Fatal("a single $ must not create a cmd chip")
 	}
-	m.press(" ") // second space: commits the chip
+	m.press("$") // second $: lands the empty chip
 
 	c, ok := cmdChipOf(m)
 	if !ok {
-		t.Fatal("double space did not create a cmd chip")
+		t.Fatal("$$ did not create a cmd chip")
 	}
-	if c.Value != "ls -la" {
-		t.Errorf("cmd value = %q, want %q", c.Value, "ls -la")
+	if c.Value != "" {
+		t.Errorf("$$ should land an EMPTY chip, value=%q", c.Value)
 	}
 	edit := m.tree.byUUID["edit"]
 	if !hasAnchor(edit.name) {
 		t.Fatalf("node has no chip anchor: %q", edit.name)
 	}
-	if got := displayAnchors(edit.name, m.chips); got != "$ ls -la " {
-		t.Errorf("rendered = %q, want %q", got, "$ ls -la ")
+	if got := displayAnchors(edit.name, m.chips); got != "$ " {
+		t.Errorf("rendered = %q, want %q", got, "$ ")
 	}
 }
 
-// TestCmdChipMidSentence: a "$cmd" token dropped mid-text (preceded by a space)
-// converts, leaving the surrounding prose intact.
+// TestCmdChipMidSentence: "$$" dropped mid-text lands the empty chip, leaving
+// the surrounding prose intact.
 func TestCmdChipMidSentence(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "run "})
 	cursorOn(m, "edit")
 	m.caret = len([]rune("run "))
 
-	m.press("$echo hi")
-	m.press(" ")
-	m.press(" ")
+	m.press("$")
+	m.press("$")
 
-	c, ok := cmdChipOf(m)
-	if !ok {
+	if _, ok := cmdChipOf(m); !ok {
 		t.Fatal("no cmd chip created")
 	}
-	if c.Value != "echo hi" {
-		t.Errorf("cmd value = %q, want %q", c.Value, "echo hi")
-	}
-	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "run $ echo hi " {
-		t.Errorf("rendered = %q, want %q", got, "run $ echo hi ")
+	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "run $ " {
+		t.Errorf("rendered = %q, want %q", got, "run $ ")
 	}
 }
 
-// TestCmdChipDraftColorsImmediately: a standalone "$" starts a live cmd-chip
-// draft before it is committed, so the prompt is red and the command area is
-// already on the same gray background the final chip will use.
-func TestCmdChipDraftColorsImmediately(t *testing.T) {
-	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
+// TestCmdChipSingleDollarStaysLiteral: a lone "$" in prose never chips — "$i",
+// "$(seq …)", "$HOME" are ordinary text until "$$" is typed.
+func TestCmdChipSingleDollarStaysLiteral(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "run "})
 	cursorOn(m, "edit")
-	m.caret = 0
+	m.caret = len([]rune("run "))
 
-	m.press("$ls")
-	edit := m.tree.byUUID["edit"]
-	if !m.cmdDraftLive(edit) {
-		t.Fatal("typing a standalone $ should leave the cmd draft live")
-	}
-	rendered := renderBody(edit, edit.name, m.caret, true, m.chips, m.cmdDraftLive(edit))
-	if !strings.Contains(rendered, bgCode) || !strings.Contains(rendered, cRed+"$") {
-		t.Fatalf("live cmd draft should have gray bg and red prompt, got %q", rendered)
-	}
+	m.press("$i") // a variable-looking token
+	m.press(" ")
+	m.press(" ")
 	if _, ok := cmdChipOf(m); ok {
-		t.Fatal("draft must not become a chip until double space")
+		t.Fatal("$i + double space must stay literal text, not chip")
 	}
-}
-
-// TestCmdDraftEndsOnCaretMove: the draft tint is a typing affordance, not a
-// property of the text — walking the caret into pre-existing "$…" prose (e.g.
-// ordinary prose quoting a command) must NOT tint it as a code cell.
-func TestCmdDraftEndsOnCaretMove(t *testing.T) {
-	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "run $ ls to list files"})
-	cursorOn(m, "edit")
-	m.caret = len([]rune("run $ ls to l")) // caret parked mid-text, no typing
-
-	edit := m.tree.byUUID["edit"]
-	if m.cmdDraftLive(edit) {
-		t.Fatal("a caret move alone must not start a cmd draft")
-	}
-	rendered := renderBody(edit, edit.name, m.caret, true, m.chips, m.cmdDraftLive(edit))
-	if strings.Contains(rendered, bgCode) {
-		t.Fatalf("pre-existing $ text must render plain on a caret walk, got %q", rendered)
-	}
-
-	// typing revives the draft at the caret; moving the caret ends it again
-	m.press("x")
-	if !m.cmdDraftLive(edit) {
-		t.Fatal("typing after a $ token should make the draft live")
-	}
-	m.press("left")
-	if m.cmdDraftLive(edit) {
-		t.Fatal("moving the caret should end the live draft")
+	if got := m.tree.byUUID["edit"].name; got != "run $i  " {
+		t.Errorf("node text = %q, want the literal $i", got)
 	}
 }
 
@@ -127,14 +114,8 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 	m, db := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("$ls")
-	m.press(" ")
-	m.press(" ")
-
-	c, ok := cmdChipOf(m)
-	if !ok {
-		t.Fatal("no cmd chip created")
-	}
+	c := typeCmdChip(t, m)
+	setCmdChipValue(m, c.ID, "ls") // what alt+i would save
 	m.ensureRun(c.ID).out = []outLine{{text: "file-a"}, {text: "file-b"}}
 	m.setCmdPreview(c.ID)
 
@@ -163,14 +144,8 @@ func TestCmdChipPreviewRehydratesOnOpen(t *testing.T) {
 	m, db := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("$ls")
-	m.press(" ")
-	m.press(" ")
-
-	c, ok := cmdChipOf(m)
-	if !ok {
-		t.Fatal("no cmd chip created")
-	}
+	c := typeCmdChip(t, m)
+	setCmdChipValue(m, c.ID, "ls")
 	m.ensureRun(c.ID).out = []outLine{{text: "  "}, {text: "file-a"}, {text: "file-b"}}
 	m.persistRunOut(c.ID)
 	m.setCmdPreview(c.ID)
@@ -204,59 +179,34 @@ func TestCmdChipPreviewRehydratesOnOpen(t *testing.T) {
 	}
 }
 
-// TestCmdChipFoldsInChip: a chip spliced into a "$…" command (e.g. via an
-// inline picker) is folded into the cmd chip's value as its expanded text when
-// the double space commits, and the now-orphaned chip record is dropped.
-func TestCmdChipFoldsInChip(t *testing.T) {
-	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
-	cursorOn(m, "edit")
-	m.caret = 0
-	m.press("$cat ")
-	// splice a tag chip at the caret, as an inline picker would.
-	cur := m.tree.byUUID["edit"]
-	m.insertLiteralAt(cur, m.caret, m.createChip(chipKindTag, "hosts"))
-	tagID := ""
-	for id, c := range m.chips {
-		if c.Kind == chipKindTag {
-			tagID = id
-		}
-	}
-	if tagID == "" {
-		t.Fatal("tag chip was not inserted")
-	}
-	m.press(" ") // first space
-	m.press(" ") // second space commits the cmd chip
-
-	c, ok := cmdChipOf(m)
-	if !ok {
-		t.Fatal("a tag chip inside the command blocked cmd chip creation")
-	}
-	if c.Value != "cat #hosts" {
-		t.Errorf("cmd value = %q, want %q", c.Value, "cat #hosts")
-	}
-	if _, ok := m.chips[tagID]; ok {
-		t.Errorf("folded tag chip %q should have been deleted", tagID)
-	}
-	// only the cmd chip's anchor remains in the name.
-	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "$ cat #hosts " {
-		t.Errorf("rendered = %q, want %q", got, "$ cat #hosts ")
-	}
-}
-
-// TestCmdChipInLegacyBashNode: the bash node type is gone — a legacy
-// "bash"-typed row falls back to bullets, so cmd chips form there like in any
-// text node.
-func TestCmdChipInLegacyBashNode(t *testing.T) {
+// TestCmdChipNotInBashNode: a Bash node's text IS a shell command, so "$" and
+// "#" are its own syntax — typing "$i", "$(seq …)" and double spaces must NOT
+// chip inside it. A "$$" still lands an empty chip by deliberate trigger.
+func TestCmdChipNotInBashNode(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "", Type: database.TypeBash})
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("$ls -la")
+	m.press("for i in $(seq 1 5); do echo $i; done")
 	m.press(" ")
 	m.press(" ")
-	if c, ok := cmdChipOf(m); !ok || c.Value != "ls -la" {
-		t.Fatalf("legacy bash-typed nodes chip like bullets, got ok=%v", ok)
+	if _, ok := cmdChipOf(m); ok {
+		t.Fatal("a bash node auto-chipped its $ syntax — $ is the command, not a chip")
+	}
+	if got := m.tree.byUUID["edit"].name; got != "for i in $(seq 1 5); do echo $i; done  " {
+		t.Errorf("bash node text changed to %q — the $ must stay literal", got)
+	}
+	// a deliberate "$$" still lands a chip even on a bash row — the trigger is
+	// explicit, not an accident of $ appearing in the command
+	m2, _ := dbModel(t, database.Node{UUID: "edit", Name: "echo "})
+	cursorOn(m2, "edit")
+	m2.caret = len([]rune("echo "))
+	m2.press("$")
+	m2.press("$")
+	if _, ok := cmdChipOf(m2); !ok {
+		t.Fatal("a deliberate $$ should land a chip even on a bash node")
 	}
 }
+
 
 // TestCmdChipAltEFocusesInlineBand: alt+e on a cmd chip focuses its inline
 // output band (the bash-node surface) instead of a separate page — the editor
@@ -265,13 +215,7 @@ func TestCmdChipAltEFocusesInlineBand(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("$echo hi")
-	m.press(" ")
-	m.press(" ")
-	c, ok := cmdChipOf(m)
-	if !ok {
-		t.Fatal("no cmd chip created")
-	}
+	c := typeCmdChip(t, m)
 	// park the caret right after the chip anchor so cmdChipAtCaret finds it
 	spans := anchorSpans([]rune(m.tree.byUUID["edit"].name))
 	if len(spans) != 1 {
@@ -290,5 +234,48 @@ func TestCmdChipAltEFocusesInlineBand(t *testing.T) {
 	m.press("alt+e")
 	if m.focused || m.focusChip != "" {
 		t.Fatalf("alt+e again should defocus: focused=%v focusChip=%q", m.focused, m.focusChip)
+	}
+}
+
+// TestCmdChipAltIEditsCommand: alt+i on a cmd chip opens the one-field command
+// editor (modeCmdEdit) — the chip's only edit, since alt+e is its run band and
+// delete would drop the whole chip — and enter saves the new command back to the
+// chip, dropping the stale run band so the old result does not read as this
+// command's output.
+func TestCmdChipAltIEditsCommand(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
+	cursorOn(m, "edit")
+	m.caret = 0
+	c := typeCmdChip(t, m)
+	// a finished run sits on the chip (stale once the command changes)
+	m.ensureRun(c.ID).out = []outLine{{text: "file-a"}}
+	m.setCmdPreview(c.ID)
+
+	spans := anchorSpans([]rune(m.tree.byUUID["edit"].name))
+	m.caret = spans[0].end
+
+	m.press("alt+i")
+	if m.mode != modeCmdEdit {
+		t.Fatalf("alt+i should open the command editor, mode=%v", m.mode)
+	}
+	// the working copy starts empty ($$ lands an empty chip); type the command
+	for _, r := range "date +%s" {
+		m.press("" + string(r))
+	}
+	if m.cmdEditValue != "date +%s" {
+		t.Fatalf("cmdEditValue = %q, want the edited command", m.cmdEditValue)
+	}
+	m.press("enter")
+	if m.mode != modeOutline {
+		t.Fatalf("enter should close the editor, mode=%v", m.mode)
+	}
+	got, _ := cmdChipOf(m)
+	if got.Value != "date +%s" {
+		t.Errorf("chip value = %q, want the saved command", got.Value)
+	}
+	// the stale run band is gone — the preview no longer reads "file-a"
+	m.setCmdPreview(got.ID)
+	if got.Label != "" {
+		t.Errorf("stale preview survived a command edit: %q", got.Label)
 	}
 }

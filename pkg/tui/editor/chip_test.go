@@ -109,7 +109,7 @@ func TestChipMovesWholeAcrossAWrap(t *testing.T) {
 		"c1": {ID: "c1", Kind: chipKindLink, Value: "https://example.com/x", Label: "Q3 planning notes"},
 	}
 	name := "some text ahead of it " + chipAnchor("c1")
-	body := renderBody(&item{typ: database.TypeBullets}, name, -1, false, chips, false)
+	body := renderBody(&item{typ: database.TypeBullets}, name, -1, false, chips)
 	lines := wrapLine(" ○ "+body, 40, cDim+" │ "+cReset)
 
 	if len(lines) != 2 {

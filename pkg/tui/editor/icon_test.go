@@ -162,7 +162,7 @@ func TestApplyCompletionPaintedIconInsertsChip(t *testing.T) {
 		t.Fatalf("chip = %+v, want kind=icon value=%q label=%q", c, e.glyph, e.shortcode)
 	}
 	// render paints the brand color (red for claude)
-	body := renderBody(it, it.name, -1, false, m.chips, false)
+	body := renderBody(it, it.name, -1, false, m.chips)
 	if !strings.Contains(body, e.glyph) {
 		t.Fatalf("render missing glyph: %q", body)
 	}

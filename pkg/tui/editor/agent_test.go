@@ -561,11 +561,11 @@ func TestAgentChipStrikesWhenDone(t *testing.T) {
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: "abc-12345678", title: "flush fix"})
 
 	it := m.tree.byUUID["note"]
-	if got := renderBody(it, it.name, -1, false, m.chips, false); strings.Contains(got, cStrike) {
+	if got := renderBody(it, it.name, -1, false, m.chips); strings.Contains(got, cStrike) {
 		t.Fatalf("an open row must not strike anything: %q", got)
 	}
 	it.completedAt = time.Now().UnixNano()
-	done := renderBody(it, it.name, -1, false, m.chips, false)
+	done := renderBody(it, it.name, -1, false, m.chips)
 	pill := renderAgentChip(m.chips[chip.ID], false, true)
 	if !strings.Contains(done, pill) {
 		t.Errorf("the chip in a done row is not struck through:\n got %q\nwant %q inside", done, pill)

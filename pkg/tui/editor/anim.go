@@ -177,6 +177,18 @@ func (m *Model) anyRunning() bool {
 	return false
 }
 
+// runningCount is how many commands are in flight right now (bash nodes and cmd
+// chips together) — the status bar's red "N running" tally.
+func (m *Model) runningCount() int {
+	n := 0
+	for _, r := range m.runs {
+		if r.cancel != nil {
+			n++
+		}
+	}
+	return n
+}
+
 // anyNodeAnimating reports whether any node set the generic "animating" flag in
 // its ephemeral store — the shine indicator a plugin raises while it works.
 func (m *Model) anyNodeAnimating() bool {

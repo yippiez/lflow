@@ -111,11 +111,24 @@ func bashBodyTail(it *item, chips map[string]database.Chip) string {
 	if it == nil {
 		return ""
 	}
-	if t, ok := runTails[it.uuid]; ok && t.text != "" {
-		if t.running {
-			return cReset + shimmerLabel("→ "+t.text) + cReset
+	if t, ok := runTails[it.uuid]; ok {
+		// the tail belongs to the command that was RUN. If the node's command
+		// changed since (the composed form differs), the old result is stale —
+		// the tail reverts to the new composed command below instead.
+		if t.cmd == "" || t.cmd == bashCompose(it, func(s string) string { return expandAnchors(s, chips) }) {
+			// running but nothing printed yet: the row still shimmers — a silent
+			// command (`sleep 30`) is alive, not idle, so it wears the same
+			// shimmering "running…" the chip's cell does instead of the dim preview
+			if t.running && t.text == "" {
+				return cReset + shimmerLabel("→ running…") + cReset
+			}
+			if t.text != "" {
+				if t.running {
+					return cReset + shimmerLabel("→ "+t.text) + cReset
+				}
+				return cDim + "→ " + t.text + cReset
+			}
 		}
-		return cDim + "→ " + t.text + cReset
 	}
 	if len(it.children) == 0 {
 		return ""

@@ -48,6 +48,7 @@ const (
 	modeCharacterPick  // the alt+e character picker on a Line node: pick or write a character
 	modeCharacterColor // the character picker's recolor key: assign a pill color to a character
 	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
+	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
 )
 
 type finderAction int
@@ -74,7 +75,7 @@ var slashCommands = []slashCommand{
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
 	{"/hide:complete", "Hide or show completed nodes"},
-	{"/insert", "Insert at caret: agent, cmd, date, icon, link, path, tag"},
+	{"/insert", "Insert a chip at caret"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
 	{"/mirror:from", "Mirror another node here"},
@@ -183,6 +184,11 @@ type Model struct {
 	linkEditField  int    // 0 = name field, 1 = target field
 	linkEditCaret  int    // caret inside the active field — same movement keys as the outline
 
+	// alt+e cmd-chip editor (modeCmdEdit): the command inside a $ chip, one field.
+	cmdEditID    string // chip id being edited
+	cmdEditValue string // working copy of the command
+	cmdEditCaret int    // caret inside the field
+
 	// the focused cmd chip (alt+e): its output renders as an inline band beneath
 	// the node — the same surface as a focused bash node — keyed by this chip id.
 	// A focused SESSION chip uses the same field, with the transcript as its band.
@@ -196,14 +202,6 @@ type Model struct {
 	agentStore []agentStoreSession
 	// agentColorChip is the chip ⌥c is picking a color for.
 	agentColorChip string
-
-	// live cmd-chip draft gate: where the last text edit left the caret.
-	// activeCmdDraftRange is purely positional, so without this gate merely
-	// walking the caret into pre-existing "$…" prose
-	// quoting a command) would tint it as a draft; the tint shows only while
-	// the caret still sits where typing left it (see cmdDraftLive).
-	cmdDraftUUID  string
-	cmdDraftCaret int
 
 	// flash mode (modeFlash): each visible row's actions carry a typed label;
 	// typing a label narrows (matched prefix grays, the rest stays lit) until one
@@ -1219,6 +1217,7 @@ type runState struct {
 	loaded  bool         // band hydrated from node_output (see runout.go)
 	dropped int          // lines dropped off the band's head (see maxRunLines)
 	pwd     string       // cwd captured when the band was run
+	cmd     string       // the command that was run (see runTails — a changed cmd invalidates its tail)
 	started time.Time    // launch instant; drives the elapsed clock while running
 }
 

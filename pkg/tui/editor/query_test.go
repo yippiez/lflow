@@ -167,7 +167,7 @@ func TestQueryHitHighlightAndStructuralLock(t *testing.T) {
 	runQuery(m, q)
 
 	hit := q.children[0]
-	rendered := renderBody(hit, source.name, -1, false, nil, false)
+	rendered := renderBody(hit, source.name, -1, false, nil)
 	rendered = m.highlightQueryHit(hit, source.name, rendered)
 	if !strings.Contains(rendered, bgHit) {
 		t.Fatal("matching text must carry the yellow query-hit background")
@@ -175,7 +175,7 @@ func TestQueryHitHighlightAndStructuralLock(t *testing.T) {
 	// Editing the query does not update its materialized results until alt+r;
 	// their explanation highlight must remain tied to that same last run.
 	q.name = "buy"
-	afterEdit := renderBody(hit, source.name, -1, false, nil, false)
+	afterEdit := renderBody(hit, source.name, -1, false, nil)
 	afterEdit = m.highlightQueryHit(hit, source.name, afterEdit)
 	if afterEdit != rendered {
 		t.Fatal("query hit highlight changed before the query was rerun")
@@ -225,7 +225,7 @@ func TestQueryMirrorsUseSourceStyle(t *testing.T) {
 	m.reconcileQueryMirrors(q, []database.Node{{UUID: source.uuid, Name: source.name}})
 
 	hit := q.children[0]
-	body := renderBody(m.renderItem(hit), m.tree.displayName(hit), -1, false, nil, false)
+	body := renderBody(m.renderItem(hit), m.tree.displayName(hit), -1, false, nil)
 	if !strings.Contains(body, cRed) {
 		t.Fatalf("query mirror lost source color: %q", body)
 	}
@@ -241,7 +241,7 @@ func TestQueryHitHighlightsVisibleTagChip(t *testing.T) {
 	name := "ship " + database.ChipAnchor("hit-tag")
 	m.reconcileQueryMirrors(q, []database.Node{{UUID: "a", Name: name}})
 	hit := q.children[0]
-	body := renderBody(hit, name, -1, false, m.chips, false)
+	body := renderBody(hit, name, -1, false, m.chips)
 	body = m.highlightQueryHit(hit, name, body)
 	if !strings.Contains(body, bgHit) {
 		t.Fatal("a visible tag chip in every matching row must be highlighted")

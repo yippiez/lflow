@@ -276,18 +276,28 @@ Remaining doc-level rules:
 
 - Never auto-run runnable nodes (alt+r only) — an agentic coding session chip is
   opened by that same key and by nothing else.
+- A cmd chip forms ONLY by deliberate trigger: `$$` lands an empty $ chip to fill
+  in (alt+i edits its command), and `/insert → cmd` is the other way in. A single
+  `$` is always literal — `$i`, `$(seq …)`, `$HOME` are shell syntax that type
+  normally in a bash node, never a chip; there is no `$cmd` + double-space flow.
 - A run is LIVE, never a wait: output streams in as it arrives (~50ms batches).
   **Both shell surfaces stream in their ROW, not under it** — a cmd chip in its
   label, a Bash node in its `→` tail (`runInTail` in the registry, fed by
   `runTails`): the newest line while the command is in flight, the first line
   once it settles, clipped to `runTailWidth` so a torrent cannot rewrap the row.
-  A running chip's cell shimmers and a running node's tail does; neither claims a
-  single line beneath itself. The whole output is alt+e away, and the two
-  surfaces read 1:1 there — same header, same pane, same keys.
+  A running chip's cell shimmers and a running node's tail does — a silent run
+  (`sleep 30`) still shimmers "running…" instead of sitting static, because the
+  animation tick starts the moment a run begins, not on its first output byte.
+  Neither claims a single line beneath itself. The whole output is alt+e away,
+  and the two surfaces read 1:1 there — same header, same pane, same keys.
+  The tail belongs to the command that was RUN: edit a Bash node's text (or a
+  chip's command via `alt+i`) and the stale result drops, reverting to the new
+  composed command.
 - The expanded run view is a terminal WINDOW, never a growing list: it opens at
-  the height it will keep (`winH-1` filled rows over `bgTerm`) and the output
-  scrolls inside it, so nothing on screen shifts as lines arrive. One line of
-  chrome — state, elapsed clock, and where it ran, right-aligned — then the pane.
+  the height it will keep (`winH-1` filled rows) and the output scrolls inside
+  it, so nothing on screen shifts as lines arrive. One line of chrome — state,
+  elapsed clock, and where it ran, right-aligned — then the pane, which is plain
+  terminal output on the editor's own background (no tinted block behind it).
 - A shell run IS a terminal, not a captured log: `bash -c` runs on a **PTY** and
   its raw bytes drive a VT screen (`pkg/tui/editor/term.go`) — so programs detect
   a tty and colour themselves, `\r` progress bars overwrite in place, `clear`

@@ -54,6 +54,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
 	case modeLinkEdit:
 		return m.handleLinkEditKey(k)
+	case modeCmdEdit:
+		return m.handleCmdEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:
@@ -395,7 +397,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.deleteChipID(sp.id)
 			cur.name = string(runes[:sp.start]) + string(runes[sp.end:])
 			m.caret = sp.start
-			m.markCmdDraft(cur)
 			m.unsaved = true
 			return m, nil
 		}
@@ -412,7 +413,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		shiftSpans(cur.uuid, target, target-m.caret)
 		m.persistSpans(cur.uuid)
 		m.caret = target
-		m.markCmdDraft(cur)
 		m.unsaved = true
 		return m, nil
 	case "ctrl+t":
@@ -564,6 +564,17 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if !m.tempActive {
 			m.openFinder(actGoto)
+		}
+		return m, nil
+	case "alt+i":
+		// edit the command inside a cmd chip at the caret — the one edit a $ chip
+		// allows (see modeCmdEdit). alt+e on a cmd chip is its run output, so the
+		// command itself gets this key instead.
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.cmdChipAtCaret(cur); ok {
+				m.openCmdEdit(c)
+				return m, nil
+			}
 		}
 		return m, nil
 	case "alt+e":
@@ -876,7 +887,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				shiftSpans(cur.uuid, sp.start, sp.start-sp.end)
 				m.persistSpans(cur.uuid)
 				m.caret = sp.start
-				m.markCmdDraft(cur)
 				m.unsaved = true
 				return m, nil
 			}
@@ -884,7 +894,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			shiftSpans(cur.uuid, m.caret-1, -1)
 			m.persistSpans(cur.uuid)
 			m.caret--
-			m.markCmdDraft(cur)
 			m.unsaved = true
 			return m, nil
 		}
@@ -999,6 +1008,25 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// "$$" lands an empty cmd chip: the second "$" drops the first and splices
+		// a blank $ chip to fill in (alt+i edits its command). A single "$" is
+		// always literal — "$i", "$(seq …)" and "$HOME" are shell syntax that type
+		// normally in a bash node, never a chip. There is no cancel path, matching
+		// "[["; /insert → cmd is the other way in.
+		if string(k.Runes) == "$" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			chipsEnabled(cur) && runeBeforeCaretIs(cur, m.caret, '$') {
+			runes := []rune(cur.name)
+			m.boundCaret(len(runes))
+			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			m.caret--
+			m.unsaved = true
+			if anchor := m.createChip(chipKindCmd, ""); anchor != "" {
+				m.insertLiteralAt(cur, m.caret, anchor)
+				m.flash = "empty $ chip · alt+i edits the command"
+			}
+			return m, nil
+		}
+
 		// "#" opens the tag completer at a word boundary; ":" opens the query-command
 		// completer in a query node, or the icon shortcode picker on every other
 		// inline-editable node. Both stay literal mid-word so "C#"/"a:b" type
@@ -1046,13 +1074,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// shorter node) — slicing runes[:m.caret] would otherwise panic
 		m.boundCaret(len([]rune(cur.name)))
 
-		// typing a space commits a "$cmd" + double space into a cmd chip, or a
-		// #tag / date token before it into a chip. A leading "$" never converts
-		// the node's type — bash nodes are made via /type; "$" is chip territory.
+		// typing a space commits a #tag / date token before it into a chip. A "$"
+		// command never auto-chips: "$$" is the only way a cmd chip forms by
+		// typing (a single "$" is literal everywhere — $i, $(…), $HOME), and a
+		// bash node's whole row is shell syntax anyway (bashLiteralRow).
 		if text == " " && !k.Paste {
-			if chipsEnabled(cur) && m.bashCmdBeforeCaret(cur) {
-				return m, nil // a "$cmd" + double space committed a cmd chip
-			}
 			m.chipifyBeforeCaret(cur)
 		}
 
@@ -1065,7 +1091,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.persistSpans(cur.uuid)
 		}
 		m.caret += len(ins)
-		m.markCmdDraft(cur)
 		m.unsaved = true
 		m.maybeLinkToMirror(cur)
 		return m, nil

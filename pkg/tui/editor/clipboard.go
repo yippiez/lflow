@@ -146,7 +146,6 @@ func (m *Model) copyCutRun(cur *item, lo, hi int, cut bool, verb string) {
 		shiftSpans(cur.uuid, lo, lo-hi)
 		m.persistSpans(cur.uuid)
 		m.caret = lo
-		m.markCmdDraft(cur)
 		m.unsaved = true
 		m.clearTextSel() // copy keeps the run selected, cut has nothing left to hold
 	}

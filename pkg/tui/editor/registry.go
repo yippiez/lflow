@@ -192,7 +192,7 @@ var nodeTypes = []nodeType{
 	// children are its parts — a join operator (| && || ;) or a wrapper ($() ())
 	// composes them, anything else heads them — so a long pipeline is written as
 	// a tree. alt+r runs THIS node's subtree, alt+e opens the output. The inline
-	// cmd chip ("$cmd" + double space, cmdchip.go) remains the one-liner surface.
+	// cmd chip ("$$", cmdchip.go) remains the one-liner surface.
 	{
 		key: database.TypeBash, label: "Bash", inlineEditable: true,
 		glyph:        bashGlyph,

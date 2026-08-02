@@ -8,82 +8,22 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// A cmd chip is inline runnable shell: a standalone "$" starts a live gray
-// command draft inside any text node, and a DOUBLE space commits it (single
-// spaces stay part of the command; a bare "$" still chips, empty). The command
-// lives in the chip value (persisted); its run band is local-only in node_output
-// (keyed by chip id — never synced, exactly like a bash node). alt+r runs the
-// chip the caret sits on; the chip then renders "$ cmd → <first line>" from an
-// in-memory label rehydrated on open via hydrateCmdPreviews; alt+e expands the
-// full band.
+// A cmd chip is inline runnable shell: "$$" lands an empty $ chip anywhere (a
+// single "$" is always literal — $i, $(…), $HOME are shell syntax, never a
+// chip), and /insert → cmd is the other way in. The command lives in the chip
+// value (persisted); its run band is local-only in node_output (keyed by chip id
+// — never synced, exactly like a bash node). alt+i edits the command, alt+r
+// runs the chip the caret sits on; the chip then renders "$ cmd → <first line>"
+// from an in-memory label rehydrated on open via hydrateCmdPreviews; alt+e
+// expands the full band.
 
-// bashCmdBeforeCaret converts a "$<command>" token terminated by a double space
-// into a cmd chip. It is called from the space-typed path only when the rune
-// before the caret is already a space (so this is the second space). Returns true
-// if it converted, in which case the committing space is consumed by the caller.
-func (m *Model) bashCmdBeforeCaret(cur *item) bool {
-	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly {
-		return false
-	}
-	runes := []rune(cur.name)
-	// the caret sits just after the first of the two spaces.
-	if m.caret < 2 || m.caret > len(runes) || runes[m.caret-1] != ' ' {
-		return false
-	}
-	end := m.caret - 1 // command ends just before the trailing space
-	spans := anchorSpans(runes)
-	// walk back to the "$" that opens the command: it must be at the node start or
-	// follow a space (a standalone token). Skip whole chip anchors so any chip
-	// spliced into the command doesn't stop the scan — its sentinels would
-	// otherwise read as stray markers and abort the token.
-	start := -1
-	for i := end - 1; i >= 0; {
-		if sp := spanEndingAt(spans, i+1); sp != nil {
-			i = sp.start - 1
-			continue
-		}
-		if runes[i] == '$' && (i == 0 || runes[i-1] == ' ') {
-			start = i
-			break
-		}
-		i--
-	}
-	if start < 0 {
-		return false
-	}
-	// expand any chips folded into the command (e.g. a tag chip → "#value") so
-	// the cmd chip's stored command is plain, runnable shell. An EMPTY
-	// command still chips: "$" + double space lands a blank $ chip to fill in.
-	cmd := strings.TrimSpace(expandAnchors(string(runes[start+1:end]), m.chips))
-	// those inner chips are now baked into the cmd value; drop their records before
-	// their anchors are removed from the name, so no orphan chip rows are left.
-	for _, sp := range spans {
-		if sp.start >= start && sp.end <= end {
-			m.deleteChipID(sp.id)
-		}
-	}
-	if !m.replaceRangeWithChip(cur, start, end, chipKindCmd, cmd) {
-		return false
-	}
-	// park the caret after the single space that remains past the new chip.
-	r := []rune(cur.name)
-	if m.caret < len(r) && r[m.caret] == ' ' {
-		m.caret++
-	}
-	return true
-}
-
-// markCmdDraft snapshots the edit site after a text edit; renderBody shows the
-// live cmd-chip draft tint only while the caret still sits there, so any caret
-// move (navigation, node switch) ends the draft display without extra clearing.
-func (m *Model) markCmdDraft(cur *item) {
-	m.cmdDraftUUID, m.cmdDraftCaret = cur.uuid, m.caret
-}
-
-// cmdDraftLive reports whether the caret still sits where the last text edit
-// on this node left it — the gate for painting a "$…" run as a live cmd draft.
-func (m *Model) cmdDraftLive(it *item) bool {
-	return it != nil && m.cmdDraftUUID == it.uuid && m.cmdDraftCaret == m.caret
+// bashLiteralRow reports whether this row is a Bash node — one whose text IS a
+// shell command. Such a row treats its shell punctuation as literal: "$", "#"
+// comments and dates are the command's own syntax, never auto-chipped (a bash
+// tree composes its command from the raw text). Chips still land via explicit
+// insertion — "$$", /insert and the [[ finder — but typing never invents them.
+func bashLiteralRow(it *item) bool {
+	return it != nil && it.typ == database.TypeBash
 }
 
 // cmdChipAtCaret returns the cmd chip the caret sits on (its anchor begins at the
@@ -137,13 +77,16 @@ func (m *Model) setCmdPreview(id string) {
 // after their "→": a band still running shows its NEWEST non-blank line, so a
 // long command streams its progress in place; a finished band settles on its
 // FIRST non-blank line, the run's headline. Clipped to a fixed width so a
-// torrent of output cannot rewrap the row it sits on.
+// torrent of output cannot rewrap the row it sits on. Runs of spaces are
+// collapsed to one (a wide ASCII-art or columned line would otherwise crowd the
+// row's limited preview width) — only in this preview; the band keeps its own
+// spacing.
 func runHeadline(r *runState) string {
 	if r == nil {
 		return ""
 	}
 	out := r.lines()
-	pick := func(i int) string { return strings.TrimSpace(stripSGR(out[i].text)) }
+	pick := func(i int) string { return collapseSpaces(stripSGR(out[i].text)) }
 	if r.cancel != nil {
 		// walk back from the newest line, stopping at the first with content (a
 		// trailing blank line must not blank the preview)
@@ -160,6 +103,13 @@ func runHeadline(r *runState) string {
 		}
 	}
 	return ""
+}
+
+// collapseSpaces trims a line and runs every run of whitespace together into one
+// space — the preview's space saver, so "grill-me␣␣␣␣neural_netwo…" reads as
+// "grill-me neural_netwo…". Only display: the stored output line is untouched.
+func collapseSpaces(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // ── live run feedback ────────────────────────────────────────────────────────
@@ -233,6 +183,71 @@ func stripSGR(s string) string {
 		i = j
 	}
 	return b.String()
+}
+
+// ── alt+i: the cmd-chip editor (modeCmdEdit) ──────────────────────────────
+
+// A cmd chip is "$ command" — one editable field: the command. alt+e shows the
+// run output, alt+i edits the command itself, the one edit a $ chip allows (a
+// chip's anchors make inline editing impossible, and delete would drop the whole
+// chip — the user has to be able to change what a "$" runs).
+func (m *Model) openCmdEdit(c database.Chip) {
+	if c.Kind != chipKindCmd {
+		return
+	}
+	m.mode = modeCmdEdit
+	m.cmdEditID = c.ID
+	m.cmdEditValue = c.Value
+	m.cmdEditCaret = len([]rune(c.Value))
+}
+
+// saveCmdEdit writes the edited command back to the chip row and store.
+func (m *Model) saveCmdEdit() {
+	c, ok := m.chips[m.cmdEditID]
+	if !ok {
+		return
+	}
+	c.Value = strings.TrimSpace(m.cmdEditValue)
+	m.chips[c.ID] = c
+	if m.ctx.DB != nil {
+		_ = database.UpsertChip(m.ctx.DB, c)
+	}
+	// the command changed: drop the stale run band AND its in-memory preview so
+	// the old result does not read as this command's output
+	m.deleteRunOut(c.ID)
+	m.setCmdPreview(c.ID)
+	m.unsaved = true
+}
+
+// handleCmdEditKey edits the command with the same caret vocabulary as the
+// outline editor, exactly like the link-chip editor.
+func (m *Model) handleCmdEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "enter":
+		m.saveCmdEdit()
+		m.mode = modeOutline
+		m.refreshRows()
+		return m, nil
+	}
+	f := textField{value: m.cmdEditValue, caret: m.cmdEditCaret}
+	if f.handleKey(k) {
+		m.cmdEditValue = f.value
+		m.cmdEditCaret = f.caret
+	}
+	return m, nil
+}
+
+func (m *Model) viewCmdEdit(maxLine int) []string {
+	var lines []string
+	lines = append(lines, clip(cDim+" edit command"+cReset, maxLine))
+	lines = append(lines, clip(cAccent+" $ "+cReset+cFG+withCaret(m.cmdEditValue, m.cmdEditCaret)+cReset, maxLine))
+	lines = append(lines, "")
+	lines = append(lines, clip(cDim+" enter save · esc cancel"+cReset, maxLine))
+	m.pageRows = len(lines) // no status bar here — the whole frame is main region
+	return lines
 }
 
 // ── alt+e inline cmd-output view ─────────────────────────────────────────────

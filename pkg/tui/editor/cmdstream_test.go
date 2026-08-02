@@ -18,13 +18,8 @@ func liveCmdChip(t *testing.T, cmd string, out ...string) (*Model, database.Chip
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("$" + cmd)
-	m.press(" ")
-	m.press(" ")
-	c, ok := cmdChipOf(m)
-	if !ok {
-		t.Fatal("no cmd chip created")
-	}
+	c := typeCmdChip(t, m)
+	setCmdChipValue(m, c.ID, cmd)
 	r := m.ensureRun(c.ID)
 	r.cancel = func() {}
 	r.started = time.Now().Add(-4 * time.Second)
@@ -60,6 +55,23 @@ func TestCmdChipPreviewStreamsTailWhileRunning(t *testing.T) {
 	m.finishRun(c.ID)
 	if got := m.chips[c.ID].Label; got != "step 1" {
 		t.Errorf("settled label = %q, want the first line %q", got, "step 1")
+	}
+}
+
+// TestCmdChipPreviewCollapsesSpaces: the → tail is a space saver — runs of
+// spaces in a wide, columned or ASCII-art output line collapse to one in the
+// PREVIEW only (the stored band keeps its own spacing). This is what keeps a
+// "grill-me         neural_netwo…" line reading as "grill-me neural_netwo…".
+func TestCmdChipPreviewCollapsesSpaces(t *testing.T) {
+	m, c, _ := liveCmdChip(t, "ls", "grill-me         neural_netwo…")
+	m.setCmdPreview(c.ID)
+	if got := m.chips[c.ID].Label; got != "grill-me neural_netwo…" {
+		t.Errorf("preview = %q, want spaces collapsed", got)
+	}
+	// the band itself keeps the wide line as-is
+	r := m.run(c.ID)
+	if r == nil || len(r.lines()) != 1 || r.lines()[0].text != "grill-me         neural_netwo…" {
+		t.Errorf("stored band lost its spacing: %q", r.lines()[0].text)
 	}
 }
 

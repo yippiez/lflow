@@ -124,7 +124,7 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // query nodes (where ":" is the query-command completer) can still insert icons.
 var insertKinds = []struct{ value, label, desc string }{
 	{"agent", "agent", "a coding session you already have"},
-	{"cmd", "bash", "a runnable $ command chip"},
+	{"cmd", "bash", "a runnable $ command chip (or type $$)"},
 	{"date", "date", "today as a date chip"},
 	{"icon", "icon", "an icon or emoji via shortcode"},
 	{"link", "link", "a link chip"},
@@ -206,9 +206,13 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 			m.insertLiteralAt(cur, m.caret, anchor)
 		}
 	case "cmd":
-		m.insertLiteralAt(cur, m.caret, "$")
-		m.markCmdDraft(cur)
-		m.flash = "type the command · double space lands the $ chip"
+		// an empty $ chip, filled in with alt+i — the same shape "$$" lands by
+		// typing. There is no draft: a "$" is literal everywhere now, so /insert
+		// and "$$" are the two ways a cmd chip forms.
+		if anchor := m.createChip(chipKindCmd, ""); anchor != "" {
+			m.insertLiteralAt(cur, m.caret, anchor)
+			m.flash = "empty $ chip · alt+i edits the command"
+		}
 	case chipKindMol:
 		// convert the detected notation in place, else land an empty chip to fill in
 		if m.molConvertBeforeCaret(cur) {

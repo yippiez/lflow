@@ -228,9 +228,8 @@ func wrapSGR(s string, width int) []string {
 func selFill(s string, width int) string { return bgFill(s, width, bgPill) }
 
 // bgFill is that same edge-to-edge paint over any background: pad the styled
-// line to width with real cells and re-arm bg after every reset inside it. The
-// terminal pane (bgTerm) fills its rows this way, so the block reads as one
-// surface however the program colored its own output.
+// line to width with real cells and re-arm bg after every reset inside it, so a
+// selected block reads as one surface however the content colored itself.
 func bgFill(s string, width int, bg string) string {
 	if pad := width - visibleWidth(s); pad > 0 {
 		s += strings.Repeat(" ", pad)

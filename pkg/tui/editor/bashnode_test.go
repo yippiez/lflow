@@ -265,3 +265,80 @@ func TestBashTypeRegistered(t *testing.T) {
 	}
 }
 
+// TestBashSilentRunShimmers: a node that is RUNNING but has printed nothing yet
+// still reads as alive — the row's tail is the shimmering "running…", not the dim
+// composed-command preview. Guards the regression where a silent `sleep 30` sat
+// static because the animation tick only started on the first output byte.
+func TestBashSilentRunShimmers(t *testing.T) {
+	m := newTestModel(80, "x")
+	it := m.rows[0].it
+	it.uuid, it.typ = "u-run", database.TypeBash
+	it.name = "sleep 30"
+	r := m.ensureRun(it.uuid)
+	r.loaded = true
+	r.cancel = func() {}
+	r.started = time.Now().Add(-3 * time.Second)
+	r.cmd = "sleep 30"
+	m.syncRunTails()
+	t.Cleanup(func() { runTails = nil })
+
+	tail := bashBodyTail(it, nil)
+	if !strings.Contains(tail, "\x1b") {
+		t.Errorf("a silent running tail should shimmer, got %q", stripSGR(tail))
+	}
+	if !strings.Contains(stripSGR(tail), "running") {
+		t.Errorf("silent running tail should say running…, got %q", stripSGR(tail))
+	}
+}
+
+// TestBashChangedCmdDropsStaleTail: the tail belongs to the command that was RUN.
+// When the node's composed command changes since the run, the old result is stale
+// and the tail reverts to showing the newly composed command.
+func TestBashChangedCmdDropsStaleTail(t *testing.T) {
+	m := newTestModel(80, "x")
+	it := m.rows[0].it
+	it.uuid, it.typ = "u-run", database.TypeBash
+	it.children = []*item{bnode("ls"), bnode("wc -l")}
+	it.name = "|"
+	r := m.ensureRun(it.uuid)
+	r.loaded = true
+	r.cmd = "ls | wc -l"
+	r.out = append(r.out, outLine{text: "5"})
+	m.syncRunTails()
+	t.Cleanup(func() { runTails = nil })
+
+	if got := stripSGR(bashBodyTail(it, nil)); !strings.Contains(got, "→ 5") {
+		t.Errorf("unchanged cmd tail = %q, want the run result", got)
+	}
+	it.name = "&&"
+	m.syncRunTails()
+	got := stripSGR(bashBodyTail(it, nil))
+	if strings.Contains(got, "5") {
+		t.Errorf("changed cmd tail = %q, must drop the old result", got)
+	}
+	if !strings.Contains(got, "ls && wc -l") {
+		t.Errorf("changed cmd tail = %q, want the new composed command", got)
+	}
+}
+
+// TestBashRunningCountInToolbar: live shell runs tally in the status bar as a red
+// "N running", like the suggestions count — a long silent command must still be
+// visible in the bar.
+func TestBashRunningCountInToolbar(t *testing.T) {
+	m := newTestModel(80, "sleep 30")
+	r1 := m.ensureRun(m.rows[0].it.uuid)
+	r1.cancel = func() {}
+	r1.started = time.Now().Add(-3 * time.Second)
+	// a second live run on another id (a cmd chip id, say)
+	r2 := m.ensureRun("chip-1")
+	r2.cancel = func() {}
+	r2.started = time.Now().Add(-3 * time.Second)
+	if n := m.runningCount(); n != 2 {
+		t.Fatalf("runningCount = %d, want 2", n)
+	}
+	bar := stripSGR(strings.Join(m.bottomBar(79), "\n"))
+	if !strings.Contains(bar, "2 bash running") {
+		t.Errorf("bar = %q, want a 2 bash running tally", bar)
+	}
+}
+

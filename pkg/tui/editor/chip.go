@@ -286,9 +286,14 @@ func linkChipLabel(c database.Chip) string {
 // chipifyBeforeCaret converts a #tag or canonical date ending exactly at the
 // caret into a chip anchor — called when a token is committed (a space typed, or
 // Enter). It reuses the same detection that renders legacy tags/dates, so there
-// are no new false positives. Returns true if it converted something.
+// are no new false positives. Returns true if it converted something. A Bash row
+// is exempt: its "#" is a shell comment, its "$" a variable, both the command's
+// own syntax (see bashLiteralRow).
 func (m *Model) chipifyBeforeCaret(cur *item) bool {
 	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly || !chipsEnabled(cur) {
+		return false
+	}
+	if bashLiteralRow(cur) {
 		return false
 	}
 	name := cur.name

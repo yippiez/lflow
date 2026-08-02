@@ -52,7 +52,7 @@ func TestLineCharacterAssignAndRender(t *testing.T) {
 	if !strings.Contains(linePrefix(n1), "character") {
 		t.Fatalf("unassigned Line must prompt for a character, prefix = %q", linePrefix(n1))
 	}
-	if body := renderBody(n1, n1.name, -1, false, m.chips, false); !strings.Contains(body, "right there") {
+	if body := renderBody(n1, n1.name, -1, false, m.chips); !strings.Contains(body, "right there") {
 		t.Fatalf("Line body must still render its dialogue text, got %q", body)
 	}
 

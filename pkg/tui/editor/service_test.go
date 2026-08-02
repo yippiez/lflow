@@ -44,8 +44,8 @@ func TestServiceLinkKeepsLinkStyling(t *testing.T) {
 	}
 	it := &item{typ: database.TypeBullets}
 
-	sheets := renderBody(it, chipAnchor("s"), -1, false, chips, false)
-	plain := renderBody(it, chipAnchor("p"), -1, false, chips, false)
+	sheets := renderBody(it, chipAnchor("s"), -1, false, chips)
+	plain := renderBody(it, chipAnchor("p"), -1, false, chips)
 	if !strings.Contains(sheets, serviceColors["sheets"]+cUnderline) {
 		t.Errorf("sheets link is not in its muted green: %q", sheets)
 	}

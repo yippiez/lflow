@@ -79,7 +79,7 @@ func TestSourceUUIDStopsOnCycle(t *testing.T) {
 func TestRenderBodyChipsBareDate(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
 
-	rendered := renderBody(it, "due 2026-06-14 ok", -1, false, nil, false)
+	rendered := renderBody(it, "due 2026-06-14 ok", -1, false, nil)
 	if got := stripSGR(rendered); got != "due 2026-06-14 ok" {
 		t.Errorf("date text must render literally: %q", got)
 	}
@@ -94,7 +94,7 @@ func TestRenderBodyChipsBareDate(t *testing.T) {
 func TestRenderBodyDateChipUnaffectedByColor(t *testing.T) {
 	it := &item{typ: database.TypeBullets, style: "color:red"}
 
-	rendered := renderBody(it, "2026-06-14", -1, false, nil, false)
+	rendered := renderBody(it, "2026-06-14", -1, false, nil)
 	if !strings.Contains(rendered, bgPill) {
 		t.Errorf("date should get the chip background: %q", rendered)
 	}
@@ -115,7 +115,7 @@ func TestRenderBodyAsterisksAreLiteral(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
 
 	for _, selected := range []bool{false, true} {
-		got := stripSGR(renderBody(it, "say **hello** to *world*", -1, selected, nil, false))
+		got := stripSGR(renderBody(it, "say **hello** to *world*", -1, selected, nil))
 		if got != "say **hello** to *world*" {
 			t.Errorf("asterisks must render literally (selected=%v): %q", selected, got)
 		}
@@ -128,7 +128,7 @@ func TestRenderBodyAsterisksAreLiteral(t *testing.T) {
 func TestRenderBodyAppliesNodeStyle(t *testing.T) {
 	it := &item{typ: database.TypeBullets, style: "bold,italic,underline,strike,color:blue"}
 
-	rendered := renderBody(it, "hi", 0, false, nil, false)
+	rendered := renderBody(it, "hi", 0, false, nil)
 	for _, code := range []string{cBold, cItalic, cUnderline, cStrike, styleColorCode["blue"]} {
 		if !strings.Contains(rendered, code) {
 			t.Errorf("style code %q missing from %q", code, rendered)
@@ -147,7 +147,7 @@ func TestRenderBodyAppliesNodeStyle(t *testing.T) {
 func TestRenderBodyStripsStoredControlBytes(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
 
-	rendered := renderBody(it, "x\x1b[2J\x1b[Hy", -1, false, nil, false)
+	rendered := renderBody(it, "x\x1b[2J\x1b[Hy", -1, false, nil)
 	// no raw escape or other C0 control byte from the content survives: every
 	// ESC left in the output is one lflow itself added, terminated by 'm'.
 	inEsc := false
@@ -177,7 +177,7 @@ func TestRenderBodyBlockCursor(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
 
 	// the cursor is a painted cell, never an inserted character
-	rendered := renderBody(it, "abc", 1, true, nil, false)
+	rendered := renderBody(it, "abc", 1, true, nil)
 	if got := stripSGR(rendered); got != "abc" {
 		t.Errorf("cursor must not insert characters: %q", got)
 	}
@@ -186,7 +186,7 @@ func TestRenderBodyBlockCursor(t *testing.T) {
 	}
 
 	// past the end it paints one trailing cell
-	rendered = renderBody(it, "abc", 3, true, nil, false)
+	rendered = renderBody(it, "abc", 3, true, nil)
 	if got := stripSGR(rendered); got != "abc " {
 		t.Errorf("caret at end should paint a trailing cell: %q", got)
 	}
@@ -209,7 +209,7 @@ func TestGlyphForMutedBullets(t *testing.T) {
 func TestRenderBodyLoneAsteriskStaysPlain(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
 
-	got := stripSGR(renderBody(it, "2 * 3 yields 6x", -1, false, nil, false))
+	got := stripSGR(renderBody(it, "2 * 3 yields 6x", -1, false, nil))
 	if got != "2 * 3 yields 6x" {
 		t.Errorf("unpaired asterisk must not be eaten: %q", got)
 	}
@@ -275,7 +275,7 @@ func TestNoteBandEditing(t *testing.T) {
 func TestRenderBodyChipsDateWithTime(t *testing.T) {
 	it := &item{typ: database.TypeBullets}
 
-	rendered := renderBody(it, "ship on 2025-02-11 15:20 sharp", -1, false, nil, false)
+	rendered := renderBody(it, "ship on 2025-02-11 15:20 sharp", -1, false, nil)
 	got := stripSGR(rendered)
 	if got != "ship on 2025-02-11 15:20 sharp" {
 		t.Errorf("date text must render literally: %q", got)
@@ -289,7 +289,7 @@ func TestRenderBodyChipsDateWithTime(t *testing.T) {
 // block hangs beneath as a band), not an inline gray-padded edit surface.
 func TestRenderBodyCodeRow(t *testing.T) {
 	it := &item{typ: database.TypeCode, name: "func main() {\n}"}
-	rendered := renderBody(it, it.name, -1, false, nil, false)
+	rendered := renderBody(it, it.name, -1, false, nil)
 	if got := stripSGR(rendered); got != "code · 2 lines" {
 		t.Errorf("code row = %q, want the dim line-count tag", got)
 	}
@@ -322,7 +322,7 @@ func TestCodeBlockBands(t *testing.T) {
 func TestRenderBodyQuoteBar(t *testing.T) {
 	it := &item{typ: database.TypeQuote}
 
-	rendered := renderBody(it, "less is more", -1, false, nil, false)
+	rendered := renderBody(it, "less is more", -1, false, nil)
 	if got := stripSGR(rendered); got != glyphQuoteBar+" less is more" {
 		t.Errorf("quote bar missing: %q", got)
 	}
@@ -599,7 +599,7 @@ func TestContinuationKeepsRailAtNarrowWidth(t *testing.T) {
 func TestRenderBodyCompletedStrikethrough(t *testing.T) {
 	it := &item{typ: database.TypeTodo, completedAt: 1}
 
-	rendered := renderBody(it, "done thing", -1, false, nil, false)
+	rendered := renderBody(it, "done thing", -1, false, nil)
 	if !strings.Contains(rendered, cStrike) {
 		t.Errorf("completed nodes should strike through: %q", rendered)
 	}
@@ -617,7 +617,7 @@ func TestRenderBodyUnderCompletedMutesChildren(t *testing.T) {
 	parent.children = []*item{child}
 
 	// under the completed parent: muted gray, not struck through
-	under := renderBody(child, child.name, -1, false, nil, false)
+	under := renderBody(child, child.name, -1, false, nil)
 	if !strings.Contains(under, cDim) {
 		t.Errorf("child under completed parent should be muted: %q", under)
 	}
@@ -628,7 +628,7 @@ func TestRenderBodyUnderCompletedMutesChildren(t *testing.T) {
 	// nested grandchild also mutes
 	grand := &item{uuid: "g", typ: database.TypeBullets, name: "grand", parent: child}
 	child.children = []*item{grand}
-	nested := renderBody(grand, grand.name, -1, false, nil, false)
+	nested := renderBody(grand, grand.name, -1, false, nil)
 	if !strings.Contains(nested, cDim) {
 		t.Errorf("grandchild under completed ancestor should be muted: %q", nested)
 	}
@@ -637,7 +637,7 @@ func TestRenderBodyUnderCompletedMutesChildren(t *testing.T) {
 	elsewhere := &item{uuid: "e", typ: database.TypeBullets, name: "elsewhere"}
 	mir := &item{uuid: "m", typ: database.TypeBullets, mirrorOf: child.uuid, parent: elsewhere}
 	elsewhere.children = []*item{mir}
-	mirrorBody := renderBody(mir, child.name, -1, false, nil, false)
+	mirrorBody := renderBody(mir, child.name, -1, false, nil)
 	// body starts with normal fg (cFG), not forced to cDim by underCompleted
 	if underCompleted(mir) {
 		t.Error("mirror under incomplete parent must not report underCompleted")

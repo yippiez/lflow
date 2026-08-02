@@ -67,7 +67,7 @@ func TestSelectionStylesRunOnly(t *testing.T) {
 		t.Fatalf("persisted spans = %v (%v)", saved, err)
 	}
 	// renders: the red SGR appears mid-body
-	body := renderBody(n, n.name, -1, false, nil, false)
+	body := renderBody(n, n.name, -1, false, nil)
 	if !strings.Contains(body, "\x1b[38;2;244;71;71m") {
 		t.Fatalf("styled run must render red, got %q", body)
 	}

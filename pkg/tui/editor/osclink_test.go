@@ -33,7 +33,7 @@ func spaced(s string) string { return strings.ReplaceAll(s, "\u00a0", " ") }
 // TestVisibleWidthSkipsHyperlink: a hyperlink target occupies no columns.
 func TestVisibleWidthSkipsHyperlink(t *testing.T) {
 	chips, name, plain := linkChips()
-	body := renderBody(&item{typ: database.TypeBullets}, name, -1, false, chips, false)
+	body := renderBody(&item{typ: database.TypeBullets}, name, -1, false, chips)
 	if got, want := visibleWidth(body), visibleWidth(plain); got != want {
 		t.Errorf("width = %d, want %d (the OSC 8 targets are not text)", got, want)
 	}
@@ -53,7 +53,7 @@ func TestVisibleWidthSkipsHyperlink(t *testing.T) {
 // repeated, no blank line where a chip used to be.
 func TestWrapLinkedRowFillsItsLines(t *testing.T) {
 	chips, name, plain := linkChips()
-	body := renderBody(&item{typ: database.TypeBullets}, name, -1, false, chips, false)
+	body := renderBody(&item{typ: database.TypeBullets}, name, -1, false, chips)
 
 	const width = 44
 	prefix := cDim + " │ " + cReset
@@ -85,7 +85,7 @@ func TestWrapClosesHyperlinkAtTheBreak(t *testing.T) {
 	chips := map[string]database.Chip{
 		"a": {ID: "a", Kind: chipKindLink, Value: colabURL, Label: "a long notebook name that must wrap"},
 	}
-	body := renderBody(&item{typ: database.TypeBullets}, chipAnchor("a"), -1, false, chips, false)
+	body := renderBody(&item{typ: database.TypeBullets}, chipAnchor("a"), -1, false, chips)
 	lines := wrapLine(" ○ "+body, 24, cDim+" │ "+cReset)
 	if len(lines) < 2 {
 		t.Fatalf("expected the chip to wrap, got %d line(s)", len(lines))

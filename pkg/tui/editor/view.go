@@ -40,6 +40,8 @@ func (m *Model) View() string {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)
+	} else if m.mode == modeCmdEdit {
+		lines = m.viewCmdEdit(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
@@ -112,7 +114,7 @@ func (m *Model) finalView(maxLine int) []string {
 		if r.it.typ == database.TypeDivider {
 			shown := m.renderItem(r.it)
 			name := m.tree.displayName(r.it)
-			body := renderBody(shown, name, -1, false, m.chips, false)
+			body := renderBody(shown, name, -1, false, m.chips)
 			line := dividerLine(r, maxLine, body, false)
 			lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
@@ -121,7 +123,7 @@ func (m *Model) finalView(maxLine int) []string {
 		shown := m.renderItem(r.it)
 		glyph, glyphColor := glyphFor(shown)
 		name := m.tree.displayName(r.it)
-		body := renderBody(shown, name, -1, false, m.chips, false)
+		body := renderBody(shown, name, -1, false, m.chips)
 		if rm := typeOf(shown.typ).renderM; rm != nil {
 			body = rm(m, shown)
 		}
@@ -183,7 +185,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			if selected && name != "" && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
 				caret = m.caret
 			}
-			body := renderBody(shown, name, caret, selected, m.chips, m.cmdDraftLive(shown))
+			body := renderBody(shown, name, caret, selected, m.chips)
 			line := dividerLine(r, maxLine, body, selected && m.mode != modeFlash)
 			groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
 			if m.inSelection(i) {
@@ -248,7 +250,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
 			caret = m.caret
 		}
-		body := renderBody(shown, name, caret, selected, m.chips, m.cmdDraftLive(shown))
+		body := renderBody(shown, name, caret, selected, m.chips)
 		if rm := typeOf(shown.typ).renderM; rm != nil {
 			body = rm(m, shown) // Model-aware override (voice waveform)
 		}
@@ -703,6 +705,11 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	if n := m.computingNodeCount(); n > 0 {
 		state += fmt.Sprintf(" · "+cRed+"%d thinking"+cDim, n)
+	}
+	// live shell runs: a red count, like the suggestions tally — a long command
+	// may sit silent for minutes, and the bar says it is still going
+	if n := m.runningCount(); n > 0 {
+		state += fmt.Sprintf(" · "+cRed+"%d bash running"+cDim, n)
 	}
 	// a proposal waiting on review is worth seeing even when its node is off
 	// screen — it changes nothing until somebody settles it

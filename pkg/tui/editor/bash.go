@@ -72,6 +72,7 @@ func (m *Model) startShellRun(id, cmd string) tea.Cmd {
 	r.cancel = cancel
 	r.started = time.Now() // the elapsed clock the band shows while it runs
 	r.dropped = 0          // a fresh run starts its drop count over
+	r.cmd = cmd            // what was run — a later edit to the node invalidates its tail
 	// a fresh run owns the band now: memory is authoritative, so don't reload the
 	// old on-disk output over the incoming stream.
 	r.loaded = true
@@ -81,7 +82,11 @@ func (m *Model) startShellRun(id, cmd string) tea.Cmd {
 	ch := make(chan tea.Msg, 1024)
 	r.ch = ch
 	go startBash(id, cmd, dir, ctx, ch, r.scr.w, r.scr.h)
-	return waitBashCmd(ch)
+	// start the shimmer IMMEDIATELY, not on the first output byte: a silent
+	// command (`sleep 30`) would otherwise never kick the animation tick and a
+	// running row would sit static. startAnim batches the tick on and keeps it
+	// alive via anyRunning while the command is in flight.
+	return m.startAnim(waitBashCmd(ch))
 }
 
 // runCols is the column count a run's terminal gets: the editor's body width less
@@ -150,6 +155,7 @@ const runTailWidth = 32
 type runTail struct {
 	text    string
 	running bool
+	cmd     string // the command the run corresponds to — a changed cmd invalidates it
 }
 
 // runTails is the render-time map of node uuid → the headline its row hangs,
@@ -161,15 +167,19 @@ type runTail struct {
 var runTails map[string]runTail
 
 // syncRunTails snapshots each node run's headline for this frame's render. Chip
-// runs are skipped — a chip carries its headline in its own Label.
+// runs are skipped — a chip carries its headline in its own Label. A node that is
+// RUNNING but has produced nothing yet still gets a tail (with running=true), so
+// the row reads as alive instead of falling back to the dim command preview —
+// the tail hook turns that into the shimmering "running…". The cmd is carried so
+// a later edit to the node (whose composed command then differs) drops the tail.
 func (m *Model) syncRunTails() {
 	tails := map[string]runTail{}
 	for id, r := range m.runs {
 		if _, isChip := m.chips[id]; isChip {
 			continue
 		}
-		if t := runHeadline(r); t != "" {
-			tails[id] = runTail{text: t, running: r.cancel != nil}
+		if t := runHeadline(r); t != "" || r.cancel != nil {
+			tails[id] = runTail{text: t, running: r.cancel != nil, cmd: r.cmd}
 		}
 	}
 	runTails = tails
@@ -439,7 +449,9 @@ func runViewBands(m *Model, r *runState, hdr, stopKey, rail string, width, scrol
 		case i == 0:
 			body = cDim + "  no output yet · ⌥r runs"
 		}
-		lines = append(lines, clip(rail+cReset+bgFill(body, inner, bgTerm)+cReset, width))
+		// the pane is the TERMINAL itself — plain terminal output on the editor's
+		// own background, no tinted block behind it (bgTerm was the old chrome)
+		lines = append(lines, clip(rail+cReset+body+cReset, width))
 	}
 	return lines
 }

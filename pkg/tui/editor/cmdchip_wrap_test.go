@@ -15,9 +15,8 @@ func TestCmdChipWrapKeepsColor(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
 	cursorOn(m, "edit")
 	m.caret = 0
-	m.press("$echo aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll")
-	m.press(" ")
-	m.press(" ")
+	c := typeCmdChip(t, m)
+	setCmdChipValue(m, c.ID, "echo aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll")
 	m.width = 40
 
 	for _, caret := range []int{0, 2} { // 0 = cursor ON the chip, 2 = past it
