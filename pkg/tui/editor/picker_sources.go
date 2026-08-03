@@ -360,7 +360,7 @@ func (styleSource) header(m *Model, p *listPicker) string {
 	if p.query != "" {
 		return " " + cDim + "style: " + cReset + cFG + p.query + cReset
 	}
-	return " " + cDim + "enter apply to all · shift+←/→ first styles a portion · type to filter" + cReset
+	return " " + cDim + "enter to apply the first part · shift+←/→ styles a portion · type to filter" + cReset
 }
 
 func (styleSource) initialSel(m *Model) int {
