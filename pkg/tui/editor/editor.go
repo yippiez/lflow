@@ -46,7 +46,7 @@ const (
 	modeInsert         // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
 	modeAgentPick      // /agent: start a coding session here, or attach one from a CLI's own store
 	modeAgentColor     // ⌥c on a session chip: its color
-	modeCite           // the "@@" / /cite picker: search the local Zotero library and splice a citation chip
+	modeCite           // the Zotero picker: "@@" splices a citation chip, /type and /insert → Zotero mirror an entry
 	modeCharacterPick  // the alt+e character picker on a Line node: pick or write a character
 	modeCharacterColor // the character picker's recolor key: assign a pill color to a character
 	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
@@ -73,18 +73,16 @@ type slashCommand struct {
 
 var slashCommands = []slashCommand{
 	{"/backlinks", "Show nodes that mirror or link to this one"},
-	{"/cite", "Cite a paper from your Zotero library (@@)"},
 	{"/complete", "Toggle done (alt+enter)"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
 	{"/hide:complete", "Hide or show completed nodes"},
-	{"/insert", "Insert a chip at caret"},
+	{"/insert", "Insert a chip — or a Zotero entry — at caret"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
 	{"/lock", "Lock or unlock this node as read-only"},
 	{"/mirror:from", "Mirror another node here"},
 	{"/mirror:to", "Mirror this node into another node"},
 	{"/mirror:workflowy", "Mirror a Workflowy subtree here (paste a link, then alt+r)"},
-	{"/mirror:zotero", "Mirror a Zotero entry here: tags, attachments, annotations"},
 	{"/move:here", "Move another node here"},
 	{"/move:to", "Move this node under another node"},
 	{"/note", "Edit this node's note"},
@@ -1834,12 +1832,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/link":
 		// splice an inline link chip at the caret (same as the [[ trigger)
 		m.openFinder(actLinkInsert)
-	case "/cite":
-		// splice a citation chip from the local Zotero library (same as "@@")
-		return m.openCitePicker(citeChip)
-	case "/mirror:zotero":
-		// mirror a whole Zotero entry into this node as a locked subtree
-		return m.openCitePicker(citeMirror)
 	case "/mirror:workflowy":
 		// the Workflowy sibling: this node becomes the pull handle, and alt+r
 		// fetches the subtree once it holds a link (see wf.go)

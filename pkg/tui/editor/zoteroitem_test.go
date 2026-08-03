@@ -395,8 +395,8 @@ func TestMirrorPickerCreatesTheNode(t *testing.T) {
 	if m.mode != modeCite {
 		t.Fatalf("mode = %v, want the library picker", m.mode)
 	}
-	if h := (zoteroSource{}).header(m, &m.list); !strings.Contains(h, "mirror:") {
-		t.Errorf("header = %q, want the mirror label", h)
+	if h := (zoteroSource{}).header(m, &m.list); !strings.Contains(h, "zotero:") {
+		t.Errorf("header = %q, want the zotero label", h)
 	}
 	items := (zoteroSource{}).items(m, "attention")
 	if len(items) != 1 {
@@ -687,11 +687,17 @@ func TestMirrorCommentIsAnOrdinaryNode(t *testing.T) {
 	}
 }
 
-func TestMirrorSlashCommands(t *testing.T) {
+func TestMirrorEntryPaths(t *testing.T) {
 	m := mirrorModel(t)
-	m.runSlash("/mirror:zotero")
+	// /insert → Zotero opens the picker immediately
+	m.insertChip("zotero")
 	if m.mode != modeCite || m.citeAct != citeMirror {
-		t.Errorf("/mirror:zotero left mode %v act %v", m.mode, m.citeAct)
+		t.Errorf("/insert → zotero left mode %v act %v", m.mode, m.citeAct)
+	}
+	m.mode = modeOutline
+	m.openCitePicker(citeMirror)
+	if m.mode != modeCite || m.citeAct != citeMirror {
+		t.Errorf("openCitePicker left mode %v act %v", m.mode, m.citeAct)
 	}
 	m.mode = modeOutline
 
@@ -703,15 +709,18 @@ func TestMirrorSlashCommands(t *testing.T) {
 	if !strings.Contains(m.flash, "paste a link") {
 		t.Errorf("flash = %q, want the next step", m.flash)
 	}
-	// both are offered in the slash menu, next to the node mirrors
+	// the mirror slash commands stay, minus the zotero one (now /insert → zotero)
 	names := ""
 	for _, c := range m.filteredSlash("mirror") {
 		names += c.name + " "
 	}
-	for _, want := range []string{"/mirror:from", "/mirror:to", "/mirror:workflowy", "/mirror:zotero"} {
+	for _, want := range []string{"/mirror:from", "/mirror:to", "/mirror:workflowy"} {
 		if !strings.Contains(names, want) {
 			t.Errorf("slash menu = %q, want %q", names, want)
 		}
+	}
+	if strings.Contains(names, "/mirror:zotero") {
+		t.Error("slash menu still offers /mirror:zotero")
 	}
 }
 

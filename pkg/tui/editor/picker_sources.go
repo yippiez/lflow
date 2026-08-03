@@ -126,7 +126,7 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // query nodes (where ":" is the query-command completer) can still insert icons.
 var insertKinds = []struct{ value, label, desc string }{
 	{"agent", "agent", "a coding session you already have"},
-	{"cite", "cite", "a citation from your Zotero library"},
+	{"zotero", "zotero", "a Zotero entry as a node: tags, attachments, annotations"},
 	{"cmd", "bash", "a runnable $ command chip (or type $$)"},
 	{"date", "date", "today as a date chip"},
 	{"icon", "icon", "an icon or emoji via shortcode"},
@@ -202,8 +202,10 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 		m.openAgentPicker()
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")
-	case "cite":
-		return m.openCitePicker(citeChip)
+	case "zotero":
+		// the full paper AS A NODE: pick the entry and the cursor node becomes
+		// its mirror (the citation chip, by contrast, is only ever made by "@@")
+		return m.openCitePicker(citeMirror)
 	case "link":
 		m.openFinder(actLinkInsert)
 	case "date":

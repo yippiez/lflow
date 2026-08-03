@@ -325,10 +325,16 @@ var nodeTypes = []nodeType{
 	{
 		key: database.TypeZotero, label: "Zotero item", inlineEditable: false,
 		glyph:        zoteroGlyph,
-		baseColor:    zoteroBaseColor,
-		run:          runZoteroPull, // alt+r: re-read this entry from the library
+		run:          runZoteroPull, // alt+r: re-read the entry, or pick one on an unbound node
 		toContextM:   zoteroToContext,
 		flashActions: zoteroFlashActions,
+		bodyTail: func(it *item, chips map[string]database.Chip) string {
+			// an unbound zotero node (edge case) reads as a prompt, not a blank row
+			if _, ok := zoteroBindingFor(it); ok {
+				return ""
+			}
+			return cDim + "pick a Zotero entry · alt+r" + cReset
+		},
 	},
 	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
 	// per node) and register themselves via RegisterNodePlugin at init; see

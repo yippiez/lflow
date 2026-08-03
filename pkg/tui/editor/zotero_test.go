@@ -237,30 +237,31 @@ func TestZoteroWebURLFallsBackToTheDOI(t *testing.T) {
 	}
 }
 
-func TestCiteInsertKindIsOffered(t *testing.T) {
+func TestZoteroInsertKindIsOffered(t *testing.T) {
 	m := citeModel(t)
 	found := false
-	for _, it := range (insertSource{}).items(m, "cite") {
-		if it.value == "cite" {
+	for _, it := range (insertSource{}).items(m, "zotero") {
+		if it.value == "zotero" {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("/insert does not offer cite")
+		t.Error("/insert does not offer zotero")
 	}
-	// and it routes into the picker
-	m.mode = modeInsert
-	m.insertChip("cite")
-	if m.mode != modeCite {
-		t.Errorf("/insert → cite left mode %v, want modeCite", m.mode)
+	// and it routes into the picker, ready to mirror (mirroring owns the node,
+	// so the pick only opens on an empty one)
+	m, _ = dbModel(t, database.Node{UUID: "n2", Name: "", Rank: 1})
+	m.cursor = 0
+	m.zoteroLib = fakeLibrary()
+	m.insertChip("zotero")
+	if m.mode != modeCite || m.citeAct != citeMirror {
+		t.Errorf("/insert → zotero left mode %v act %v, want modeCite/mirror", m.mode, m.citeAct)
 	}
-}
-
-func TestSlashCiteOpensThePicker(t *testing.T) {
-	m := citeModel(t)
+	// the citation chip has no slash command anymore — "@@" is its only path
+	m.mode = modeOutline
 	m.runSlash("/cite")
-	if m.mode != modeCite {
-		t.Errorf("/cite left mode %v, want modeCite", m.mode)
+	if m.mode == modeCite {
+		t.Error("/cite still opens the picker; the command should be gone")
 	}
 }
 
@@ -312,8 +313,7 @@ func TestCitePickerRefusesANodeThatCannotHoldAChip(t *testing.T) {
 
 func TestZoteroRefreshRemembersAMissingLibrary(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "n1", Name: "x", Rank: 1})
-	t.Setenv("LFLOW_ZOTERO_DIR", t.TempDir()) // exists, but holds no zotero.sqlite
-	t.Setenv("ZOTERO_DATA_DIR", t.TempDir())
+	t.Setenv("ZOTERO_DATA_DIR", t.TempDir()) // exists, but holds no zotero.sqlite
 	t.Setenv("HOME", t.TempDir())
 	if _, ok := m.zoteroRefresh(); ok {
 		t.Fatal("zoteroRefresh found a library where there is none")

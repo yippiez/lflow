@@ -25,8 +25,9 @@ import (
 //	alt+o   the other destination, always — the escape hatch when the machine
 //	        you are on is not the machine Zotero is installed on.
 //
-// Create one with "@@" (or /cite, or /insert → cite), which opens a picker over
-// the library.
+// Create one with "@@" — the ONE path to a citation chip. The full paper, by
+// contrast, is a zotero NODE (zoteroitem.go), made by /type → Zotero or
+// /insert → Zotero, both of which open the same picker immediately.
 
 // zoteroPickerLimit caps how many library entries the picker ranks per
 // keystroke; the list itself only ever shows pickerMaxRows of them.
@@ -227,8 +228,8 @@ func zoteroLinkTarget(c database.Chip) string {
 type citeAction int
 
 const (
-	citeChip   citeAction = iota // "@@" / /cite / /insert → cite
-	citeMirror                   // /zotero, and /type → Zotero item
+	citeChip   citeAction = iota // "@@" — a citation chip at the caret
+	citeMirror                   // /type → Zotero, /insert → Zotero, and alt+r on an unbound zotero node
 )
 
 // openCitePicker opens the library picker at the caret, reading the library
@@ -314,7 +315,7 @@ func zoteroBrandColor() string {
 func (zoteroSource) header(m *Model, p *listPicker) string {
 	label := "cite: "
 	if m.citeAct == citeMirror {
-		label = "mirror: "
+		label = "zotero: "
 	}
 	if _, ok := m.zoteroLibrary(); !ok {
 		return " " + cDim + label + cReset + cRed + m.zoteroErr + cReset
