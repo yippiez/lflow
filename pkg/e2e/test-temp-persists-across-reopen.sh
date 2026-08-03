@@ -28,7 +28,7 @@ db_count() {
     if [[ ! -f "${dbfile}" ]]; then
         fail "persistent DB not found at ${dbfile}"
     fi
-    sqlite3 "${dbfile}" "SELECT COUNT(*) FROM nodes WHERE ${where};"
+    db_query "${dbfile}" "SELECT COUNT(*) FROM nodes WHERE ${where};"
 }
 
 assert_db_has() {
@@ -38,8 +38,6 @@ assert_db_has() {
         fail "expected DB to contain ${desc} (where: ${where}) but found 0 rows"
     fi
 }
-
-command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP ${TEST_NAME}: sqlite3 not installed"; exit 0; }
 
 setup
 use_persist_db

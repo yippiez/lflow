@@ -81,6 +81,10 @@ func (slashSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	return m.runSlash(it.value)
 }
 
+// onEscape takes back the "/query" the menu mirrored into the node, so a
+// dismissed menu leaves the node reading exactly as it did before it opened.
+func (slashSource) onEscape(m *Model) { m.stripSlashText() }
+
 func (slashSource) onRune(m *Model, p *listPicker, r []rune) bool {
 	p.query += string(r)
 	p.sel = 0

@@ -14,11 +14,11 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   1. Type "source" as the first node name.
 #   2. Add a note "init note" to the source via /note, confirm with Enter.
 #   3. Save (C-s) so the finder can locate the node.
-#   4. Open a blank sibling (Enter), then mirror it to "source" via /mirror:to.
+#   4. Open a blank sibling (Enter), then mirror "source" into it via /mirror:from.
 #   5. Navigate back to source; enter /note mode, append " LIVE", confirm (Enter).
 #      The note is now "init note LIVE" — unsaved — on the source.
 #   6. Navigate to the mirror row.
-#   7. Assert the mirror's note band (the line appearing BELOW "◆ source") shows
+#   7. Assert the mirror's note band (the line appearing BELOW "○ source · mirror") shows
 #      "init note LIVE" without a save.  In the buggy version that line is absent
 #      (mirror.note == "" stale), so the assertion catches the regression.
 
@@ -46,18 +46,18 @@ send C-s
 # ── step 4: create a blank sibling and mirror it to "source" ────────────────
 # Enter creates a sibling below; the blank node becomes our mirror target
 send Enter
-# blank sibling is now selected; open /mirror:to via slash menu
+# blank sibling is now selected; open /mirror:from via slash menu
 send "/"
-type "mirror:to"
-wait_for "/mirror:to"
+type "mirror:from"
+wait_for "/mirror:from"
 send Enter
-# the fuzzy finder opens in /mirror:to mode — wait for its label to appear
-wait_for "/mirror:to" 5
+# the fuzzy finder opens in /mirror:from mode — wait for its label to appear
+wait_for "/mirror:from" 5
 # "source" is the only saved node; select it with Enter
 send Enter
 # wait for the mirror glyph to appear
-wait_for "◆ source" 5
-assert_contains "◆ source"
+wait_for "○ source · mirror" 5
+assert_contains "○ source · mirror"
 
 # ── step 5: navigate to source and append to its note (unsaved) ─────────────
 send Up
@@ -75,17 +75,17 @@ wait_for "○ source"
 
 # ── step 6: navigate to the mirror ──────────────────────────────────────────
 send Down
-wait_for "◆ source" 5
+wait_for "○ source · mirror" 5
 
 # ── step 7: assert the mirror's note band shows the live note ───────────────
 # Capture the pane and find the line number of the mirror row.
 # The note band ("init note LIVE") must appear on a line AFTER the mirror row.
 # In the buggy version, the mirror's note band was absent (stale mirror.note="")
-# so nothing appeared below the "◆ source" line, and the check below would fail.
+# so nothing appeared below the "○ source · mirror" line, and the check below would fail.
 pane="$(snapshot)"
-mirror_line="$(printf '%s\n' "${pane}" | grep -n '◆ source' | head -1 | cut -d: -f1)"
+mirror_line="$(printf '%s\n' "${pane}" | grep -n '○ source · mirror' | head -1 | cut -d: -f1)"
 if [[ -z "${mirror_line}" ]]; then
-    fail "could not find mirror row '◆ source' in pane"
+    fail "could not find mirror row '○ source · mirror' in pane"
 fi
 note_below="$(printf '%s\n' "${pane}" | awk -v m="${mirror_line}" 'NR > m' | grep -F "init note LIVE" || true)"
 if [[ -z "${note_below}" ]]; then

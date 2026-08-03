@@ -77,6 +77,16 @@ type pickerKeySource interface {
 	onKey(m *Model, p *listPicker, key string, items []pickerItem) (handled bool)
 }
 
+// pickerEscapeSource is the opt-in hook for a source that has to undo something
+// when the picker is dismissed. Only the slash menu needs it today: it mirrors
+// the typed "/query" INTO the node text as you type, so escaping without
+// choosing must take that text back out — otherwise a dismissed menu leaves a
+// stray "/" in the node. The completer deliberately does not implement it: what
+// you typed there is ordinary text and stays.
+type pickerEscapeSource interface {
+	onEscape(m *Model)
+}
+
 type inlineTextSource interface {
 	// onRune handles a typed rune: append to p.query, splice into the node text,
 	// and report whether the picker should now close (the slash menu closes when
@@ -120,6 +130,9 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 
 	switch k.String() {
 	case "esc":
+		if es, ok := src.(pickerEscapeSource); ok {
+			es.onEscape(m)
+		}
 		m.mode = modeOutline
 		return true, m, nil
 	case "up":

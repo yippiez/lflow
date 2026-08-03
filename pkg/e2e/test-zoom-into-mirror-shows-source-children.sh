@@ -11,7 +11,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 # Scenario (mirror is a CHILD of src, sibling of kid):
 #   src
 #   ├─ kid             <- real child of src
-#   ╰─ ◆ src · mirror  <- mirror of src (created via /mirror:to finder)
+#   ╰─ ○ src · mirror  <- mirror of src (created via /mirror:from finder)
 #
 # Steps:
 #   1. Build src + kid (kid is indented under src).
@@ -47,11 +47,13 @@ wait_for "2/2" 5
 # Cursor is on kid. Enter opens a blank sibling of kid (still a child of src);
 # we do NOT outdent it, so the mirror lives at src > <mirror>.
 send Enter
+# Type the filter before waiting — the menu shows a bounded page of rows, and
+# /mirror:from is below the first one.
 type "/"
-wait_for "/mirror:to"
-type "mirror:to"
-wait_for "/mirror:to"
-send Enter            # run /mirror:to -> opens the node finder
+wait_for "/backlinks"
+type "mirror:from"
+wait_for "/mirror:from"
+send Enter            # run /mirror:from -> opens the node finder
 
 # Finder is open. Narrow to src and select it.
 wait_for "src"
@@ -60,7 +62,7 @@ wait_for "src"
 send Enter
 
 # The blank node is now a mirror of src.
-wait_for "◆ src · mirror"
+wait_for "○ src · mirror"
 
 # Pre-zoom sanity: we are at the top of the outline (breadcrumb has no "›"),
 # src is a visible row, and kid is indented under it (kid is now the FIRST of
@@ -70,7 +72,7 @@ assert_contains "├─ ○ kid"
 assert_not_contains "Root › "
 
 # --- Step 4: zoom into the mirror -----------------------------------------
-# Cursor is on the mirror node (◆ src · mirror). alt+right zooms in.
+# Cursor is on the mirror node (○ src · mirror). alt+right zooms in.
 send M-Right
 
 # --- Step 5: assert the zoomed view shows the source's child --------------
@@ -85,9 +87,13 @@ wait_for "Root › src"
 # prefix, distinguishing it from the pre-zoom "╰─ ○ kid".
 assert_contains "○ kid"
 
-# The old view root (src) is now the hidden zoom root, so it must NOT appear
-# as a body row, and kid must NOT carry its old child tree-prefix.
-assert_not_contains "○ src"
+# The old view root (src) is now the hidden zoom root, so it must NOT appear as
+# a body row of its own, and kid must NOT carry its old child tree-prefix. The
+# one row still reading "○ src" is the MIRROR hanging inside src — a mirror
+# wears no glyph of its own, so it is only its dim suffix that tells the two
+# apart, and a count is what says src itself is gone.
+assert_count "○ src" 1
+assert_contains "○ src · mirror"
 assert_not_contains "╰─ ○ kid"
 
 assert_no_crash

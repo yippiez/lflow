@@ -2,32 +2,35 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 
-# Behavior: a section always keeps at least one empty node — deleting the last
-# node in the Temporary Domain re-creates a fresh empty (worker) node, so the
-# section is never empty. No pi needed.
+# Behavior: emptying the Temporary Domain leaves a SECTION, not a void — the
+# panel keeps its dotted identity and says it is empty, and the notebook above
+# is untouched. The panel no longer seeds a placeholder node of its own, so the
+# node to delete is one you made.
 #
 # Repro:
 #   1. Type a node in the notebook.
-#   2. Down into the temp panel (focus the ✦ worker placeholder).
+#   2. Down into the temp panel and type a scratch node.
 #   3. Delete it (ctrl+d).
 #
-# Expected: a dashed ◌ node is still present (re-created), not an empty section.
+# Expected: the dashed ◌ panel is still there, now reading as empty.
 
 setup; launch
 
 type "keep"
 wait_for "○ keep"
 
-send Down                 # focus the temp worker
+send Down                 # into the temp panel, which starts empty
 wait_for "◌"
-assert_contains "✦"       # the temp worker placeholder is there
 
-send C-d                  # delete the (childless) temp worker
+type "scratch"            # the one temp node this test will delete
+wait_for "◌ scratch"
+
+send C-d                  # delete the (childless) temp node
 sleep 0.3
 
-# the section must not be empty — a fresh node is re-created
+# the section must not become a void — the panel still says what it is
 wait_for "◌"
-assert_contains "◌"
+assert_not_contains "◌ scratch"
 assert_contains "○ keep"  # the notebook node is untouched
 
 assert_no_crash

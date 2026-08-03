@@ -179,6 +179,49 @@ assert_not_contains() {
 }
 
 # ---------------------------------------------------------------------------
+# db_query <dbfile> <sql>: run one read-only query against a persist DB and echo
+# the rows, pipe-separated. Prefers the sqlite3 CLI and falls back to python3's
+# sqlite3 module, which ships with python — a machine without the CLI would
+# otherwise turn "cannot read the DB" into "the row is not there", which reads
+# as a product bug rather than a missing tool.
+# ---------------------------------------------------------------------------
+db_query() {
+    local dbfile="$1" sql="$2"
+    if command -v sqlite3 >/dev/null 2>&1; then
+        sqlite3 "${dbfile}" "${sql}" 2>/dev/null || true
+        return
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        DBFILE="${dbfile}" SQL="${sql}" python3 - <<'PY' 2>/dev/null || true
+import os, sqlite3, sys
+try:
+    con = sqlite3.connect("file:%s?mode=ro" % os.environ["DBFILE"], uri=True)
+    for row in con.execute(os.environ["SQL"]):
+        print("|".join("" if v is None else str(v) for v in row))
+except Exception:
+    sys.exit(1)
+PY
+        return
+    fi
+    fail "no sqlite3 CLI and no python3 — cannot read the test database"
+}
+
+# ---------------------------------------------------------------------------
+# assert_count "<sub>" <n>: fail unless the snapshot has exactly <n> lines
+# containing <sub>. A node shown through a mirror renders exactly like the
+# original — same glyph, same text — so counting the rows is what tells "it is
+# in both places" from "it is only in one".
+# ---------------------------------------------------------------------------
+assert_count() {
+    local sub="$1" want="$2" got
+    LAST_PANE="$(tmux capture-pane -t "${SESSION}" -p)"
+    got="$(printf '%s\n' "${LAST_PANE}" | grep -cF -- "${sub}" || true)"
+    if [[ "${got}" != "${want}" ]]; then
+        fail "expected ${want} rows containing '${sub}', got ${got}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # assert_no_crash: fail if the pane shows a Go panic / runtime error / stack.
 # ---------------------------------------------------------------------------
 assert_no_crash() {

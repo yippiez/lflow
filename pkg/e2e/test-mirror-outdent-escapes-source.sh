@@ -31,7 +31,7 @@ send Tab
 wait_for "╰─ ○ kid"
 assert_contains "○ src"
 
-# --- Empty sibling of src, then /mirror:to src -----------------------------
+# --- Empty sibling of src, then /mirror:from src -----------------------------
 # From kid: Enter opens a sibling under src; BTab outdents it next to src.
 send Enter
 send BTab
@@ -41,11 +41,11 @@ wait_for "○ src"
 send C-s
 wait_for "3/3"
 
-# Slash menu: type the filter before waiting — /mirror:to sits below the first
+# Slash menu: type the filter before waiting — /mirror:from sits below the first
 # page of the unfiltered list on a 24-row pane.
 send "/"
-type "mirror:to"
-wait_for "/mirror:to"
+type "mirror:from"
+wait_for "/mirror:from"
 send Enter
 # Finder open; narrow to src and select it.
 wait_for "src"
@@ -59,7 +59,7 @@ assert_contains "╰─ ○ kid"
 
 # --- Cursor onto the through-row of kid under the mirror -------------------
 # Rows: src, kid (orig), mirror header, kid (through) → 4/4.
-# Cursor is on the mirror after /mirror:to; one Down lands on through-kid.
+# Cursor is on the mirror after /mirror:from; one Down lands on through-kid.
 send Down
 wait_for "4/4"
 

@@ -75,9 +75,12 @@ assert_contains "the quick brown fox"
 # -----------------------------------------------------------------------
 # Part 2 – End on an intermediate visual line (not the last)
 # -----------------------------------------------------------------------
-# Navigate down to "anchor" (Down from the last visual line crosses to it).
+# Navigate down to "anchor". Down snaps before it crosses: from a caret that is
+# not yet at the end of the node's text, the first press moves it there and only
+# the second leaves the node.
 send Down
-wait_for "root · 2/2"
+send Down
+wait_for "Root · 2/2"
 
 # Append text to "anchor" so it wraps across 3 visual lines:
 #   line 1: "anchor plus the quick brown fox ru"  (runes 0-33)

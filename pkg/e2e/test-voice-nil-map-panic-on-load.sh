@@ -66,7 +66,7 @@ send C-s
 VOICE_UUID=""
 _save_deadline=$(( $(date +%s%N) + 5 * 1000000000 ))
 while :; do
-    VOICE_UUID="$(sqlite3 "${DB_PATH}" "SELECT uuid FROM nodes WHERE type='voice' AND deleted=0 LIMIT 1;" 2>/dev/null || true)"
+    VOICE_UUID="$(db_query "${DB_PATH}" "SELECT uuid FROM nodes WHERE type='voice' AND deleted=0 LIMIT 1;")"
     [[ -n "${VOICE_UUID}" ]] && break
     if (( $(date +%s%N) > _save_deadline )); then
         LAST_PANE="$(tmux capture-pane -t "${SESSION}" -p)"

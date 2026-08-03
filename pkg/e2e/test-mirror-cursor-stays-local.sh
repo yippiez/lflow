@@ -46,39 +46,43 @@ assert_contains "╰─ ○ a"
 send C-s
 wait_for "3/3"
 
-# Open the /mirror:to finder on the empty node (cursor is still there).
-# Typing "/" enters slash-menu mode; "mirror:to" filters to /mirror:to.
+# Open the /mirror:from finder on the empty node (cursor is still there).
+# Typing "/" enters slash-menu mode; "mirror:from" filters to /mirror:from. Type the
+# filter before waiting — the menu shows a bounded page of rows, and /mirror:from
+# is below the first one.
 type "/"
-wait_for "/mirror:to"
-type "mirror:to"
-wait_for "/mirror:to"
-send Enter         # run /mirror:to -> opens the node finder
+wait_for "/backlinks"
+type "mirror:from"
+wait_for "/mirror:from"
+send Enter         # run /mirror:from -> opens the node finder
 
 # Finder opens with empty query showing all saved nodes; src appears first.
 wait_for "src"
 # Type "src" to narrow the finder to exactly the src node.
 type "src"
 wait_for "src"
-send Enter         # select src -> empty node becomes ◆ src · mirror
+send Enter         # select src -> empty node becomes "src · mirror"
 
-# Mirror is created; cursor is on the mirror node.
-wait_for "◆ src · mirror"
-assert_contains "◆ a"
+# Mirror is created; cursor is on the mirror node. A mirror wears no glyph of
+# its own — it keeps the type glyph and says what it is in the dim suffix — so
+# "a" now appears twice: once in src, once through the mirror.
+wait_for "○ src · mirror"
+assert_count "○ a" 2
 
-# Navigate DOWN from the mirror header (◆ src · mirror) into the child
-# shown through the mirror (◆ a).  This is the node we will edit through
-# the mirror to trigger the cursor-locality bug.
+# Navigate DOWN from the mirror header into the child shown through the mirror.
+# This is the node we will edit through the mirror to trigger the
+# cursor-locality bug.
 send Down
 
-# Confirm cursor is on ◆ a (shown through the mirror, after the mirror row).
+# Confirm cursor is on "a" shown through the mirror, after the mirror row.
 wait_for "4/4"   # 4 rows: src, a-orig, mirror-header, a-through-mirror
 
-# Press Enter while cursor is on ◆ a (shown through the mirror).
+# Press Enter while cursor is on "a" (shown through the mirror).
 # This creates a sibling of a inside the src subtree.
 # BUG (pre-fix): cursor jumped to the new node's row in the ORIGINAL src
-#   subtree (e.g. position 2/6), above the ◆ src · mirror line.
+#   subtree (e.g. position 2/6), above the mirror line.
 # FIXED:  cursor stays at the new node's row inside the mirror view
-#   (position 5/6), below the ◆ src · mirror line.
+#   (position 5/6), below the mirror line.
 send Enter
 wait_for "/6"      # structural edit settled: total is now 6 rows (new empty node)
                    # position-agnostic so it settles in both buggy and fixed builds
@@ -86,18 +90,19 @@ wait_for "/6"      # structural edit settled: total is now 6 rows (new empty nod
 # Type "M" to name the new node.
 type "M"
 
-wait_for "◆ M"          # M must appear through the mirror
-assert_contains "○ M"   # M also appears in the original src subtree
-assert_contains "◆ src · mirror"
+# M must appear in BOTH places: the original src subtree and through the mirror.
+wait_for "○ M"
+assert_count "○ M" 2
+assert_contains "○ src · mirror"
 
 # --- Core regression assertion ---
 # The rows after the operation are:
 #   1: ○ src
 #   2: ├─ ○ M          <- original src child (cursor here in BUGGY build)
 #   3: ╰─ ○ a
-#   4: ◆ src · mirror
-#   5: ├─ ◆ M          <- through mirror   (cursor here in FIXED build)
-#   6: ╰─ ◆ a
+#   4: ○ src · mirror
+#   5: ├─ ○ M          <- through mirror   (cursor here in FIXED build)
+#   6: ╰─ ○ a
 #
 # Status bar shows "pos/total". Assert the cursor is NOT at the original
 # src position (2/6), which is where the pre-fix code would have landed.
