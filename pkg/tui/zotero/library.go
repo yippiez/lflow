@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 
@@ -32,13 +33,14 @@ type Library struct {
 // ── locating the library ───────────────────────────────────────────────────
 
 // DataDir finds the Zotero data directory. In order: Zotero's own
-// ZOTERO_DATA_DIR, the dataDir recorded in the Zotero profile's prefs.js (set
-// when the user moved their library), the platform default (<home>/Zotero), and
-// finally — when lflow runs in WSL while Zotero runs on the Windows side — each
-// Windows user's Zotero folder under /mnt/<drive>/Users. Returns "" when no
-// library file is found anywhere. The /settings "Zotero library" row shows the
-// result (read-only); there is no lflow-specific env override — what lflow
-// finds IS what Zotero itself uses.
+// ZOTERO_DATA_DIR, the dataDir recorded in any Zotero profile's prefs.js (set
+// when the user moved their library — under WSL that includes the profiles of
+// the Zotero installed on the Windows side, whose D:\… path is translated to
+// /mnt/d/…), the platform default (<home>/Zotero), and finally each Windows
+// user's Zotero folder as mounted in WSL. Returns "" when no library file is
+// found anywhere. The /settings "Zotero library" row shows the result
+// (read-only); there is no lflow-specific env override — what lflow finds IS
+// what Zotero itself uses.
 func DataDir() string {
 	for _, dir := range candidateDirs() {
 		if dir == "" {
@@ -70,26 +72,12 @@ func candidateDirs() []string {
 //	user_pref("extensions.zotero.dataDir", "D:\\Research\\Zotero");
 var reDataDir = regexp.MustCompile(`user_pref\("extensions\.zotero\.dataDir",\s*"((?:[^"\\]|\\.)*)"\)`)
 
-// prefsDataDirs returns the data directories declared in every Zotero profile's
-// prefs.js under home — how a user who moved their library off the default
+// prefsDataDirs returns the data directories declared in every Zotero profile
+// this machine can see — how a user who moved their library off the default
 // path is still found.
 func prefsDataDirs(home string) []string {
-	if home == "" {
-		return nil
-	}
-	var roots []string
-	switch runtime.GOOS {
-	case "windows":
-		if appData := os.Getenv("APPDATA"); appData != "" {
-			roots = append(roots, filepath.Join(appData, "Zotero", "Zotero", "Profiles"))
-		}
-	case "darwin":
-		roots = append(roots, filepath.Join(home, "Library", "Application Support", "Zotero", "Profiles"))
-	default:
-		roots = append(roots, filepath.Join(home, ".zotero", "zotero"))
-	}
 	var out []string
-	for _, root := range roots {
+	for _, root := range profileRoots(home) {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			continue
@@ -100,11 +88,37 @@ func prefsDataDirs(home string) []string {
 				continue
 			}
 			if mm := reDataDir.FindSubmatch(b); mm != nil {
-				out = append(out, unescapePref(string(mm[1])))
+				out = append(out, wslPath(unescapePref(string(mm[1]))))
 			}
 		}
 	}
 	return out
+}
+
+// profileRoots lists the directories Zotero keeps its profiles in: this
+// platform's own, plus — under WSL — every Windows account's, because the
+// Zotero the user actually runs is the one on the Windows side and its prefs.js
+// is the only place a moved library is written down.
+func profileRoots(home string) []string {
+	var roots []string
+	switch runtime.GOOS {
+	case "windows":
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			roots = append(roots, filepath.Join(appData, "Zotero", "Zotero", "Profiles"))
+		}
+	case "darwin":
+		if home != "" {
+			roots = append(roots, filepath.Join(home, "Library", "Application Support", "Zotero", "Profiles"))
+		}
+	default:
+		if home != "" {
+			roots = append(roots, filepath.Join(home, ".zotero", "zotero"))
+		}
+	}
+	for _, u := range windowsUserDirs() {
+		roots = append(roots, filepath.Join(u, "AppData", "Roaming", "Zotero", "Zotero", "Profiles"))
+	}
+	return roots
 }
 
 // unescapePref undoes the backslash escaping prefs.js applies to Windows paths.
@@ -112,24 +126,37 @@ func unescapePref(s string) string {
 	return strings.NewReplacer(`\\`, `\`, `\"`, `"`).Replace(s)
 }
 
-// windowsSideDirs lists Zotero data directories belonging to Windows user
-// accounts as seen from a WSL mount — the "lflow in WSL, Zotero on the main PC"
-// arrangement. Empty on every other platform, and on a Linux box with no
-// /mnt/<drive>/Users to walk.
+// windowsSideDirs lists the default Zotero data directories belonging to
+// Windows user accounts as seen from a WSL mount — the "lflow in WSL, Zotero on
+// the main PC" arrangement.
 func windowsSideDirs() []string {
+	users := windowsUserDirs()
+	out := make([]string, 0, len(users))
+	for _, u := range users {
+		out = append(out, filepath.Join(u, "Zotero"))
+	}
+	return out
+}
+
+// windowsUserDirs walks the mounted Windows drives for user profile folders
+// (C:\Users\Eren as /mnt/c/Users/Eren). Empty on every other platform, and on a
+// Linux box with no Windows drives to walk.
+func windowsUserDirs() []string {
 	if runtime.GOOS != "linux" {
 		return nil
 	}
-	var out []string
-	drives, err := os.ReadDir("/mnt")
+	root := WindowsMountRoot()
+	drives, err := os.ReadDir(root)
 	if err != nil {
 		return nil
 	}
+	var out []string
 	for _, d := range drives {
 		if len(d.Name()) != 1 { // drive letters only: /mnt/c, /mnt/d
 			continue
 		}
-		users, err := os.ReadDir(filepath.Join("/mnt", d.Name(), "Users"))
+		usersDir := filepath.Join(root, d.Name(), "Users")
+		users, err := os.ReadDir(usersDir)
 		if err != nil {
 			continue
 		}
@@ -138,10 +165,54 @@ func windowsSideDirs() []string {
 			case "Public", "Default", "Default User", "All Users":
 				continue
 			}
-			out = append(out, filepath.Join("/mnt", d.Name(), "Users", u.Name(), "Zotero"))
+			if !u.IsDir() {
+				continue
+			}
+			out = append(out, filepath.Join(usersDir, u.Name()))
 		}
 	}
 	return out
+}
+
+// reWinPath matches an absolute Windows path by its drive letter: D:\Zotero,
+// C:/Users/Eren/Zotero.
+var reWinPath = regexp.MustCompile(`^([A-Za-z]):[\\/]*(.*)$`)
+
+// wslPath rewrites a Windows path into the form WSL sees it under — D:\Zotero
+// becomes /mnt/d/Zotero — so a dataDir read out of a Windows Zotero profile is
+// something this process can actually open. A path that carries no drive letter
+// comes back untouched, and nothing is rewritten off Linux.
+func wslPath(p string) string {
+	if runtime.GOOS != "linux" {
+		return p
+	}
+	m := reWinPath.FindStringSubmatch(p)
+	if m == nil {
+		return p
+	}
+	return filepath.Join(WindowsMountRoot(), strings.ToLower(m[1]), strings.ReplaceAll(m[2], `\`, "/"))
+}
+
+// reAutomountRoot reads the [automount] root out of /etc/wsl.conf.
+var reAutomountRoot = regexp.MustCompile(`(?m)^\s*root\s*=\s*(\S+)`)
+
+// WindowsMountRoot answers where WSL mounts the Windows drives. It is a
+// variable so tests — this package's and the editor's — can stand up a fake
+// mount tree instead of depending on whatever Zotero the machine running them
+// happens to have installed on its Windows side. Nothing in the app reassigns
+// it.
+var WindowsMountRoot = sync.OnceValue(detectWinMountRoot)
+
+// detectWinMountRoot is /mnt unless the user moved it in /etc/wsl.conf.
+func detectWinMountRoot() string {
+	b, err := os.ReadFile("/etc/wsl.conf")
+	if err != nil {
+		return "/mnt"
+	}
+	if m := reAutomountRoot.FindSubmatch(b); m != nil {
+		return string(m[1])
+	}
+	return "/mnt"
 }
 
 // ── reading the library ────────────────────────────────────────────────────
@@ -155,7 +226,7 @@ func Load(dir string) (*Library, error) {
 		dir = DataDir()
 	}
 	if dir == "" {
-		return nil, errors.New("no Zotero library found — looked in ~/Zotero and your Zotero profiles' prefs.js")
+		return nil, errors.New("no Zotero library found — looked in ~/Zotero, your Zotero profiles' prefs.js, and the Windows side of this machine")
 	}
 	src := filepath.Join(dir, DBName)
 	fi, err := os.Stat(src)

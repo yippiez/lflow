@@ -315,6 +315,12 @@ func TestZoteroRefreshRemembersAMissingLibrary(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "n1", Name: "x", Rank: 1})
 	t.Setenv("ZOTERO_DATA_DIR", t.TempDir()) // exists, but holds no zotero.sqlite
 	t.Setenv("HOME", t.TempDir())
+	// and no Windows side either — a developer running this in WSL has a real
+	// Zotero over there, and discovery would rightly find it
+	empty := t.TempDir()
+	prevRoot := zotero.WindowsMountRoot
+	zotero.WindowsMountRoot = func() string { return empty }
+	t.Cleanup(func() { zotero.WindowsMountRoot = prevRoot })
 	if _, ok := m.zoteroRefresh(); ok {
 		t.Fatal("zoteroRefresh found a library where there is none")
 	}

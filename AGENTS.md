@@ -49,7 +49,12 @@ free-string `type`.
 throwaway snapshot and reads that, so a running Zotero is never disturbed. The
 data directory is found via Zotero's own `ZOTERO_DATA_DIR`, the
 `dataDir` in a Zotero profile's `prefs.js`, `<home>/Zotero`, and — for lflow in
-WSL with Zotero on the Windows side — `/mnt/<drive>/Users/<user>/Zotero`. The
+WSL with Zotero on the Windows side — `/mnt/<drive>/Users/<user>/Zotero`. That
+WSL case also reads the WINDOWS profiles' `prefs.js`
+(`<user>/AppData/Roaming/Zotero/Zotero/Profiles`) and translates the Windows
+path it finds (`D:\Zotero` → `/mnt/d/Zotero`), which is how a library moved off
+the default is found at all; `zotero.WindowsMountRoot` is where `/mnt` comes
+from (`/etc/wsl.conf` can move it) and is the seam the tests fake. The
 whole library loads once per session (lazily, re-read when its mtime moves) and
 is searched in process, because the picker filters on every keystroke.
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -246,7 +247,17 @@ func TestStale(t *testing.T) {
 	}
 }
 
+// mountRoot points the Windows-drive scan at a directory the test controls, so
+// discovery never depends on the Zotero the developer's own machine has.
+func mountRoot(t *testing.T, dir string) {
+	t.Helper()
+	prev := WindowsMountRoot
+	WindowsMountRoot = func() string { return dir }
+	t.Cleanup(func() { WindowsMountRoot = prev })
+}
+
 func TestDataDirPrefersTheEnvironment(t *testing.T) {
+	mountRoot(t, t.TempDir())
 	dir := t.TempDir()
 	seedLibrary(t, dir)
 	// Zotero's own env var is honored — the app itself was told where it lives
@@ -274,6 +285,7 @@ func TestUnescapePref(t *testing.T) {
 }
 
 func TestPrefsDataDirs(t *testing.T) {
+	mountRoot(t, t.TempDir())
 	home := t.TempDir()
 	// the Linux profile layout; the test asserts the parse, not the platform
 	profile := filepath.Join(home, ".zotero", "zotero", "abc123.default")
@@ -292,6 +304,98 @@ func TestPrefsDataDirs(t *testing.T) {
 	// on macOS/Windows the profile lives elsewhere, so an empty result is correct
 	if len(got) != 0 {
 		t.Errorf("prefsDataDirs = %v", got)
+	}
+}
+
+func TestWSLPath(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("path translation only happens under WSL")
+	}
+	mountRoot(t, "/mnt")
+	cases := map[string]string{
+		// what a Windows Zotero writes into prefs.js, once unescaped
+		`D:\Zotero`:             "/mnt/d/Zotero",
+		`C:\Users\Eren\Zotero`:  "/mnt/c/Users/Eren/Zotero",
+		"C:/Users/Eren/Zotero":  "/mnt/c/Users/Eren/Zotero",
+		`d:\zotero`:             "/mnt/d/zotero",
+		"/home/eren/Zotero":     "/home/eren/Zotero", // a native path is left alone
+		"/mnt/d/Zotero":         "/mnt/d/Zotero",
+		"":                      "",
+		`\\server\share\Zotero`: `\\server\share\Zotero`, // no drive letter: not ours to rewrite
+	}
+	for in, want := range cases {
+		if got := wslPath(in); got != want {
+			t.Errorf("wslPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestDataDirFindsAMovedWindowsLibrary is the WSL arrangement in full: Zotero
+// runs on Windows with its library moved to D:\Zotero, lflow runs in WSL, and
+// the only record of where the library went is the Windows profile's prefs.js.
+func TestDataDirFindsAMovedWindowsLibrary(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the Windows-side scan is a WSL arrangement")
+	}
+	root := t.TempDir()
+	mountRoot(t, root)
+	t.Setenv("ZOTERO_DATA_DIR", "")
+	t.Setenv("HOME", t.TempDir())
+
+	// D:\Zotero, as WSL sees it
+	moved := filepath.Join(root, "d", "Zotero")
+	if err := os.MkdirAll(moved, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seedLibrary(t, moved)
+
+	// C:\Users\Eren\AppData\Roaming\Zotero\Zotero\Profiles\r0wbbhka.default
+	profile := filepath.Join(root, "c", "Users", "Eren", "AppData", "Roaming", "Zotero", "Zotero", "Profiles", "r0wbbhka.default")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prefs := "user_pref(\"extensions.zotero.dataDir\", \"D:\\\\Zotero\");\n" +
+		"user_pref(\"extensions.zotero.useDataDir\", true);\n"
+	if err := os.WriteFile(filepath.Join(profile, "prefs.js"), []byte(prefs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := DataDir(); got != moved {
+		t.Fatalf("DataDir = %q, want the moved Windows library %q", got, moved)
+	}
+	// and it is genuinely readable from here, not just a path that parses
+	lib, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lib.Items) == 0 {
+		t.Error("the Windows-side library loaded empty")
+	}
+}
+
+// TestWindowsUserDirsSkipsSystemAccounts keeps the walk on real people.
+func TestWindowsUserDirsSkipsSystemAccounts(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the Windows-side scan is a WSL arrangement")
+	}
+	root := t.TempDir()
+	mountRoot(t, root)
+	users := filepath.Join(root, "c", "Users")
+	for _, name := range []string{"Eren", "Public", "Default", "Default User", "All Users"} {
+		if err := os.MkdirAll(filepath.Join(users, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// desktop.ini sits beside them; a file is not an account
+	if err := os.WriteFile(filepath.Join(users, "desktop.ini"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := windowsUserDirs()
+	if len(got) != 1 || got[0] != filepath.Join(users, "Eren") {
+		t.Errorf("windowsUserDirs = %v, want just the real account", got)
+	}
+	if dirs := windowsSideDirs(); len(dirs) != 1 || dirs[0] != filepath.Join(users, "Eren", "Zotero") {
+		t.Errorf("windowsSideDirs = %v", dirs)
 	}
 }
 
