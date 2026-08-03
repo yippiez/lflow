@@ -158,11 +158,17 @@ func shimmerLabel(s string) string {
 
 // animActive reports whether anything on screen needs the animation tick — a
 // magic keyword, an in-flight image paste (its spinner), a plugin node marked
-// animating (nlpcompute while generating), or a shell command still running (its
-// shimmer and elapsed clock).
+// animating (nlpcompute while generating), a shell command still running (its
+// shimmer and elapsed clock), or a picker still filling from disk (its spinner).
 func (m *Model) animActive() bool {
 	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating() ||
-		m.queryLoad != nil || m.anyRunning()
+		m.queryLoad != nil || m.anyRunning() || m.anyPickerFilling()
+}
+
+// anyPickerFilling reports whether a picker is still reading its rows off the
+// disk, which is what turns the spinner in its header.
+func (m *Model) anyPickerFilling() bool {
+	return m.zoteroFill.running() || m.agentFill.running()
 }
 
 // anyRunning reports whether any run band has a command in flight — a cmd chip

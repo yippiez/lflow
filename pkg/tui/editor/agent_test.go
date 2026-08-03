@@ -702,3 +702,82 @@ func TestAgentKeysFindTheChipOnAWrappedRow(t *testing.T) {
 	}
 	_ = second
 }
+
+// TestAgentPickerFillsWhileOpen: the session picker draws rows as the store
+// scan delivers them, rather than after it. A batch that lands is merged,
+// re-sorted newest-first, and immediately visible to items(); the picker was
+// already searchable before any of it arrived.
+func TestAgentPickerFillsWhileOpen(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	cursorOn(m, "note")
+
+	ch := make(chan tea.Msg, 4)
+	m.agentScanCh, m.agentSeen = ch, map[string]bool{}
+	m.agentFill.begin()
+
+	if rows := (agentStartSource{}).items(m, ""); len(rows) != 0 {
+		t.Fatalf("the picker started with %d rows, want an empty list to fill", len(rows))
+	}
+	if !m.animActive() {
+		t.Error("a filling picker must keep the animation tick alive for its spinner")
+	}
+
+	// first batch: the older session
+	m.handleAgentScan(agentScanMsg{ch: ch, batch: []agentStoreSession{{
+		variant: c.id, id: "abc-12345678", title: "flush fix",
+		updated: time.Now().Add(-2 * time.Hour),
+	}}})
+	if rows := (agentStartSource{}).items(m, ""); len(rows) != 1 {
+		t.Fatalf("after one batch: %d rows, want 1", len(rows))
+	}
+
+	// second batch: a newer one, which must sort ABOVE what already landed
+	m.handleAgentScan(agentScanMsg{ch: ch, batch: []agentStoreSession{{
+		variant: "opencode", id: "ses_9", title: "rank math",
+		updated: time.Now().Add(-time.Minute),
+	}}})
+	rows := (agentStartSource{}).items(m, "")
+	if len(rows) != 2 {
+		t.Fatalf("after two batches: %d rows, want 2", len(rows))
+	}
+	if got := stripSGR(rows[0].render(false)); !strings.Contains(got, "rank math") {
+		t.Errorf("newest row = %q, want the session that landed last but is newer", got)
+	}
+
+	// a repeat of a session already merged does not double it
+	m.handleAgentScan(agentScanMsg{ch: ch, batch: []agentStoreSession{{
+		variant: "opencode", id: "ses_9", title: "rank math",
+		updated: time.Now().Add(-time.Minute),
+	}}})
+	if rows := (agentStartSource{}).items(m, ""); len(rows) != 2 {
+		t.Errorf("a repeated session made %d rows, want it dropped", len(rows))
+	}
+
+	// and the end of the scan stops the spinner
+	m.handleAgentScan(agentScanMsg{ch: ch, done: true})
+	if m.agentFill.running() {
+		t.Error("the fill still reports itself in flight after done")
+	}
+	if m.animActive() {
+		t.Error("nothing is filling — the animation tick should stop")
+	}
+}
+
+// TestAgentPickerIgnoresAnAbandonedScan: reopening the picker starts a new
+// scan, and the previous one's batches must not leak into the new list.
+func TestAgentPickerIgnoresAnAbandonedScan(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	cursorOn(m, "note")
+	m.agentScanCh, m.agentSeen = make(chan tea.Msg, 1), map[string]bool{}
+
+	stale := make(chan tea.Msg, 1)
+	if cmd := m.handleAgentScan(agentScanMsg{ch: stale, batch: []agentStoreSession{{
+		variant: "claude", id: "old-1", title: "abandoned", updated: time.Now(),
+	}}}); cmd != nil {
+		t.Error("an abandoned scan was asked for its next batch")
+	}
+	if len(m.agentStore) != 0 {
+		t.Errorf("an abandoned scan put %d rows in the open picker", len(m.agentStore))
+	}
+}

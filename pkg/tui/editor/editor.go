@@ -203,6 +203,13 @@ type Model struct {
 	// Both are snapshots — a picker never re-walks a store while it is being
 	// typed in.
 	agentStore []agentStoreSession
+	// The scan that fills agentStore while the picker is already open: the
+	// channel its batches arrive on (identity tells a reopened picker's scan from
+	// the previous one), which sessions have already been merged, and how far
+	// along it is.
+	agentScanCh chan tea.Msg
+	agentSeen   map[string]bool
+	agentFill   pickerFill
 	// agentColorChip is the chip ⌥c is picking a color for.
 	agentColorChip string
 
@@ -290,6 +297,11 @@ type Model struct {
 	// picker can say so instead of retrying a missing install on every keystroke.
 	zoteroLib *zotero.Library
 	zoteroErr string
+	// zoteroFill tracks the read while it is in flight, so the picker can open
+	// ahead of it and show a spinner; zoteroWaiting is the mirrors that asked for
+	// their entry before there was a library to read it from.
+	zoteroFill    pickerFill
+	zoteroWaiting []string
 	// The Zotero item mirror (see zoteroitem.go): node uuid → the Zotero object
 	// that node stands for, busy flags per mirror root, and where each mirrored
 	// attachment's file lives on THIS machine (session-only — a path is
@@ -870,6 +882,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case zoteroPullMsg:
 		m.handleZoteroPull(msg)
 		return m, nil
+	case zoteroLoadedMsg:
+		return m, m.handleZoteroLoaded(msg)
+	case agentScanMsg:
+		return m, m.handleAgentScan(msg)
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
 		return m, nil

@@ -230,8 +230,9 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	case "agent":
 		// search the sessions the CLIs already have; the chip lands on select.
 		// This is the ONLY way in: a session chip is one of the things /insert
-		// splices, not a command of its own.
-		m.openAgentPicker()
+		// splices, not a command of its own. The command it returns is what pumps
+		// the store scan filling the list.
+		return m, m.openAgentPicker()
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")
 	case "zotero":

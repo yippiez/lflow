@@ -322,10 +322,45 @@ func TestZoteroRefreshRemembersAMissingLibrary(t *testing.T) {
 	prevRoot := zotero.WindowsMountRoot
 	zotero.WindowsMountRoot = func() string { return empty }
 	t.Cleanup(func() { zotero.WindowsMountRoot = prevRoot })
-	if _, ok := m.zoteroRefresh(); ok {
-		t.Fatal("zoteroRefresh found a library where there is none")
+
+	cmd := m.zoteroEnsure()
+	if cmd == nil {
+		t.Fatal("zoteroEnsure did not start a read with no library in hand")
+	}
+	msg, _ := cmd().(zoteroLoadedMsg)
+	m.handleZoteroLoaded(msg)
+	if _, ok := m.zoteroLibrary(); ok {
+		t.Fatal("the read found a library where there is none")
 	}
 	if m.zoteroErr == "" {
 		t.Error("the failure was not recorded for the picker to explain")
+	}
+	if m.zoteroFill.running() {
+		t.Error("a finished read still reports itself in flight")
+	}
+}
+
+func TestCitePickerOpensBeforeTheLibraryIsRead(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n1", Name: "", Rank: 1})
+	m.cursor = 0
+	mm, cmd := m.openCitePicker(citeChip)
+	m = mm.(*Model)
+
+	// the whole point: on screen now, reading later
+	if m.mode != modeCite {
+		t.Fatal("the cite picker did not open")
+	}
+	if cmd == nil {
+		t.Fatal("openCitePicker did not hand the library read to a command")
+	}
+	if !m.zoteroFill.running() {
+		t.Error("the read is not marked in flight, so the header cannot show it")
+	}
+	if !m.animActive() {
+		t.Error("a filling picker must keep the animation tick alive for its spinner")
+	}
+	// and it draws: an empty list under a header that says it is still coming
+	if h := (zoteroSource{}).header(m, &m.list); !strings.Contains(h, "cite: ") {
+		t.Errorf("header while loading = %q", h)
 	}
 }

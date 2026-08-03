@@ -56,23 +56,64 @@ func (m *Model) zoteroLibrary() (*zotero.Library, bool) {
 	return m.zoteroLib, m.zoteroLib != nil
 }
 
-// zoteroRefresh loads the library if it is not loaded, or re-loads it if Zotero
-// has written since — called when the cite picker opens and when a citation is
-// followed, never in a render or a keystroke path. A failed read is remembered
-// in zoteroErr so the picker can explain itself; the next explicit refresh
-// tries again, because the answer changes when Zotero gets installed.
-func (m *Model) zoteroRefresh() (*zotero.Library, bool) {
+// zoteroLoadedMsg lands a finished library read back on the update goroutine.
+type zoteroLoadedMsg struct {
+	lib *zotero.Library
+	err string
+}
+
+// zoteroEnsure returns the command that puts a current library in hand, or nil
+// when one already is. The read happens OFF the update goroutine — a library is
+// a database, and reading it where bubbletea reads keys freezes the editor for
+// as long as it takes. Callers open their picker first and let the rows arrive.
+//
+// A read already in flight returns nil rather than starting a second one, so
+// holding @@ down cannot stack library reads.
+func (m *Model) zoteroEnsure() tea.Cmd {
+	if m.zoteroFill.running() {
+		return nil
+	}
 	if m.zoteroLib != nil && !m.zoteroLib.Stale() {
-		return m.zoteroLib, true
+		return nil
 	}
-	lib, err := zotero.Load("")
-	if err != nil {
-		m.zoteroErr = err.Error()
-		return m.zoteroLib, m.zoteroLib != nil // a stale copy still beats nothing
+	m.zoteroFill.begin()
+	return func() tea.Msg {
+		lib, err := zotero.Load("")
+		msg := zoteroLoadedMsg{lib: lib}
+		if err != nil {
+			msg.err = err.Error()
+		}
+		return msg
 	}
-	m.zoteroLib, m.zoteroErr = lib, ""
+}
+
+// handleZoteroLoaded takes the library the read produced. A failure is
+// remembered in zoteroErr so the picker can explain itself, and the next
+// explicit refresh tries again — the answer changes when Zotero gets installed.
+// Any mirror that asked for its entry while the read was still running is
+// started now that there is a library to read it from.
+func (m *Model) handleZoteroLoaded(msg zoteroLoadedMsg) tea.Cmd {
+	m.zoteroFill.done, m.zoteroFill.err = true, msg.err
+	waiting := m.zoteroWaiting
+	m.zoteroWaiting = nil
+
+	if msg.err != "" {
+		m.zoteroErr = msg.err
+		return nil // a library already in hand still beats nothing
+	}
+	m.zoteroLib, m.zoteroErr = msg.lib, ""
+	m.zoteroFill.n = len(msg.lib.Items)
 	zoteroAccount = m.zoteroUsername()
-	return lib, true
+
+	var cmds []tea.Cmd
+	for _, uuid := range waiting {
+		if root := m.tree.byUUID[uuid]; root != nil {
+			if c := m.zoteroPull(root); c != nil {
+				cmds = append(cmds, c)
+			}
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 // zoteroUsername is the zotero.org account the personal web-library URL is
@@ -138,10 +179,10 @@ func zoteroTargetLocal() bool { return zoteroOpenMode != "cloud" }
 // public home, and the only thing a library with no signed-in account can
 // offer. Returns "" plus the reason when neither is available.
 func (m *Model) zoteroWebURL(ref zotero.Ref) (string, string) {
-	// the library is what KNOWS the account name, so it is read first: asking
-	// before loading would miss the username on a cold start and fall through to
-	// the DOI even for a synced library
-	lib, loaded := m.zoteroRefresh()
+	// whatever library is already in hand — following a citation must not wait on
+	// a database read, and the account name has a second home in credentials.json
+	// (see zoteroUsername) for the cold case where none is loaded yet
+	lib, loaded := m.zoteroLibrary()
 	if url, ok := ref.WebURL(m.zoteroUsername()); ok {
 		return url, ""
 	}
@@ -232,9 +273,10 @@ const (
 	citeMirror                   // /type → Zotero, and alt+r on an unbound zotero node
 )
 
-// openCitePicker opens the library picker at the caret, reading the library
-// first (the one place a cite costs a disk read). A node that cannot take the
-// chosen action refuses, the same way /insert does.
+// openCitePicker opens the library picker at the caret. The picker is on screen
+// before the library is read, and fills when the read lands — you can start
+// typing a search into an empty list and the entries appear under it. A node
+// that cannot take the chosen action refuses, the same way /insert does.
 func (m *Model) openCitePicker(act citeAction) (tea.Model, tea.Cmd) {
 	cur := m.cursorItem()
 	if cur == nil {
@@ -262,10 +304,7 @@ func (m *Model) openCitePicker(act citeAction) (tea.Model, tea.Cmd) {
 	m.citeAct = act
 	m.mode = modeCite
 	m.list.open(m, zoteroSource{}, true)
-	if _, ok := m.zoteroRefresh(); !ok {
-		m.flash = "zotero · " + m.zoteroErr
-	}
-	return m, nil
+	return m, m.zoteroEnsure()
 }
 
 // zoteroSource is the Group-A picker over the Zotero library: type to search
@@ -317,14 +356,16 @@ func (zoteroSource) header(m *Model, p *listPicker) string {
 	if m.citeAct == citeMirror {
 		label = "zotero: "
 	}
-	if _, ok := m.zoteroLibrary(); !ok {
+	if _, ok := m.zoteroLibrary(); !ok && !m.zoteroFill.running() {
 		return " " + cDim + label + cReset + cRed + m.zoteroErr + cReset
 	}
 	query := cDim + "search your Zotero library" + cReset
 	if p.query != "" {
 		query = cFG + p.query + cReset
 	}
-	return " " + cDim + label + cReset + query
+	// while the read is in flight the header carries the spinner, so an empty
+	// list reads as "still coming" rather than as "nothing here"
+	return " " + cDim + label + cReset + query + fillMark(&m.zoteroFill, "entries")
 }
 
 func (zoteroSource) initialSel(*Model) int { return 0 }

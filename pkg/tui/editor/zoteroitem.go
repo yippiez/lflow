@@ -183,11 +183,18 @@ func (m *Model) zoteroPull(root *item) tea.Cmd {
 	if m.zoteroBusy[root.uuid] {
 		return nil
 	}
-	// the library is resolved HERE, on the update goroutine, and only the loaded
+	// the library is taken HERE, on the update goroutine, and only the loaded
 	// value travels into the command — a tea.Cmd runs concurrently with Update,
-	// so it must not touch the Model at all
-	lib, ok := m.zoteroRefresh()
+	// so it must not touch the Model at all. With no library in hand yet, this
+	// node joins the queue the read wakes up (see handleZoteroLoaded) instead of
+	// waiting for it here, where waiting means the editor stops.
+	lib, ok := m.zoteroLibrary()
 	if !ok {
+		if cmd := m.zoteroEnsure(); cmd != nil || m.zoteroFill.running() {
+			m.zoteroWaiting = append(m.zoteroWaiting, root.uuid)
+			m.flash = "zotero · reading the library…"
+			return cmd
+		}
 		m.flash = "zotero · " + firstNonEmptyStr(m.zoteroErr, "no Zotero library found")
 		return nil
 	}

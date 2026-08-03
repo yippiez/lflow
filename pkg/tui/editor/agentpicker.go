@@ -13,19 +13,57 @@ import (
 // no /agents, because a chip belongs to the row it sits in and the outline is
 // already the index of them.
 
-// openAgentPicker opens the start/attach picker.
-func (m *Model) openAgentPicker() {
+// openAgentPicker opens the start/attach picker. It opens EMPTY and fills as
+// the stores are read — a session is one transcript file, and naming it means
+// opening that file and parsing the head of it, so a machine with a few hundred
+// conversations spent most of a second on this before the list appeared. Now the
+// rows arrive in batches, newest first, while the picker is already on screen
+// and already taking what you type.
+func (m *Model) openAgentPicker() tea.Cmd {
 	m.mode = modeAgentPick
-	m.agentStore = m.discoverAgentSessions()
+	m.agentStore = nil
+	m.agentSeen = map[string]bool{}
+	m.agentFill.begin()
+
+	// buffered past the most batches a bounded scan can produce, so the walking
+	// goroutine always runs to completion even if the picker is closed on its
+	// first frame — nothing is left blocked on a receive that will not come
+	ch := make(chan tea.Msg, 64)
+	m.agentScanCh = ch
+	go scanAgentSessions(ch)
+
 	m.list.open(m, agentStartSource{}, true)
+	return waitFill(ch)
 }
 
-// discoverAgentSessions reads every variant's own store and returns the sessions
-// found, newest first. Bounded by agentStoreFiles; a CLI that is not installed
-// (or has no store) simply contributes nothing.
-func (m *Model) discoverAgentSessions() []agentStoreSession {
-	var out []agentStoreSession
-	seen := map[string]bool{}
+// agentScanBatch is how many sessions are read before a batch is sent. Small
+// enough that the first rows land almost at once, big enough that the update
+// loop is not woken once per file.
+const agentScanBatch = 24
+
+// agentScanMsg is one batch of sessions from the store walk, or the end of it.
+// ch identifies the scan that sent it, so a picker reopened mid-walk ignores
+// what the previous walk is still delivering.
+type agentScanMsg struct {
+	ch    chan tea.Msg
+	batch []agentStoreSession
+	done  bool
+}
+
+// scanAgentSessions reads every variant's own store and sends the sessions it
+// finds in batches, newest first. Runs OFF the update goroutine and touches no
+// Model state — everything it learns travels back as a message. Bounded by
+// agentStoreFiles; a CLI that is not installed (or has no store) contributes
+// nothing.
+func scanAgentSessions(ch chan tea.Msg) {
+	batch := make([]agentStoreSession, 0, agentScanBatch)
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		ch <- agentScanMsg{ch: ch, batch: batch}
+		batch = make([]agentStoreSession, 0, agentScanBatch)
+	}
 	for _, v := range agentVariants {
 		roots := v.sessionDirs()
 		if len(roots) == 0 {
@@ -33,15 +71,43 @@ func (m *Model) discoverAgentSessions() []agentStoreSession {
 		}
 		for _, path := range agentStoreFiles(roots, v.exts, v.sessionPath) {
 			s := agentReadMeta(v.id, path)
-			if s.id == "" || seen[v.id+"/"+s.id] {
+			if s.id == "" {
 				continue
 			}
-			seen[v.id+"/"+s.id] = true
-			out = append(out, s)
+			if batch = append(batch, s); len(batch) == agentScanBatch {
+				flush()
+			}
 		}
+		flush() // a store finishes as a batch of its own, however short
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].updated.After(out[j].updated) })
-	return out
+	ch <- agentScanMsg{ch: ch, done: true}
+}
+
+// handleAgentScan merges a batch into the open picker and asks for the next
+// one. Duplicates are dropped here rather than in the walk, because the walk
+// has no memory across stores; the merged list is re-sorted every time, since
+// a later store's sessions interleave with an earlier one's by age.
+func (m *Model) handleAgentScan(msg agentScanMsg) tea.Cmd {
+	if msg.ch != m.agentScanCh {
+		return nil // a scan from a picker that has since been reopened
+	}
+	if msg.done {
+		m.agentFill.done = true
+		return nil
+	}
+	for _, s := range msg.batch {
+		key := s.variant + "/" + s.id
+		if m.agentSeen[key] {
+			continue
+		}
+		m.agentSeen[key] = true
+		m.agentStore = append(m.agentStore, s)
+	}
+	sort.SliceStable(m.agentStore, func(i, j int) bool {
+		return m.agentStore[i].updated.After(m.agentStore[j].updated)
+	})
+	m.agentFill.n = len(m.agentStore)
+	return waitFill(msg.ch)
 }
 
 // --- /agent: start or attach ------------------------------------------------
@@ -91,10 +157,13 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 }
 
 func (agentStartSource) header(m *Model, p *listPicker) string {
+	// the tail carries the spinner and the running count while the stores are
+	// still being read, so a list that is still growing says so
+	mark := fillMark(&m.agentFill, "sessions")
 	if p.query != "" {
-		return " " + cDim + "agent: " + cReset + cFG + p.query + cReset
+		return " " + cDim + "agent: " + cReset + cFG + p.query + cReset + mark
 	}
-	return " " + cDim + "search your coding sessions · enter files one here" + cReset
+	return " " + cDim + "search your coding sessions · enter files one here" + cReset + mark
 }
 
 func (agentStartSource) initialSel(*Model) int { return 0 }
