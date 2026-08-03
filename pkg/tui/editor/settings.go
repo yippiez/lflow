@@ -105,6 +105,19 @@ var settingDefs = []settingDef{
 	},
 }
 
+// settingLabelWidth is the label column in /settings: one wider than the
+// longest label, so every row keeps a space before its middle dot no matter
+// what a new preference is called.
+var settingLabelWidth = func() int {
+	w := 0
+	for _, d := range settingDefs {
+		if n := len([]rune(d.label)); n > w {
+			w = n
+		}
+	}
+	return w + 1
+}()
+
 // themeOptions derives the theme setting's options from the theme registry so
 // there is a single source of truth.
 func themeOptions() []settingOption {

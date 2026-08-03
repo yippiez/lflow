@@ -591,7 +591,7 @@ func (m *Model) viewSettings(maxLine int) []string {
 					t.green + "●" + t.cyan + "●" + t.purple + "●" + cReset
 			}
 		}
-		line := " " + mark + cDim + fmt.Sprintf("%-14s", d.label) + "· " + cReset + value + extra
+		line := " " + mark + cDim + fmt.Sprintf("%-*s", settingLabelWidth, d.label) + "· " + cReset + value + extra
 		lines = append(lines, clip(line, maxLine))
 	}
 	// a text row's hint: typing edits it, enter saves, esc cancels
