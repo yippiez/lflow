@@ -11,6 +11,7 @@ import (
 func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
 	m.flash = "" // one-shot: whatever this key does sets the next status
+	m.flashErr = false
 
 	// establish auto-focus before this key is dispatched, so a key arriving while
 	// the cursor already rests on a code block (e.g. the first keystroke at open)
@@ -238,7 +239,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		cur := m.cursorItem()
 		if cur != nil && cur.queryGenerated() {
-			m.flash = "query view is structurally locked"
+			m.errorFlash("query view is structurally locked")
 			return m, nil
 		}
 		// commit a #tag or date token under the caret into a chip before splitting
@@ -625,7 +626,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if run := typeOf(cur.typ).run; run != nil {
 				if bin, missing := m.typeDepMissing(cur.typ); missing {
-					m.flash = "Missing dependency: " + bin
+					m.errorFlash("Missing dependency: " + bin)
 					return m, nil
 				}
 				return m, run(m, cur)

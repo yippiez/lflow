@@ -1,6 +1,10 @@
 package editor
 
-import "testing"
+import (
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 func TestSettingDefault(t *testing.T) {
 	m := &Model{}
@@ -59,5 +63,47 @@ func TestSettingValueColor(t *testing.T) {
 		if settingValueColor(pos) != cGreen {
 			t.Errorf("%q must render green", pos)
 		}
+	}
+}
+
+// The searxng.url setting is free text (not an option list): /settings edits it
+// inline, and enter saves the trimmed buffer.
+func TestTextSettingEditsInPlace(t *testing.T) {
+	d, text := settingByKey("searxng.url")
+	if !text {
+		t.Fatal("searxng.url must be a text setting")
+	}
+	m := &Model{}
+	for i, d := range settingDefs {
+		if d.text {
+			m.settingsSel = i
+			break
+		}
+	}
+	m.mode = modeSettings
+	m.initSettingEdit()
+	if m.settingEdit.value != "" {
+		t.Errorf("fresh buffer = %q, want empty", m.settingEdit.value)
+	}
+	// type the URL — rune keys go into the editing buffer while the row is
+	// selected (it is the last setting, so select it first)
+	for _, r := range []rune("https://searx.example.org") {
+		if _, _ = m.handleSettingsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}); m.mode != modeSettings {
+			t.Fatal("typing must stay in the picker")
+		}
+	}
+	if got := m.settingEdit.value; got != "https://searx.example.org" {
+		t.Errorf("typed buffer = %q", got)
+	}
+	mm, _ := m.handleSettingsKey(tea.KeyMsg{Type: tea.KeyEnter})
+	out := mm.(*Model)
+	if out.mode != modeOutline {
+		t.Errorf("enter must close the picker, mode = %v", out.mode)
+	}
+	if got := out.setting("searxng.url"); got != "https://searx.example.org" {
+		t.Errorf("saved setting = %q", got)
+	}
+	if d2, _ := settingByKey("searxng.url"); d2.key != d.key {
+		t.Errorf("settingDef lookup broken")
 	}
 }

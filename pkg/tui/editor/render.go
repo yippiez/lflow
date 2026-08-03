@@ -934,6 +934,14 @@ func (m *Model) typeSuffix(r row) string {
 			parts = append(parts, "updated "+relTime(ts))
 		}
 	}
+	if it.typ == database.TypeWeb {
+		if n := webResultCount(it); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d results", n))
+		}
+		if ts := m.webUpdatedAt(it.uuid); ts > 0 {
+			parts = append(parts, "updated "+relTime(ts))
+		}
+	}
 	// a cycled row folds its children like a collapsed one — same count hint
 	if kids := m.tree.childItems(it); len(kids) > 0 && (it.collapsed || r.cycled) {
 		noun := "children"

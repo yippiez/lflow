@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // An inline completer is the popup behind "#" (tags) and ":" (icons on normal
@@ -94,7 +92,7 @@ func (m *Model) complItems(query string) []complItem {
 	case complQueryCmd:
 		src = queryCmdItems
 	case complQueryType:
-		for _, key := range database.TypeOrder {
+		for _, key := range typeOrder() {
 			src = append(src, complItem{label: key, value: key, desc: typeLabel(key)})
 		}
 	case complIcon:

@@ -134,7 +134,7 @@ func (m *Model) followLink(c database.Chip) (tea.Model, tea.Cmd) {
 	if uuid, ok := nodeLinkUUID(c.Value); ok {
 		n, err := database.GetNode(m.db, uuid)
 		if err != nil {
-			m.flash = "link target missing"
+			m.errorFlash("link target missing")
 			return m, nil
 		}
 		if _, err := m.saveAll(); err != nil {
@@ -158,7 +158,7 @@ func (m *Model) followLink(c database.Chip) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := browser.Open(c.Value); err != nil {
-		m.flash = "open failed: " + err.Error()
+		m.errorFlash("open failed: " + err.Error())
 	} else {
 		m.flash = "opened " + clipStr(c.Value, 32)
 	}

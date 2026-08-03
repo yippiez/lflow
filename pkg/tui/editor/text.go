@@ -33,6 +33,15 @@ const (
 // oscLink is one OSC 8 hyperlink escape; oscLink("") closes the open link.
 func oscLink(target string) string { return oscLinkPrefix + target + oscST }
 
+// hyperlink wraps already-styled text in an OSC 8 hyperlink to url. Terminals
+// without OSC 8 ignore the brackets and show the text alone.
+func hyperlink(url, text string) string {
+	if url == "" {
+		return text
+	}
+	return oscLinkPrefix + url + oscST + text + oscLinkPrefix + oscST
+}
+
 // ansiEscapeEnd returns the byte index just after the escape beginning at s[i]
 // (s[i] must be ESC). An unterminated escape runs to the end of s.
 func ansiEscapeEnd(s string, i int) int {
@@ -135,10 +144,15 @@ func clip(s string, width int) string {
 	}
 	var b strings.Builder
 	w := 0
+	linked := false
 	for i := 0; i < len(s); {
 		if s[i] == '\x1b' {
 			e := ansiEscapeEnd(s, i)
-			b.WriteString(s[i:e])
+			seq := s[i:e]
+			b.WriteString(seq)
+			if strings.HasPrefix(seq, oscLinkPrefix) {
+				linked = seq != oscLink("")
+			}
 			i = e
 			continue
 		}
@@ -151,6 +165,9 @@ func clip(s string, width int) string {
 		b.WriteString(s[i : i+n])
 		w += rw
 		i += n
+	}
+	if linked {
+		b.WriteString(oscLink(""))
 	}
 	return b.String()
 }

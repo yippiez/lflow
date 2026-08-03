@@ -168,7 +168,7 @@ func (m *Model) reviewVerdict(approve bool) {
 	s := list[m.suggestSel]
 
 	if _, err := m.saveAll(); err != nil {
-		m.flash = "sync: " + err.Error()
+		m.errorFlash("sync: " + err.Error())
 		return
 	}
 	m.unsaved = false
@@ -177,17 +177,17 @@ func (m *Model) reviewVerdict(approve bool) {
 		if drifted, err := database.TargetDrifted(m.db, s); err == nil && drifted {
 			// the node moved on since the proposal was written: applying now
 			// would silently drop somebody's newer text
-			m.flash = "node changed since suggested · lflow suggest approve --force"
+			m.errorFlash("node changed since suggested · lflow suggest approve --force")
 			return
 		}
 		if _, err := database.ApplySuggestion(m.db, s); err != nil {
-			m.flash = "suggest: " + err.Error()
+			m.errorFlash("suggest: " + err.Error())
 			return
 		}
 		m.flash = "approved · " + suggestGist(s)
 	} else {
 		if err := database.RejectSuggestion(m.db, s); err != nil {
-			m.flash = "suggest: " + err.Error()
+			m.errorFlash("suggest: " + err.Error())
 			return
 		}
 		m.flash = "rejected · " + suggestGist(s)

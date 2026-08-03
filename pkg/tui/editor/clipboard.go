@@ -100,7 +100,7 @@ func (m *Model) copyCut(cut bool) {
 	text := m.nodesAsText(roots)
 	via, ok := clipWrite(text)
 	if !ok {
-		m.flash = "no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)"
+		m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
 		return
 	}
 	if cut {
@@ -126,7 +126,7 @@ func (m *Model) copyCutRun(cur *item, lo, hi int, cut bool, verb string) {
 	text := expandAnchors(string(runes[lo:hi]), m.chips)
 	via, ok := clipWrite(text)
 	if !ok {
-		m.flash = "no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)"
+		m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
 		return
 	}
 	if cut {

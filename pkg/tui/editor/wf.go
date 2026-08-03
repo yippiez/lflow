@@ -66,7 +66,7 @@ func runWF(m *Model, it *item) tea.Cmd {
 	}
 	client := m.wfEnsureClient()
 	if client.APIKey == "" {
-		m.flash = "wf · no api key — add {\"workflowy\":{\"api_key\":\"…\"}} to ~/.config/lflow/credentials.json"
+		m.errorFlash("wf · no api key — add {\"workflowy\":{\"api_key\":\"…\"}} to ~/.config/lflow/credentials.json")
 		return nil
 	}
 	if m.wfBusy == nil {
@@ -94,7 +94,7 @@ func (m *Model) handleWFDone(msg wfDoneMsg) {
 		return // the pull root was deleted mid-flight
 	}
 	if msg.err != nil {
-		m.flash = "wf · " + msg.err.Error()
+		m.errorFlash("wf · " + msg.err.Error())
 		return
 	}
 	m.pushUndo("")

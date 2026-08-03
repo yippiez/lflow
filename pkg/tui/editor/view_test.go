@@ -77,3 +77,24 @@ func TestBottomBarKeepsMainWhenInTemp(t *testing.T) {
 		t.Fatalf("bar must not show temp position 1/1:\n%s", after)
 	}
 }
+
+// An error flash renders RED: errorFlash flags the message so the bottom bar
+// paints it in the error color instead of the bar's dim.
+func TestErrorFlashRendersRed(t *testing.T) {
+	m := newTestModel(120, "alpha")
+	m.errorFlash("searxng URL missing")
+	bar := strings.Join(m.bottomBar(120), "\n")
+	if !strings.Contains(bar, "searxng URL missing") {
+		t.Fatalf("bar must carry the message:\n%s", bar)
+	}
+	if !strings.Contains(bar, cRed) {
+		t.Fatalf("error flash must paint red:\n%q", bar)
+	}
+	// a plain flash stays in the bar's own dim
+	m.flash = "all good"
+	m.flashErr = false
+	bar = strings.Join(m.bottomBar(120), "\n")
+	if strings.Contains(bar, cRed) {
+		t.Fatalf("a plain flash must not paint red:\n%q", bar)
+	}
+}

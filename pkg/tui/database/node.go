@@ -27,6 +27,7 @@ const (
 	// the composed subtree. See editor/bashnode.go.
 	TypeBash    = "bash"
 	TypeQuery   = "query"
+	TypeWeb     = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see pkg/tui/websearch)
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
@@ -60,6 +61,11 @@ const (
 	// character's color in character_colors (keyed by character name), so the same
 	// character stays consistent everywhere it speaks. See editor/line.go.
 	TypeLine = "line"
+	// TypeWebResult is one web-search hit: a generated link row a web node hangs
+	// under it (title + URL link chip). It is generated, so it never appears in
+	// the /type picker; a re-run replaces the rows by type. See editor/webnode.go
+	// and pkg/tui/websearch.
+	TypeWebResult = "webresult"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -87,6 +93,7 @@ var TypeOrder = []string{
 	TypeJSON,
 	TypeBash,
 	TypeQuery,
+	TypeWeb,
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
@@ -96,6 +103,7 @@ var TypeOrder = []string{
 	TypeWF,
 	TypeThinking,
 	TypeLine,
+	TypeWebResult,
 }
 
 // ValidTypes is the set of accepted type values, derived from TypeOrder.

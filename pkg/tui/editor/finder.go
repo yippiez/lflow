@@ -506,7 +506,7 @@ func (m *Model) bringFromTemp(src, cur *item) {
 func (m *Model) bringWithin(it, cur *item) {
 	for p := cur; p != nil; p = p.parent {
 		if p == it {
-			m.flash = "can't bring a node into itself"
+			m.errorFlash("can't bring a node into itself")
 			return
 		}
 	}

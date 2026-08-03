@@ -102,7 +102,7 @@ func imageOpenHost(m *Model, it *item) tea.Cmd {
 	}
 	uuid := it.uuid
 	if _, ok := m.imageLoad(uuid); !ok {
-		m.flash = "image: nothing to open — ⌥r pastes one"
+		m.errorFlash("image: nothing to open — ⌥r pastes one")
 		return nil
 	}
 	db := m.db

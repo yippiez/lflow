@@ -82,7 +82,7 @@ func (m *Model) flushSync() tea.Cmd {
 	}
 	written, err := m.saveAll()
 	if err != nil {
-		m.flash = "sync: " + err.Error()
+		m.errorFlash("sync: " + err.Error())
 		return nil
 	}
 	m.saved.written += written
@@ -443,7 +443,7 @@ func (m *Model) reloadAux() {
 // may have been missed) or the deferred queue overflowed.
 func (m *Model) resync() {
 	if _, err := m.saveAll(); err != nil {
-		m.flash = "sync: " + err.Error()
+		m.errorFlash("sync: " + err.Error())
 		return
 	}
 	m.unsaved = false
@@ -454,7 +454,7 @@ func (m *Model) resync() {
 	}
 	freshMain, err := loadTree(m.db, mainTree.root.uuid)
 	if err != nil {
-		m.flash = "sync: " + err.Error()
+		m.errorFlash("sync: " + err.Error())
 		return
 	}
 	var freshTemp *tree

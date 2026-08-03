@@ -360,7 +360,7 @@ type agentClosedMsg struct {
 // released for the whole run and redraws when the CLI exits.
 func (m *Model) agentOpen(v agentVariant, id, cwd string) tea.Cmd {
 	if !m.depOK(v.bin) {
-		m.flash = "Missing dependency: " + v.bin
+		m.errorFlash("Missing dependency: " + v.bin)
 		return nil
 	}
 	s := m.agentLoad(id)
@@ -379,7 +379,7 @@ func (m *Model) agentOpen(v agentVariant, id, cwd string) tea.Cmd {
 	// the agent somewhere else — which repo it works in is the whole point
 	if s.Cwd != "" {
 		if st, err := os.Stat(s.Cwd); err != nil || !st.IsDir() {
-			m.flash = v.id + ": " + tildePath(s.Cwd) + " is gone · the session is pinned to it"
+			m.errorFlash(v.id + ": " + tildePath(s.Cwd) + " is gone · the session is pinned to it")
 			return nil
 		}
 	}
@@ -418,7 +418,7 @@ func (m *Model) handleAgentClosed(msg agentClosedMsg) {
 	m.refreshAgentChip(msg.id)
 
 	if msg.err != nil {
-		m.flash = v.label + ": " + msg.err.Error()
+		m.errorFlash(v.label + ": " + msg.err.Error())
 		return
 	}
 	m.flash = v.id + " · session " + agentShortID(s.SessionID)
@@ -465,7 +465,7 @@ func (m *Model) agentRename(id, name string) {
 	if v.rename != nil && s.Name != "" && s.SessionID != "" {
 		if path := agentSessionPath(v.sessionDirs(), v.exts, s.SessionID); path != "" {
 			if err := v.rename(path, s.Name); err != nil {
-				m.flash = "renamed here · " + v.label + ": " + err.Error()
+				m.errorFlash("renamed here · " + v.label + ": " + err.Error())
 			} else {
 				m.flash = "renamed here and in " + v.label
 			}
@@ -557,7 +557,7 @@ func anchorChipID(anchor string) string {
 func (m *Model) runAgentChip(c database.Chip) tea.Cmd {
 	v, ok := agentVariantByID(c.Value)
 	if !ok {
-		m.flash = "unknown agent: " + c.Value
+		m.errorFlash("unknown agent: " + c.Value)
 		return nil
 	}
 	s := m.agentLoad(c.ID)

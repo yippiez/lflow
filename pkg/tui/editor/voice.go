@@ -77,7 +77,7 @@ func runVoice(m *Model, it *item) tea.Cmd {
 		return nil
 	}
 	if err := cmd.Start(); err != nil {
-		m.flash = "voice: no audio device (need PulseAudio/WSLg)"
+		m.errorFlash("voice: no audio device (need PulseAudio/WSLg)")
 		return nil
 	}
 	m.nodeStore(it.uuid)["voiceRec"] = &voiceRecording{cmd: cmd, stdin: stdin}

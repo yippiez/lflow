@@ -713,7 +713,7 @@ func (m *Model) tableEditCell(it *item, s tableSel, edit func([]rune) []rune) bo
 		return false
 	}
 	if !m.tableCellEditable(c) {
-		m.flash = "Cell is not editable here · alt+↓ for the nodes face"
+		m.errorFlash("Cell is not editable here · alt+↓ for the nodes face")
 		return false
 	}
 	c.name = string(edit([]rune(c.name)))

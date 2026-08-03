@@ -281,7 +281,7 @@ func (m *Model) handleQueryLoad(msg queryLoadMsg) tea.Cmd {
 	}
 	if msg.done {
 		if msg.err != nil {
-			m.flash = "query: " + msg.err.Error()
+			m.errorFlash("query: " + msg.err.Error())
 		}
 		load.ctx.partial = false // the corpus is complete — semantic atoms may run
 		return m.evaluateQuery(q, load)

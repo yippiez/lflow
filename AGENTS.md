@@ -1,4 +1,4 @@
-# AGENTS.md — operating guide for AI agents working in lflow
+# Coding Agent Instructions
 
 lflow is a local-first **terminal outline editor** (Go + bubbletea), forked from
 dnote into a keyboard-driven outliner. The whole tree lives in one SQLite file
@@ -298,6 +298,40 @@ two vocabularies, the honest answer is no hits, and the matcher returns none
 rather than the top of the noise. Swapping in static embeddings later changes
 only the vector channel, not the fusion or the syntax.
 
+## Web Search nodes
+
+A **Web Search node** is the Query node's sibling that searches the WEB instead
+of the outline (`webnode.go`). The two share a shape — the node's name is the
+search, `alt+r` runs it, and the hits hang under it as REAL child nodes — but a
+web node has **no query language**: the whole name is the term, handed to the
+user's SearxNG instance. Its prefix mirrors the query's `⌕` in cyan, so the two
+read as siblings at a glance; the suffix reads `N results · updated …` (a
+query's reads `N hits`). A web node never reconciles outline mirrors.
+
+The first ten hits hang under the node as `webresult` rows — a generated type,
+kept out of the `/type` picker — each a link row whose name is a link chip whose
+label is the title and whose target is the result, so it renders as the title in
+the themed link color, OSC 8 clickable, and it is a node like any other — fold
+it, star it, note it, hang something under it, or move it out from under the
+search to keep it. A re-run replaces the rows the last run made (matched by
+type) and touches nothing else, so a failed run keeps the last good hits. The
+run is one fresh goroutine → one `webDoneMsg`, handled on the UI goroutine
+(`handleWebDone`); a node deleted or retyped mid-run drops the finished rows.
+
+**SearxNG is the only backend** — the user's own metasearch, so the query goes
+exactly where they pointed it, its JSON output is a contract rather than scraped
+markup, and it needs no account and no API key. The instance is named three
+ways, most explicit first: the `/settings` **searxng.url** field (a free-text
+setting, edited inline in the settings picker — see `settingDef.text`), then
+`{"searxng":{"url":"https://…"}}` in `~/.config/lflow/credentials.json`, then
+`LFLOW_SEARXNG_URL` for a shell-scoped override. Config is re-read per run, so
+naming one needs no restart. With none set the client tries the conventional
+local instance (`localhost:8888`), and when nothing answers there **a run
+errors** with `error: searxng URL missing` — there is deliberately no fallback
+engine, because quietly asking somebody else is the one thing a private
+metasearch is chosen to avoid. It is asked for `format=json`, which the instance
+must list in its `search.formats` — a 403 says exactly that in the error.
+
 ## NLPCompute code generation
 
 NLPCompute is the only in-editor Pi surface. `alt+r` sends its natural-language
@@ -333,6 +367,10 @@ ephemeral run output, sync exclusions (secrets / view-state / Temporary Domain /
 binary), and the status bar being the last rendered line.
 
 Remaining doc-level rules:
+
+- The status bar's flash is the one-shot message line; every FAILURE goes
+  through `m.errorFlash(msg)` (view.go), which flags `flashErr` so the bar
+  renders the message RED — never set `m.flash` directly for an error.
 
 - Never auto-run runnable nodes (alt+r only) — an agentic coding session chip is
   opened by that same key and by nothing else.

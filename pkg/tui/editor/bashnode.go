@@ -167,7 +167,7 @@ func bashSpanColor(it *item, runes []rune) map[int]string {
 func runBashNode(m *Model, it *item) tea.Cmd {
 	cmd := m.bashCommand(it)
 	if strings.TrimSpace(cmd) == "" {
-		m.flash = "bash: nothing to run"
+		m.errorFlash("bash: nothing to run")
 		return nil
 	}
 	return runShell(m, it.uuid, cmd)

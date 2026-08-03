@@ -18,10 +18,14 @@ type settingOption struct{ value, label string }
 // settingDef declares a preference: its stored key, label, allowed options,
 // default, and an optional apply hook run when the value is loaded or changed
 // (e.g. theme reseeds the live palette). Values not in options fall back to def.
+// text marks a FREE-TEXT value (e.g. the searxng URL) instead of an option list:
+// it is edited inline in the /settings picker with the field's caret keys
+// (handleSettingsKey) and has no options to cycle.
 type settingDef struct {
 	key     string
 	label   string
 	options []settingOption
+	text    bool
 	def     string
 	apply   func(m *Model, value string)
 }
@@ -62,6 +66,12 @@ var settingDefs = []settingDef{
 			{"wheel", "wheel · scrolls the outline, shift to select"},
 		},
 		def: "select",
+	},
+	{
+		// the websearch node's SearxNG instance — the in-app way to name one,
+		// ahead of credentials.json and LFLOW_SEARXNG_URL (see pkg/tui/websearch)
+		key: "searxng.url", label: "Searxng URL",
+		text: true,
 	},
 }
 

@@ -33,7 +33,7 @@ var (
 func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "suggest",
-		Short: "Propose node changes for review, and approve or reject them",
+		Short: "Propose or resolve node changes",
 	}
 
 	cmd.AddCommand(newAddCmd(ctx))

@@ -215,6 +215,9 @@ type Model struct {
 	// /settings picker selection (index into settingDefs) + the loaded preferences
 	settingsSel int
 	settings    map[string]string
+	// settingEdit is the live caret-editable buffer for a TEXT setting (see
+	// settingDef.text) while its row is selected in the /settings picker.
+	settingEdit textField
 
 	compl complState
 
@@ -337,6 +340,7 @@ type Model struct {
 	quitting    bool
 	animTicking bool   // the magic-keyword animation tick is currently scheduled
 	flash       string // one-shot status for the bottom bar, cleared on keypress
+	flashErr    bool   // the flash is an error — rendered red (see errorFlash)
 	err         error
 
 	saved struct {
@@ -402,13 +406,13 @@ func (m *Model) saveAll() (int, error) {
 // is how alt+left walks up past the loaded root into the rest of the forest.
 func (m *Model) reopenAt(rootUUID, focusUUID string) {
 	if _, err := m.saveAll(); err != nil {
-		m.flash = "save: " + err.Error()
+		m.errorFlash("save: " + err.Error())
 		return
 	}
 	m.unsaved = false
 	t, err := loadTree(m.db, rootUUID)
 	if err != nil {
-		m.flash = err.Error()
+		m.errorFlash(err.Error())
 		return
 	}
 	m.tree = t
@@ -849,13 +853,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case voiceDoneMsg:
 		m.setVoiceWave(msg.uuid, msg.env, msg.dur)
 		return m, nil
+	case webDoneMsg:
+		m.handleWebDone(msg)
+		return m, nil
 	case imagePastedMsg:
 		m.setImagePasting(msg.uuid, false)
 		switch {
 		case msg.err != nil:
-			m.flash = "image: " + msg.err.Error()
+			m.errorFlash("image: " + msg.err.Error())
 		case m.db == nil:
-			m.flash = "image: no database"
+			m.errorFlash("image: no database")
 		default:
 			blob := database.Blob{UUID: msg.uuid, Mime: "image/png", Bytes: msg.data, W: msg.w, H: msg.h}
 			if err := database.PutBlob(m.db, blob); err != nil {
@@ -868,7 +875,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case imageOpenedMsg:
 		if msg.err != nil {
-			m.flash = "image: " + msg.err.Error()
+			m.errorFlash("image: " + msg.err.Error())
 		} else {
 			m.flash = "opened in " + msg.via
 		}
@@ -1089,7 +1096,7 @@ func (m *Model) pasteFanOut(cur *item, lines []string) (tea.Model, tea.Cmd) {
 		}
 		if err != nil {
 			// a locked parent takes no children: keep what landed, say why
-			m.flash = err.Error()
+			m.errorFlash(err.Error())
 			break
 		}
 		it.name = text
@@ -1119,12 +1126,12 @@ func (m *Model) maybeLinkToMirror(it *item) {
 	}
 	uuid := match[1]
 	if uuid == it.uuid {
-		m.flash = "a node cannot mirror itself"
+		m.errorFlash("a node cannot mirror itself")
 		return
 	}
 	target, err := database.GetNode(m.db, uuid)
 	if err != nil {
-		m.flash = "link points at no node"
+		m.errorFlash("link points at no node")
 		return
 	}
 
@@ -1183,7 +1190,7 @@ func (m *Model) toggleComplete(it *item) {
 // deleteNode removes the node and its subtree from the tree.
 func (m *Model) deleteNode(it *item) {
 	if it == nil || it.structureLocked {
-		m.flash = "node structure is locked"
+		m.errorFlash("node structure is locked")
 		return
 	}
 	// cancel plugin work still running inside this subtree
@@ -1598,24 +1605,38 @@ func fuzzyMatch(hay, needle string) bool {
 }
 
 // handleSettingsKey drives the /settings picker: up/down pick a preference,
-// left/right (or space) cycle its value with a live apply + DB persist, esc/enter
-// close.
+// left/right (or space) cycle an option's value with a live apply + DB persist,
+// esc/enter close. A TEXT setting (settingDef.text — e.g. searxng.url) edits in
+// place instead: typing and the caret keys write its buffer, enter saves it and
+// closes, esc closes without saving.
 func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	d, text := m.selectedSetting()
 	switch k.String() {
-	case "esc", "enter":
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "enter":
+		if text {
+			m.setSetting(d.key, strings.TrimSpace(m.settingEdit.value))
+		}
 		m.mode = modeOutline
 		return m, nil
 	case "up":
 		if m.settingsSel > 0 {
 			m.settingsSel--
+			m.initSettingEdit()
 		}
 	case "down":
 		if m.settingsSel < len(settingDefs)-1 {
 			m.settingsSel++
+			m.initSettingEdit()
 		}
 	case "left", "right", " ", "space", "h", "l":
+		if text {
+			m.settingEdit.handleKey(k)
+			return m, nil
+		}
 		if m.settingsSel >= 0 && m.settingsSel < len(settingDefs) {
-			d := settingDefs[m.settingsSel]
 			dir := 1
 			if s := k.String(); s == "left" || s == "h" {
 				dir = -1
@@ -1629,8 +1650,33 @@ func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.DisableMouse
 			}
 		}
+	default:
+		if text {
+			m.settingEdit.handleKey(k)
+		}
 	}
 	return m, nil
+}
+
+// selectedSetting returns the currently selected setting and whether it is a
+// free-text one. A nil-ish selection falls back to the first entry.
+func (m *Model) selectedSetting() (settingDef, bool) {
+	if m.settingsSel < 0 || m.settingsSel >= len(settingDefs) {
+		m.settingsSel = 0
+	}
+	d := settingDefs[m.settingsSel]
+	return d, d.text
+}
+
+// initSettingEdit loads the selected TEXT setting's current value into the
+// editing buffer with the caret at the end, so typing appends. Called whenever
+// the selection moves; option settings ignore it.
+func (m *Model) initSettingEdit() {
+	d, text := m.selectedSetting()
+	if !text {
+		return
+	}
+	m.settingEdit = textField{value: m.setting(d.key), caret: len([]rune(m.setting(d.key)))}
 }
 
 func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
@@ -1657,6 +1703,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// open the global-preferences picker (theme, link color, image preview)
 		m.mode = modeSettings
 		m.settingsSel = 0
+		m.initSettingEdit()
 	case "/lock":
 		// Toggle only LOCK_READ_WRITE. The independent structural lock bit remains
 		// intact, so generated query rows can be content+structure locked or only
@@ -1732,7 +1779,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		ctx := m.cursorCtx()
 		clone, err := m.tree.duplicate(cur)
 		if err != nil {
-			m.flash = err.Error()
+			m.errorFlash(err.Error())
 			return m, nil
 		}
 		m.unsaved = true
@@ -1767,7 +1814,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// memory (auto-sync is debounced ~1s) — without this the query would
 		// show no matches for a link that plainly exists in the outline.
 		if _, err := m.saveAll(); err != nil {
-			m.flash = "save: " + err.Error()
+			m.errorFlash("save: " + err.Error())
 			return m, nil
 		}
 		m.openFinder(actBacklinks)

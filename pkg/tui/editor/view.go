@@ -567,7 +567,16 @@ func (m *Model) viewSettings(maxLine int) []string {
 		if i == m.settingsSel {
 			mark = cAccent + "→ " + cReset // one joined arrow, not "-" + ">"
 		}
+		// a text setting renders its LIVE editing buffer with a caret while
+		// selected (typing writes it; enter saves), the stored value otherwise
 		value := settingValueColor(val) + settingValueLabel(d, val) + cReset
+		if d.text {
+			if i == m.settingsSel {
+				value = cFG + withCaret(m.settingEdit.value, m.settingEdit.caret) + cReset
+			} else {
+				value = cFG + val + cReset
+			}
+		}
 		extra := ""
 		if d.key == "theme" {
 			if t, ok := themeByName(val); ok {
@@ -577,6 +586,10 @@ func (m *Model) viewSettings(maxLine int) []string {
 		}
 		line := " " + mark + cDim + fmt.Sprintf("%-14s", d.label) + "· " + cReset + value + extra
 		lines = append(lines, clip(line, maxLine))
+	}
+	// a text row's hint: typing edits it, enter saves, esc cancels
+	if _, text := m.selectedSetting(); text {
+		lines = append(lines, clip(cDim+"type to edit · enter save · esc cancel"+cReset, maxLine))
 	}
 	return lines
 }
@@ -657,6 +670,15 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 	return body
 }
 
+// errorFlash is the one way the editor reports a failure in the bottom bar: it
+// sets the flash message and flags it to render RED. Every "we could not do
+// that" status goes through this call, so failures read alike everywhere — a
+// red line, not a dim one.
+func (m *Model) errorFlash(msg string) {
+	m.flash = msg
+	m.flashErr = true
+}
+
 // WARNING (invariant): the bottom/status bar is the LAST rendered line of every
 // frame — tooling and the inline renderer treat the final line as the status line.
 // Always append it last (see viewOutline); never emit content below it. The bar
@@ -723,7 +745,11 @@ func (m *Model) bottomBar(maxLine int) []string {
 		state += " · " + cYellow + suggestNoun(n) + cDim
 	}
 	if m.flash != "" {
-		state += " · " + m.flash
+		s := m.flash
+		if m.flashErr {
+			s = cRed + s + cDim
+		}
+		state += " · " + s
 	}
 	if m.mode == modeFlash {
 		hint := cFG + "flash" + cReset + cDim

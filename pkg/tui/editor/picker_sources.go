@@ -181,14 +181,14 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	}
 	mc := m.mirrorContext()
 	if !mc.editable || !typeOf(cur.typ).inlineEditable || cur.readonly {
-		m.flash = "node is not editable"
+		m.errorFlash("node is not editable")
 		return m, nil
 	}
 	if kind == "icon" {
 		return m.openIconPicker(cur)
 	}
 	if !chipsEnabled(cur) {
-		m.flash = "chips are disabled for this node type"
+		m.errorFlash("chips are disabled for this node type")
 		return m, nil
 	}
 	switch kind {
@@ -274,7 +274,7 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	// a disabled (dep-missing) type refuses the pick with the run-time error
 	if bin, missing := m.typeDepMissing(it.value); it.value != "" && missing {
 		m.mode = modeOutline
-		m.flash = "Missing dependency: " + bin
+		m.errorFlash("Missing dependency: " + bin)
 		return m, nil
 	}
 	if it.value != "" {
