@@ -2,6 +2,7 @@ package database
 
 import (
 	"testing"
+	"time"
 
 	"github.com/lflow/lflow/pkg/utils/assert"
 )
@@ -317,4 +318,113 @@ func TestFirstRank(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, rank, 0, "first rank for leaf mismatch")
+}
+
+// TestSubtreeCounts: every node's subtree size in one pass, agreeing exactly
+// with CountSubtree asked one node at a time — that agreement is the whole
+// contract, since the finder ranks by this number.
+func TestSubtreeCounts(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	//  a ── b ── c
+	//    ╰─ d
+	//  e            (a leaf of its own)
+	tree := []struct{ uuid, parent string }{
+		{"a", RootUUID}, {"b", "a"}, {"c", "b"}, {"d", "a"}, {"e", RootUUID},
+	}
+	for i, n := range tree {
+		node := Node{UUID: n.uuid, Name: n.uuid, ParentUUID: n.parent, Rank: i + 1, Type: TypeBullets}
+		if err := node.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	counts, err := SubtreeCounts(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"a": 4, "b": 2, "c": 1, "d": 1, "e": 1}
+	for uuid, n := range want {
+		if counts[uuid] != n {
+			t.Errorf("counts[%q] = %d, want %d", uuid, counts[uuid], n)
+		}
+	}
+	if counts[RootUUID] != 6 {
+		t.Errorf("counts[root] = %d, want every node plus itself", counts[RootUUID])
+	}
+
+	// and it agrees with the per-node query it stands in for
+	for uuid := range want {
+		one, err := CountSubtree(db, uuid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if counts[uuid] != one {
+			t.Errorf("%q: SubtreeCounts=%d CountSubtree=%d", uuid, counts[uuid], one)
+		}
+	}
+}
+
+// TestSubtreeCountsSkipsDeleted: a tombstoned node is in neither its own count
+// nor its ancestors'.
+func TestSubtreeCountsSkipsDeleted(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	for i, n := range []struct{ uuid, parent string }{{"a", RootUUID}, {"b", "a"}} {
+		node := Node{UUID: n.uuid, Name: n.uuid, ParentUUID: n.parent, Rank: i + 1, Type: TypeBullets}
+		if err := node.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = 'b'"); err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := SubtreeCounts(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["a"] != 1 {
+		t.Errorf("counts[a] = %d, want the deleted child left out", counts["a"])
+	}
+	if _, ok := counts["b"]; ok {
+		t.Error("a deleted node was counted at all")
+	}
+}
+
+// TestSubtreeCountsSurvivesACycle: a corrupt parent chain must terminate, not
+// spin — this runs on every finder open.
+func TestSubtreeCountsSurvivesACycle(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	for i, n := range []struct{ uuid, parent string }{{"x", RootUUID}, {"y", "x"}} {
+		node := Node{UUID: n.uuid, Name: n.uuid, ParentUUID: n.parent, Rank: i + 1, Type: TypeBullets}
+		if err := node.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// x's parent is now its own child
+	if _, err := db.Exec("UPDATE nodes SET parent_uuid = 'y' WHERE uuid = 'x'"); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan map[string]int, 1)
+	go func() {
+		c, _ := SubtreeCounts(db)
+		done <- c
+	}()
+	select {
+	case c := <-done:
+		if c["x"] < 1 || c["y"] < 1 {
+			t.Errorf("a cycle produced %v", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SubtreeCounts did not terminate on a parent cycle")
+	}
 }

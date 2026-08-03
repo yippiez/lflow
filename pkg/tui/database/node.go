@@ -471,8 +471,54 @@ func MarkSubtreeDeleted(db *DB, rootUUID string) (int, error) {
 	return len(subtree), nil
 }
 
+// SubtreeCounts returns the subtree size of EVERY non-deleted node, including
+// itself, in one pass.
+//
+// It exists because asking the same question one node at a time is quadratic:
+// CountSubtree materializes a whole subtree to take its length, so a finder that
+// counted each of its candidates read a large share of the outline once per
+// candidate — most of them for rows that never reach the screen. Here the shape
+// of the tree is read once and the counting is arithmetic.
+func SubtreeCounts(db *DB) (map[string]int, error) {
+	rows, err := db.Query(`SELECT uuid, parent_uuid FROM nodes WHERE deleted = 0`)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying node parents")
+	}
+	defer rows.Close()
+
+	parent := map[string]string{}
+	for rows.Next() {
+		var uuid, par string
+		if err := rows.Scan(&uuid, &par); err != nil {
+			return nil, errors.Wrap(err, "scanning node parent")
+		}
+		parent[uuid] = par
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "iterating node parents")
+	}
+
+	// every node counts itself, then adds itself to each of its ancestors. Walking
+	// UP from each node costs one step per edge above it and needs no recursion,
+	// and the seen set makes a parent cycle — which a corrupt tree can hold —
+	// terminate rather than spin.
+	counts := make(map[string]int, len(parent))
+	for uuid := range parent {
+		counts[uuid]++
+		seen := map[string]bool{uuid: true}
+		for p := parent[uuid]; p != "" && !seen[p]; p = parent[p] {
+			seen[p] = true
+			if _, ok := parent[p]; !ok {
+				break // an ancestor that is deleted or absent ends the chain
+			}
+			counts[p]++
+		}
+	}
+	return counts, nil
+}
+
 // CountSubtree returns the number of non-deleted nodes in the subtree
-// including the root.
+// including the root. For more than one node at a time, use SubtreeCounts.
 func CountSubtree(db *DB, rootUUID string) (int, error) {
 	subtree, err := GetSubtree(db, rootUUID)
 	if err != nil {

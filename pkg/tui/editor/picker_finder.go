@@ -22,6 +22,12 @@ type bodyFinder struct {
 	sel   int
 	hits  []finderRow
 	act   finderAction // which action a pick performs (also selects the backend behavior)
+
+	// counts is every node's subtree size, which ranks the results. It belongs to
+	// the SESSION rather than the keystroke: the finder is modal, so the outline
+	// cannot change underneath it, and rebuilding this per keystroke made typing
+	// pay for a shape that had not moved.
+	counts map[string]int
 }
 
 // finderRow is one fully-counted result: the node plus its subtree count,
@@ -55,6 +61,7 @@ func (f *bodyFinder) open(m *Model, act finderAction, be finderBackend) {
 	f.query = ""
 	f.sel = 0
 	f.hits = nil
+	f.counts = nil // read once, on the first search of this session
 	f.refresh(m, be)
 }
 

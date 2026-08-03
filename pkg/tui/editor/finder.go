@@ -60,6 +60,7 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 	}
 
 	q := strings.ToLower(strings.TrimSpace(query))
+	counts := m.finderCounts() // one read for the whole search, not one per row
 	var rows []finderRow
 	for _, h := range hits {
 		// the node being acted on is never a valid target
@@ -85,14 +86,14 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 				continue
 			}
 		}
-		rows = append(rows, m.finderRowFor(h))
+		rows = append(rows, m.finderRowFor(h, counts))
 	}
 	// /move:here can also pull a node out of the (ephemeral, DB-less) Temporary Domain,
 	// so surface its nodes alongside the saved nodes — most recent first.
 	if m.finder.act == actBringHere {
 		var temp []finderRow
 		for _, n := range m.tempFinderHits(cur, query) {
-			temp = append(temp, m.finderRowFor(n))
+			temp = append(temp, m.finderRowFor(n, counts))
 		}
 		rows = append(temp, rows...)
 	}
@@ -175,17 +176,20 @@ func (nodeFinderBackend) hint(m *Model) string {
 	return ""
 }
 
-// finderRowFor decorates a node with its subtree count for the finder list. A
-// count error (or a synthetic Temporary-Domain node not in the DB) falls back to 1,
-// matching the pre-refactor lazy count.
+// finderRowFor decorates a node with its subtree count for the finder list.
+// counts is the whole outline's sizes, read once per search (see
+// database.SubtreeCounts) rather than once per candidate — asking per candidate
+// meant reading a large share of the outline for every row the finder
+// considered, most of which never reach the screen. A node the map does not know
+// (a synthetic Temporary-Domain node, which is not in the DB at all) counts 1.
 //
 // A mirror's own style/starred columns are blank — the picker (like the
 // outline's renderItem) must show the one real node's live appearance, or a
 // styled/starred node reads as plain the moment it shows up as a mirror row
 // (e.g. in /backlinks, the one picker that keeps mirror rows).
-func (m *Model) finderRowFor(n database.Node) finderRow {
-	count, err := database.CountSubtree(m.db, n.UUID)
-	if err != nil {
+func (m *Model) finderRowFor(n database.Node, counts map[string]int) finderRow {
+	count := counts[n.UUID]
+	if count == 0 {
 		count = 1
 	}
 	if n.MirrorOf != "" {
@@ -194,6 +198,26 @@ func (m *Model) finderRowFor(n database.Node) finderRow {
 		n.Starred = src.Starred
 	}
 	return finderRow{node: n, count: count}
+}
+
+// finderCounts is the subtree size of every node, read once for the whole finder
+// session and reused by every keystroke after — the finder is modal, so the
+// outline cannot change while it is open. A failed read yields an empty map,
+// which finderRowFor reads as "count 1": the list still opens, just without
+// subtree weight in its ranking.
+func (m *Model) finderCounts() map[string]int {
+	if m.finder.counts != nil {
+		return m.finder.counts
+	}
+	if m.db == nil {
+		return nil
+	}
+	counts, err := database.SubtreeCounts(m.db)
+	if err != nil {
+		return nil
+	}
+	m.finder.counts = counts
+	return counts
 }
 
 // tempFinderHits returns the Temporary Domain's named nodes as finder candidates,
