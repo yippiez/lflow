@@ -126,25 +126,40 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // query nodes (where ":" is the query-command completer) can still insert icons.
 var insertKinds = []struct{ value, label, desc string }{
 	{"agent", "Agent", "a coding session you already have"},
-	{"zotero", "Zotero", "a Zotero entry as a node: tags, attachments, annotations"},
+	{"zotero", "Zotero", "a citation from your Zotero library (or type @@)"},
 	{"cmd", "Bash", "a runnable $ command chip (or type $$)"},
 	{"date", "Date", "today as a date chip"},
 	{"icon", "Icon", "an icon or emoji via shortcode"},
 	{"link", "Link", "a link chip"},
-	{"molecule", "Mol", "a ⌬ molecule chip"},
+	{"molecule", "Molecule", "a ⌬ molecule chip"},
 	{"tag", "Tag", "a #tag chip"},
 }
 
+// insertLabelWidth is the label column in /insert: one wider than the longest
+// label, so the descriptions line up whatever a kind ends up being called.
+var insertLabelWidth = func() int {
+	w := 0
+	for _, k := range insertKinds {
+		if n := len([]rune(k.label)); n > w {
+			w = n
+		}
+	}
+	return w + 1
+}()
+
 type insertSource struct{}
 
+// items filters the kinds by NAME first: a name match ranks above a kind that
+// only mentions the query in its description, so typing a chip's own name lands
+// on that chip. The description is matched as a plain substring rather than
+// fuzzily — subsequence matching over a whole sentence hits nearly everything
+// ("mol" is in "a citation fro-m y-o-ur zotero -l-ibrary"), which is how a
+// query for one kind used to select another.
 func (insertSource) items(m *Model, q string) []pickerItem {
 	ql := strings.ToLower(q)
-	var out []pickerItem
+	var byName, byDesc []pickerItem
 	for _, k := range insertKinds {
 		k := k
-		if ql != "" && !fuzzyMatch(strings.ToLower(k.label), ql) && !fuzzyMatch(strings.ToLower(k.desc), ql) {
-			continue
-		}
 		desc := k.desc
 		// when the caret already sits after a molecule, the entry offers to fold
 		// THAT notation into a chip instead of landing an empty one — the detection
@@ -154,15 +169,32 @@ func (insertSource) items(m *Model, q string) []pickerItem {
 				desc = "convert " + strings.TrimSpace(molChipDisplay(tok))
 			}
 		}
-		out = append(out, pickerItem{value: k.value, render: func(bool) string {
-			return cFG + fmt.Sprintf("%-6s", k.label) + cDim + " " + desc + cReset
-		}})
+		it := pickerItem{value: k.value, render: func(bool) string {
+			return cFG + fmt.Sprintf("%-*s", insertLabelWidth, k.label) + cDim + " " + desc + cReset
+		}}
+		switch {
+		case ql == "" || fuzzyMatch(strings.ToLower(k.label), ql):
+			byName = append(byName, it)
+		case strings.Contains(strings.ToLower(k.desc), ql):
+			byDesc = append(byDesc, it)
+		}
 	}
-	return out
+	return append(byName, byDesc...)
 }
 
-func (insertSource) header(*Model, *listPicker) string { return "" }
-func (insertSource) initialSel(*Model) int             { return 0 }
+// header names the picker and echoes the query, the same shape /type wears —
+// the two pickers are the same gesture ("what goes here?"), so they read alike.
+func (insertSource) header(_ *Model, p *listPicker) string {
+	query := p.query
+	if query == "" {
+		query = cDim + "type to search" + cReset
+	} else {
+		query = cFG + query + cReset
+	}
+	return " " + cDim + "insert: " + cReset + query
+}
+
+func (insertSource) initialSel(*Model) int { return 0 }
 
 func (insertSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
@@ -203,9 +235,10 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	case "tag":
 		return m.openCompleter(cur, complTag, "#")
 	case "zotero":
-		// the full paper AS A NODE: pick the entry and the cursor node becomes
-		// its mirror (the citation chip, by contrast, is only ever made by "@@")
-		return m.openCitePicker(citeMirror)
+		// a citation chip at the caret, like every other thing on this menu —
+		// /insert splices something INTO a node. Turning the node into the whole
+		// paper is a change of what the node IS, so it lives on /type → Zotero.
+		return m.openCitePicker(citeChip)
 	case "link":
 		m.openFinder(actLinkInsert)
 	case "date":
