@@ -107,13 +107,17 @@ func (agentColorSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// agentSetColor records YOUR color for a chip ("" = the agent's default) and
-// republishes its look. Local, like the name: the CLI's session is untouched.
+// agentSetColor records YOUR color for a chip ("" = back to whatever the CLI or
+// the variant says) and republishes its look. It is then pushed into the CLI's
+// own store for the one CLI that keeps a color of its own; for the others it
+// stays here, which recolors the chip exactly the same — the color is simply
+// lflow's alone.
 func (m *Model) agentSetColor(id, color string) {
 	s := m.agentLoad(id)
 	s.Color = color
 	m.agentSave(id, s)
-	if v, ok := agentVariantByID(s.Variant); ok {
+	v, ok := agentVariantByID(s.Variant)
+	if ok {
 		m.publishAgentLook(id, v)
 	}
 	m.refreshAgentChip(id)
@@ -121,5 +125,9 @@ func (m *Model) agentSetColor(id, color string) {
 		m.flash = "color · the agent's own"
 		return
 	}
-	m.flash = "color · " + color
+	if !ok {
+		m.flash = "color · " + color
+		return
+	}
+	m.flash = color + " · " + m.agentPushIdent(v, s, agentIdent{color: color}, "recolored")
 }

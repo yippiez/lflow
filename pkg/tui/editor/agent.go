@@ -75,10 +75,11 @@ type agentVariant struct {
 	// is lflow's alone: still yours to set, just never written anywhere else.
 	hasColor bool
 
-	// rename writes a NEW NAME into the CLI's own store, for a store whose format
-	// makes that safe. nil = this CLI's name is read-only to lflow, and a rename
-	// stays local to the chip. See agentRename.
-	rename func(path, name string) error
+	// writeIdent pushes a name and/or color back into the CLI's OWN store, so a
+	// session renamed or recolored here reads that way in the CLI too. An empty
+	// field is left alone; a nil hook means this CLI's identity is read-only to
+	// lflow and the change stays local to the chip. See agentPushIdent.
+	writeIdent func(sessionID, path string, want agentIdent) error
 }
 
 // agentMono is the fill for an agent whose brand names no color — a black mark on
@@ -119,14 +120,16 @@ var agentVariants = []agentVariant{
 				registryIdents(homeStores(".claude/sessions")),
 			)
 		},
-		hasColor: true,
-		exts:     []string{".jsonl"},
+		hasColor:   true,
+		writeIdent: claudeWriteIdent,
+		exts:       []string{".jsonl"},
 	},
 	{
 		id: "pi", label: "Pi", bin: "pi",
 		glyph: "ᴘɪ", color: "purple",
 		args:         func(id string) []string { return []string{"--session-id", id} },
 		sessionRoots: func() []string { return homeStores(".pi/agent/sessions", ".pi/sessions", "<data>/pi/sessions") },
+		writeIdent:   piWriteIdent,
 		exts:         []string{".jsonl", ".json"},
 	},
 	{
@@ -137,6 +140,7 @@ var agentVariants = []agentVariant{
 		// layouts, one such pair per project), so discovery is pinned to the session
 		// side.
 		sessionRoots: func() []string { return homeStores("<data>/opencode/storage", "<data>/opencode/project") },
+		writeIdent:   opencodeWriteIdent,
 		exts:         []string{".json"},
 		sessionPath:  "/session/",
 	},
@@ -513,21 +517,42 @@ func (m *Model) agentRename(id, name string) {
 		m.refreshAgentChip(id)
 		return
 	}
-	// then push it down into the CLI's own store, for the one whose format makes
-	// that safe. A store lflow cannot write keeps the name here and nowhere else,
-	// which is the whole reason the local name exists and wins.
-	m.flash = "renamed here"
-	if v.rename != nil && s.Name != "" && s.SessionID != "" {
-		if path := agentSessionPath(v.sessionDirs(), v.exts, s.SessionID); path != "" {
-			if err := v.rename(path, s.Name); err != nil {
-				m.errorFlash("renamed here · " + v.label + ": " + err.Error())
-			} else {
-				m.flash = "renamed here and in " + v.label
-			}
-		}
-	}
+	// then push it down into the CLI's own store, so the two agree. A store lflow
+	// cannot write keeps the name here and nowhere else, which is the whole reason
+	// the local name exists and wins.
+	m.flash = m.agentPushIdent(v, s, agentIdent{name: s.Name}, "renamed")
 	m.refreshAgentChip(id)
 	m.publishAgentLook(id, v)
+}
+
+// agentPushIdent writes a name and/or color back into the CLI's own store and
+// returns the line to flash: what happened, and where it happened. A change is
+// always kept HERE first and only then offered to the CLI, so a store that
+// refuses one still leaves the chip reading the way you set it.
+//
+// verb names the change ("renamed", "recolored") so one function answers for
+// both without the caller assembling prose.
+func (m *Model) agentPushIdent(v agentVariant, s agentSession, want agentIdent, verb string) string {
+	here := verb + " here"
+	if v.writeIdent == nil || s.SessionID == "" {
+		return here
+	}
+	if want.name == "" && want.color == "" {
+		return here // cleared back to the CLI's own; nothing to push
+	}
+	// a color goes only to a CLI that keeps one. Pushing lflow's color into a
+	// store with no field for it would either be dropped or invent one.
+	if !v.hasColor {
+		want.color = ""
+		if want.name == "" {
+			return here + " · " + v.label + " records no color"
+		}
+	}
+	path := agentSessionPath(v.sessionDirs(), v.exts, s.SessionID)
+	if err := v.writeIdent(s.SessionID, path, want); err != nil {
+		return here + " · " + v.label + ": " + err.Error()
+	}
+	return here + " and in " + v.label
 }
 
 // ── the chip ───────────────────────────────────────────────────────────────

@@ -2,6 +2,8 @@ package editor
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -744,16 +746,130 @@ func parseHexColor(v string) (int, int, int, bool) {
 	return rgb[0], rgb[1], rgb[2], true
 }
 
-// opencodeRename writes a new title into an opencode session record — the one
-// store of the three whose format makes that safe: a single small JSON object
-// with a "title" field, which is exactly what its own UI edits.
+// ── writing back ───────────────────────────────────────────────────────────
 //
-// The write is atomic (temp file then rename) and preserves every other key by
-// round-tripping the object, so a field lflow does not know about survives. The
-// other two CLIs have no such field — Claude Code's name lives in its LIVE
-// registry, keyed by the pid of a running process and owned by it, and Pi's
-// records carry no name at all — so for those a rename stays local to the chip.
-func opencodeRename(path, name string) error {
+// Renaming or recoloring a chip pushes the change down into the CLI's own store,
+// so the two agree rather than lflow keeping a private label. Each CLI takes it
+// where its own format allows, and no writer here ever touches a conversation:
+//
+//	claude    the job record's "name" and "color" — the only CLI of the three
+//	          that keeps a color. Refused while the session is RUNNING, because
+//	          that file belongs to the process writing it.
+//	pi        an appended session_info record, which is exactly what pi writes
+//	          when you rename in it. Names only; pi records no color.
+//	opencode  the session record's "title". Names only.
+//
+// Every rewrite round-trips the whole object and replaces it atomically, so a
+// field lflow does not know about survives untouched.
+
+// opencodeWriteIdent writes a new title into an opencode session record: a
+// single small JSON object whose "title" is exactly what its own UI edits.
+func opencodeWriteIdent(_, path string, want agentIdent) error {
+	if want.name == "" {
+		return nil // opencode records no color, so there is nothing else to write
+	}
+	return rewriteJSON(path, func(rec map[string]any) error {
+		if _, ok := rec["title"]; !ok {
+			return fmt.Errorf("no title to rename")
+		}
+		rec["title"] = want.name
+		return nil
+	})
+}
+
+// piWriteIdent appends a session_info record naming the session — the same
+// record pi itself appends on a rename, and the last one written is the name
+// that counts. Appending is why this is safe: nothing already in the transcript
+// is rewritten, and a session pi has open sees the record the way it sees its
+// own.
+func piWriteIdent(_, path string, want agentIdent) error {
+	if want.name == "" {
+		return nil // pi records no color
+	}
+	rec := map[string]any{
+		"type":      "session_info",
+		"id":        randomHex(8),
+		"parentId":  nil,
+		"timestamp": time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		"name":      want.name,
+	}
+	line, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// claudeWriteIdent writes a name and/or color into Claude Code's job record —
+// the place its own UI reads both from.
+//
+// It REFUSES while the session is running. That file is live state belonging to
+// the process writing it (its status, its in-flight counts, its clock all move
+// during a run), and replacing it under that process could drop an update it
+// made a moment ago. A finished session's record is nobody's to lose.
+func claudeWriteIdent(sessionID, _ string, want agentIdent) error {
+	if want.name == "" && want.color == "" {
+		return nil
+	}
+	// the registry is read here rather than passed in: a write-back is something
+	// you do by hand, not something a frame does, so it can afford the check
+	if reg, ok := agentRegistry(homeStores(".claude/sessions"))[sessionID]; ok && reg.live {
+		return fmt.Errorf("the session is running — Claude Code owns its record while it does")
+	}
+	path := claudeJobPath(homeStores(".claude/jobs"), sessionID)
+	if path == "" {
+		return fmt.Errorf("no job record for this session")
+	}
+	return rewriteJSON(path, func(rec map[string]any) error {
+		if want.name != "" {
+			rec["name"] = want.name
+			rec["nameSource"] = "user" // what Claude Code stamps on a name you chose
+		}
+		if want.color != "" {
+			rec["color"] = want.color
+		}
+		return nil
+	})
+}
+
+// claudeJobPath finds the job record for a session id. The directory is named
+// for a short form of the id, but that is read as a hint rather than a rule: the
+// sessionId inside each record is what actually answers.
+func claudeJobPath(roots []string, sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			p := filepath.Join(root, e.Name(), "state.json")
+			for _, rec := range agentReadRecords(p, agentMetaCap) {
+				if agentString(rec, "sessionId") == sessionID || agentString(rec, "resumeSessionId") == sessionID {
+					return p
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// rewriteJSON applies edit to a JSON object file and replaces it atomically,
+// keeping every key the edit did not touch.
+func rewriteJSON(path string, edit func(map[string]any) error) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -762,10 +878,9 @@ func opencodeRename(path, name string) error {
 	if err := json.Unmarshal(b, &rec); err != nil {
 		return fmt.Errorf("unreadable session record")
 	}
-	if _, ok := rec["title"]; !ok {
-		return fmt.Errorf("no title to rename")
+	if err := edit(rec); err != nil {
+		return err
 	}
-	rec["title"] = name
 	out, err := json.Marshal(rec)
 	if err != nil {
 		return err
@@ -779,4 +894,13 @@ func opencodeRename(path, name string) error {
 		return err
 	}
 	return nil
+}
+
+// randomHex is the id shape pi stamps on a record it appends.
+func randomHex(n int) string {
+	b := make([]byte, (n+1)/2)
+	if _, err := rand.Read(b); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 16)[:n]
+	}
+	return hex.EncodeToString(b)[:n]
 }

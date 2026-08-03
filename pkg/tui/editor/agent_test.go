@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -936,5 +937,158 @@ func TestAgentReadMetaTakesTheRecordsColor(t *testing.T) {
 	path2 := agentSessionPath(c.sessionDirs(), c.exts, id2)
 	if meta := agentReadMeta(c.id, path2); meta.color != "" {
 		t.Errorf("color = %q, want none — the record declares none", meta.color)
+	}
+}
+
+// TestPiWriteIdentAppends: pi is renamed the way pi renames — by APPENDING a
+// session_info record, never by rewriting the transcript. Nothing already in the
+// file may move, because that file is a conversation.
+func TestPiWriteIdentAppends(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sess.jsonl")
+	before := `{"type":"session","id":"019f75e8-fd60-7b18-b809-7b4f363be885","cwd":"/x"}` + "\n" +
+		`{"type":"message","role":"user","content":"the first thing asked"}` + "\n"
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := piWriteIdent("019f75e8", path, agentIdent{name: "picker streaming"}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(after), before) {
+		t.Error("the existing transcript was rewritten — a rename must only append")
+	}
+	if s := agentReadMeta("pi", path); s.title != "picker streaming" || !s.named {
+		t.Errorf("after the append the session reads %q (named=%v)", s.title, s.named)
+	}
+
+	// the appended record is the shape pi writes, and a color is not part of it
+	var rec map[string]any
+	last := strings.TrimSpace(string(after))
+	last = last[strings.LastIndex(last, "\n")+1:]
+	if err := json.Unmarshal([]byte(last), &rec); err != nil {
+		t.Fatalf("appended line is not JSON: %v", err)
+	}
+	if rec["type"] != "session_info" || rec["name"] != "picker streaming" {
+		t.Errorf("appended record = %v", rec)
+	}
+	// pi records no color, so a color-only push writes nothing at all
+	size := len(after)
+	if err := piWriteIdent("019f75e8", path, agentIdent{color: "red"}); err != nil {
+		t.Fatal(err)
+	}
+	if now, _ := os.ReadFile(path); len(now) != size {
+		t.Error("a color was written into a store that records none")
+	}
+}
+
+// TestOpencodeWriteIdentKeepsEveryOtherField: the rewrite round-trips the
+// object, so a field lflow does not know about survives.
+func TestOpencodeWriteIdentKeepsEveryOtherField(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ses_3c7a52a98ffeAAtYekvCBNy5Tx.json")
+	orig := `{"id":"ses_3c7a52a98ffeAAtYekvCBNy5Tx","slug":"happy-wizard","title":"Evosax usage in TUI","projectID":"abc","aFieldLflowHasNeverHeardOf":{"deep":[1,2,3]}}`
+	if err := os.WriteFile(path, []byte(orig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := opencodeWriteIdent("ses_3c7a52a98ffeAAtYekvCBNy5Tx", path, agentIdent{name: "rank math"}); err != nil {
+		t.Fatal(err)
+	}
+	var rec map[string]any
+	b, _ := os.ReadFile(path)
+	if err := json.Unmarshal(b, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec["title"] != "rank math" {
+		t.Errorf("title = %v, want the new name", rec["title"])
+	}
+	for _, k := range []string{"id", "slug", "projectID", "aFieldLflowHasNeverHeardOf"} {
+		if rec[k] == nil {
+			t.Errorf("the rewrite dropped %q", k)
+		}
+	}
+	// and it reads back as the session's name
+	if s := agentReadMeta("opencode", path); s.title != "rank math" || !s.named {
+		t.Errorf("reads back as %q (named=%v)", s.title, s.named)
+	}
+}
+
+// TestClaudeWriteIdentRefusesALiveSession is the guard that matters: the job
+// record is live state belonging to the process writing it.
+func TestClaudeWriteIdentNeedsAJobRecord(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no job store at all
+	err := claudeWriteIdent("40803d6c-1ece-4ad8-be9b-5d84f7d169b9", "", agentIdent{name: "x"})
+	if err == nil {
+		t.Fatal("writing with no job record should say so")
+	}
+	if !strings.Contains(err.Error(), "no job record") {
+		t.Errorf("err = %v", err)
+	}
+	// nothing to write is not an error
+	if err := claudeWriteIdent("abc", "", agentIdent{}); err != nil {
+		t.Errorf("an empty push errored: %v", err)
+	}
+}
+
+// TestClaudeWriteIdentRoundTrips: name, nameSource and color land in the job
+// record and everything else survives.
+func TestClaudeWriteIdentRoundTrips(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	jobs := filepath.Join(home, ".claude", "jobs", "f343c35a")
+	if err := os.MkdirAll(jobs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(jobs, "state.json")
+	orig := `{"sessionId":"f343c35a-a84f-464e-9cda-a4465ec1bd11","name":"auto name","nameSource":"auto","color":"red","state":"done","children":[{"id":"15"}]}`
+	if err := os.WriteFile(state, []byte(orig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := claudeWriteIdent("f343c35a-a84f-464e-9cda-a4465ec1bd11", "", agentIdent{name: "picker streaming", color: "cyan"}); err != nil {
+		t.Fatal(err)
+	}
+	var rec map[string]any
+	b, _ := os.ReadFile(state)
+	if err := json.Unmarshal(b, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec["name"] != "picker streaming" || rec["color"] != "cyan" {
+		t.Errorf("name = %v color = %v", rec["name"], rec["color"])
+	}
+	if rec["nameSource"] != "user" {
+		t.Errorf("nameSource = %v, want the mark Claude Code puts on a name you chose", rec["nameSource"])
+	}
+	if rec["state"] != "done" || rec["children"] == nil {
+		t.Error("the rewrite dropped a field it does not own")
+	}
+
+	// and the index reads back what was written
+	idx := claudeIdents([]string{filepath.Join(home, ".claude", "jobs")})
+	if got := idx["f343c35a-a84f-464e-9cda-a4465ec1bd11"]; got.name != "picker streaming" || got.color != "cyan" {
+		t.Errorf("index reads %+v", got)
+	}
+}
+
+// TestAgentPushIdentWithoutAColorStore: ⌥c on a pi or opencode chip recolors it
+// exactly the same — the color is simply lflow's alone and goes nowhere else.
+func TestAgentPushIdentWithoutAColorStore(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	v, _ := agentVariantByID("pi")
+	s := agentSession{Variant: "pi", SessionID: "019f75e8-fd60-7b18-b809-7b4f363be885"}
+
+	got := m.agentPushIdent(v, s, agentIdent{color: "cyan"}, "recolored")
+	if !strings.Contains(got, "records no color") {
+		t.Errorf("flash = %q, want it to say pi keeps no color", got)
+	}
+	// a variant with no writer at all keeps the change local and says only that
+	none := agentVariant{id: "x", label: "X"}
+	if got := m.agentPushIdent(none, s, agentIdent{name: "n"}, "renamed"); got != "renamed here" {
+		t.Errorf("flash = %q, want the local-only line", got)
 	}
 }
