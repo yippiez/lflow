@@ -323,7 +323,7 @@ var nodeTypes = []nodeType{
 	// alt+r re-reads it. Every node of the mirror wears this type; the binding
 	// in zotero_nodes says which Zotero object each one stands for.
 	{
-		key: database.TypeZotero, label: "Zotero item", inlineEditable: false,
+		key: database.TypeZotero, label: "Zotero", inlineEditable: false,
 		glyph:        zoteroGlyph,
 		run:          runZoteroPull, // alt+r: re-read the entry, or pick one on an unbound node
 		toContextM:   zoteroToContext,
