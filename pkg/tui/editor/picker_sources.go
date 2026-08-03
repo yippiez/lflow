@@ -125,14 +125,14 @@ func (slashSource) onBackspace(m *Model, p *listPicker) bool {
 // kind handed to insertChip. "icon" is plain unicode (not a chip) — offered so
 // query nodes (where ":" is the query-command completer) can still insert icons.
 var insertKinds = []struct{ value, label, desc string }{
-	{"agent", "agent", "a coding session you already have"},
-	{"zotero", "zotero", "a Zotero entry as a node: tags, attachments, annotations"},
-	{"cmd", "bash", "a runnable $ command chip (or type $$)"},
-	{"date", "date", "today as a date chip"},
-	{"icon", "icon", "an icon or emoji via shortcode"},
-	{"link", "link", "a link chip"},
-	{"molecule", "mol", "a ⌬ molecule chip"},
-	{"tag", "tag", "a #tag chip"},
+	{"agent", "Agent", "a coding session you already have"},
+	{"zotero", "Zotero", "a Zotero entry as a node: tags, attachments, annotations"},
+	{"cmd", "Bash", "a runnable $ command chip (or type $$)"},
+	{"date", "Date", "today as a date chip"},
+	{"icon", "Icon", "an icon or emoji via shortcode"},
+	{"link", "Link", "a link chip"},
+	{"molecule", "Mol", "a ⌬ molecule chip"},
+	{"tag", "Tag", "a #tag chip"},
 }
 
 type insertSource struct{}
@@ -142,7 +142,7 @@ func (insertSource) items(m *Model, q string) []pickerItem {
 	var out []pickerItem
 	for _, k := range insertKinds {
 		k := k
-		if ql != "" && !fuzzyMatch(k.label, ql) && !fuzzyMatch(strings.ToLower(k.desc), ql) {
+		if ql != "" && !fuzzyMatch(strings.ToLower(k.label), ql) && !fuzzyMatch(strings.ToLower(k.desc), ql) {
 			continue
 		}
 		desc := k.desc
