@@ -143,7 +143,13 @@ func (agentStartSource) items(m *Model, q string) []pickerItem {
 			!fuzzyMatch(strings.ToLower(tildePath(s.cwd)), ql) {
 			continue
 		}
+		// a session the CLI gave a color of its own wears it here too — the row is
+		// a preview of the chip it becomes, so it must not show a color the chip
+		// will not have
 		color := v.colorSGR()
+		if c := agentColorSGR(s.color); c != "" {
+			color = c
+		}
 		out = append(out, pickerItem{value: "use/" + v.id + "/" + s.id, render: func(bool) string {
 			// a session reads as the pill it is about to become, then where it ran
 			// and when it last moved

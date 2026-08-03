@@ -286,7 +286,8 @@ func TestAgentChipPill(t *testing.T) {
 }
 
 // TestAgentChipCustomName: like a link chip, a session can be given the user's
-// own name — and clearing it hands the name back to the CLI.
+// own name — and the name reaches the CLI's own store, so clearing the local one
+// finds the CLI already calling the session that.
 func TestAgentChipCustomName(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser)
 	c := variant(t, "claude")
@@ -301,9 +302,16 @@ func TestAgentChipCustomName(t *testing.T) {
 	if s := m.agentLoad(chip.ID); s.Name != "flush fix" {
 		t.Errorf("stored name = %q", s.Name)
 	}
+	// the rename went DOWN into Claude Code's own store, so the session is
+	// called that there too
+	path := agentSessionPath(c.sessionDirs(), c.exts, id)
+	if meta := agentReadMeta(c.id, path); meta.title != "flush fix" {
+		t.Errorf("the CLI's store reads %q, want the rename to have reached it", meta.title)
+	}
+	// clearing the local name hands the name back to the CLI — which now agrees
 	m.agentRename(chip.ID, "")
-	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ fix the flaky sync test") {
-		t.Errorf("cleared name reads %q, want the CLI's own name back", got)
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ flush fix") {
+		t.Errorf("cleared name reads %q, want the CLI's own name", got)
 	}
 
 	// the label is session chrome, never a stored chip field
@@ -1021,12 +1029,12 @@ func TestOpencodeWriteIdentKeepsEveryOtherField(t *testing.T) {
 // TestClaudeWriteIdentRefusesALiveSession is the guard that matters: the job
 // record is live state belonging to the process writing it.
 func TestClaudeWriteIdentNeedsAJobRecord(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // no job store at all
+	t.Setenv("HOME", t.TempDir()) // no transcript and no job store
 	err := claudeWriteIdent("40803d6c-1ece-4ad8-be9b-5d84f7d169b9", "", agentIdent{name: "x"})
 	if err == nil {
-		t.Fatal("writing with no job record should say so")
+		t.Fatal("writing with nowhere to write should say so")
 	}
-	if !strings.Contains(err.Error(), "no job record") {
+	if !strings.Contains(err.Error(), "no record found") {
 		t.Errorf("err = %v", err)
 	}
 	// nothing to write is not an error
@@ -1090,5 +1098,128 @@ func TestAgentPushIdentWithoutAColorStore(t *testing.T) {
 	none := agentVariant{id: "x", label: "X"}
 	if got := m.agentPushIdent(none, s, agentIdent{name: "n"}, "renamed"); got != "renamed here" {
 		t.Errorf("flash = %q, want the local-only line", got)
+	}
+}
+
+// TestClaudeInteractiveIdentityLivesInTheTranscript: Claude Code renames and
+// recolors an INTERACTIVE session by appending records to the transcript. The
+// job store only ever knew DISPATCHED ones, so a named, colored session still
+// read as its first prompt in the agent's default color.
+func TestClaudeInteractiveIdentityLivesInTheTranscript(t *testing.T) {
+	id := claudeStore(t,
+		recUser,
+		`{"type":"custom-title","customTitle":"voice to report part 2","sessionId":"x"}`,
+		`{"type":"agent-name","agentName":"voice to report part 2","sessionId":"x"}`,
+		`{"type":"agent-color","agentColor":"green","sessionId":"x"}`,
+		// renamed again later: each change is appended afresh and the last wins
+		`{"type":"custom-title","customTitle":"voice to report notebook 2","sessionId":"x"}`,
+		`{"type":"agent-name","agentName":"voice to report notebook 2","sessionId":"x"}`,
+	)
+	c := variant(t, "claude")
+	meta := agentReadMeta(c.id, agentSessionPath(c.sessionDirs(), c.exts, id))
+
+	if meta.title != "voice to report notebook 2" {
+		t.Errorf("title = %q, want the latest name, not the first prompt", meta.title)
+	}
+	if !meta.named {
+		t.Error("a session named in its transcript did not register as named")
+	}
+	if meta.color != "green" {
+		t.Errorf("color = %q, want the one the CLI recorded", meta.color)
+	}
+}
+
+// TestAgentColorRecordCarriesNoName: a recolor is its own record with no name in
+// it at all, so requiring a name alongside dropped the color.
+func TestAgentColorRecordCarriesNoName(t *testing.T) {
+	got := agentDeclaredIdent(map[string]any{
+		"type": "agent-color", "agentColor": "green", "sessionId": "x",
+	})
+	if got.color != "green" {
+		t.Errorf("color = %q, want it read from a record with no name", got.color)
+	}
+	if got.name != "" {
+		t.Errorf("name = %q, want none", got.name)
+	}
+	// and a colored session keeps the name an earlier record gave it
+	id := claudeStore(t,
+		`{"type":"agent-name","agentName":"compute reset fix","sessionId":"x"}`,
+		recUser,
+		`{"type":"agent-color","agentColor":"red","sessionId":"x"}`,
+	)
+	c := variant(t, "claude")
+	meta := agentReadMeta(c.id, agentSessionPath(c.sessionDirs(), c.exts, id))
+	if meta.title != "compute reset fix" || meta.color != "red" {
+		t.Errorf("title = %q color = %q, want both kept", meta.title, meta.color)
+	}
+}
+
+// TestClaudeAppendIdentIsWhatTheCLIWrites: a rename appends the pair Claude Code
+// appends, and never rewrites what is already there — that file is a conversation.
+func TestClaudeAppendIdentAppendsOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sess.jsonl")
+	before := recUser + "\n"
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := claudeAppendIdent(path, "sid-1", agentIdent{name: "flush fix", color: "green"}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(after), before) {
+		t.Error("the transcript was rewritten — a rename must only append")
+	}
+
+	types := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(after)), "\n") {
+		var rec map[string]any
+		if json.Unmarshal([]byte(line), &rec) != nil {
+			continue
+		}
+		if s, _ := rec["type"].(string); s != "" {
+			types[s] = line
+		}
+	}
+	for _, want := range []string{"custom-title", "agent-name", "agent-color"} {
+		if types[want] == "" {
+			t.Errorf("no %s record was appended", want)
+		}
+	}
+	if !strings.Contains(types["custom-title"], `"sessionId":"sid-1"`) {
+		t.Errorf("the appended record does not name its session: %s", types["custom-title"])
+	}
+
+	// and it reads back as the session's name and color
+	if s := agentReadMeta("claude", path); s.title != "flush fix" || s.color != "green" {
+		t.Errorf("reads back as %q / %q", s.title, s.color)
+	}
+}
+
+// TestAgentPickerRowWearsTheSessionsColor: a picker row is a preview of the chip
+// it becomes, so a session the CLI colored must not be drawn in the agent's
+// default — it would show a color the chip will not have.
+func TestAgentPickerRowWearsTheSessionsColor(t *testing.T) {
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	cursorOn(m, "note")
+	m.agentStore = []agentStoreSession{
+		{variant: c.id, id: "abc-12345678", title: "voice to report", color: "green", updated: time.Now()},
+		{variant: c.id, id: "def-12345678", title: "no color of its own", updated: time.Now()},
+	}
+
+	rows := (agentStartSource{}).items(m, "")
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows", len(rows))
+	}
+	if got := rows[0].render(false); !strings.Contains(got, bgOf(agentColorSGR("green"))) {
+		t.Errorf("a green session drew in %q, want the CLI's green", stripSGR(got))
+	}
+	if got := rows[1].render(false); !strings.Contains(got, bgOf(c.colorSGR())) {
+		t.Error("an uncolored session did not fall back to Claude Code's own fill")
 	}
 }

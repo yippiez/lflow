@@ -277,8 +277,12 @@ func agentReadMeta(variant, path string) agentStoreSession {
 		// panel shows all of it, wrapped, and only the pill and the picker row
 		// shorten it. agentTitleCap is a sanity bound, not a display width — a
 		// first prompt can be an entire pasted file.
-		if d := agentDeclaredIdent(rec); d.name != "" {
-			s.title, s.named = clipStr(oneLine(d.name), agentTitleCap), true
+		// name and color are taken independently: Claude Code records a recolor as
+		// its own record carrying no name at all, so requiring one dropped it
+		if d := agentDeclaredIdent(rec); d.name != "" || d.color != "" {
+			if d.name != "" {
+				s.title, s.named = clipStr(oneLine(d.name), agentTitleCap), true
+			}
 			if d.color != "" {
 				s.color = d.color
 			}
@@ -315,19 +319,34 @@ func agentDeclaredName(rec map[string]any) string { return agentDeclaredIdent(re
 // — a store that names a session in its own records is also where it would
 // record a color for one, so both are read through the same gate.
 func agentDeclaredIdent(rec map[string]any) agentIdent {
-	name := ""
 	switch strings.ToLower(agentString(rec, "type")) {
+	// Claude Code renames and recolors an INTERACTIVE session by appending these
+	// to the transcript itself — the job store only ever knew about dispatched
+	// ones, which is why a named, colored session still read as its first prompt
+	// in the agent's own default color. Each is written afresh on every change,
+	// so the last one in the file is the current one.
+	case "custom-title":
+		return agentIdent{name: agentString(rec, "customTitle", "title")}
+	case "agent-name":
+		return agentIdent{name: agentString(rec, "agentName", "name")}
+	case "agent-color":
+		return agentIdent{color: agentString(rec, "agentColor", "color")}
+
 	case "session_info", "session":
-		name = agentString(rec, "name", "title")
+		return named(agentString(rec, "name", "title"), rec)
 	case "summary":
-		name = agentString(rec, "summary", "title", "name")
+		return named(agentString(rec, "summary", "title", "name"), rec)
 	case "":
 		if id := agentString(rec, "id"); looksLikeSessionID(id) {
-			name = agentString(rec, "title", "name")
+			return named(agentString(rec, "title", "name"), rec)
 		}
-	default:
-		return agentIdent{}
 	}
+	return agentIdent{}
+}
+
+// named pairs a name with any color the same record carries — a store that names
+// a session in its own records is also where it would record a color for one.
+func named(name string, rec map[string]any) agentIdent {
 	if name == "" {
 		return agentIdent{}
 	}
@@ -815,29 +834,92 @@ func piWriteIdent(_, path string, want agentIdent) error {
 // the process writing it (its status, its in-flight counts, its clock all move
 // during a run), and replacing it under that process could drop an update it
 // made a moment ago. A finished session's record is nobody's to lose.
-func claudeWriteIdent(sessionID, _ string, want agentIdent) error {
+func claudeWriteIdent(sessionID, path string, want agentIdent) error {
 	if want.name == "" && want.color == "" {
 		return nil
 	}
-	// the registry is read here rather than passed in: a write-back is something
-	// you do by hand, not something a frame does, so it can afford the check
-	if reg, ok := agentRegistry(homeStores(".claude/sessions"))[sessionID]; ok && reg.live {
-		return fmt.Errorf("the session is running — Claude Code owns its record while it does")
-	}
-	path := claudeJobPath(homeStores(".claude/jobs"), sessionID)
-	if path == "" {
-		return fmt.Errorf("no job record for this session")
-	}
-	return rewriteJSON(path, func(rec map[string]any) error {
-		if want.name != "" {
-			rec["name"] = want.name
-			rec["nameSource"] = "user" // what Claude Code stamps on a name you chose
+	wrote := false
+
+	// The transcript first, because that is where an INTERACTIVE session's name
+	// and color live and most sessions are that. Appending is what Claude Code
+	// itself does on every rename, and these records carry no parent link, so one
+	// more of them changes nothing about the conversation's shape.
+	if path != "" {
+		if err := claudeAppendIdent(path, sessionID, want); err != nil {
+			return err
 		}
-		if want.color != "" {
-			rec["color"] = want.color
+		wrote = true
+	}
+
+	// then the job record, for a session that was DISPATCHED as one — that is
+	// where Claude Code's own agent list reads from, so the two must agree.
+	if job := claudeJobPath(homeStores(".claude/jobs"), sessionID); job != "" {
+		// the registry is read here rather than passed in: a write-back is
+		// something you do by hand, not something a frame does
+		if reg, ok := agentRegistry(homeStores(".claude/sessions"))[sessionID]; ok && reg.live {
+			if !wrote {
+				return fmt.Errorf("the session is running — Claude Code owns its job record while it does")
+			}
+			return nil // the transcript took it; the job record is the running one's
 		}
+		if err := rewriteJSON(job, func(rec map[string]any) error {
+			if want.name != "" {
+				rec["name"] = want.name
+				rec["nameSource"] = "user" // what Claude Code stamps on a name you chose
+			}
+			if want.color != "" {
+				rec["color"] = want.color
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		wrote = true
+	}
+
+	if !wrote {
+		return fmt.Errorf("no record found for this session")
+	}
+	return nil
+}
+
+// claudeAppendIdent appends the records Claude Code writes when you rename or
+// recolor a session: a name goes in as both custom-title and agent-name, which
+// is the pair it writes together, and a color as agent-color. Each is written
+// afresh on every change and the last in the file wins, so appending IS the
+// edit — nothing already in the transcript is touched.
+func claudeAppendIdent(path, sessionID string, want agentIdent) error {
+	var recs []map[string]any
+	if want.name != "" {
+		recs = append(recs,
+			map[string]any{"type": "custom-title", "customTitle": want.name, "sessionId": sessionID},
+			map[string]any{"type": "agent-name", "agentName": want.name, "sessionId": sessionID},
+		)
+	}
+	if want.color != "" {
+		recs = append(recs,
+			map[string]any{"type": "agent-color", "agentColor": want.color, "sessionId": sessionID},
+		)
+	}
+	if len(recs) == 0 {
 		return nil
-	})
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	for _, rec := range recs {
+		line, err := json.Marshal(rec)
+		if err != nil {
+			return err
+		}
+		if _, err := f.Write(append(line, '\n')); err != nil {
+			return err
+		}
+	}
+	return f.Close()
 }
 
 // claudeJobPath finds the job record for a session id. The directory is named
