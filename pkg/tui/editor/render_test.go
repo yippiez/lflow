@@ -248,6 +248,66 @@ func TestNoteBandLines(t *testing.T) {
 	}
 }
 
+// TestNoteBandTruncates: a long note is a footnote, not a second outline. At
+// rest it costs the outline two rows and says how many it is holding back;
+// editing it opens the whole thing, so nothing is unreachable.
+func TestNoteBandTruncates(t *testing.T) {
+	long := strings.TrimSpace(strings.Repeat("the quick brown fox jumps over the lazy dog ", 8))
+	it := &item{uuid: "n", note: long}
+	tr := &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}
+	m := &Model{tree: tr}
+
+	lines := m.noteBandLines(row{it: it, depth: 0}, 60, false, -1)
+	if len(lines) != noteBandMaxLines {
+		t.Fatalf("resting band is %d lines, want at most %d: %v", len(lines), noteBandMaxLines, lines)
+	}
+	joined := stripSGR(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "lines") || !strings.Contains(joined, "+") {
+		t.Errorf("band should say how many lines it hides: %q", joined)
+	}
+	// the same note under the caret is whole — the count is a resting-state thing
+	if editing := m.noteBandLines(row{it: it, depth: 0}, 60, false, 0); len(editing) <= noteBandMaxLines {
+		t.Errorf("editing band is %d lines, want the whole note", len(editing))
+	}
+
+	// a note that already fits is left exactly as it was
+	short := &item{uuid: "s", note: "one short line"}
+	tr.byUUID["s"] = short
+	if b := m.noteBandLines(row{it: short, depth: 0}, 60, false, -1); len(b) != 1 {
+		t.Errorf("a one-line note rendered %d lines: %v", len(b), b)
+	}
+}
+
+// TestTruncateNoteCountsAndFits: the count rides on the last shown line rather
+// than taking a row of its own, and stays inside the band's width.
+func TestTruncateNoteCountsAndFits(t *testing.T) {
+	segs := []string{"aaaa", "bbbb", "cccc", "dddd"}
+	got := truncateNote(segs, 20)
+	if len(got) != 2 {
+		t.Fatalf("truncateNote = %v, want 2 lines", got)
+	}
+	if got[0] != "aaaa" {
+		t.Errorf("first line changed: %q", got[0])
+	}
+	if !strings.Contains(got[1], "+2 lines") {
+		t.Errorf("last line = %q, want the hidden count", got[1])
+	}
+	for _, l := range got {
+		if runewidth.StringWidth(l) > 20 {
+			t.Errorf("line %q overflows the band width", l)
+		}
+	}
+	// exactly one hidden line reads as one line, not "1 lines"
+	if got := truncateNote([]string{"a", "b", "c"}, 20); !strings.Contains(got[1], "+1 line") ||
+		strings.Contains(got[1], "+1 lines") {
+		t.Errorf("singular count = %q", got[1])
+	}
+	// nothing to hide: the input comes back untouched
+	if got := truncateNote(segs[:2], 20); len(got) != 2 || got[1] != "bbbb" {
+		t.Errorf("a fitting note was altered: %v", got)
+	}
+}
+
 // TestNoteBandEditing: with a caret >= 0 the band is the editing surface — it
 // draws a block cursor at the caret, and even an empty note yields a band (an
 // empty editable strip) so there is somewhere to type.

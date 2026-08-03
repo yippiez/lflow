@@ -376,6 +376,7 @@ func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool, caret int) 
 		if len(segs) == 0 {
 			return nil
 		}
+		segs = truncateNote(segs, textW)
 		bandW := 0
 		for _, s := range segs {
 			if w := runewidth.StringWidth(s); w > bandW {
@@ -409,6 +410,35 @@ func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool, caret int) 
 		}
 		out = append(out, rail+cReset+style+renderBandSeg(seg, caretInSeg, bandW, style)+cReset)
 	}
+	return out
+}
+
+// noteBandMaxLines is how much of a note the outline shows at rest. A note is a
+// footnote to its node, not a second outline: past this it earns a count of what
+// it is holding back instead of pushing the tree down the screen.
+const noteBandMaxLines = 2
+
+// truncateNote cuts a wrapped note to noteBandMaxLines, spending the end of the
+// last shown line on how many lines are not shown. The count rides ON that line
+// rather than taking one of its own, so a note can never cost the outline more
+// rows than it is allowed. Only the resting band is cut — editing it (caret >= 0
+// in noteBandLines) renders every line, so nothing here is unreachable.
+func truncateNote(segs []string, textW int) []string {
+	if len(segs) <= noteBandMaxLines {
+		return segs
+	}
+	hidden := len(segs) - noteBandMaxLines
+	noun := "lines"
+	if hidden == 1 {
+		noun = "line"
+	}
+	more := fmt.Sprintf(" +%d %s", hidden, noun)
+	room := textW - runewidth.StringWidth(more)
+	if room < 1 {
+		room = 1
+	}
+	out := append([]string(nil), segs[:noteBandMaxLines]...)
+	out[len(out)-1] = clipStr(out[len(out)-1], room) + more
 	return out
 }
 
