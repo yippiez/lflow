@@ -266,12 +266,21 @@ func TestAgentChipPill(t *testing.T) {
 	if !strings.Contains(pill, cInkDark) {
 		t.Error("a light fill must be written in dark ink")
 	}
-	// no CLI records a color for a session, so the fill is the variant's own
-	if !strings.Contains(pill, bgOf(c.colorSGR())) {
-		t.Errorf("pill = %q, want Claude Code's own fill", pill)
+	// this session carries a color of the CLI's OWN (recSummary), so the chip
+	// wears it rather than the variant's default — recoloring a session inside
+	// the CLI reads recolored here
+	if !strings.Contains(pill, bgOf(agentColorSGR("#4ec9b0"))) {
+		t.Errorf("pill = %q, want the color the CLI gave the session", pill)
 	}
 	if got := stripSGR(pill); got != " ✽ fix the flaky sync test " {
 		t.Errorf("pill reads %q, want the glyph and the session's name", got)
+	}
+
+	// a session the CLI gave no color falls back to Claude Code's own fill
+	id2 := claudeStore(t, recPlain, recUser)
+	chip2 := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id2, title: "fix the flaky sync test"})
+	if pill := renderAgentChip(m.chips[chip2.ID], false, false); !strings.Contains(pill, bgOf(c.colorSGR())) {
+		t.Errorf("uncolored session pill = %q, want Claude Code's own fill", pill)
 	}
 }
 
@@ -779,5 +788,153 @@ func TestAgentPickerIgnoresAnAbandonedScan(t *testing.T) {
 	}
 	if len(m.agentStore) != 0 {
 		t.Errorf("an abandoned scan put %d rows in the open picker", len(m.agentStore))
+	}
+}
+
+// TestAgentDeclaredNameIsAboutTheSession: a "name" on a record that is not the
+// session does not name the session. pi's outline extension writes a name for
+// every node it touches and a compaction writes a summary of what it dropped;
+// reading either as the session's name labelled sessions with a stray title.
+func TestAgentDeclaredNameIsAboutTheSession(t *testing.T) {
+	cases := []struct {
+		name string
+		rec  map[string]any
+		want string
+	}{
+		{"pi rename", map[string]any{"type": "session_info", "name": "Ultraloop"}, "Ultraloop"},
+		{"pi outline node", map[string]any{"type": "node", "name": "a node in the outline"}, ""},
+		{"pi compaction", map[string]any{"type": "compaction", "summary": "what was dropped"}, ""},
+		{"pi message", map[string]any{"type": "message", "name": "tool_call"}, ""},
+		{"pi session head", map[string]any{"type": "session", "id": "019f75e8-fd60", "cwd": "/x"}, ""},
+		{"opencode record", map[string]any{"id": "ses_3c7a52a98ffeAAtYek", "title": "Evosax usage in TUI"}, "Evosax usage in TUI"},
+		{"a stray object", map[string]any{"id": "short", "title": "not a session"}, ""},
+	}
+	for _, c := range cases {
+		if got := agentDeclaredName(c.rec); got != c.want {
+			t.Errorf("%s: agentDeclaredName = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestAgentDeclaredNameBeatsAFirstPrompt: a session named by its CLI reads by
+// that name wherever the naming record sits in the file. pi appends its rename
+// AFTER the conversation, so the prompt that would otherwise have named the
+// session comes first — and used to win.
+func TestAgentDeclaredNameBeatsAFirstPrompt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "019f75e8-fd60-7b18-b809-7b4f363be885.jsonl")
+	lines := []string{
+		`{"type":"session","version":3,"id":"019f75e8-fd60-7b18-b809-7b4f363be885","cwd":"/home/dev/lflow"}`,
+		`{"type":"message","role":"user","content":"make the pickers stream so nothing freezes"}`,
+		`{"type":"session_info","id":"3b60e2db","name":"picker streaming"}`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := agentReadMeta("pi", path)
+	if !s.named {
+		t.Error("a session_info record did not register as a declared name")
+	}
+	if s.title != "picker streaming" {
+		t.Errorf("title = %q, want the name pi recorded, not the first prompt", s.title)
+	}
+	if s.cwd != "/home/dev/lflow" {
+		t.Errorf("cwd = %q", s.cwd)
+	}
+}
+
+// TestAgentIdentOverlaysTheTranscript: Claude Code keeps a session's name and
+// color BESIDE the transcript, so a session read only from its transcript came
+// back nameless and was labelled with its first prompt.
+func TestAgentIdentOverlaysTheTranscript(t *testing.T) {
+	s := agentStoreSession{variant: "claude", id: "abc", title: "the whole first prompt, pasted"}
+	s.applyIdent(agentIdent{name: "lflow-ab", color: "red"})
+	if s.title != "lflow-ab" || !s.named {
+		t.Errorf("title = %q named = %v, want the CLI's own name", s.title, s.named)
+	}
+	if s.color != "red" {
+		t.Errorf("color = %q, want the one the CLI gave it", s.color)
+	}
+
+	// a session the index does not know keeps what reading it produced
+	u := agentStoreSession{variant: "claude", id: "def", title: "a first prompt"}
+	u.applyIdent(agentIdent{})
+	if u.title != "a first prompt" || u.named {
+		t.Errorf("an empty ident changed the session: %q named=%v", u.title, u.named)
+	}
+}
+
+// TestMergeIdentsEarlierWins: the job store names a session, and the registry
+// only ever fills a gap it left.
+func TestMergeIdentsEarlierWins(t *testing.T) {
+	jobs := map[string]agentIdent{"a": {name: "from the job", color: "red"}}
+	regs := map[string]agentIdent{"a": {name: "from the registry"}, "b": {name: "only in the registry"}}
+	got := mergeIdents(jobs, regs)
+
+	if got["a"].name != "from the job" {
+		t.Errorf("a.name = %q, want the job store's", got["a"].name)
+	}
+	if got["a"].color != "red" {
+		t.Errorf("a.color = %q, want the job store's color kept", got["a"].color)
+	}
+	if got["b"].name != "only in the registry" {
+		t.Errorf("b.name = %q, want the registry to fill the gap", got["b"].name)
+	}
+}
+
+// TestAgentReadTailFindsALateRename: the rename is appended, so a head-only read
+// reported the old name forever.
+func TestAgentReadTailFindsALateRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sess.jsonl")
+
+	var b strings.Builder
+	b.WriteString(`{"type":"session","id":"019f75e8-fd60-7b18-b809-7b4f363be885","cwd":"/x"}` + "\n")
+	b.WriteString(`{"type":"message","role":"user","content":"the first thing asked"}` + "\n")
+	// push the rename well past the head window
+	filler := strings.Repeat("x", 4000)
+	for b.Len() < agentMetaCap*2 {
+		b.WriteString(`{"type":"message","role":"assistant","content":"` + filler + `"}` + "\n")
+	}
+	b.WriteString(`{"type":"session_info","id":"3b60e2db","name":"renamed much later"}` + "\n")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if s := agentReadMeta("pi", path); s.title != "renamed much later" {
+		t.Errorf("title = %q, want the name appended after the conversation", s.title)
+	}
+	// a file that fits in the head window is not read twice
+	small := filepath.Join(dir, "small.jsonl")
+	if err := os.WriteFile(small, []byte(`{"type":"session_info","name":"n"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if recs := agentReadTail(small, agentMetaCap); recs != nil {
+		t.Errorf("a short file was re-read by the tail pass: %d records", len(recs))
+	}
+}
+
+// TestAgentReadMetaTakesTheRecordsColor: a store that names a session in its own
+// records is also where it would record a color for one, and both come through
+// the same gate.
+func TestAgentReadMetaTakesTheRecordsColor(t *testing.T) {
+	c := variant(t, "claude")
+
+	id := claudeStore(t, recSummary, recUser)
+	path := agentSessionPath(c.sessionDirs(), c.exts, id)
+	if path == "" {
+		t.Fatal("session not located in the store")
+	}
+	if meta := agentReadMeta(c.id, path); meta.color != "#4ec9b0" {
+		t.Errorf("color = %q, want the one the record carries", meta.color)
+	}
+
+	// the same session without one: nothing to read, and the variant's own
+	// theming is what agentColorFor will fall back to
+	id2 := claudeStore(t, recPlain, recUser)
+	path2 := agentSessionPath(c.sessionDirs(), c.exts, id2)
+	if meta := agentReadMeta(c.id, path2); meta.color != "" {
+		t.Errorf("color = %q, want none — the record declares none", meta.color)
 	}
 }

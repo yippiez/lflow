@@ -62,6 +62,19 @@ type agentVariant struct {
 	// name and whether it is live.
 	registryRoots func() []string
 
+	// idents reads the CLI's OWN record of what its sessions are called and what
+	// color it gave them, keyed by session id — for a CLI that keeps that
+	// somewhere other than the transcript. Claude Code does: its job store holds
+	// both, and a session read only from its transcript has no name at all, which
+	// is why one used to be labelled with its first prompt. nil = this CLI writes
+	// its name into the session record itself, where agentReadMeta finds it.
+	idents func() map[string]agentIdent
+
+	// hasColor declares that this CLI records a color OF ITS OWN for a session, so
+	// ⌥c can push one back into its store. For a CLI without one the chip's color
+	// is lflow's alone: still yours to set, just never written anywhere else.
+	hasColor bool
+
 	// rename writes a NEW NAME into the CLI's own store, for a store whose format
 	// makes that safe. nil = this CLI's name is read-only to lflow, and a rename
 	// stays local to the chip. See agentRename.
@@ -96,7 +109,18 @@ var agentVariants = []agentVariant{
 		args:          func(id string) []string { return []string{"--resume", id} },
 		sessionRoots:  func() []string { return homeStores(".claude/projects") },
 		registryRoots: func() []string { return homeStores(".claude/sessions") },
-		exts:          []string{".jsonl"},
+		// name and color both live beside the transcript rather than inside it: the
+		// job store holds each session's name AND its color — the only one of the
+		// three CLIs to record a color — and the session registry names sessions
+		// the job store never had a job for.
+		idents: func() map[string]agentIdent {
+			return mergeIdents(
+				claudeIdents(homeStores(".claude/jobs")),
+				registryIdents(homeStores(".claude/sessions")),
+			)
+		},
+		hasColor: true,
+		exts:     []string{".jsonl"},
 	},
 	{
 		id: "pi", label: "Pi", bin: "pi",
@@ -227,8 +251,26 @@ func (m *Model) agentMeta(id string, v agentVariant, s agentSession) agentStoreS
 		meta = agentReadMeta(v.id, path)
 		meta.id = s.SessionID
 	}
+	meta.applyIdent(m.agentIdentOf(v, s.SessionID))
 	store["agentMeta"], store["agentMetaAt"] = meta, time.Now()
 	return meta
+}
+
+// agentIdentOf looks a session up in its CLI's own name/color index, cached
+// briefly for the same reason the registry is: the index is a directory of small
+// files, and the render path asks about a chip every frame.
+func (m *Model) agentIdentOf(v agentVariant, sessionID string) agentIdent {
+	if sessionID == "" || v.idents == nil {
+		return agentIdent{}
+	}
+	store := m.nodeStore("agent.idents." + v.id)
+	idx, _ := store["idents"].(map[string]agentIdent)
+	at, _ := store["at"].(time.Time)
+	if idx == nil || time.Since(at) > 3*time.Second {
+		idx = v.idents()
+		store["idents"], store["at"] = idx, time.Now()
+	}
+	return idx[sessionID]
 }
 
 // agentTitle is the session's display name, in priority order:
@@ -276,12 +318,25 @@ func (m *Model) agentRegOf(v agentVariant, sessionID string) (agentReg, bool) {
 	return reg, ok
 }
 
-// agentColorFor is the color a chip is drawn in: the one YOU picked with ⌥c, else
-// the variant's default. No CLI of the three records a color for a session, so
-// there is nothing else to read. Pure — it is called from the render path.
+// agentColorFor is the color a chip is drawn in, in priority order:
+//
+//	the one YOU picked with ⌥c
+//	→ the one the CLI gave the session, for the one CLI that records one
+//	  (Claude Code, in its job store) — so a session recolored inside the CLI
+//	  reads recolored here too
+//	→ the variant's own default.
+//
+// Pi and opencode record no color at all. That does not make ⌥c any less
+// effective on their chips: it simply means the color is lflow's alone and is
+// never written back anywhere. Pure — it is called from the render path.
 func (m *Model) agentColorFor(id string, v agentVariant, s agentSession) string {
 	if s.Color != "" {
 		if c := agentColorSGR(s.Color); c != "" {
+			return c
+		}
+	}
+	if meta := m.agentMeta(id, v, s); meta.color != "" {
+		if c := agentColorSGR(meta.color); c != "" {
 			return c
 		}
 	}

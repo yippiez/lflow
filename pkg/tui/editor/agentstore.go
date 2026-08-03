@@ -46,7 +46,9 @@ const (
 type agentStoreSession struct {
 	variant string
 	id      string
-	title   string    // the CLI's own title/summary for the session; "" = untitled
+	title   string    // what the session is CALLED; "" = nothing to call it
+	named   bool      // the CLI declared that name, rather than it being a first prompt
+	color   string    // the color the CLI gave the session; "" = it records none
 	cwd     string    // the directory the session ran in, when the store records it
 	updated time.Time // when the session itself last moved (the store's clock, else the file's)
 	modAt   time.Time // the record file's mtime — what a cache checks to skip a re-read
@@ -55,13 +57,102 @@ type agentStoreSession struct {
 
 // agentReg is one entry of a CLI's LIVE session registry (Claude Code writes
 // ~/.claude/sessions/<pid>.json while a session runs): the session's own name and
-// whether it is running right now. It is the ONLY place Claude Code keeps a
-// session name, which is why a chip reads it every frame.
+// whether it is running right now.
 type agentReg struct {
 	id   string
 	name string
 	cwd  string
 	live bool
+}
+
+// agentIdent is what a CLI records ABOUT a session, as distinct from what the
+// conversation contains: the name it goes by, and the color it was given.
+//
+// The three CLIs keep this in three different places, and none of them is the
+// transcript — which is why a session read only from its transcript came back
+// nameless and got labelled with its first prompt instead:
+//
+//	claude    ~/.claude/jobs/<short>/state.json — name AND color, keyed by
+//	          sessionId. The only one of the three that records a color.
+//	pi        a {"type":"session_info","name":…} record appended to the
+//	          session's own JSONL; the last one written is the current name.
+//	opencode  the "title" field of the session record itself.
+type agentIdent struct{ name, color string }
+
+// registryIdents reads session names out of a CLI's live-session registry. The
+// files outlive the processes that wrote them, so this names sessions the job
+// store has no job for — a plain interactive run rather than a dispatched one.
+func registryIdents(roots []string) map[string]agentIdent {
+	out := map[string]agentIdent{}
+	for id, reg := range agentRegistry(roots) {
+		if reg.name != "" {
+			out[id] = agentIdent{name: clipStr(oneLine(reg.name), agentTitleCap)}
+		}
+	}
+	return out
+}
+
+// mergeIdents folds several indexes into one, earlier arguments winning: a
+// session named in the job store keeps that name even when a registry entry also
+// has one, and a later index only ever fills a gap or a missing field.
+func mergeIdents(idx ...map[string]agentIdent) map[string]agentIdent {
+	out := map[string]agentIdent{}
+	for i := len(idx) - 1; i >= 0; i-- {
+		for id, v := range idx[i] {
+			cur := out[id]
+			if v.name != "" {
+				cur.name = v.name
+			}
+			if v.color != "" {
+				cur.color = v.color
+			}
+			out[id] = cur
+		}
+	}
+	return out
+}
+
+// applyIdent lays a CLI's own record of a session over what the transcript said.
+// A declared name wins, because a first prompt is only ever a stand-in for one;
+// an empty ident changes nothing, so a session the index does not know keeps
+// whatever reading it produced.
+func (s *agentStoreSession) applyIdent(id agentIdent) {
+	if id.name != "" {
+		s.title, s.named = id.name, true
+	}
+	if id.color != "" {
+		s.color = id.color
+	}
+}
+
+// claudeIdents reads Claude Code's job store into a sessionId-keyed index. Each
+// job is one small JSON object, so the whole index costs a directory walk and a
+// few hundred short reads — cheap enough to build per picker scan, unlike the
+// transcripts, which are megabytes each.
+func claudeIdents(roots []string) map[string]agentIdent {
+	out := map[string]agentIdent{}
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			for _, rec := range agentReadRecords(filepath.Join(root, e.Name(), "state.json"), agentMetaCap) {
+				id := agentString(rec, "sessionId", "resumeSessionId")
+				if id == "" {
+					continue
+				}
+				out[id] = agentIdent{
+					name:  clipStr(oneLine(agentString(rec, "name")), agentTitleCap),
+					color: agentString(rec, "color"),
+				}
+			}
+		}
+	}
+	return out
 }
 
 // homeStores resolves store paths written relative to the user's home dir,
@@ -160,7 +251,7 @@ func agentReadMeta(variant, path string) agentStoreSession {
 	// each message — so the session's id is taken once and never overwritten,
 	// and an explicit session-id key always beats a bare "id".
 	named, anyID := false, false
-	for _, rec := range agentReadRecords(path, agentMetaCap) {
+	for _, rec := range append(agentReadRecords(path, agentMetaCap), agentReadTail(path, agentMetaCap)...) {
 		// a store that keeps its own clock (opencode's session index) is more
 		// truthful than the file's mtime, which a copy or a sync would reset
 		if t := agentTime(rec); !t.IsZero() {
@@ -175,21 +266,70 @@ func agentReadMeta(variant, path string) agentStoreSession {
 		if s.cwd == "" {
 			s.cwd = agentString(rec, "cwd", "directory", "workingDirectory", "worktree", "path")
 		}
-		// the name is kept WHOLE here and clipped only where it is drawn: the
+		// A name the CLI DECLARED always beats a first prompt, wherever in the
+		// file it sits — pi appends its {"type":"session_info","name":…} record
+		// when you rename, which is long after the prompt that would otherwise
+		// have named the session, and the last one written is the current name.
+		//
+		// The name is kept WHOLE here and clipped only where it is drawn: the
 		// panel shows all of it, wrapped, and only the pill and the picker row
 		// shorten it. agentTitleCap is a sanity bound, not a display width — a
 		// first prompt can be an entire pasted file.
-		if s.title == "" {
-			s.title = clipStr(oneLine(agentString(rec, "summary", "title", "name", "description")), agentTitleCap)
+		if d := agentDeclaredIdent(rec); d.name != "" {
+			s.title, s.named = clipStr(oneLine(d.name), agentTitleCap), true
+			if d.color != "" {
+				s.color = d.color
+			}
 		}
 		if s.title == "" {
-			// no titled record: the first thing asked of the session names it
+			// nothing named it: the first thing asked of it does instead
 			if p := agentFirstPrompt(rec); p != "" {
 				s.title = clipStr(oneLine(p), agentTitleCap)
 			}
 		}
 	}
 	return s
+}
+
+// agentDeclaredName returns the name a record gives THE SESSION, or "" when the
+// record is about anything else.
+//
+// The gate matters more than it looks. A transcript is full of records that
+// carry a "name" or a "summary" without naming the session: pi's outline
+// extension writes {"type":"node","name":…} for every node it touches, and a
+// compaction writes a summary of what it dropped. Reading any of those as the
+// session's name labelled sessions with a stray node's title.
+//
+// So only these shapes count — a record whose TYPE says it is about the session,
+// and a whole-document session record whose own id is the session's (opencode,
+// whose file IS the session object and whose "title" is what its UI edits).
+//
+// Note it is the type that is read, never the field: pi's compaction record
+// carries a "summary" of what it dropped, while a record whose type IS "summary"
+// is a summary OF THE SESSION. Same field, opposite meanings.
+func agentDeclaredName(rec map[string]any) string { return agentDeclaredIdent(rec).name }
+
+// agentDeclaredIdent is agentDeclaredName plus any color the same record carries
+// — a store that names a session in its own records is also where it would
+// record a color for one, so both are read through the same gate.
+func agentDeclaredIdent(rec map[string]any) agentIdent {
+	name := ""
+	switch strings.ToLower(agentString(rec, "type")) {
+	case "session_info", "session":
+		name = agentString(rec, "name", "title")
+	case "summary":
+		name = agentString(rec, "summary", "title", "name")
+	case "":
+		if id := agentString(rec, "id"); looksLikeSessionID(id) {
+			name = agentString(rec, "title", "name")
+		}
+	default:
+		return agentIdent{}
+	}
+	if name == "" {
+		return agentIdent{}
+	}
+	return agentIdent{name: name, color: agentString(rec, "color")}
 }
 
 // agentInjectedTags are the wrapper blocks a CLI's own harness writes INTO a user
@@ -342,6 +482,50 @@ func agentReadRecords(path string, limit int) []map[string]any {
 		return many
 	}
 	return nil
+}
+
+// agentReadTail decodes the LAST limit bytes of a JSONL record file. A rename is
+// appended, not written into the head — pi's {"type":"session_info","name":…}
+// lands after however much conversation came before it — so the head read alone
+// always reported the old name, or a first prompt where a name existed.
+//
+// Only the tail is read, never the middle: a transcript runs to megabytes and a
+// picker cannot page one in per row. The first line is dropped because a seek
+// lands mid-record, and a file that fits inside limit yields nothing here since
+// the head read already covered all of it.
+func agentReadTail(path string, limit int) []map[string]any {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || st.IsDir() || st.Size() <= int64(limit) {
+		return nil // already read whole by the head pass
+	}
+	if _, err := f.Seek(-int64(limit), io.SeekEnd); err != nil {
+		return nil
+	}
+
+	var out []map[string]any
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64<<10), 8<<20)
+	first := true
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if first { // the seek cut this one in half
+			first = false
+			continue
+		}
+		if line == "" || line[0] != '{' {
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err == nil {
+			out = append(out, rec)
+		}
+	}
+	return out
 }
 
 // agentInt reads the first numeric field among keys.
