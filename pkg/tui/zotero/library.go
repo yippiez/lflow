@@ -341,19 +341,11 @@ func Load(dir string) (*Library, error) {
 		return nil, errors.Wrapf(err, "reading %s", src)
 	}
 
-	tmp, cleanup, err := snapshot(src)
+	db, cleanup, err := openLibrary(src)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
-
-	// through database.Open like every other sqlite handle in lflow — the
-	// snapshot is a throwaway, but the DSN rules are the DSN rules
-	db, err := database.Open(tmp)
-	if err != nil {
-		return nil, errors.Wrap(err, "opening zotero snapshot")
-	}
-	defer db.Close()
 
 	lib := &Library{Path: src, modTime: fi.ModTime().UnixNano()}
 	if lib.Items, err = readItems(db); err != nil {
@@ -376,11 +368,48 @@ func (l *Library) Stale() bool {
 	return fi.ModTime().UnixNano() != l.modTime
 }
 
+// openLibrary returns a read-only handle on the library, and the cleanup that
+// goes with it.
+//
+// It opens Zotero's OWN file, in SQLite's read-only mode. That is both the fast
+// path and the correct one: the connection cannot write by construction, and
+// SQLite's locking protocol is what guarantees the read sees a whole database
+// rather than a half-finished write. It costs milliseconds.
+//
+// The fallback copies the file first (see snapshot) — for the setups where the
+// live file cannot be opened at all, a library on a filesystem that will not
+// grant the lock, or a Zotero left in WAL mode, whose -shm a read-only
+// connection may not be allowed to map. A copy of a real library runs to
+// hundreds of megabytes and, across a Windows mount, to a full second, so it is
+// what happens when the fast path is refused, never the first thing tried.
+func openLibrary(src string) (*database.DB, func(), error) {
+	// through database.Open like every other sqlite handle in lflow — mode=ro is
+	// a URI parameter, so the path travels as a file: URI
+	if db, err := database.Open("file:" + src + "?mode=ro"); err == nil {
+		// sql.Open is lazy — it has not touched the file yet. Reading the schema
+		// is what actually takes the lock and proves this path works here.
+		var one int
+		if err = db.Conn.QueryRow("select 1 from sqlite_master limit 1").Scan(&one); err == nil {
+			return db, func() { _ = db.Close() }, nil
+		}
+		_ = db.Close()
+	}
+
+	tmp, drop, err := snapshot(src)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	db, err := database.Open(tmp)
+	if err != nil {
+		drop()
+		return nil, func() {}, errors.Wrap(err, "opening zotero snapshot")
+	}
+	return db, func() { _ = db.Close(); drop() }, nil
+}
+
 // snapshot copies the library (and any write-ahead log beside it) into a
-// throwaway directory and returns the copy's path. Copying rather than opening
-// in place is what keeps this integration read-only in the strongest sense: a
-// live Zotero never sees us, and a half-written page can never reach the
-// outline.
+// throwaway directory and returns the copy's path — openLibrary's fallback,
+// for a library the live read cannot open.
 func snapshot(src string) (path string, cleanup func(), err error) {
 	dir, err := os.MkdirTemp("", "lflow-zotero-")
 	if err != nil {

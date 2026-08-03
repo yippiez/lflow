@@ -88,16 +88,11 @@ func (l *Library) Details(key string) (*Details, error) {
 		return nil, errors.Errorf("no Zotero entry with key %s", key)
 	}
 
-	tmp, cleanup, err := snapshot(l.Path)
+	db, cleanup, err := openLibrary(l.Path)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
-	db, err := database.Open(tmp)
-	if err != nil {
-		return nil, errors.Wrap(err, "opening zotero snapshot")
-	}
-	defer db.Close()
 
 	id, err := itemID(db, key)
 	if err != nil {
