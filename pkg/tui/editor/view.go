@@ -361,7 +361,7 @@ func (m *Model) viewBudgets(barLines, maxLine int) viewLayout {
 	// /type search header.
 	pickerItems, headerRows := 0, 0
 	if src := m.listSource(); src != nil {
-		pickerItems, headerRows = m.list.counts(m, src, maxLine)
+		pickerItems, headerRows = m.list.counts(m, src)
 	} else if m.mode == modeSettings {
 		pickerItems = len(settingDefs)
 	}

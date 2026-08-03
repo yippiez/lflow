@@ -200,26 +200,29 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 }
 
 // counts reports the number of item rows and header rows the picker will draw,
-// for View's body-budget math. A header that wraps counts as all its wrapped
-// lines — nothing in the picker truncates, so the budget must match the real
-// height or the frame would clip it.
-func (p *listPicker) counts(m *Model, src pickerSource, maxLine int) (items, header int) {
+// for View's body-budget math. One row is one line and the header is one line,
+// because everything here truncates — so the budget is just the count.
+func (p *listPicker) counts(m *Model, src pickerSource) (items, header int) {
 	items = len(src.items(m, p.query))
-	if h := src.header(m, p); h != "" {
-		header = len(wrapSGR(h, maxLine))
+	if src.header(m, p) != "" {
+		header = 1
 	}
 	return items, header
 }
 
 // render draws src.header (if any) plus a scrollStart-windowed slice of items —
 // each via item.render or the default label+desc formatting, with the "→"/"  "
-// selection mark. Everything WRAPS to maxLine; nothing truncates. Replaces the
-// five copy-pasted blocks in View; trusts sel is in range (handleKey guarantees
-// it).
+// selection mark.
+//
+// Every line TRUNCATES at maxLine, the way the finder's rows already did. A row
+// that wrapped pushed the ones below it down and cost the list its shape: eight
+// options could occupy fifteen lines, the count no longer matched the height,
+// and a long Zotero title could push the whole picker out of a short pane. One
+// option is one line.
 func (p *listPicker) render(m *Model, src pickerSource, maxLine int) []string {
 	var lines []string
 	if h := src.header(m, p); h != "" {
-		lines = append(lines, wrapSGR(h, maxLine)...)
+		lines = append(lines, clip(h, maxLine))
 	}
 	items := src.items(m, p.query)
 	if len(items) == 0 {
@@ -245,7 +248,7 @@ func (p *listPicker) render(m *Model, src pickerSource, maxLine int) []string {
 				content += cDim + "  " + items[i].desc + cReset
 			}
 		}
-		lines = append(lines, wrapSGR(" "+mark+content, maxLine)...)
+		lines = append(lines, clip(" "+mark+content, maxLine))
 	}
 	return lines
 }
