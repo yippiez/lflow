@@ -32,15 +32,18 @@ type Library struct {
 
 // ── locating the library ───────────────────────────────────────────────────
 
-// DataDir finds the Zotero data directory. In order: Zotero's own
-// ZOTERO_DATA_DIR, the dataDir recorded in any Zotero profile's prefs.js (set
-// when the user moved their library — under WSL that includes the profiles of
-// the Zotero installed on the Windows side, whose D:\… path is translated to
-// /mnt/d/…), the platform default (<home>/Zotero), and finally each Windows
-// user's Zotero folder as mounted in WSL. Returns "" when no library file is
-// found anywhere. The /settings "Zotero library" row shows the result
-// (read-only); there is no lflow-specific env override — what lflow finds IS
-// what Zotero itself uses.
+// DataDir finds the Zotero data directory the way Zotero itself would, so no
+// user has to tell lflow anything. In order: Zotero's own ZOTERO_DATA_DIR, the
+// dataDir recorded in any profile's prefs.js (set when the user moved their
+// library), the default <home>/Zotero, and finally each Windows user's Zotero
+// folder as mounted in WSL. Profiles come from Zotero's own profiles.ini (see
+// profileDirs) across every install this machine can see (see appDirs) — which
+// under WSL includes the Zotero on the Windows side, whose D:\… paths are
+// translated to /mnt/d/…. Returns "" when no library file is found anywhere.
+// The /settings "Zotero library" row shows the result (read-only); there is no
+// lflow-specific env override — what lflow finds IS what Zotero itself uses,
+// and a user with several libraries picks between them with ZOTERO_DATA_DIR,
+// which is Zotero's own knob rather than one of ours.
 func DataDir() string {
 	for _, dir := range candidateDirs() {
 		if dir == "" {
@@ -61,10 +64,30 @@ func candidateDirs() []string {
 	home, _ := os.UserHomeDir()
 	dirs = append(dirs, prefsDataDirs(home)...)
 	if home != "" {
+		// Zotero's default is <home>/Zotero — and inside a Flatpak or Snap
+		// <home> is that packaging's sandbox home, not the real one
 		dirs = append(dirs, filepath.Join(home, "Zotero"))
+		for _, h := range sandboxHomes(home) {
+			dirs = append(dirs, filepath.Join(h, "Zotero"))
+		}
 	}
 	dirs = append(dirs, windowsSideDirs()...)
-	return dirs
+	return dedupe(dirs)
+}
+
+// dedupe drops repeats while holding the order — several profiles naming one
+// data directory is the normal case, not an odd one.
+func dedupe(dirs []string) []string {
+	seen := make(map[string]bool, len(dirs))
+	out := dirs[:0]
+	for _, d := range dirs {
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
 }
 
 // reDataDir pulls the data directory out of a Zotero prefs.js line:
@@ -77,13 +100,9 @@ var reDataDir = regexp.MustCompile(`user_pref\("extensions\.zotero\.dataDir",\s*
 // path is still found.
 func prefsDataDirs(home string) []string {
 	var out []string
-	for _, root := range profileRoots(home) {
-		entries, err := os.ReadDir(root)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			b, err := os.ReadFile(filepath.Join(root, e.Name(), "prefs.js"))
+	for _, root := range appDirs(home) {
+		for _, profile := range profileDirs(root) {
+			b, err := os.ReadFile(filepath.Join(profile, "prefs.js"))
 			if err != nil {
 				continue
 			}
@@ -95,30 +114,118 @@ func prefsDataDirs(home string) []string {
 	return out
 }
 
-// profileRoots lists the directories Zotero keeps its profiles in: this
-// platform's own, plus — under WSL — every Windows account's, because the
-// Zotero the user actually runs is the one on the Windows side and its prefs.js
-// is the only place a moved library is written down.
-func profileRoots(home string) []string {
+// appDirs lists the directories a Zotero install keeps its profile index in —
+// one per install this machine can see: this platform's own, the Flatpak and
+// Snap sandboxes, and — under WSL — every Windows account's, because the Zotero
+// the user actually runs is the one on the Windows side and its prefs.js is the
+// only place a moved library is written down.
+func appDirs(home string) []string {
 	var roots []string
 	switch runtime.GOOS {
 	case "windows":
 		if appData := os.Getenv("APPDATA"); appData != "" {
-			roots = append(roots, filepath.Join(appData, "Zotero", "Zotero", "Profiles"))
+			roots = append(roots, filepath.Join(appData, "Zotero", "Zotero"))
 		}
 	case "darwin":
 		if home != "" {
-			roots = append(roots, filepath.Join(home, "Library", "Application Support", "Zotero", "Profiles"))
+			roots = append(roots, filepath.Join(home, "Library", "Application Support", "Zotero"))
 		}
 	default:
 		if home != "" {
 			roots = append(roots, filepath.Join(home, ".zotero", "zotero"))
+			for _, h := range sandboxHomes(home) {
+				roots = append(roots, filepath.Join(h, ".zotero", "zotero"))
+			}
 		}
 	}
 	for _, u := range windowsUserDirs() {
-		roots = append(roots, filepath.Join(u, "AppData", "Roaming", "Zotero", "Zotero", "Profiles"))
+		roots = append(roots, filepath.Join(u, "AppData", "Roaming", "Zotero", "Zotero"))
 	}
 	return roots
+}
+
+// sandboxHomes are the homes a packaged Zotero sees instead of the real one.
+// Both the profile index and the default data directory hang off these exactly
+// as they do off a normal home, so one list answers for both.
+func sandboxHomes(home string) []string {
+	if runtime.GOOS != "linux" || home == "" {
+		return nil
+	}
+	return []string{
+		filepath.Join(home, ".var", "app", "org.zotero.Zotero"), // Flatpak
+		filepath.Join(home, "snap", "zotero", "common"),         // Snap
+	}
+}
+
+// reINIKey splits an `IsRelative=1` line; Zotero's profiles.ini is the Firefox
+// format it inherits.
+var reINIKey = regexp.MustCompile(`^\s*(\w+)\s*=\s*(.*?)\s*$`)
+
+// profileDirs lists an install's profile directories, best first. It reads
+// Zotero's OWN index — profiles.ini —
+//
+//	[Profile0]
+//	Path=Profiles/r0wbbhka.default
+//	IsRelative=1
+//	Default=1
+//
+// rather than guessing at the folder layout, which is what finds a profile the
+// user keeps somewhere else entirely (IsRelative=0, an absolute path) and what
+// says which profile Zotero actually opens (Default=1). The folders are then
+// walked anyway, behind the index, for an install that has not written one yet.
+func profileDirs(root string) []string {
+	var def, rest []string
+	if b, err := os.ReadFile(filepath.Join(root, "profiles.ini")); err == nil {
+		var path string
+		relative, isDefault := true, false
+		flush := func() {
+			if path == "" {
+				return
+			}
+			p := wslPath(path)
+			if relative {
+				p = filepath.Join(root, filepath.FromSlash(path))
+			}
+			if isDefault {
+				def = append(def, p)
+			} else {
+				rest = append(rest, p)
+			}
+			path, relative, isDefault = "", true, false
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "[") { // a new section
+				flush()
+				continue
+			}
+			m := reINIKey.FindStringSubmatch(line)
+			if m == nil {
+				continue
+			}
+			switch m[1] {
+			case "Path":
+				path = m[2]
+			case "IsRelative":
+				relative = m[2] == "1"
+			case "Default":
+				isDefault = m[2] == "1"
+			}
+		}
+		flush()
+	}
+	out := append(def, rest...)
+	for _, dir := range []string{filepath.Join(root, "Profiles"), root} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				out = append(out, filepath.Join(dir, e.Name()))
+			}
+		}
+	}
+	return dedupe(out)
 }
 
 // unescapePref undoes the backslash escaping prefs.js applies to Windows paths.

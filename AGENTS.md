@@ -47,14 +47,18 @@ free-string `type`.
 `pkg/tui/zotero` reads the LOCAL Zotero library — the desktop app's
 `zotero.sqlite` — and never writes: it copies the file (plus any `-wal`) to a
 throwaway snapshot and reads that, so a running Zotero is never disturbed. The
-data directory is found via Zotero's own `ZOTERO_DATA_DIR`, the
-`dataDir` in a Zotero profile's `prefs.js`, `<home>/Zotero`, and — for lflow in
-WSL with Zotero on the Windows side — `/mnt/<drive>/Users/<user>/Zotero`. That
-WSL case also reads the WINDOWS profiles' `prefs.js`
-(`<user>/AppData/Roaming/Zotero/Zotero/Profiles`) and translates the Windows
-path it finds (`D:\Zotero` → `/mnt/d/Zotero`), which is how a library moved off
-the default is found at all; `zotero.WindowsMountRoot` is where `/mnt` comes
-from (`/etc/wsl.conf` can move it) and is the seam the tests fake. The
+data directory is autodetected the way Zotero itself resolves it, so nobody has
+to configure anything: `ZOTERO_DATA_DIR`, then the `dataDir` in a profile's
+`prefs.js`, then `<home>/Zotero`, then `/mnt/<drive>/Users/<user>/Zotero`.
+Profiles come from Zotero's own `profiles.ini` (`profileDirs` — `Default=1`
+first, `IsRelative=0` absolute paths honored, folders walked behind it as a
+fallback), across every install `appDirs` can see: the platform's own, Flatpak
+and Snap sandbox homes, and — for lflow in WSL — each Windows account's
+`AppData/Roaming/Zotero/Zotero`. Windows paths found that way are translated
+(`D:\Zotero` → `/mnt/d/Zotero`), which is what makes a moved library reachable
+from WSL at all; `zotero.WindowsMountRoot` is where `/mnt` comes from
+(`/etc/wsl.conf` can move it) and is the seam the tests fake. Several libraries
+on one machine: pick with `ZOTERO_DATA_DIR`, Zotero's own knob, not ours. The
 whole library loads once per session (lazily, re-read when its mtime moves) and
 is searched in process, because the picker filters on every keystroke.
 

@@ -307,6 +307,111 @@ func TestPrefsDataDirs(t *testing.T) {
 	}
 }
 
+// TestProfileDirsReadsZoterosOwnIndex covers the three things profiles.ini
+// tells us that globbing a folder cannot: a profile kept outside the Zotero
+// folder, which profile Zotero actually opens, and — under WSL — that an
+// absolute path in there is a Windows one.
+func TestProfileDirsReadsZoterosOwnIndex(t *testing.T) {
+	mountRoot(t, "/mnt")
+	root := t.TempDir()
+	ini := "[General]\nStartWithLastProfile=1\n\n" +
+		"[Profile0]\nName=other\nIsRelative=1\nPath=Profiles/aaa.other\n\n" +
+		"[Profile1]\nName=default\nIsRelative=1\nPath=Profiles/bbb.default\nDefault=1\n\n" +
+		"[Profile2]\nName=elsewhere\nIsRelative=0\nPath=" + elsewherePath() + "\n"
+	if err := os.WriteFile(filepath.Join(root, "profiles.ini"), []byte(ini), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := profileDirs(root)
+	if len(got) < 3 {
+		t.Fatalf("profileDirs = %v, want all three profiles", got)
+	}
+	// the default profile leads: it is the one Zotero opens
+	if got[0] != filepath.Join(root, "Profiles", "bbb.default") {
+		t.Errorf("profileDirs[0] = %q, want the Default=1 profile", got[0])
+	}
+	if !contains(got, filepath.Join(root, "Profiles", "aaa.other")) {
+		t.Errorf("profileDirs = %v, missing the non-default profile", got)
+	}
+	if !contains(got, wantElsewhere()) {
+		t.Errorf("profileDirs = %v, missing the absolute-path profile %q", got, wantElsewhere())
+	}
+}
+
+// elsewherePath / wantElsewhere are the IsRelative=0 case: a Windows path when
+// the test runs where one would appear, a plain absolute one otherwise.
+func elsewherePath() string {
+	if runtime.GOOS == "linux" {
+		return `E:\Profiles\ccc.moved`
+	}
+	return filepath.Join(string(filepath.Separator), "profiles", "ccc.moved")
+}
+
+func wantElsewhere() string {
+	if runtime.GOOS == "linux" {
+		return "/mnt/e/Profiles/ccc.moved"
+	}
+	return elsewherePath()
+}
+
+// TestPrefsDataDirsFindsASandboxedZotero: a Flatpak Zotero keeps its profile
+// under the sandbox home, not the real one.
+func TestPrefsDataDirsFindsASandboxedZotero(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Flatpak and Snap are a Linux packaging")
+	}
+	mountRoot(t, t.TempDir())
+	home := t.TempDir()
+	profile := filepath.Join(home, ".var", "app", "org.zotero.Zotero", ".zotero", "zotero", "abc.default")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prefs := "user_pref(\"extensions.zotero.dataDir\", \"/data/flatpak-zotero\");\n"
+	if err := os.WriteFile(filepath.Join(profile, "prefs.js"), []byte(prefs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := prefsDataDirs(home); !contains(got, "/data/flatpak-zotero") {
+		t.Errorf("prefsDataDirs = %v, want the Flatpak profile's dataDir", got)
+	}
+}
+
+// TestCandidateDirsAreUnique: several profiles naming one library is normal,
+// and the search list should not walk it repeatedly.
+func TestCandidateDirsAreUnique(t *testing.T) {
+	mountRoot(t, t.TempDir())
+	home := t.TempDir()
+	root := filepath.Join(home, ".zotero", "zotero")
+	for _, name := range []string{"one.default", "two.other"} {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		prefs := "user_pref(\"extensions.zotero.dataDir\", \"/data/shared\");\n"
+		if err := os.WriteFile(filepath.Join(p, "prefs.js"), []byte(prefs), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("ZOTERO_DATA_DIR", "")
+	seen := map[string]int{}
+	for _, d := range candidateDirs() {
+		seen[d]++
+	}
+	for d, n := range seen {
+		if n > 1 {
+			t.Errorf("candidateDirs lists %q %d times", d, n)
+		}
+	}
+}
+
+func contains(haystack []string, want string) bool {
+	for _, s := range haystack {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestWSLPath(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("path translation only happens under WSL")
