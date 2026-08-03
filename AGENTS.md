@@ -1,4 +1,4 @@
-# lflow
+# Coding Agent Instructions
 
 Local-first terminal outline editor (Go + bubbletea). One SQLite file, owned by
 a single daemon; every CLI command is a one-shot client of it, and `lflow node
@@ -29,8 +29,6 @@ free-string `type`.
 - Trunk-based: commit each logical change straight to `main` as
   `label: description` (labels: `editor`, `db`, `daemon`, `docs`, …) and push
   as you go. No feature branches, no PRs.
-- Every visible change ships a short demo video — the recipe is the `/demo`
-  command (`.opencode/command/demo.md`).
 
 ## Rules
 
@@ -42,6 +40,4 @@ free-string `type`.
 - Runnable types run on alt+r only, never automatically; run output is
   ephemeral — never persisted or synced.
 - Failures go through `m.errorFlash(msg)`, never `m.flash` directly.
-- Secrets live in local config (`~/.config/lflow/credentials.json`,
-  `~/.pi/agent/settings.json`) — never in the DB, never synced.
 - No emojis — plain Unicode symbols only (○ ◆ ▸ ● $ →); CLI output uses `→`/`·`.
