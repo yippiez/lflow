@@ -228,8 +228,8 @@ func zoteroLinkTarget(c database.Chip) string {
 type citeAction int
 
 const (
-	citeChip   citeAction = iota // "@@" — a citation chip at the caret
-	citeMirror                   // /type → Zotero, /insert → Zotero, and alt+r on an unbound zotero node
+	citeChip   citeAction = iota // "@@" and /insert → Zotero — a citation chip at the caret
+	citeMirror                   // /type → Zotero, and alt+r on an unbound zotero node
 )
 
 // openCitePicker opens the library picker at the caret, reading the library

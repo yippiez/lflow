@@ -248,16 +248,17 @@ func TestZoteroInsertKindIsOffered(t *testing.T) {
 	if !found {
 		t.Error("/insert does not offer zotero")
 	}
-	// and it routes into the picker, ready to mirror (mirroring owns the node,
-	// so the pick only opens on an empty one)
-	m, _ = dbModel(t, database.Node{UUID: "n2", Name: "", Rank: 1})
+	// and it routes into the picker for a CHIP: /insert splices something into a
+	// node, so it cites. Becoming the whole paper is /type → Zotero.
+	m, _ = dbModel(t, database.Node{UUID: "n2", Name: "reading about ", Rank: 1})
 	m.cursor = 0
 	m.zoteroLib = fakeLibrary()
 	m.insertChip("zotero")
-	if m.mode != modeCite || m.citeAct != citeMirror {
-		t.Errorf("/insert → zotero left mode %v act %v, want modeCite/mirror", m.mode, m.citeAct)
+	if m.mode != modeCite || m.citeAct != citeChip {
+		t.Errorf("/insert → zotero left mode %v act %v, want modeCite/chip", m.mode, m.citeAct)
 	}
-	// the citation chip has no slash command anymore — "@@" is its only path
+	// the citation chip has no slash command anymore — "@@" and /insert are its
+	// only paths
 	m.mode = modeOutline
 	m.runSlash("/cite")
 	if m.mode == modeCite {

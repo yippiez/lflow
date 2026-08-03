@@ -157,8 +157,8 @@ func (m *Model) mirrorZoteroItem(it zotero.Item) tea.Cmd {
 
 // runZoteroPull is alt+r on any node of a mirror: refresh the whole item from
 // Zotero. Never auto-runs, like every runnable type. On an UNBOUND zotero node
-// (a safe edge case — /type and /insert already pick the entry immediately) it
-// opens the library picker so the node can choose what to mirror.
+// (a safe edge case — /type already picks the entry immediately) it opens the
+// library picker so the node can choose what to mirror.
 func runZoteroPull(m *Model, it *item) tea.Cmd {
 	root, ok := zoteroRootOf(it)
 	if !ok {

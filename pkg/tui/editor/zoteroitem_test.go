@@ -689,10 +689,10 @@ func TestMirrorCommentIsAnOrdinaryNode(t *testing.T) {
 
 func TestMirrorEntryPaths(t *testing.T) {
 	m := mirrorModel(t)
-	// /insert → Zotero opens the picker immediately
+	// /insert → Zotero cites; it is /type → Zotero that mirrors
 	m.insertChip("zotero")
-	if m.mode != modeCite || m.citeAct != citeMirror {
-		t.Errorf("/insert → zotero left mode %v act %v", m.mode, m.citeAct)
+	if m.mode != modeCite || m.citeAct != citeChip {
+		t.Errorf("/insert → zotero left mode %v act %v, want a citation chip", m.mode, m.citeAct)
 	}
 	m.mode = modeOutline
 	m.openCitePicker(citeMirror)
