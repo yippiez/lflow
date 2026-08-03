@@ -577,6 +577,13 @@ func (m *Model) viewSettings(maxLine int) []string {
 				value = cFG + val + cReset
 			}
 		}
+		if d.fixed {
+			// a read-only value: shown plain, copyable with alt+c
+			value = cFG + val + cReset
+			if val == "" {
+				value = cDim + "not found" + cReset
+			}
+		}
 		extra := ""
 		if d.key == "theme" {
 			if t, ok := themeByName(val); ok {
@@ -588,8 +595,11 @@ func (m *Model) viewSettings(maxLine int) []string {
 		lines = append(lines, clip(line, maxLine))
 	}
 	// a text row's hint: typing edits it, enter saves, esc cancels
-	if _, text := m.selectedSetting(); text {
+	if d, text := m.selectedSetting(); text {
 		lines = append(lines, clip(cDim+"type to edit · enter save · esc cancel"+cReset, maxLine))
+	} else if d.fixed {
+		// a fixed row's hint: the value is detected, alt+c copies it
+		lines = append(lines, clip(cDim+"alt+c copies the path"+cReset, maxLine))
 	}
 	return lines
 }

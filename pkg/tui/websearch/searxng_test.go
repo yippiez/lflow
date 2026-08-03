@@ -102,18 +102,16 @@ func TestInstanceResolution(t *testing.T) {
 		t.Fatalf("from file = %q configured=%v", ep, configured)
 	}
 
-	// the environment wins over the file, and a url that already names a path
-	// keeps it, query string and all
-	t.Setenv("LFLOW_SEARXNG_URL", "https://from-env.example/search?engines=google")
-	if ep, _ := c.instance(); ep != "https://from-env.example/search?engines=google" {
-		t.Errorf("from env = %q, want the configured url untouched", ep)
+	// a url that already names a path keeps it, query string and all
+	writeCredentials(t, dir, `{"searxng": {"url": "https://searx.example.org/search?engines=google"}}`)
+	if ep, _ := c.instance(); ep != "https://searx.example.org/search?engines=google" {
+		t.Errorf("from file = %q, want the configured url untouched", ep)
 	}
 }
 
 // With no instance anywhere, a run is a setup message — never a search sent to
 // some other engine.
 func TestSearchWithoutAnInstance(t *testing.T) {
-	t.Setenv("LFLOW_SEARXNG_URL", "")
 	// the local default is not listening in the test environment
 	c := &Client{ConfigDir: t.TempDir()}
 	_, err := c.Search(context.Background(), "go docs", DefaultLimit)

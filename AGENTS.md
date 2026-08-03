@@ -47,7 +47,7 @@ free-string `type`.
 `pkg/tui/zotero` reads the LOCAL Zotero library — the desktop app's
 `zotero.sqlite` — and never writes: it copies the file (plus any `-wal`) to a
 throwaway snapshot and reads that, so a running Zotero is never disturbed. The
-data directory is found via `LFLOW_ZOTERO_DIR`, `ZOTERO_DATA_DIR`, the
+data directory is found via Zotero's own `ZOTERO_DATA_DIR`, the
 `dataDir` in a Zotero profile's `prefs.js`, `<home>/Zotero`, and — for lflow in
 WSL with Zotero on the Windows side — `/mnt/<drive>/Users/<user>/Zotero`. The
 whole library loads once per session (lazily, re-read when its mtime moves) and
@@ -59,29 +59,34 @@ tree.
 
 In the editor (`editor/zotero.go`) a citation is a **chip**, not a node type:
 kind `zotero`, value = Zotero's own `zotero://select/…` URI (so the stored value
-IS the local-open target), label = the compact author-year form. `@@` — or
-`/cite`, or `/insert` → cite — opens the library picker; `alt+g` opens the paper
+IS the local-open target), label = the compact author-year form. `@@` — the ONE
+path to a chip — opens the library picker; `alt+g` opens the paper
 where `/settings` → "Zotero opens" points (local app or zotero.org), `alt+o`
 opens the other one, and the chip carries the same target as an OSC 8 hyperlink
 so a terminal ctrl+click lands there too. The local hop goes through
 `browser.OpenApp`, which prefers the Windows shell under WSL because that is
 where the `zotero://` handler is registered. The personal web-library URL needs
-where the `zotero://` handler is registered. The personal web-library URL needs
 the account name: taken from the library's own account settings, else
-`credentials.json`, else the entry's DOI.
+`credentials.json`, else the entry's DOI. The library location is a read-only
+`/settings` row ("Zotero library", copyable with alt+c) — there is no
+lflow-specific env override; what lflow finds (prefs.js, `~/Zotero`, the WSL
+`/mnt` side) IS what Zotero itself uses. Same for SearxNG: `/settings` →
+"searxng.url" and `credentials.json` name the instance, no `LFLOW_SEARXNG_URL`.
 
 A whole entry mirrors into the outline as the `zotero` **node type**
-(`editor/zoteroitem.go`): `/mirror:zotero` — or `/type` → Zotero item — picks the
-entry through the same library picker, and its tags land on the title row as colored
-chips with its attachments, annotations and notes beneath it. Every node of the
-mirror wears the `zotero` type and is bound in `zotero_nodes` (node uuid → item
-key + kind: item / attachment / annotation / note / meta), which is what gives
-each row its own mark and its own alt+g: the entry, the PDF in Zotero's reader,
-or `?annotation=` at one highlight. Annotation and tag colors are Zotero's own
-hex mapped to the nearest color in the LIVE palette (`zoteroNearestColor`), so
-an import sits inside the active theme; a tag the user already colored keeps
-their choice. `alt+r` re-reads the entry and reconciles against those keys —
-in place, so a refresh updates what changed instead of duplicating the subtree.
+(`editor/zoteroitem.go`): `/type` → Zotero or `/insert` → Zotero picks the entry
+through the same library picker — the picker lands immediately, and `alt+r` on
+an unbound zotero node opens it again (the safe edge case). Its tags land on
+the title row as colored chips with its attachments, annotations and notes
+beneath it. Every node of the mirror wears the `zotero` type and is bound in
+`zotero_nodes` (node uuid → item key + kind: item / attachment / annotation /
+note / meta), which is what gives each row its own mark and its own alt+g: the
+entry, the PDF in Zotero's reader, or `?annotation=` at one highlight.
+Annotation and tag colors are Zotero's own hex mapped to the nearest color in
+the LIVE palette (`zoteroNearestColor`), so an import sits inside the active
+theme; a tag the user already colored keeps their choice. `alt+r` re-reads the
+entry and reconciles against those keys — in place, so a refresh updates what
+changed instead of duplicating the subtree.
 
 What each Zotero object becomes, one for one:
 

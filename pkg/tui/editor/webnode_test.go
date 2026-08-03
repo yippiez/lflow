@@ -122,9 +122,8 @@ func TestWebNodeRerunReplacesOnlyItsRows(t *testing.T) {
 }
 
 // The /settings searxng.url field names the instance with the most explicit
-// priority: a run points at it even with no credentials file and no env var.
+// priority: a run points at it even with no credentials file.
 func TestWebNodeUsesTheSearxngURLSetting(t *testing.T) {
-	t.Setenv("LFLOW_SEARXNG_URL", "")
 	prev := wsClient
 	wsClient = websearch.Client{}
 	t.Cleanup(func() { wsClient = prev })
@@ -151,7 +150,6 @@ func TestWebNodeUsesTheSearxngURLSetting(t *testing.T) {
 // With no instance configured, a web run errors and keeps whatever rows the
 // last good run produced.
 func TestWebNodeWithoutAnInstanceErrors(t *testing.T) {
-	t.Setenv("LFLOW_SEARXNG_URL", "")
 	prev := wsClient
 	wsClient = websearch.Client{}
 	t.Cleanup(func() { wsClient = prev })

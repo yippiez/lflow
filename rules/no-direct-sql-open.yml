@@ -17,3 +17,7 @@ rule:
     selector: call_expression
 ignores:
   - pkg/tui/database/sql.go
+  # the zotero test helpers seed a throwaway FAKE Zotero library (a file Zotero
+  # itself would own) — no lflow process ever shares it, so the busy-timeout
+  # race the rule guards against cannot happen there
+  - pkg/tui/zotero/library_test.go

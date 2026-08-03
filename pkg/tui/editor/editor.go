@@ -1651,12 +1651,28 @@ func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsSel++
 			m.initSettingEdit()
 		}
+	case "alt+c":
+		// a FIXED row's value is detected, not chosen — the one thing it is for
+		// is scripts and paths, so copy it to the clipboard
+		if d.fixed && m.settingsSel >= 0 && m.settingsSel < len(settingDefs) {
+			val := m.setting(d.key)
+			if val == "" {
+				m.errorFlash("zotero · no library found to copy")
+				return m, nil
+			}
+			via, _ := clipWrite(val)
+			if via == "" {
+				m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
+			} else {
+				m.flash = "copied · " + val
+			}
+		}
 	case "left", "right", " ", "space", "h", "l":
 		if text {
 			m.settingEdit.handleKey(k)
 			return m, nil
 		}
-		if m.settingsSel >= 0 && m.settingsSel < len(settingDefs) {
+		if m.settingsSel >= 0 && m.settingsSel < len(settingDefs) && !d.fixed {
 			dir := 1
 			if s := k.String(); s == "left" || s == "h" {
 				dir = -1

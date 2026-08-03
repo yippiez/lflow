@@ -13,15 +13,15 @@ import (
 )
 
 // SearxNG support: point lflow at your own metasearch instance and the websearch
-// node asks it. The instance is named one of three ways, most explicit first —
+// node asks it. The instance is named one of two ways, most explicit first —
 // the editor's /settings searxng.url field, then
 //
 //	~/.config/lflow/credentials.json  {"searxng": {"url": "https://searx.example.org"}}
 //
-// then, for a shell-scoped override, LFLOW_SEARXNG_URL. Nothing else is needed:
-// SearxNG's JSON output takes no key. The one requirement is on the instance —
-// its settings.yml must list json in search.formats, which is off by default;
-// fetch() names that explicitly when the instance answers 403.
+// Nothing else is needed: SearxNG's JSON output takes no key. The one
+// requirement is on the instance — its settings.yml must list json in
+// search.formats, which is off by default; fetch() names that explicitly when
+// the instance answers 403.
 //
 // WARNING (invariant): credentials.json is local-only config — it is never
 // written into the outline DB and never synced (see pkg/tui/wf/credentials.go).
@@ -36,11 +36,12 @@ type credentials struct {
 }
 
 // searxngURL resolves the configured instance's /search endpoint, or "" when no
-// instance is named. The environment wins over the file so a shell can point at
-// a test instance without editing config.
+// instance is named. The /settings field is the in-app way in; credentials.json
+// is the file-only way; there is deliberately no environment override — a URL
+// configured in two places drifts, and the editor's own field covers scripting.
 func searxngURL(configDir string) string {
-	raw := strings.TrimSpace(os.Getenv("LFLOW_SEARXNG_URL"))
-	if raw == "" && configDir != "" {
+	raw := ""
+	if configDir != "" {
 		raw = loadSearxNGConfig(configDir)
 	}
 	if raw == "" {

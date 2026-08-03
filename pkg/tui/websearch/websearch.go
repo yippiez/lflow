@@ -8,14 +8,14 @@
 // if no instance can be found, a run says so instead of quietly asking someone
 // else.
 //
-// The instance is named one of three ways, most explicit first — the editor's
+// The instance is named one of two ways, most explicit first — the editor's
 // /settings searxng.url field, then ~/.config/lflow/credentials.json:
 //
 //	{"searxng": {"url": "https://searx.example.org"}}
 //
-// then LFLOW_SEARXNG_URL for a shell-scoped override. With none set the client
-// tries the conventional local instance (localhost:8888) and, when nothing
-// answers there either, reports that nothing is configured.
+// With none set the client tries the conventional local instance
+// (localhost:8888) and, when nothing answers there either, reports that
+// nothing is configured.
 package websearch
 
 import (

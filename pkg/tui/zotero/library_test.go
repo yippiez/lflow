@@ -249,17 +249,19 @@ func TestStale(t *testing.T) {
 func TestDataDirPrefersTheEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	seedLibrary(t, dir)
-	t.Setenv("LFLOW_ZOTERO_DIR", dir)
-	if got := DataDir(); got != dir {
-		t.Errorf("DataDir = %q, want the LFLOW_ZOTERO_DIR override %q", got, dir)
-	}
-	// an override pointing nowhere falls through instead of winning
-	t.Setenv("LFLOW_ZOTERO_DIR", filepath.Join(dir, "nope"))
+	// Zotero's own env var is honored — the app itself was told where it lives
 	t.Setenv("ZOTERO_DATA_DIR", dir)
 	if got := DataDir(); got != dir {
-		t.Errorf("DataDir = %q, want the ZOTERO_DATA_DIR fallback %q", got, dir)
+		t.Errorf("DataDir = %q, want the ZOTERO_DATA_DIR override %q", got, dir)
+	}
+	// an override pointing nowhere falls through instead of winning
+	t.Setenv("ZOTERO_DATA_DIR", filepath.Join(dir, "nope"))
+	t.Setenv("HOME", t.TempDir())
+	if got := DataDir(); got != "" {
+		t.Errorf("DataDir = %q, want no library found without an override", got)
 	}
 	// Load with no directory uses the same discovery
+	t.Setenv("ZOTERO_DATA_DIR", dir)
 	if _, err := Load(""); err != nil {
 		t.Errorf("Load(\"\") = %v, want the discovered library", err)
 	}

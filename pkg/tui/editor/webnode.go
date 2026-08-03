@@ -60,7 +60,7 @@ func runWebNode(m *Model, it *item) tea.Cmd {
 	}
 	return func() tea.Msg {
 		// a per-run copy: the /settings searxng.url field names the instance with
-		// the most explicit priority (ahead of credentials.json and the env var);
+		// the most explicit priority (ahead of credentials.json);
 		// an empty setting leaves the client's own resolution in charge
 		c := wsClient
 		c.ConfigDir = cfgDir

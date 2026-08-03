@@ -31,12 +31,14 @@ type Library struct {
 
 // ── locating the library ───────────────────────────────────────────────────
 
-// DataDir finds the Zotero data directory. In order: an explicit
-// LFLOW_ZOTERO_DIR, Zotero's own ZOTERO_DATA_DIR, the dataDir recorded in the
-// Zotero profile's prefs.js (set when the user moved their library), the
-// platform default (<home>/Zotero), and finally — when lflow runs in WSL while
-// Zotero runs on the Windows side — each Windows user's Zotero folder under
-// /mnt/<drive>/Users. Returns "" when no library file is found anywhere.
+// DataDir finds the Zotero data directory. In order: Zotero's own
+// ZOTERO_DATA_DIR, the dataDir recorded in the Zotero profile's prefs.js (set
+// when the user moved their library), the platform default (<home>/Zotero), and
+// finally — when lflow runs in WSL while Zotero runs on the Windows side — each
+// Windows user's Zotero folder under /mnt/<drive>/Users. Returns "" when no
+// library file is found anywhere. The /settings "Zotero library" row shows the
+// result (read-only); there is no lflow-specific env override — what lflow
+// finds IS what Zotero itself uses.
 func DataDir() string {
 	for _, dir := range candidateDirs() {
 		if dir == "" {
@@ -53,7 +55,7 @@ func DataDir() string {
 // testable without a filesystem full of Zotero installs.
 func candidateDirs() []string {
 	var dirs []string
-	dirs = append(dirs, os.Getenv("LFLOW_ZOTERO_DIR"), os.Getenv("ZOTERO_DATA_DIR"))
+	dirs = append(dirs, os.Getenv("ZOTERO_DATA_DIR")) // Zotero's own env var, if the app was told
 	home, _ := os.UserHomeDir()
 	dirs = append(dirs, prefsDataDirs(home)...)
 	if home != "" {
@@ -153,7 +155,7 @@ func Load(dir string) (*Library, error) {
 		dir = DataDir()
 	}
 	if dir == "" {
-		return nil, errors.New("no Zotero library found — set LFLOW_ZOTERO_DIR to your Zotero data directory")
+		return nil, errors.New("no Zotero library found — looked in ~/Zotero and your Zotero profiles' prefs.js")
 	}
 	src := filepath.Join(dir, DBName)
 	fi, err := os.Stat(src)

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/zotero"
 )
 
 // Global editor preferences, edited via /settings and persisted in the DB
@@ -20,12 +21,15 @@ type settingOption struct{ value, label string }
 // (e.g. theme reseeds the live palette). Values not in options fall back to def.
 // text marks a FREE-TEXT value (e.g. the searxng URL) instead of an option list:
 // it is edited inline in the /settings picker with the field's caret keys
-// (handleSettingsKey) and has no options to cycle.
+// (handleSettingsKey) and has no options to cycle. fixed marks a READ-ONLY
+// value (e.g. the detected Zotero library path): it is shown as-is and only
+// copyable (alt+c) — never cycled, never edited.
 type settingDef struct {
 	key     string
 	label   string
 	options []settingOption
 	text    bool
+	fixed   bool
 	def     string
 	apply   func(m *Model, value string)
 }
@@ -85,8 +89,17 @@ var settingDefs = []settingDef{
 		def: "select",
 	},
 	{
+		// where the local Zotero library was found — READ-ONLY: the path is
+		// detected (Zotero's prefs.js, ~/Zotero, the WSL /mnt side; see
+		// pkg/tui/zotero), never chosen here. alt+c copies it for scripts and
+		// paths.
+		key: "zotero.dir", label: "Zotero library",
+		fixed: true,
+		def:   zotero.DataDir(),
+	},
+	{
 		// the websearch node's SearxNG instance — the in-app way to name one,
-		// ahead of credentials.json and LFLOW_SEARXNG_URL (see pkg/tui/websearch)
+		// ahead of credentials.json (see pkg/tui/websearch)
 		key: "searxng.url", label: "Searxng URL",
 		text: true,
 	},
