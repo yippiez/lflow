@@ -61,7 +61,7 @@ func (m *Model) wfEnsureClient() *wf.Client {
 func runWF(m *Model, it *item) tea.Cmd {
 	id, ok := m.wfIDFor(it)
 	if !ok {
-		m.flash = "wf · paste a workflowy link or node id in this node first"
+		m.errorFlash("wf · need a wf link or id here to run")
 		return nil
 	}
 	client := m.wfEnsureClient()
