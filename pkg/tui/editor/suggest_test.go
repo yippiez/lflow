@@ -187,6 +187,35 @@ func TestSuggestReviewApprovesEdit(t *testing.T) {
 	}
 }
 
+func TestSuggestReviewMakesCompletionStateExplicit(t *testing.T) {
+	m, db, cur := suggestModel(t, "copy selected nodes")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestComplete, TargetUUID: cur.uuid,
+		Message: "implemented", Author: "agent"})
+	m.loadSuggests()
+
+	m.press("alt+v")
+	band := stripSGR(strings.Join(m.suggestBandLines(m.rows[m.cursor], false, 120), "\n"))
+	for _, want := range []string{
+		"suggested by agent · mark complete · implemented",
+		"- state: open",
+		"+ state: complete",
+		"y approve (marks complete)",
+	} {
+		if !strings.Contains(band, want) {
+			t.Fatalf("completion review does not explain %q:\n%s", want, band)
+		}
+	}
+
+	m.press("y")
+	n, err := database.GetNode(db, cur.uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.CompletedAt == 0 {
+		t.Fatal("approving the displayed state diff did not complete the node")
+	}
+}
+
 // TestSuggestReviewRejectLeavesNode: n settles the proposal and the node is
 // untouched.
 func TestSuggestReviewRejectLeavesNode(t *testing.T) {

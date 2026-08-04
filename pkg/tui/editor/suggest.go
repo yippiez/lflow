@@ -277,6 +277,12 @@ func (m *Model) suggestReviewLines(rail string, s database.Suggestion, idx, tota
 	if total > 1 {
 		head += fmt.Sprintf(" · %d/%d", idx+1, total)
 	}
+	// A completion proposal has no replacement text to announce. Name the state
+	// action before the optional comment so a long rationale cannot clip away the
+	// one fact the reviewer needs to decide what y will do.
+	if s.Kind == database.SuggestComplete || s.Kind == database.SuggestUncomplete {
+		head += " · " + cYellow + suggestGist(s) + cReset + cDim
+	}
 	if s.Message != "" {
 		head += " · " + cItalic + strings.TrimSpace(s.Message) + cReset + cDim
 	}
@@ -290,7 +296,13 @@ func (m *Model) suggestReviewLines(rail string, s database.Suggestion, idx, tota
 		lines = append(lines, clip(rail+cReset+color+mark+" "+cReset+cDim+d.text+cReset, maxLine))
 	}
 
-	keys := cGreen + "y" + cDim + " approve · " + cRed + "n" + cDim + " reject"
+	approve := "approve"
+	if s.Kind == database.SuggestComplete {
+		approve = "approve (marks complete)"
+	} else if s.Kind == database.SuggestUncomplete {
+		approve = "approve (reopens node)"
+	}
+	keys := cGreen + "y" + cDim + " " + approve + " · " + cRed + "n" + cDim + " reject"
 	if total > 1 {
 		keys += " · ↑↓ next"
 	}
@@ -308,10 +320,10 @@ type suggestLine struct {
 // it would create, an edit is each proposed field before and after.
 func (m *Model) suggestDiff(s database.Suggestion) []suggestLine {
 	if s.Kind == database.SuggestComplete {
-		return []suggestLine{{text: "open", remove: true}, {text: "complete"}}
+		return []suggestLine{{text: "state: open", remove: true}, {text: "state: complete"}}
 	}
 	if s.Kind == database.SuggestUncomplete {
-		return []suggestLine{{text: "complete", remove: true}, {text: "open"}}
+		return []suggestLine{{text: "state: complete", remove: true}, {text: "state: open"}}
 	}
 	if s.Kind == database.SuggestAdd {
 		out := []suggestLine{{text: m.suggestText(s.Name)}}
