@@ -19,8 +19,9 @@ const module = "github.com/lflow/lflow/"
 //
 //	0: leaf vocabularies and clients — no repo-internal imports at all
 //	1: database (the schema layer)
-//	2: daemon (owns the DB), nlp, app (the process runtime)
-//	3: editor, nodes, outline codecs
+//	2: daemon (owns the DB), nlp, app (the process runtime), outline and
+//	   filecodec (scriptable DB-subtree renderers/codecs, database only)
+//	3: editor, nodes (the editor's plugin registrations)
 //	4: cli, cmd (the process shell)
 var layers = map[string]int{
 	"packages/utils":     0,
@@ -32,6 +33,8 @@ var layers = map[string]int{
 	"packages/daemon":    2,
 	"packages/nlp":       2,
 	"packages/app":       2,
+	"packages/outline":   2,
+	"packages/filecodec": 2,
 	"packages/editor":    3,
 	"packages/nodes":     3,
 	"packages/cli":       4,

@@ -10,7 +10,7 @@ import (
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
-	"github.com/lflow/lflow/packages/nodes"
+	"github.com/lflow/lflow/packages/outline"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -90,11 +90,11 @@ func newRun(ctx app.Ctx, opts *options) infra.RunEFunc {
 		var out string
 		switch opts.format {
 		case "md":
-			out, err = nodes.RenderMarkdown(db, r.Node, opts.depth, true)
+			out, err = outline.RenderMarkdown(db, r.Node, opts.depth, true)
 		case "text":
-			out, err = nodes.RenderText(db, r.Node, opts.depth, true)
+			out, err = outline.RenderText(db, r.Node, opts.depth, true)
 		case "json":
-			out, err = nodes.RenderJSON(db, r.Node, opts.depth, true)
+			out, err = outline.RenderJSON(db, r.Node, opts.depth, true)
 		default:
 			return errors.Errorf("unknown format %q: md, text or json", opts.format)
 		}

@@ -1,4 +1,4 @@
-package nodes
+package filecodec
 
 import (
 	"encoding/json"

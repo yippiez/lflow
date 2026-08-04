@@ -1,6 +1,6 @@
-// Package nodes: outline.go renders node subtrees as markdown, plain text or JSON for
-// the scriptable command surface.
-package nodes
+// Package outline renders a DB node subtree as markdown, plain text or JSON
+// for the scriptable command surface.
+package outline
 
 import (
 	"encoding/json"

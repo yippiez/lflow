@@ -8,7 +8,7 @@ import (
 	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/nodes"
+	"github.com/lflow/lflow/packages/outline"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -47,9 +47,9 @@ func newRun(ctx app.Ctx, opts *options) infra.RunEFunc {
 
 		switch opts.format {
 		case "json":
-			forest := []nodes.JSONNode{}
+			forest := []outline.JSONNode{}
 			for _, root := range roots {
-				tree, err := nodes.BuildJSON(db, root, -1, true)
+				tree, err := outline.BuildJSON(db, root, -1, true)
 				if err != nil {
 					return errors.Wrap(err, "building tree")
 				}
@@ -63,7 +63,7 @@ func newRun(ctx app.Ctx, opts *options) infra.RunEFunc {
 		case "md":
 			for _, root := range roots {
 				fmt.Printf("- %s\n", root.Name)
-				out, err := nodes.RenderMarkdown(db, root, -1, true)
+				out, err := outline.RenderMarkdown(db, root, -1, true)
 				if err != nil {
 					return errors.Wrap(err, "rendering outline")
 				}

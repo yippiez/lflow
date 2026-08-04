@@ -1,4 +1,4 @@
-package nodes
+package filecodec
 
 import (
 	"strings"
@@ -12,9 +12,12 @@ import (
 // class, comment, todo, math, nlpcompute all serialize to real syntax here.
 // The full matrix lives in examples/README.md.
 
-// langSpec parameterizes one code language.
-type langSpec struct {
-	name        string // codec name ("python")
+// LangSpec parameterizes one code language. Name is exported — the nodes
+// package's plugin side (alt+r export) reads it for its flash message; the
+// rest stays package-private, read only by RenderCode and each codec's own
+// Parse.
+type LangSpec struct {
+	Name        string // codec/plugin name ("python")
 	stmtType    string // the per-language statement node type (TypePython/TypeRust)
 	commentLead string // "# " or "// "
 	indentUnit  string // one level of indentation on render
@@ -37,8 +40,10 @@ func codeAllowed(stmtType string) map[string]bool {
 // their text only.
 const fallbackLead = "lflow "
 
-// renderCode serializes a document forest for a code language.
-func renderCode(doc []*SrcNode, spec langSpec) (string, error) {
+// RenderCode serializes a document forest for a code language. Exported: the
+// nodes package's plugin side reuses it (alt+r subtree export) via the same
+// LangSpec the codec renders with.
+func RenderCode(doc []*SrcNode, spec LangSpec) (string, error) {
 	var out []string
 	var walk func(n *SrcNode, depth int)
 
@@ -97,7 +102,7 @@ func renderCode(doc []*SrcNode, spec langSpec) (string, error) {
 			emit(depth, spec.commentLead+mark+" "+text)
 			kids(n, depth+1)
 		case database.TypeMath:
-			emit(depth, mathExpr(n, spec.name))
+			emit(depth, mathExpr(n, spec.Name))
 		case database.TypeNLPCompute:
 			// the instruction as a comment, the generated code beneath it
 			emit(depth, spec.commentLead+"nlp: "+text)
