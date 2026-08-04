@@ -34,7 +34,7 @@ func clipCapture(t *testing.T) func() string {
 }
 
 // TestCopyCutTextSelection: with a horizontal selection live, alt+y yanks just
-// that run and leaves the node alone; alt+x takes it and splices it out.
+// that run and releases the selection; alt+x takes it and splices it out.
 func TestCopyCutTextSelection(t *testing.T) {
 	clip := clipCapture(t)
 	m, n := spanModel(t) // "paint some words here"
@@ -48,10 +48,15 @@ func TestCopyCutTextSelection(t *testing.T) {
 	if n.name != "paint some words here" {
 		t.Fatalf("copy must not touch the text, got %q", n.name)
 	}
-	if !m.textSelOn {
-		t.Fatal("copy must keep the selection alive")
+	if m.textSelOn {
+		t.Fatal("copy must release the selection")
+	}
+	if strings.Contains(m.flash, "terminal") || strings.Contains(m.flash, "clip.exe") {
+		t.Fatalf("copy flash exposed the clipboard transport: %q", m.flash)
 	}
 
+	m.caret = len("paint ")
+	m.press("ctrl+shift+right")
 	m.press("alt+x")
 	if got := clip(); got != "some" {
 		t.Fatalf("cut %q, want %q", got, "some")
@@ -134,10 +139,18 @@ func TestPlainYAndXActOnASelection(t *testing.T) {
 	if !strings.Contains(m.flash, "2 nodes copied to clipboard") {
 		t.Fatalf("copy flash = %q", m.flash)
 	}
+	if m.selOn {
+		t.Fatal("copy must release the row selection")
+	}
+	if strings.Contains(m.flash, "terminal") || strings.Contains(m.flash, "clip.exe") {
+		t.Fatalf("copy flash exposed the clipboard transport: %q", m.flash)
+	}
 	if names := namesOf(m.tree.root.children); !reflect.DeepEqual(names, []string{"alpha", "beta", "gamma"}) {
 		t.Fatalf("copy changed nodes: %v", names)
 	}
 
+	m.cursor = 0
+	m.press("shift+down")
 	m.press("x")
 	if names := namesOf(m.tree.root.children); !reflect.DeepEqual(names, []string{"gamma"}) {
 		t.Fatalf("plain x left nodes: %v", names)

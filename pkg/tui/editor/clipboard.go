@@ -98,7 +98,7 @@ func (m *Model) copyCut(cut bool) {
 		return
 	}
 	text := m.nodesAsText(roots)
-	via, ok := clipWrite(text)
+	_, ok := clipWrite(text)
 	if !ok {
 		m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
 		return
@@ -107,8 +107,10 @@ func (m *Model) copyCut(cut bool) {
 		if !m.cutNodes(roots) {
 			return
 		}
+	} else {
+		m.clearSel()
 	}
-	m.flash = m.countNodes(roots) + " " + verb + " to clipboard · " + via
+	m.flash = m.countNodes(roots) + " " + verb + " to clipboard"
 }
 
 // copyCutRun copies [lo,hi) of the node's text; cutting splices it out, taking
@@ -124,7 +126,7 @@ func (m *Model) copyCutRun(cur *item, lo, hi int, cut bool, verb string) {
 		hi = sp.end
 	}
 	text := expandAnchors(string(runes[lo:hi]), m.chips)
-	via, ok := clipWrite(text)
+	_, ok := clipWrite(text)
 	if !ok {
 		m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
 		return
@@ -147,9 +149,9 @@ func (m *Model) copyCutRun(cur *item, lo, hi int, cut bool, verb string) {
 		m.persistSpans(cur.uuid)
 		m.caret = lo
 		m.unsaved = true
-		m.clearTextSel() // copy keeps the run selected, cut has nothing left to hold
 	}
-	m.flash = verb + " " + trimFlash(text, 24) + " · " + via
+	m.clearTextSel() // a successful yank or cut always releases the run
+	m.flash = verb + " " + trimFlash(text, 24) + " to clipboard"
 }
 
 // cutNodes deletes the copied roots, deepest row last so the earlier ones keep
