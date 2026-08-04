@@ -39,6 +39,8 @@ type complItem struct {
 // queryCmdItems is the fixed menu for ":" in a query node — the filters and
 // display flags the query matcher understands (see querytime.go).
 var queryCmdItems = []complItem{
+	{label: "and(,)", value: "and(,)", desc: "all comma-separated queries"},
+	{label: "or(,)", value: "or(,)", desc: "any comma-separated query"},
 	{label: "type()", value: "type()", desc: "node type (todo, log, …)"},
 	{label: "in()", value: "in()", desc: "select subtree to search (root by default)"},
 	{label: "after()", value: "after()", desc: "dated/created on or after"},

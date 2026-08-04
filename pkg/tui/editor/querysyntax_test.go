@@ -82,6 +82,23 @@ func TestBracketValueMayContainSpaces(t *testing.T) {
 	}
 }
 
+func TestBooleanFunctionsComposeQueries(t *testing.T) {
+	m, q := newSyntaxTree()
+	if got := hitUUIDs(m, q, "and(buy, type(todo))"); !sameSet(got, "a", "b") {
+		t.Fatalf("and() = %v, want the two todo purchases", got)
+	}
+	if got := hitUUIDs(m, q, "or(apples, carrots)"); !sameSet(got, "a", "c", "d") {
+		t.Fatalf("or() = %v, want apples or carrots", got)
+	}
+	if got := hitUUIDs(m, q, "and(buy, or(apples, carrots))"); !sameSet(got, "a", "d") {
+		t.Fatalf("nested boolean calls = %v, want [a d]", got)
+	}
+	// The symbolic forms remain aliases because query text is persisted.
+	if got := hitUUIDs(m, q, "buy && (apples || carrots)"); !sameSet(got, "a", "d") {
+		t.Fatalf("legacy operators = %v, want [a d]", got)
+	}
+}
+
 // TestGroupingParensStillGroup: only a "(" glued to a known qualifier key opens
 // a value — a standalone one keeps grouping the boolean expression.
 func TestGroupingParensStillGroup(t *testing.T) {

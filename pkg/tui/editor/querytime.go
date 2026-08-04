@@ -23,7 +23,8 @@ import (
 //	in(<node link>)                            limit results to a subtree (default: root)
 //	as(tree) · as(list)                        display (default list)
 //	-x                                         negate the atom that follows
-//	ops:               ||   &&   >   ( … )
+//	boolean:           and(query1, query2) · or(query1, query2)
+//	ops (legacy):       ||   &&   >   ( … )
 //
 // A "(" only opens a value when it is glued to a known qualifier key, so a
 // standalone "(project || release)" still groups the boolean expression.
@@ -379,6 +380,9 @@ const (
 	tokNot
 	tokLParen
 	tokRParen
+	tokComma
+	tokAndCall
+	tokOrCall
 	tokType
 	tokAfter
 	tokBefore
@@ -412,7 +416,7 @@ func splitQueryFields(raw string) []qField {
 		switch {
 		case unicode.IsSpace(runes[i]):
 			i++
-		case runes[i] == '(' || runes[i] == ')':
+		case runes[i] == '(' || runes[i] == ')' || runes[i] == ',':
 			out = append(out, qField{text: string(runes[i])})
 			i++
 		case runes[i] == '-' && i+1 < len(runes) && !unicode.IsSpace(runes[i+1]) &&
@@ -438,7 +442,7 @@ func splitQueryFields(raw string) []qField {
 		default:
 			j := i
 			for j < len(runes) && !unicode.IsSpace(runes[j]) &&
-				runes[j] != '(' && runes[j] != ')' && runes[j] != '"' {
+				runes[j] != '(' && runes[j] != ')' && runes[j] != ',' && runes[j] != '"' {
 				j++
 			}
 			word := string(runes[i:j])
@@ -446,11 +450,21 @@ func splitQueryFields(raw string) []qField {
 			// not a grouping group. The value may then contain spaces — which is
 			// the point of the bracket form, since "after(jun 20)" says something
 			// "after:jun 20" could not say at all.
-			if j < len(runes) && runes[j] == '(' && isQualifierKey(word) {
-				value, end := scanBracketValue(runes, j)
-				out = append(out, qField{text: value, key: strings.ToLower(word)})
-				i = end
-				continue
+			if j < len(runes) && runes[j] == '(' {
+				if isQualifierKey(word) {
+					value, end := scanBracketValue(runes, j)
+					out = append(out, qField{text: value, key: strings.ToLower(word)})
+					i = end
+					continue
+				}
+				// Boolean functions keep their contents as ordinary query syntax;
+				// only the glued function head is special.
+				switch strings.ToLower(word) {
+				case "and", "or":
+					out = append(out, qField{text: strings.ToLower(word) + "("})
+					i = j + 1
+					continue
+				}
 			}
 			out = append(out, qField{text: word})
 			i = j
@@ -582,6 +596,15 @@ func tokenizeQuery(raw string, now time.Time) (toks []qTok, breadcrumb bool, ok 
 		case ")":
 			toks = append(toks, qTok{kind: tokRParen})
 			continue
+		case ",":
+			toks = append(toks, qTok{kind: tokComma})
+			continue
+		case "and(":
+			toks = append(toks, qTok{kind: tokAndCall})
+			continue
+		case "or(":
+			toks = append(toks, qTok{kind: tokOrCall})
+			continue
 		case ":tree:", ":tree":
 			continue // removed display flag — ignore rather than search for it
 		}
@@ -652,7 +675,7 @@ func parseQuery(raw string, now time.Time) parsedQuery {
 //	and  = pipe ( '&&' pipe )*
 //	pipe = implicit ( '>' implicit )*
 //	implicit = primary+          // adjacent primaries AND together; words glue
-//	primary  = '-'* ( '(' or ')' | atom )
+//	primary  = '-'* ( '(' or ')' | and-call | or-call | atom )
 type qParser struct {
 	toks []qTok
 	pos  int
@@ -770,7 +793,7 @@ func (p *qParser) parseImplicitAnd() qExpr {
 			break
 		}
 		switch t.kind {
-		case tokOr, tokAnd, tokPipe, tokRParen:
+		case tokOr, tokAnd, tokPipe, tokRParen, tokComma:
 			flushWords()
 			goto done
 		case tokWord:
@@ -815,6 +838,36 @@ func (p *qParser) parsePrimary() qExpr {
 			p.take()
 		}
 		return inner
+	case tokAndCall, tokOrCall:
+		var args []qExpr
+		for {
+			if next, exists := p.peek(); !exists || next.kind == tokRParen {
+				if exists {
+					p.take()
+				}
+				break
+			}
+			if arg := p.parseOr(); arg != nil {
+				args = append(args, arg)
+			}
+			next, exists := p.peek()
+			if !exists {
+				break
+			}
+			if next.kind == tokComma {
+				p.take()
+				continue
+			}
+			if next.kind == tokRParen {
+				p.take()
+				break
+			}
+			break
+		}
+		if t.kind == tokAndCall {
+			return &qAnd{kids: args}
+		}
+		return &qOr{kids: args}
 	case tokTag:
 		return &qText{s: t.text, isTag: true}
 	case tokSemantic:
