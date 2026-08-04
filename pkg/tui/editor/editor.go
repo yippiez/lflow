@@ -999,7 +999,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //
 //   - EDITS act on the one real node. The rows shown through a mirror are the
 //     real items, so a structural edit mutates the original and reflects in every
-//     mirror at once.
+//     mirror at once. TEXT edits go the same way, through editTarget: typing on a
+//     mirror row types into the source, because the text on that row IS the
+//     source's text.
 //   - NAVIGATION stays local. After an edit the cursor is restored by (item, ctx)
 //     via findRow, so it stays in the mirror view the user is working in rather
 //     than jumping to the original copy.
@@ -1007,9 +1009,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Per-key behaviour, all expressed through the fields below:
 //
 //	enter      · editable is false on a mirror reference, so Enter does not split
-//	             its text; it opens an empty sibling. Locked nodes (readonly) also
-//	             skip the split — newline only. Otherwise it splits at the caret.
-//	             The cursor is restored into ctx.
+//	             its text; it opens an empty sibling. Splitting would tear one
+//	             node's words across two PLACES — the prefix staying at the source
+//	             and the suffix landing beside the mirror — which is the one edit
+//	             "same node everywhere" cannot express. Locked nodes (readonly)
+//	             also skip the split — newline only. Otherwise it splits at the
+//	             caret. The cursor is restored into ctx.
 //	tab        · indenting under a mirror attaches the child to the mirror's
 //	             source; indentInto names that mirror so the cursor follows into
 //	             its view instead of snapping back to the original.
@@ -1021,16 +1026,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //	reorder    · alt+shift+up/down move the real node among its siblings; the
 //	             cursor is restored into ctx.
 //	collapse   · fold/unfold counts the resolved children and restores into ctx.
-//	ctrl+t     · the date pill only converts on an editable node, never a mirror
-//	             reference.
+//	ctrl+t     · the date pill converts through editTarget, so it works on a
+//	             mirror and lands on the source.
 //	zoom       · alt/ctrl+right into a mirror enters its source node so the
 //	             original's children render rather than the empty reference.
 //	delete     · removing a node drops it from the original AND every mirror at
 //	             once, so the row set can shrink by more than one — clampCursor
 //	             reclamps after any manual cursor nudge.
 type mirrorContext struct {
-	ctx        *item // the mirror the cursor sits under, nil at the original location
-	editable   bool  // false on a mirror reference: its text is edited at the source
+	ctx *item // the mirror the cursor sits under, nil at the original location
+	// editable governs the one edit that is about PLACEMENT rather than text:
+	// whether Enter splits this row. False on a mirror reference. Text edits ask
+	// editTarget instead, and a mirror answers yes to those.
+	editable   bool
 	localRoot  *item // outdent boundary: the mirror's source, else the view root
 	indentInto *item // the mirror a Tab would indent under, so the cursor follows it
 }
@@ -1060,6 +1068,48 @@ func (m *Model) mirrorContext() mirrorContext {
 		localRoot:  localRoot,
 		indentInto: indentInto,
 	}
+}
+
+// editTarget is the node a CONTENT edit acts on from the row under the cursor —
+// typing, backspace, word delete, a chip, a style — or nil when this row's text
+// is not yours to change.
+//
+// A mirror is the same node seen twice, so editing one through the other is the
+// only behaviour that matches what the row says: the text you are looking at IS
+// the source's text, and a keystroke lands on the source while the cursor stays
+// where you are working. Everything else about the mirror — where it sits, what
+// it indents under, what Enter creates next to it — belongs to the placement,
+// not the source; only the words travel.
+//
+// Nil is for rows that are FIXED rather than merely elsewhere: a materialized
+// query result (the query owns it and rewrites it), a Zotero mirror (Zotero owns
+// it), a locked node, and a type with no inline text at all (json, code — those
+// have their own editor behind ⌥e). Those rows still take a cursor and still
+// draw a caret; the keystroke simply does nothing.
+func (m *Model) editTarget() *item {
+	return m.editTargetOf(m.cursorItem())
+}
+
+// caretText is the text the caret moves through on a row: what that row DRAWS,
+// which for a mirror is the source's name and not the mirror's own empty one.
+// Measuring against the empty string is what used to pin the caret at column 0
+// on every mirrored row — the caret could not move along words it could see.
+func (m *Model) caretText(it *item) string {
+	if it == nil {
+		return ""
+	}
+	return m.tree.displayName(it)
+}
+
+func (m *Model) editTargetOf(cur *item) *item {
+	if cur == nil || cur.queryGenerated() || zoteroMirrored(cur) {
+		return nil
+	}
+	src := m.tree.resolve(cur)
+	if src == nil || src.readonly || !typeOf(src.typ).inlineEditable {
+		return nil
+	}
+	return src
 }
 
 // linkChipTrigger reports whether "[[" should open the link picker on this type.
@@ -1514,7 +1564,7 @@ func (m *Model) caretAtColumn(starts []int, line, col int) int {
 
 func (m *Model) clampCaret() {
 	if cur := m.cursorItem(); cur != nil {
-		runes := []rune(cur.name)
+		runes := []rune(m.caretText(cur))
 		if m.caret > len(runes) {
 			m.caret = len(runes)
 		}

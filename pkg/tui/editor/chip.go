@@ -313,7 +313,7 @@ func linkChipLabel(c database.Chip) string {
 // is exempt: its "#" is a shell comment, its "$" a variable, both the command's
 // own syntax (see bashLiteralRow).
 func (m *Model) chipifyBeforeCaret(cur *item) bool {
-	if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly || !chipsEnabled(cur) {
+	if cur = m.editTargetOf(cur); cur == nil || !chipsEnabled(cur) {
 		return false
 	}
 	if bashLiteralRow(cur) {

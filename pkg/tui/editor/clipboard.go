@@ -132,9 +132,10 @@ func (m *Model) copyCutRun(cur *item, lo, hi int, cut bool, verb string) {
 		return
 	}
 	if cut {
-		if cur.mirrorOf != "" || cur.readonly || !typeOf(cur.typ).inlineEditable {
-			// a mirror reference is edited at its source, json/code only in their
-			// own editor — the copy stands, the cut does not happen
+		tgt := m.editTargetOf(cur)
+		if tgt == nil {
+			// a fixed row: json/code are edited only in their own editor, a query
+			// result belongs to its query — the copy stands, the cut does not happen
 			m.flash = "yanked · this node's text is not cut here"
 			return
 		}
@@ -144,9 +145,9 @@ func (m *Model) copyCutRun(cur *item, lo, hi int, cut bool, verb string) {
 				m.deleteChipID(sp.id)
 			}
 		}
-		cur.name = string(runes[:lo]) + string(runes[hi:])
-		shiftSpans(cur.uuid, lo, lo-hi)
-		m.persistSpans(cur.uuid)
+		tgt.name = string(runes[:lo]) + string(runes[hi:])
+		shiftSpans(tgt.uuid, lo, lo-hi)
+		m.persistSpans(tgt.uuid)
 		m.caret = lo
 		m.unsaved = true
 	}

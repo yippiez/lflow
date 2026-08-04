@@ -53,13 +53,16 @@ type "src"
 wait_for "src"
 send Enter
 
-wait_for "src · mirror"
+wait_for "· mirror"
 assert_contains "○ src"
 assert_contains "╰─ ○ kid"
 
 # --- Cursor onto the through-row of kid under the mirror -------------------
 # Rows: src, kid (orig), mirror header, kid (through) → 4/4.
-# Cursor is on the mirror after /mirror:from; one Down lands on through-kid.
+# Cursor is on the mirror after /mirror:from. A mirror is an ordinary editable
+# row now, so — like every other row — the first Down parks the caret at the end
+# of the text it shows and the next one crosses to through-kid.
+send End
 send Down
 wait_for "4/4"
 
@@ -69,7 +72,7 @@ send BTab
 # kid left the source: three top-level rows, none indented, no through copy.
 wait_for "3/3"
 assert_contains "○ src"
-assert_contains "src · mirror"
+assert_contains "· mirror"
 assert_contains "○ kid"
 assert_not_contains "╰─ ○ kid"
 assert_not_contains "├─ ○ kid"

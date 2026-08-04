@@ -184,7 +184,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			caret := -1
 			// only a named divider carries a caret slot on the rule — an empty
 			// one stays a clean rule (the red rule is itself the selection cue)
-			if selected && name != "" && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
+			if selected && name != "" && m.mode != modeNote && m.mode != modeFlash {
 				caret = m.caret
 			}
 			body := renderBody(shown, name, caret, selected, m.chips)
@@ -248,8 +248,13 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 		}
 		name := m.tree.displayName(it)
 
+		// The caret is drawn on EVERY selected row, including the ones that refuse
+		// to be edited. A row you can put the cursor on and cannot see the cursor
+		// on reads as a row the editor has lost track of; where the caret sits is
+		// how you know which character the next key is aimed at, and a fixed row
+		// still answers that question — with "nothing happens".
 		caret := -1
-		if selected && m.mode != modeNote && m.mode != modeFlash && it.mirrorOf == "" {
+		if selected && m.mode != modeNote && m.mode != modeFlash {
 			caret = m.caret
 		}
 		body := renderBody(shown, name, caret, selected, m.chips)

@@ -440,11 +440,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// key — the terminal sends the same byte as ctrl+backspace, so node-delete is
 	// ctrl+d, not a backspace combo).
 	case "ctrl+backspace", "ctrl+h", "ctrl+w":
-		cur := m.cursorItem()
-		if cur == nil || cur.mirrorOf != "" || !typeOf(cur.typ).inlineEditable || cur.readonly {
+		tgt := m.editTarget()
+		if tgt == nil {
 			return m, nil
 		}
-		runes := []rune(cur.name)
+		runes := []rune(tgt.name)
 		if m.boundCaret(len(runes)) == 0 {
 			return m, nil
 		}
@@ -452,7 +452,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// caret right after a chip → delete just that chip
 		if sp := spanEndingAt(spans, m.caret); sp != nil {
 			m.deleteChipID(sp.id)
-			cur.name = string(runes[:sp.start]) + string(runes[sp.end:])
+			tgt.name = string(runes[:sp.start]) + string(runes[sp.end:])
 			m.caret = sp.start
 			m.unsaved = true
 			return m, nil
@@ -466,9 +466,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.deleteChipID(sp.id)
 			}
 		}
-		cur.name = string(runes[:target]) + string(runes[m.caret:])
-		shiftSpans(cur.uuid, target, target-m.caret)
-		m.persistSpans(cur.uuid)
+		tgt.name = string(runes[:target]) + string(runes[m.caret:])
+		shiftSpans(tgt.uuid, target, target-m.caret)
+		m.persistSpans(tgt.uuid)
 		m.caret = target
 		m.unsaved = true
 		return m, nil
@@ -477,19 +477,19 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// then chips it); with no date phrase there, convert a bare URL under the
 		// cursor straight into a link chip instead — neither ever happens just from
 		// typing, only this explicit key (see the status-bar hint in view.go).
-		if cur := m.cursorItem(); cur != nil && m.mirrorContext().editable {
-			if d := detectDate(cur.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
-				runes := []rune(cur.name)
+		if tgt := m.editTarget(); tgt != nil {
+			if d := detectDate(tgt.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
+				runes := []rune(tgt.name)
 				date := d.canonical()
-				cur.name = string(runes[:d.start]) + date + string(runes[d.end:])
+				tgt.name = string(runes[:d.start]) + date + string(runes[d.end:])
 				m.caret = d.start + len([]rune(date))
 				m.unsaved = true
-			} else if u := detectURLNear(cur.name, m.caret); u != nil && chipsEnabled(cur) {
+			} else if u := detectURLNear(tgt.name, m.caret); u != nil && chipsEnabled(tgt) {
 				value := browser.Normalize(u.raw)
 				anchor := m.createLabeledChip(chipKindLink, value, urlChipLabel(value))
 				if anchor != "" {
-					runes := []rune(cur.name)
-					cur.name = string(runes[:u.start]) + anchor + string(runes[u.end:])
+					runes := []rune(tgt.name)
+					tgt.name = string(runes[:u.start]) + anchor + string(runes[u.end:])
 					m.caret = u.start + len([]rune(anchor))
 					m.unsaved = true
 				}
@@ -540,7 +540,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur == nil {
 			return m, nil
 		}
-		runes := []rune(cur.name)
+		runes := []rune(m.caretText(cur))
 		if m.caret >= len(runes) {
 			if m.cursor < len(m.rows)-1 {
 				m.cursor++
@@ -563,12 +563,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.cursor > 0 {
 				m.cursor--
 				if c := m.cursorItem(); c != nil {
-					m.caret = len([]rune(c.name))
+					m.caret = len([]rune(m.caretText(c)))
 				}
 			}
 			return m, nil
 		}
-		runes := []rune(cur.name)
+		runes := []rune(m.caretText(cur))
 		m.caret = prevWordBoundary(runes, m.caret)
 		if sp := spanContaining(anchorSpans(runes), m.caret); sp != nil {
 			m.caret = sp.start // a chip is atomic
@@ -865,10 +865,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// walk down one visual line of the wrapped node first
 			goal := m.caretColumn(starts, line)
 			m.caret = m.caretAtColumn(starts, line+1, goal)
-		} else if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(cur.name)) {
+		} else if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(m.caretText(cur))) {
 			// on the last visual line: snap the caret to the end of this node's
 			// text first — the next down press crosses to the next node
-			m.caret = len([]rune(cur.name))
+			m.caret = len([]rune(m.caretText(cur)))
 		} else if m.cursor < len(m.rows)-1 {
 			// from the last visual line, cross to the next node and land on its
 			// first visual line, keeping the horizontal column
@@ -886,7 +886,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.caret--
 			// a chip anchor is atomic: if the step landed inside one, jump to its start
 			if cur := m.cursorItem(); cur != nil {
-				if sp := spanContaining(anchorSpans([]rune(cur.name)), m.caret); sp != nil {
+				if sp := spanContaining(anchorSpans([]rune(m.caretText(cur))), m.caret); sp != nil {
 					m.caret = sp.start
 				}
 			}
@@ -894,16 +894,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// at the start of a node, cross to the previous node and land at its end
 			m.cursor--
 			if c := m.cursorItem(); c != nil {
-				m.caret = len([]rune(c.name))
+				m.caret = len([]rune(m.caretText(c)))
 			}
 		}
 		return m, nil
 	case "right":
 		cur := m.cursorItem()
-		if cur != nil && m.caret < len([]rune(cur.name)) {
+		if cur != nil && m.caret < len([]rune(m.caretText(cur))) {
 			m.caret++
 			// a chip anchor is atomic: if the step landed inside one, jump past it
-			if sp := spanContaining(anchorSpans([]rune(cur.name)), m.caret); sp != nil {
+			if sp := spanContaining(anchorSpans([]rune(m.caretText(cur))), m.caret); sp != nil {
 				m.caret = sp.end
 			}
 		} else if cur != nil && m.cursor < len(m.rows)-1 {
@@ -927,7 +927,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur == nil {
 			return m, nil
 		}
-		runes := []rune(cur.name)
+		runes := []rune(m.caretText(cur))
 		starts := m.selectedVisualRows()
 		line := caretVisualLine(starts, m.caret)
 		if line+1 >= len(starts) {
@@ -954,27 +954,30 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		cur := m.cursorItem()
-		// a mirror reference is edited at its original — see mirrorContext
-		if cur == nil || cur.mirrorOf != "" {
+		if cur == nil {
 			return m, nil
 		}
-		if !typeOf(cur.typ).inlineEditable || cur.readonly {
-			return m, nil // e.g. json — edited only in the alt+e editor; or a locked node
+		// text belongs to the node the row SHOWS — the source, when the row is a
+		// mirror of one; a fixed row (query result, Zotero, locked, json) has no
+		// edit target at all and swallows the key. See editTarget.
+		tgt := m.editTargetOf(cur)
+		if tgt == nil {
+			return m, nil
 		}
-		if runes := []rune(cur.name); m.boundCaret(len(runes)) > 0 {
+		if runes := []rune(tgt.name); m.boundCaret(len(runes)) > 0 {
 			// backspace at a chip anchor's end deletes the whole chip (anchor + record)
 			if sp := spanEndingAt(anchorSpans(runes), m.caret); sp != nil {
 				m.deleteChipID(sp.id)
-				cur.name = string(runes[:sp.start]) + string(runes[sp.end:])
-				shiftSpans(cur.uuid, sp.start, sp.start-sp.end)
-				m.persistSpans(cur.uuid)
+				tgt.name = string(runes[:sp.start]) + string(runes[sp.end:])
+				shiftSpans(tgt.uuid, sp.start, sp.start-sp.end)
+				m.persistSpans(tgt.uuid)
 				m.caret = sp.start
 				m.unsaved = true
 				return m, nil
 			}
-			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
-			shiftSpans(cur.uuid, m.caret-1, -1)
-			m.persistSpans(cur.uuid)
+			tgt.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			shiftSpans(tgt.uuid, m.caret-1, -1)
+			m.persistSpans(tgt.uuid)
 			m.caret--
 			m.unsaved = true
 			return m, nil
@@ -1071,7 +1074,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// is cancelled, so esc restores the name to what it was before.
 		// alt+P (alt+shift+p) opens the same menu without inserting "/" (see openSlashMenu).
 		if string(k.Runes) == "/" && !k.Paste {
-			m.openSlashMenu(cur.mirrorOf == "" && !cur.readonly)
+			m.openSlashMenu(m.editTargetOf(cur) != nil)
 			return m, nil
 		}
 
@@ -1079,11 +1082,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// finder where you pick a node or type/paste a URL. It has no
 		// cancel-to-literal path, so it stays off where "[" is real syntax (bash
 		// test brackets, code, query, quote, json).
-		if string(k.Runes) == "[" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '[') {
-			runes := []rune(cur.name)
+		if tgt := m.editTargetOf(cur); tgt != nil && string(k.Runes) == "[" && !k.Paste &&
+			linkChipTrigger(tgt.typ) && runeBeforeCaretIs(tgt, m.caret, '[') {
+			runes := []rune(tgt.name)
 			m.boundCaret(len(runes))
-			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			tgt.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
 			m.caret--
 			m.unsaved = true
 			m.openFinder(actLinkInsert)
@@ -1093,11 +1096,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// "((" opens the mirror finder: the second "(" drops the first, mirroring
 		// the [[ gesture but creating a structural mirror rather than an inline link.
 		// Keep it off rows where parentheses are syntax (bash/code/query/math/json).
-		if string(k.Runes) == "(" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '(') {
-			runes := []rune(cur.name)
+		if tgt := m.editTargetOf(cur); tgt != nil && string(k.Runes) == "(" && !k.Paste &&
+			linkChipTrigger(tgt.typ) && runeBeforeCaretIs(tgt, m.caret, '(') {
+			runes := []rune(tgt.name)
 			m.boundCaret(len(runes))
-			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			tgt.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
 			m.caret--
 			m.unsaved = true
 			m.openFinder(actMirrorHere)
@@ -1109,11 +1112,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// always literal — "$i", "$(seq …)" and "$HOME" are shell syntax that type
 		// normally in a bash node, never a chip. There is no cancel path, matching
 		// "[["; /insert → cmd is the other way in.
-		if string(k.Runes) == "$" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			chipsEnabled(cur) && runeBeforeCaretIs(cur, m.caret, '$') {
-			runes := []rune(cur.name)
+		if tgt := m.editTargetOf(cur); tgt != nil && string(k.Runes) == "$" && !k.Paste &&
+			chipsEnabled(tgt) && runeBeforeCaretIs(tgt, m.caret, '$') {
+			runes := []rune(tgt.name)
 			m.boundCaret(len(runes))
-			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			tgt.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
 			m.caret--
 			m.unsaved = true
 			if anchor := m.createChip(chipKindCmd, ""); anchor != "" {
@@ -1127,11 +1130,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Zotero library search, exactly like "[[" opens the link picker. A single
 		// "@" always stays literal (an email address, a handle), which is why the
 		// gesture is doubled.
-		if string(k.Runes) == "@" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '@') {
-			runes := []rune(cur.name)
+		if tgt := m.editTargetOf(cur); tgt != nil && string(k.Runes) == "@" && !k.Paste &&
+			linkChipTrigger(tgt.typ) && runeBeforeCaretIs(tgt, m.caret, '@') {
+			runes := []rune(tgt.name)
 			m.boundCaret(len(runes))
-			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			tgt.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
 			m.caret--
 			m.unsaved = true
 			return m.openCitePicker(citeChip)
@@ -1143,25 +1146,24 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// normally; tags skip bash/code where "#" is a comment. Typing a digit or
 		// special char right after "#" closes the completer again, so "#1" stays a
 		// literal "number one". Query nodes reach icons via /insert → icon (see insertChip).
-		if string(k.Runes) == "#" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			tagPickerTrigger(cur.typ) && atWordStart(cur, m.caret) {
-			return m.openCompleter(cur, complTag, "#")
+		if tgt := m.editTargetOf(cur); tgt != nil && string(k.Runes) == "#" && !k.Paste &&
+			tagPickerTrigger(tgt.typ) && atWordStart(tgt, m.caret) {
+			return m.openCompleter(tgt, complTag, "#")
 		}
-		if string(k.Runes) == ":" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
-			atWordStart(cur, m.caret) {
-			if cur.typ == database.TypeQuery {
-				return m.openCompleter(cur, complQueryCmd, ":")
+		if tgt := m.editTargetOf(cur); tgt != nil && string(k.Runes) == ":" && !k.Paste &&
+			atWordStart(tgt, m.caret) {
+			if tgt.typ == database.TypeQuery {
+				return m.openCompleter(tgt, complQueryCmd, ":")
 			}
-			if typeOf(cur.typ).inlineEditable {
-				return m.openIconPicker(cur)
-			}
+			return m.openIconPicker(tgt)
 		}
-		if cur.mirrorOf != "" {
-			return m, nil // a mirror reference is edited at its original — see mirrorContext
+		// a fixed row (query result, Zotero, locked, json) takes the key and does
+		// nothing with it; a mirror of an ordinary node types into its source
+		tgt := m.editTargetOf(cur)
+		if tgt == nil {
+			return m, nil
 		}
-		if !typeOf(cur.typ).inlineEditable || cur.readonly {
-			return m, nil // e.g. json — edited only in the alt+e editor; or a locked node (slash above still works)
-		}
+		cur = tgt
 
 		text := string(k.Runes)
 		if k.Paste {

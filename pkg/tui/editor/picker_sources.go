@@ -359,7 +359,9 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		if len(targets) > 0 {
 			m.pushUndo("")
 			for _, t := range targets {
-				if t.readonly || t.mirrorOf != "" {
+				// a mirror styles the node it shows, like every other content edit
+				t = m.editTargetOf(t)
+				if t == nil {
 					continue
 				}
 				// re-picking Todo on a Todo toggles back to Bullet (the default)
@@ -398,7 +400,7 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 type styleSource struct{}
 
 func (styleSource) items(m *Model, q string) []pickerItem {
-	cur := m.cursorItem()
+	cur := m.renderItem(m.cursorItem()) // a mirror shows the source's style
 	ql := strings.ToLower(q)
 	out := make([]pickerItem, 0, len(stylePickerItems))
 	for _, sp := range stylePickerItems {
@@ -436,7 +438,7 @@ func (styleSource) header(m *Model, p *listPicker) string {
 }
 
 func (styleSource) initialSel(m *Model) int {
-	cur := m.cursorItem()
+	cur := m.renderItem(m.cursorItem())
 	if cur == nil {
 		return 0
 	}
@@ -477,7 +479,10 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 				continue
 			}
 			for _, t := range targets {
-				if t.readonly || t.mirrorOf != "" {
+				// a mirror styles the node it SHOWS: the color belongs to the one
+				// real node, so it lands everywhere that node appears
+				t = m.editTargetOf(t)
+				if t == nil {
 					continue
 				}
 				if sp.kind == "toggle" {

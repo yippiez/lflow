@@ -66,13 +66,19 @@ send Enter         # select src -> empty node becomes "src · mirror"
 # Mirror is created; cursor is on the mirror node. A mirror wears no glyph of
 # its own — it keeps the type glyph and says what it is in the dim suffix — so
 # "a" now appears twice: once in src, once through the mirror.
-wait_for "○ src · mirror"
+wait_for "· mirror"
 assert_count "○ a" 2
 
 # Navigate DOWN from the mirror header into the child shown through the mirror.
 # This is the node we will edit through the mirror to trigger the
-# cursor-locality bug.
+# cursor-locality bug. A mirror is an ordinary editable row now, so End parks the
+# caret at the end of its text first — otherwise Down does that instead of moving,
+# the same as on any other row.
+send End
 send Down
+# ...and Home puts the caret back at the start of "a", which is what makes the
+# Enter below insert BEFORE it — the row layout the assertions at the end expect.
+send Home
 
 # Confirm cursor is on "a" shown through the mirror, after the mirror row.
 wait_for "4/4"   # 4 rows: src, a-orig, mirror-header, a-through-mirror
@@ -93,7 +99,7 @@ type "M"
 # M must appear in BOTH places: the original src subtree and through the mirror.
 wait_for "○ M"
 assert_count "○ M" 2
-assert_contains "○ src · mirror"
+assert_contains "· mirror"
 
 # --- Core regression assertion ---
 # The rows after the operation are:

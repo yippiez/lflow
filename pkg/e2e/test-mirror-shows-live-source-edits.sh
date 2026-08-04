@@ -56,8 +56,10 @@ wait_for "/mirror:from" 5
 # "source" is the only saved node; select it with Enter
 send Enter
 # wait for the mirror glyph to appear
-wait_for "○ source · mirror" 5
-assert_contains "○ source · mirror"
+# the selected mirror row draws a caret between the name and the suffix now,
+# so match the suffix rather than the exact spacing around it
+wait_for "· mirror" 5
+assert_contains "· mirror"
 
 # ── step 5: navigate to source and append to its note (unsaved) ─────────────
 send Up
@@ -75,7 +77,7 @@ wait_for "○ source"
 
 # ── step 6: navigate to the mirror ──────────────────────────────────────────
 send Down
-wait_for "○ source · mirror" 5
+wait_for "· mirror" 5
 
 # ── step 7: assert the mirror's note band shows the live note ───────────────
 # Capture the pane and find the line number of the mirror row.
@@ -83,9 +85,9 @@ wait_for "○ source · mirror" 5
 # In the buggy version, the mirror's note band was absent (stale mirror.note="")
 # so nothing appeared below the "○ source · mirror" line, and the check below would fail.
 pane="$(snapshot)"
-mirror_line="$(printf '%s\n' "${pane}" | grep -n '○ source · mirror' | head -1 | cut -d: -f1)"
+mirror_line="$(printf '%s\n' "${pane}" | grep -n '· mirror' | head -1 | cut -d: -f1)"
 if [[ -z "${mirror_line}" ]]; then
-    fail "could not find mirror row '○ source · mirror' in pane"
+    fail "could not find the mirror row in pane"
 fi
 note_below="$(printf '%s\n' "${pane}" | awk -v m="${mirror_line}" 'NR > m' | grep -F "init note LIVE" || true)"
 if [[ -z "${note_below}" ]]; then

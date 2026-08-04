@@ -21,7 +21,11 @@ var nodeSpans = map[string][]database.NodeSpan{}
 // the whole-node picker, an attribute already on (or the color already in
 // effect) is taken back off, so re-picking is the unstyle.
 func (m *Model) applyStyleToSpan(cur *item, lo, hi int, value string) {
-	if cur == nil || value == "" || hi <= lo || cur.readonly || cur.mirrorOf != "" {
+	if value == "" || hi <= lo {
+		return
+	}
+	// a mirror's text belongs to its source, so the span does too
+	if cur = m.editTargetOf(cur); cur == nil {
 		return
 	}
 	m.pushUndo("")
