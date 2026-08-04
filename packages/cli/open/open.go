@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
 	"github.com/lflow/lflow/packages/editor"
@@ -14,7 +14,7 @@ import (
 )
 
 // NewCmd returns a new open command
-func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+func NewCmd(ctx app.Ctx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "open [node]",
 		Short: "Open the inline editor on a node, or the root when no node is given",

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/database"
 )
 
@@ -168,7 +168,7 @@ func forestModel(t *testing.T) (*Model, *database.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := &Model{db: db, ctx: context.DnoteCtx{DB: db}, tree: tr,
+	m := &Model{db: db, ctx: app.Ctx{DB: db}, tree: tr,
 		viewStack: []*item{tr.root}, width: 80, height: 24,
 		chips: map[string]database.Chip{}}
 	m.refreshRows()

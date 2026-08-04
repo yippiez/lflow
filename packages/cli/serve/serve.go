@@ -20,7 +20,7 @@ import (
 // idleExit is how long the background daemon lingers with no clients.
 const idleExit = 10 * time.Minute
 
-// NewCmd builds the serve command. It does not take a DnoteCtx: the daemon
+// NewCmd builds the serve command. It does not take an app.Ctx: the daemon
 // must never route through a daemon, so it resolves the database itself.
 func NewCmd(versionTag string) *cobra.Command {
 	var (

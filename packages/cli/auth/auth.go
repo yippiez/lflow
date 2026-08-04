@@ -3,7 +3,7 @@
 package auth
 
 import (
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/spf13/cobra"
 )
 
@@ -11,7 +11,7 @@ import (
 //
 // The Colab provider (formerly `auth colab`) and its from-scratch runtime were
 // removed; provider auth will be reintroduced via a library.
-func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+func NewCmd(ctx app.Ctx) *cobra.Command {
 	return &cobra.Command{
 		Use:   "auth",
 		Short: "Authenticate lflow with external providers",

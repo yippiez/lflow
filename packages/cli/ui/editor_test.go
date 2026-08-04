@@ -5,14 +5,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/utils/assert"
 	"github.com/pkg/errors"
 )
 
 func TestGetTmpContentPath(t *testing.T) {
 	t.Run("no collision", func(t *testing.T) {
-		ctx := context.InitTestCtx(t)
+		ctx := app.InitTestCtx(t)
 
 		res, err := GetTmpContentPath(ctx.Paths.Cache)
 		if err != nil {
@@ -25,7 +25,7 @@ func TestGetTmpContentPath(t *testing.T) {
 
 	t.Run("one existing session", func(t *testing.T) {
 		// set up
-		ctx := context.InitTestCtx(t)
+		ctx := app.InitTestCtx(t)
 
 		p := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "LFLOW_TMPCONTENT_0.md")
 		if _, err := os.Create(p); err != nil {
@@ -45,7 +45,7 @@ func TestGetTmpContentPath(t *testing.T) {
 
 	t.Run("two existing sessions", func(t *testing.T) {
 		// set up
-		ctx := context.InitTestCtx(t)
+		ctx := app.InitTestCtx(t)
 
 		p1 := fmt.Sprintf("%s/%s", ctx.Paths.Cache, "LFLOW_TMPCONTENT_0.md")
 		if _, err := os.Create(p1); err != nil {

@@ -1,4 +1,4 @@
-package context
+package app
 
 import (
 	"path/filepath"
@@ -23,7 +23,7 @@ func getDefaultTestPaths(t *testing.T) Paths {
 
 // InitTestCtx initializes a test context with an in-memory database
 // and a temporary directory for all paths
-func InitTestCtx(t *testing.T) DnoteCtx {
+func InitTestCtx(t *testing.T) Ctx {
 	paths := getDefaultTestPaths(t)
 	db := database.InitTestMemoryDB(t)
 
@@ -31,7 +31,7 @@ func InitTestCtx(t *testing.T) DnoteCtx {
 		t.Fatal(errors.Wrap(err, "creating test directories"))
 	}
 
-	return DnoteCtx{
+	return Ctx{
 		DB:    db,
 		Paths: paths,
 		Clock: clock.NewMock(), // Use a mock clock to test times
@@ -41,14 +41,14 @@ func InitTestCtx(t *testing.T) DnoteCtx {
 // InitTestCtxWithDB initializes a test context with the provided database
 // and a temporary directory for all paths.
 // Used when you need full control over database initialization (e.g. migration tests).
-func InitTestCtxWithDB(t *testing.T, db *database.DB) DnoteCtx {
+func InitTestCtxWithDB(t *testing.T, db *database.DB) Ctx {
 	paths := getDefaultTestPaths(t)
 
 	if err := InitLflowDirs(paths); err != nil {
 		t.Fatal(errors.Wrap(err, "creating test directories"))
 	}
 
-	return DnoteCtx{
+	return Ctx{
 		DB:    db,
 		Paths: paths,
 		Clock: clock.NewMock(), // Use a mock clock to test times
@@ -57,7 +57,7 @@ func InitTestCtxWithDB(t *testing.T, db *database.DB) DnoteCtx {
 
 // InitTestCtxWithFileDB initializes a test context with a file-based database
 // at the expected path.
-func InitTestCtxWithFileDB(t *testing.T) DnoteCtx {
+func InitTestCtxWithFileDB(t *testing.T) Ctx {
 	paths := getDefaultTestPaths(t)
 
 	if err := InitLflowDirs(paths); err != nil {
@@ -76,7 +76,7 @@ func InitTestCtxWithFileDB(t *testing.T) DnoteCtx {
 
 	t.Cleanup(func() { db.Close() })
 
-	return DnoteCtx{
+	return Ctx{
 		DB:    db,
 		Paths: paths,
 		Clock: clock.NewMock(), // Use a mock clock to test times

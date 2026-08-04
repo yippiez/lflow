@@ -19,7 +19,7 @@ const module = "github.com/lflow/lflow/"
 //
 //	0: leaf vocabularies and clients — no repo-internal imports at all
 //	1: database (the schema layer)
-//	2: daemon (owns the DB), nlp
+//	2: daemon (owns the DB), nlp, app (the process runtime)
 //	3: editor, nodes, outline codecs
 //	4: cli, cmd (the process shell)
 var layers = map[string]int{
@@ -31,6 +31,7 @@ var layers = map[string]int{
 	"packages/zotero":    1, // uses database.Open on a foreign sqlite file (debt: should be a leaf)
 	"packages/daemon":    2,
 	"packages/nlp":       2,
+	"packages/app":       2,
 	"packages/editor":    3,
 	"packages/nodes":     3,
 	"packages/cli":       4,
@@ -40,12 +41,7 @@ var layers = map[string]int{
 // grandfathered lists the upward imports that exist today. Removing an entry
 // after fixing the debt is the intended direction; adding one needs a reason
 // as good as the ones below.
-var grandfathered = map[string]bool{
-	// DnoteCtx (the process runtime: paths, DB, daemon conn) lives under
-	// cli/context; the editor takes it as its entry-point argument.
-	// Fix: move it to a low-level packages/app and rewrite imports.
-	"packages/editor -> packages/cli": true,
-}
+var grandfathered = map[string]bool{}
 
 func layerOf(pkg string) (string, int, bool) {
 	rel := strings.TrimPrefix(pkg, module)

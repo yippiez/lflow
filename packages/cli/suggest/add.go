@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/cli/ui"
 	"github.com/lflow/lflow/packages/database"
@@ -28,7 +28,7 @@ type addOptions struct {
 
 // newAddCmd returns `lflow suggest add`: propose one or more new nodes under a
 // parent. Piped stdin becomes one suggestion per line, matching `node add`.
-func newAddCmd(ctx context.DnoteCtx) *cobra.Command {
+func newAddCmd(ctx app.Ctx) *cobra.Command {
 	opts := &addOptions{}
 
 	cmd := &cobra.Command{
@@ -69,7 +69,7 @@ func readLines(args []string) ([]string, error) {
 	return nil, errors.New("no content: pass text or pipe stdin")
 }
 
-func newAddRun(ctx context.DnoteCtx, opts *addOptions) infra.RunEFunc {
+func newAddRun(ctx app.Ctx, opts *addOptions) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
 		if err := database.EnsureRoot(db); err != nil {

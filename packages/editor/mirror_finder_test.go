@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/daemon/wire"
 	"github.com/lflow/lflow/packages/database"
 )
@@ -46,7 +46,7 @@ func mirrorTestModel(t *testing.T) (*Model, *database.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := &Model{db: db, ctx: context.DnoteCtx{DB: db}, tree: tr, viewStack: []*item{tr.root}, width: 100, height: 30}
+	m := &Model{db: db, ctx: app.Ctx{DB: db}, tree: tr, viewStack: []*item{tr.root}, width: 100, height: 30}
 	m.refreshRows()
 	return m, db
 }
@@ -164,7 +164,7 @@ func zoneModel(t *testing.T) (*Model, *database.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := &Model{db: db, ctx: context.DnoteCtx{DB: db}, tree: tr, viewStack: []*item{tr.root}, width: 80, height: 24}
+	m := &Model{db: db, ctx: app.Ctx{DB: db}, tree: tr, viewStack: []*item{tr.root}, width: 80, height: 24}
 	m.refreshRows()
 	return m, db
 }

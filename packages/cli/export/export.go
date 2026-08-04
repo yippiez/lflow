@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/nodes"
@@ -18,7 +18,7 @@ type options struct {
 }
 
 // NewCmd returns a new export command
-func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+func NewCmd(ctx app.Ctx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
@@ -33,7 +33,7 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 	return cmd
 }
 
-func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
+func newRun(ctx app.Ctx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
 		if err := database.EnsureRoot(db); err != nil {

@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/spf13/cobra"
 )
@@ -30,7 +30,7 @@ var (
 )
 
 // NewCmd returns the suggest command group.
-func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+func NewCmd(ctx app.Ctx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "suggest",
 		Short: "Propose or resolve node changes",

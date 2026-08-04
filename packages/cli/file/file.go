@@ -5,12 +5,12 @@
 package file
 
 import (
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/spf13/cobra"
 )
 
 // NewCmd returns the file command group.
-func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+func NewCmd(ctx app.Ctx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "file",
 		Short: "Open supported files (.md, .py) in the node editor",

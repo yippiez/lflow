@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	tuictx "github.com/lflow/lflow/packages/cli/context"
+	tuictx "github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/database"
 )
 
@@ -13,7 +13,7 @@ import (
 // to node_output and rehydrated on the next render, so output survives a quit.
 func TestRunOutPersistsAcrossReload(t *testing.T) {
 	db := database.InitTestMemoryDB(t)
-	m := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	m := &Model{ctx: tuictx.Ctx{DB: db}}
 
 	r := m.ensureRun("b1")
 	r.out = []outLine{
@@ -24,7 +24,7 @@ func TestRunOutPersistsAcrossReload(t *testing.T) {
 	m.persistRunOut("b1")
 
 	// simulate a restart: fresh maps, nothing in memory, same DB
-	reopened := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	reopened := &Model{ctx: tuictx.Ctx{DB: db}}
 	reopened.ensureRunOutLoaded("b1")
 
 	got := reopened.run("b1").out
@@ -50,7 +50,7 @@ func TestRunOutPersistsAcrossReload(t *testing.T) {
 // TestRunOutEmptyClearsCache: a re-run that produced nothing removes stale output.
 func TestRunOutEmptyClearsCache(t *testing.T) {
 	db := database.InitTestMemoryDB(t)
-	m := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	m := &Model{ctx: tuictx.Ctx{DB: db}}
 
 	m.ensureRun("b1").out = []outLine{{text: "old"}}
 	m.persistRunOut("b1")
@@ -59,7 +59,7 @@ func TestRunOutEmptyClearsCache(t *testing.T) {
 	m.ensureRun("b1").out = nil
 	m.persistRunOut("b1")
 
-	reopened := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	reopened := &Model{ctx: tuictx.Ctx{DB: db}}
 	reopened.ensureRunOutLoaded("b1")
 	if r := reopened.run("b1"); r != nil && len(r.out) != 0 {
 		t.Errorf("stale output should be cleared, got %+v", r.out)
@@ -99,14 +99,14 @@ func TestAppendRunOutClipsLongLine(t *testing.T) {
 // reach the DB — one giant run cannot bloat a node_output row.
 func TestPersistRunOutByteBudget(t *testing.T) {
 	db := database.InitTestMemoryDB(t)
-	m := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	m := &Model{ctx: tuictx.Ctx{DB: db}}
 	line := strings.Repeat("x", maxRunLineLen)
 	for i := 0; i < 1000; i++ { // ~4MB raw, budget is 512KB
 		m.appendRunOut("b1", outLine{text: line})
 	}
 	m.persistRunOut("b1")
 
-	reopened := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	reopened := &Model{ctx: tuictx.Ctx{DB: db}}
 	reopened.ensureRunOutLoaded("b1")
 	got := len(reopened.run("b1").out)
 	if got == 0 || got >= 1000 {
@@ -161,13 +161,13 @@ func TestAltKStopsThenClears(t *testing.T) {
 // TestDeleteRunOutRemovesCache: deleting the node drops its persisted band.
 func TestDeleteRunOutRemovesCache(t *testing.T) {
 	db := database.InitTestMemoryDB(t)
-	m := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	m := &Model{ctx: tuictx.Ctx{DB: db}}
 	m.ensureRun("b1").out = []outLine{{text: "x"}}
 	m.persistRunOut("b1")
 
 	m.deleteRunOut("b1")
 
-	reopened := &Model{ctx: tuictx.DnoteCtx{DB: db}}
+	reopened := &Model{ctx: tuictx.Ctx{DB: db}}
 	reopened.ensureRunOutLoaded("b1")
 	if r := reopened.run("b1"); r != nil && len(r.out) != 0 {
 		t.Errorf("cache should be gone after delete, got %+v", r.out)

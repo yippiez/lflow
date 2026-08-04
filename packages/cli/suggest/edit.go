@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
@@ -27,7 +27,7 @@ type editOptions struct {
 // newEditCmd returns `lflow suggest edit`: propose new text, note or type for
 // an existing node. The node's current text is snapshotted so a reviewer can
 // see whether it drifted before approval.
-func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
+func newEditCmd(ctx app.Ctx) *cobra.Command {
 	opts := &editOptions{}
 
 	cmd := &cobra.Command{
@@ -48,7 +48,7 @@ func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
 	return cmd
 }
 
-func newEditRun(ctx context.DnoteCtx, opts *editOptions) infra.RunEFunc {
+func newEditRun(ctx app.Ctx, opts *editOptions) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("missing node reference")

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	tuictx "github.com/lflow/lflow/packages/cli/context"
+	tuictx "github.com/lflow/lflow/packages/app"
 )
 
 // TestVoiceRenderNilMaps guards the panic where voiceRender wrote to a nil voice
@@ -13,7 +13,7 @@ import (
 // lives in the per-node store (created on demand), so rendering must never panic.
 func TestVoiceRenderNilMaps(t *testing.T) {
 	dir := t.TempDir()
-	m := &Model{ctx: tuictx.DnoteCtx{Paths: tuictx.Paths{Data: dir}}}
+	m := &Model{ctx: tuictx.Ctx{Paths: tuictx.Paths{Data: dir}}}
 	it := &item{uuid: "v1", typ: "voice"}
 
 	// no wav on disk, all maps nil

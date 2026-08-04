@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
@@ -22,7 +22,7 @@ type listOptions struct {
 }
 
 // newListCmd returns `lflow suggest list`: the review queue, pending first.
-func newListCmd(ctx context.DnoteCtx) *cobra.Command {
+func newListCmd(ctx app.Ctx) *cobra.Command {
 	opts := &listOptions{}
 
 	cmd := &cobra.Command{
@@ -41,7 +41,7 @@ func newListCmd(ctx context.DnoteCtx) *cobra.Command {
 	return cmd
 }
 
-func newListRun(ctx context.DnoteCtx, opts *listOptions) infra.RunEFunc {
+func newListRun(ctx app.Ctx, opts *listOptions) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
 

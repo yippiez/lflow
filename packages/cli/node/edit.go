@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
@@ -27,7 +27,7 @@ type editOptions struct {
 
 // newEditCmd returns the node edit command: one command for every node
 // property — state, name, note, type, style and lock.
-func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
+func newEditCmd(ctx app.Ctx) *cobra.Command {
 	opts := &editOptions{}
 
 	cmd := &cobra.Command{
@@ -49,7 +49,7 @@ func newEditCmd(ctx context.DnoteCtx) *cobra.Command {
 	return cmd
 }
 
-func newEditRun(ctx context.DnoteCtx, opts *editOptions) func(cmd *cobra.Command, args []string) error {
+func newEditRun(ctx app.Ctx, opts *editOptions) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("missing node reference")

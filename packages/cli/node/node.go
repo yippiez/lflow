@@ -3,8 +3,8 @@
 package node
 
 import (
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/add"
-	"github.com/lflow/lflow/packages/cli/context"
 	"github.com/lflow/lflow/packages/cli/grep"
 	"github.com/lflow/lflow/packages/cli/list"
 	"github.com/lflow/lflow/packages/cli/mv"
@@ -14,7 +14,7 @@ import (
 )
 
 // NewCmd returns the node command group.
-func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+func NewCmd(ctx app.Ctx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "node",
 		Short: "Open, list, create, move, edit and delete nodes",

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/pkg/errors"
@@ -23,7 +23,7 @@ type options struct {
 }
 
 // NewCmd returns the grep command.
-func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+func NewCmd(ctx app.Ctx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
@@ -48,7 +48,7 @@ func childCount(db *database.DB, uuid string) int {
 	return n
 }
 
-func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
+func newRun(ctx app.Ctx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		query := strings.Join(args, " ")
 		db := ctx.DB

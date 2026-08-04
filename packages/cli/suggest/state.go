@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
@@ -23,7 +23,7 @@ type stateOptions struct {
 // newStateCmd returns `lflow suggest complete` or `suggest uncomplete`: a
 // reviewable state change that, like every suggestion, leaves the node untouched
 // until approval.
-func newStateCmd(ctx context.DnoteCtx, complete bool) *cobra.Command {
+func newStateCmd(ctx app.Ctx, complete bool) *cobra.Command {
 	opts := &stateOptions{}
 	verb := database.SuggestComplete
 	short := "Propose marking a node complete"
@@ -43,7 +43,7 @@ func newStateCmd(ctx context.DnoteCtx, complete bool) *cobra.Command {
 	return cmd
 }
 
-func newStateRun(ctx context.DnoteCtx, opts *stateOptions, kind string) infra.RunEFunc {
+func newStateRun(ctx app.Ctx, opts *stateOptions, kind string) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("missing node reference")

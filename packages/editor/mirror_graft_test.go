@@ -3,7 +3,7 @@ package editor
 import (
 	"testing"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/database"
 )
 
@@ -112,7 +112,7 @@ func TestUndoKeepsGraftedSubtree(t *testing.T) {
 	}
 	m := &Model{
 		db:        db,
-		ctx:       context.DnoteCtx{DB: db},
+		ctx:       app.Ctx{DB: db},
 		tree:      tr,
 		viewStack: []*item{tr.root},
 		width:     80,

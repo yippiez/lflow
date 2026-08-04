@@ -3,7 +3,7 @@ package suggest
 import (
 	"fmt"
 
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
@@ -21,7 +21,7 @@ type reviewOptions struct {
 // newReviewCmd returns `lflow suggest approve` or `lflow suggest reject` —
 // the same walk over a set of suggestions, differing only in the verdict.
 // Approving applies the proposal to the outline; rejecting never touches it.
-func newReviewCmd(ctx context.DnoteCtx, verdict string) *cobra.Command {
+func newReviewCmd(ctx app.Ctx, verdict string) *cobra.Command {
 	opts := &reviewOptions{}
 
 	approve := verdict == database.SuggestApproved
@@ -47,7 +47,7 @@ func newReviewCmd(ctx context.DnoteCtx, verdict string) *cobra.Command {
 	return cmd
 }
 
-func newReviewRun(ctx context.DnoteCtx, opts *reviewOptions, verdict string) infra.RunEFunc {
+func newReviewRun(ctx app.Ctx, opts *reviewOptions, verdict string) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
 

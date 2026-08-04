@@ -17,7 +17,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/packages/agent"
-	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/daemon/client"
 	"github.com/lflow/lflow/packages/daemon/wire"
 	"github.com/lflow/lflow/packages/database"
@@ -152,7 +152,7 @@ func buildStylePickerLabels() map[string]string {
 // Model is the bubbletea model for the editor.
 type Model struct {
 	db    *database.DB
-	ctx   context.DnoteCtx // for config and node context
+	ctx   app.Ctx // for config and node context
 	tree  *tree
 	chips map[string]database.Chip // inline chip records, keyed by id (see chip.go)
 
@@ -2240,7 +2240,7 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 }
 
 // Run opens the inline node editor on the given node.
-func Run(ctx context.DnoteCtx, nodeUUID string) error {
+func Run(ctx app.Ctx, nodeUUID string) error {
 	return RunFile(ctx, nodeUUID, FileSession{})
 }
 
@@ -2261,7 +2261,7 @@ type FileSession struct {
 }
 
 // RunFile is Run for a file-backed session.
-func RunFile(ctx context.DnoteCtx, nodeUUID string, fs FileSession) error {
+func RunFile(ctx app.Ctx, nodeUUID string, fs FileSession) error {
 	onSave, allowedTypes := fs.OnSave, fs.AllowedTypes
 	// Materialize the lflow CLI skill used by NLPCompute's code generator.
 	if dir, err := agent.AgentMaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {

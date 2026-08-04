@@ -1,5 +1,5 @@
-// Package context defines lflow context
-package context
+// Package app defines the lflow process-wide runtime
+package app
 
 import (
 	"github.com/lflow/lflow/packages/daemon/client"
@@ -15,8 +15,8 @@ type Paths struct {
 	Cache  string
 }
 
-// DnoteCtx is a context holding the information of the current runtime
-type DnoteCtx struct {
+// Ctx is a context holding the information of the current runtime
+type Ctx struct {
 	Paths   Paths
 	Version string
 	// DB is the outline database. In normal runs its driver speaks the wire
