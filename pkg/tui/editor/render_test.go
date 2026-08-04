@@ -881,3 +881,35 @@ func TestClipClosesATruncatedHyperlink(t *testing.T) {
 		t.Errorf("the target leaked into the visible text: %q", got)
 	}
 }
+
+// TestThinkingGlyphIsNarrowAndAlwaysGray: ※ is CJK punctuation and fonts draw it
+// full-width even where the terminal allots one cell, so it bled into the column
+// beside it. Its replacement is a dingbat sparkle — the family a Claude session
+// chip's ✽ already comes from — and the type's gray is fixed: a /color on a
+// thinking node would be the node lying about what it is.
+func TestThinkingGlyphIsNarrowAndAlwaysGray(t *testing.T) {
+	if glyphThinking == "※" {
+		t.Fatal("the full-width reference mark is back")
+	}
+	if w := visibleWidth(glyphThinking); w != 1 {
+		t.Errorf("the thinking glyph measures %d cells, want 1", w)
+	}
+	// it comes from the block the ✽ that already renders cleanly comes from
+	if r := []rune(glyphThinking); len(r) != 1 || r[0] < 0x2700 || r[0] > 0x27BF {
+		t.Errorf("the thinking glyph %q is not a dingbat", glyphThinking)
+	}
+
+	it := &item{typ: database.TypeThinking, name: "half a thought", style: "color:red"}
+	body := renderBody(it, it.name, -1, false, nil)
+	if strings.Contains(body, styleColorCode["red"]) {
+		t.Errorf("a /color overrode the thinking gray: %q", body)
+	}
+	if !strings.Contains(body, cDim) {
+		t.Errorf("the thinking body is not muted gray: %q", body)
+	}
+	// an ordinary type still takes its /color
+	plain := &item{typ: database.TypeBullets, name: "a note", style: "color:red"}
+	if !strings.Contains(renderBody(plain, plain.name, -1, false, nil), styleColorCode["red"]) {
+		t.Error("a bullet stopped taking its /color")
+	}
+}

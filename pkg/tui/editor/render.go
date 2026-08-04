@@ -137,7 +137,12 @@ const (
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
 	glyphSuggest   = "○" // a node with a proposal waiting on review (painted yellow)
 	glyphCloud     = "☁" // a HOSTED coding session (started on the web or a phone)
-	glyphThinking  = "※" // Claude Code's thinking-spinner glyph, always muted gray
+	// glyphThinking is a sparkle from the DINGBAT block, deliberately not the
+	// reference mark ※ it replaced: ※ is CJK punctuation, and fonts draw it at a
+	// full-width design even where the terminal allots it one cell, so it bled
+	// into the column beside it. ✻ is the same family as the ✽ a Claude session
+	// chip already wears without trouble.
+	glyphThinking = "✻" // always muted gray, whatever /color says
 	// a Bash node wears the cmd chip's prompt, always (see bashGlyph)
 	glyphBashPrompt = "$"
 )
@@ -679,8 +684,10 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 			base = c
 		}
 	}
-	// a /color picks the node's foreground; default stays the palette gray
-	if c := styleBaseColor(it.style); c != "" {
+	// a /color picks the node's foreground; default stays the palette gray. A
+	// type whose color is FIXED (thinking is muted gray, always) says so and
+	// keeps it — the color is part of what the type means, not a preference.
+	if c := styleBaseColor(it.style); c != "" && !desc.fixedColor {
 		base = c
 	}
 

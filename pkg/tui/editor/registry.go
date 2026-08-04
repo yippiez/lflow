@@ -72,8 +72,12 @@ type nodeType struct {
 	// granular look hooks: an editable type keeps caret editing while these
 	// decide its look (glyph, prefix, muted tail) — see the log type.
 	prefix    func(it *item) string // styled prefix before the body, e.g. the log time chip
-	baseColor func(it *item) string // body foreground SGR; "" keeps the default
-	muteFrom  func(name string) int // rune index the muted tail starts at; -1 = none
+	baseColor func(it *item) string
+	// fixedColor says baseColor is the LAST word: a /color on the node does not
+	// override it. For a type whose color carries meaning (thinking is always
+	// muted gray), a recolor would be the node lying about what it is.
+	fixedColor bool                  // body foreground SGR; "" keeps the default
+	muteFrom   func(name string) int // rune index the muted tail starts at; -1 = none
 	// spanColor tints individual runes of an EDITABLE node's body without taking
 	// over the whole render (unlike `render`): it returns index→SGR-color for the
 	// runes to recolor, applied through the same per-rune path as magic keywords,
@@ -351,7 +355,9 @@ var nodeTypes = []nodeType{
 	{key: database.TypeAgent, label: "Agent", internal: true, inlineEditable: true},
 	// Thinking is a plain marker node: always the muted-gray thinking glyph,
 	// no other behavior.
-	{key: database.TypeThinking, label: "Thinking", glyph: thinkingGlyph, inlineEditable: true},
+	{key: database.TypeThinking, label: "Thinking", glyph: thinkingGlyph, inlineEditable: true,
+		baseColor:  func(it *item) string { return cDim },
+		fixedColor: true},
 	// webresult is GENERATED — a web search hit row a web node hangs under it
 	// (title + URL link chip). Internal, so the /type picker never offers it; a
 	// re-run replaces the rows by type.
