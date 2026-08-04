@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/style"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -375,15 +376,19 @@ func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool, caret int) 
 		textW = 8
 	}
 
-	// A note is rich node text on a separate surface: it uses the node's style,
-	// understands every chip anchor, and recognizes legacy plain tags/dates. A
-	// synthetic uuid keeps name-only painted spans from leaking into the note.
+	// A note is rich text on a SEPARATE surface: it understands every chip anchor
+	// and every legacy plain tag or date, and it carries its own styling — the
+	// node's is not its own. A red node used to hand its note the same red, so a
+	// note could never be anything but a tinted echo of the row above it.
+	//
+	// What is left is a default, not an inheritance: muted gray and italic, the
+	// note's resting look, which a note's own styled runs paint over. That is the
+	// one difference between the two surfaces — a node rests white, a note rests
+	// gray. The synthetic uuid is what keeps the two sets of runs apart.
 	noteItem := *r.it
-	noteItem.uuid = r.it.uuid + "/note"
+	noteItem.uuid = noteSpanUUID(r.it)
 	noteItem.typ = database.TypeBullets
-	if !styleHas(noteItem.style, "italic") {
-		noteItem.style = strings.Trim(noteItem.style+",italic", ",")
-	}
+	noteItem.style = noteRestingStyle
 	styled := renderBody(&noteItem, note, caret, editing, m.chips)
 	segs := wrapLine(styled, textW, "")
 	if len(segs) == 0 {
@@ -418,6 +423,12 @@ func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool, caret int) 
 	}
 	return out
 }
+
+// noteRestingStyle is a note's look before it is styled: the gray swatch (the
+// same muted gray the theme gives /color gray) and italic. It is a STYLE rather
+// than a hardcoded SGR so it follows the active theme, and so a note's own runs
+// override it through the ordinary span path.
+var noteRestingStyle = style.Normalize("italic,color:gray")
 
 // noteBandMaxLines is how much of a note the outline shows at rest. A note is a
 // footnote to its node, not a second outline: past this it earns a count of what

@@ -452,6 +452,16 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		m.refreshRows()
 		return m, nil
 	}
+	// with the note open and nothing selected, the style is for the NOTE — the
+	// surface the caret is actually in. Styling the row from inside its note is
+	// what made a note look like an echo of its node; the two are separate
+	// surfaces with separate styling, and /style follows the caret.
+	if cur := m.richTextItem(m.cursorItem()); m.richNoteActive() && cur != nil && it.value != "" {
+		m.applyStyleToSpan(cur, 0, len([]rune(cur.note)), it.value) // it pushes its own undo
+		m.finishRichPicker()
+		m.refreshRows()
+		return m, nil
+	}
 	targets := m.selectedItems() // multi-select: restyle the whole range
 	if len(targets) == 0 {
 		if cur := m.cursorItem(); cur != nil {

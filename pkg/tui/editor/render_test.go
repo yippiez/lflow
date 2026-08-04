@@ -260,7 +260,7 @@ func TestNoteBandLines(t *testing.T) {
 	}
 }
 
-func TestNoteBandRendersRichChipsAndNodeStyle(t *testing.T) {
+func TestNoteBandRendersRichChips(t *testing.T) {
 	it := &item{uuid: "n", style: "bold,color:red"}
 	chips := map[string]database.Chip{
 		"tag":   {ID: "tag", Kind: chipKindTag, Value: "qol"},
@@ -287,8 +287,41 @@ func TestNoteBandRendersRichChipsAndNodeStyle(t *testing.T) {
 	if strings.Contains(plain, "@?") {
 		t.Fatalf("rich note lost a chip record: %q", plain)
 	}
-	if !strings.Contains(joined, cBold) || !strings.Contains(joined, cRed) {
-		t.Fatalf("note did not inherit bold/red styling: %q", joined)
+	// the node is bold red; the note is not. A note carries its own styling — it
+	// is a separate surface, not a tinted echo of the row above it. (The reds
+	// still in the frame are the $ and citation CHIPS' own, which are theirs
+	// wherever they are dropped.)
+	if strings.Contains(joined, cBold) {
+		t.Fatalf("the note inherited the node's bold: %q", joined)
+	}
+	if !strings.Contains(joined, styleColorCode["gray"]+cItalic+"rich ") {
+		t.Fatalf("the note's own words are not resting gray-italic: %q", joined)
+	}
+}
+
+// TestNoteRestsGrayAndItalic: the one difference between the two surfaces is
+// where they rest — a node white, a note muted gray — and a note is italic
+// because it is a footnote to its row, not a second row.
+func TestNoteRestsGrayAndItalic(t *testing.T) {
+	it := &item{uuid: "n", note: "a plain note"}
+	m := &Model{tree: &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}},
+		chips: map[string]database.Chip{}}
+	joined := strings.Join(m.noteBandLines(row{it: it}, 120, false, -1), "\n")
+
+	if !strings.Contains(joined, styleColorCode["gray"]) {
+		t.Errorf("a resting note is not the gray swatch: %q", joined)
+	}
+	if !strings.Contains(joined, cItalic) {
+		t.Errorf("a resting note is not italic: %q", joined)
+	}
+	// and the node itself still rests white
+	body := renderBody(&item{uuid: "n", name: "the row"}, "the row", -1, false, nil)
+	if !strings.Contains(body, cFG) {
+		t.Errorf("the node does not rest white: %q", body)
+	}
+	// the resting look is a STYLE, so it follows the theme rather than a literal
+	if styleColor(noteRestingStyle) != "gray" || !styleHas(noteRestingStyle, "italic") {
+		t.Errorf("resting style = %q", noteRestingStyle)
 	}
 }
 
@@ -911,5 +944,44 @@ func TestThinkingGlyphIsNarrowAndAlwaysGray(t *testing.T) {
 	plain := &item{typ: database.TypeBullets, name: "a note", style: "color:red"}
 	if !strings.Contains(renderBody(plain, plain.name, -1, false, nil), styleColorCode["red"]) {
 		t.Error("a bullet stopped taking its /color")
+	}
+}
+
+// TestStyleFollowsTheCaretIntoTheNote: /style with the note open styles the
+// NOTE. Styling the row from inside its note is what made a note read as an echo
+// of its node — the two are separate surfaces, and the picker follows the caret.
+func TestStyleFollowsTheCaretIntoTheNote(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: "the row", Note: "the note"})
+	it := m.tree.byUUID["n"]
+	m.cursor = m.rowIndexOf(it)
+
+	// open the note, then /style → red
+	m.mode = modeNote
+	m.beginNotePicker(modeStyle, styleSource{}, true)
+	styleSource{}.onSelect(m, pickerItem{value: "red"})
+
+	if it.style != "" {
+		t.Errorf("the NODE was styled from inside its note: %q", it.style)
+	}
+	spans := nodeSpans[noteSpanUUID(it)]
+	if len(spans) == 0 {
+		t.Fatal("the note took no styling")
+	}
+	if got := spans[0]; got.Start != 0 || got.End != len([]rune(it.note)) || styleColor(got.Style) != "red" {
+		t.Errorf("note span = %+v, want the whole note in red", got)
+	}
+	// the note band now paints that red over its resting gray
+	joined := strings.Join(m.noteBandLines(m.rows[m.cursor], 120, false, -1), "\n")
+	if !strings.Contains(joined, styleColorCode["red"]) {
+		t.Errorf("the styled note did not render red: %q", joined)
+	}
+
+	// and /style on the row itself still styles the row
+	m.mode = modeOutline
+	m.noteRich = false
+	m.mode = modeStyle
+	styleSource{}.onSelect(m, pickerItem{value: "cyan"})
+	if styleColor(it.style) != "cyan" {
+		t.Errorf("the node style = %q, want cyan", it.style)
 	}
 }
