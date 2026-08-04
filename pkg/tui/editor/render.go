@@ -365,50 +365,51 @@ func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool, caret int) 
 	}
 	rail := continuationPrefix(r, subtreeBelow)
 	railW := 1 + 3*r.depth + 2
-	textW := maxLine - railW - 2 // room inside the band, minus a space of pad each side
+	textW := maxLine - railW - 2
 	if textW < 8 {
 		textW = 8
 	}
-	style := cDim + cItalic
 
-	if !editing {
-		segs := wrapPlain(note, textW)
-		if len(segs) == 0 {
-			return nil
+	// A note is rich node text on a separate surface: it uses the node's style,
+	// understands every chip anchor, and recognizes legacy plain tags/dates. A
+	// synthetic uuid keeps name-only painted spans from leaking into the note.
+	noteItem := *r.it
+	noteItem.uuid = r.it.uuid + "/note"
+	noteItem.typ = database.TypeBullets
+	if !styleHas(noteItem.style, "italic") {
+		noteItem.style = strings.Trim(noteItem.style+",italic", ",")
+	}
+	styled := renderBody(&noteItem, note, caret, editing, m.chips)
+	segs := wrapLine(styled, textW, "")
+	if len(segs) == 0 {
+		segs = []string{""}
+	}
+	if !editing && len(segs) > noteBandMaxLines {
+		hidden := len(segs) - noteBandMaxLines
+		noun := "lines"
+		if hidden == 1 {
+			noun = "line"
 		}
-		segs = truncateNote(segs, textW)
-		bandW := 0
-		for _, s := range segs {
-			if w := runewidth.StringWidth(s); w > bandW {
-				bandW = w
-			}
+		suffix := fmt.Sprintf(" … +%d %s", hidden, noun)
+		last := noteBandMaxLines - 1
+		plainRoom := textW - visibleWidth(suffix)
+		if plainRoom < 1 {
+			plainRoom = 1
 		}
-		var out []string
-		for _, seg := range segs {
-			gap := strings.Repeat(" ", bandW-runewidth.StringWidth(seg))
-			out = append(out, rail+cReset+style+" "+seg+gap+" "+cReset)
-		}
-		return out
+		segs[last] = clip(segs[last], plainRoom) + cReset + cDim + cItalic + suffix + cReset
+		segs = segs[:noteBandMaxLines]
 	}
 
-	runes := []rune(note)
-	segs := wrapNoteSegs(runes, textW)
 	bandW := 1
-	for _, s := range segs {
-		if w := runewidth.StringWidth(string(runes[s.start:s.end])); w > bandW {
+	for _, seg := range segs {
+		if w := visibleWidth(seg); w > bandW {
 			bandW = w
 		}
 	}
 	var out []string
-	for idx, s := range segs {
-		seg := runes[s.start:s.end]
-		caretInSeg := -1
-		if caret >= s.start && caret < s.end {
-			caretInSeg = caret - s.start
-		} else if caret >= len(runes) && idx == len(segs)-1 {
-			caretInSeg = len(seg) // the block cursor sits past the last rune
-		}
-		out = append(out, rail+cReset+style+renderBandSeg(seg, caretInSeg, bandW, style)+cReset)
+	for _, seg := range segs {
+		gap := strings.Repeat(" ", max(0, bandW-visibleWidth(seg)))
+		out = append(out, rail+cReset+" "+seg+gap+" "+cReset)
 	}
 	return out
 }

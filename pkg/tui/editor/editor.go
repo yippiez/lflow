@@ -1966,6 +1966,20 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.caret = len([]rune(cur.name))
 		return m, nil
 	case "enter":
+		// Notes use the same structured text contract as names. Commit textual
+		// tag/date/link forms to chip records before leaving the field; cmd,
+		// agent, Zotero and other anchors already present pass through unchanged.
+		if m.db != nil {
+			if note, err := database.ChipifyName(m.db, cur.note); err == nil {
+				cur.note = note
+				if chips, loadErr := database.LoadChips(m.db); loadErr == nil {
+					m.chips = chips
+				}
+			} else {
+				m.errorFlash("note: " + err.Error())
+				return m, nil
+			}
+		}
 		m.mode = modeOutline
 		m.unsaved = true
 		m.caret = len([]rune(cur.name))

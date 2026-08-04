@@ -260,6 +260,53 @@ func TestNoteBandLines(t *testing.T) {
 	}
 }
 
+func TestNoteBandRendersRichChipsAndNodeStyle(t *testing.T) {
+	it := &item{uuid: "n", style: "bold,color:red"}
+	chips := map[string]database.Chip{
+		"tag":   {ID: "tag", Kind: chipKindTag, Value: "qol"},
+		"date":  {ID: "date", Kind: chipKindDate, Value: "2026-08-01"},
+		"link":  {ID: "link", Kind: chipKindLink, Value: "https://example.com", Label: "site"},
+		"cmd":   {ID: "cmd", Kind: chipKindCmd, Value: "go test"},
+		"icon":  {ID: "icon", Kind: chipKindIcon, Value: "→", Label: "rarrow"},
+		"agent": {ID: "agent", Kind: chipKindAgent, Value: "pi", Label: "session"},
+		"mol":   {ID: "mol", Kind: chipKindMol, Value: "CCO", Label: "ethanol"},
+		"zot":   {ID: "zot", Kind: chipKindZotero, Value: "zotero://select/library/items/ABCD", Label: "Smith 2024"},
+	}
+	it.note = "rich " + database.ChipAnchor("tag") + " " + database.ChipAnchor("date") + " " +
+		database.ChipAnchor("link") + " " + database.ChipAnchor("cmd") + " " +
+		database.ChipAnchor("icon") + " " + database.ChipAnchor("agent") + " " +
+		database.ChipAnchor("mol") + " " + database.ChipAnchor("zot")
+	m := &Model{tree: &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}, chips: chips}
+	joined := strings.Join(m.noteBandLines(row{it: it}, 240, false, -1), "\n")
+	plain := strings.ReplaceAll(stripSGR(joined), "\u00a0", " ")
+	for _, want := range []string{"rich", "#qol", "2026-08-01", "site", "$ go test", "session", "CCO", "Smith 2024"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("rich note missing %q: %q", want, plain)
+		}
+	}
+	if strings.Contains(plain, "@?") {
+		t.Fatalf("rich note lost a chip record: %q", plain)
+	}
+	if !strings.Contains(joined, cBold) || !strings.Contains(joined, cRed) {
+		t.Fatalf("note did not inherit bold/red styling: %q", joined)
+	}
+}
+
+func TestNoteCommitChipifiesTagsDatesAndLinks(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: "task", Note: "#qol 2026-08-01 [site](https://example.com)"})
+	cursorOn(m, "n")
+	mm, _ := m.runSlash("/note")
+	m = mm.(*Model)
+	m.press("enter")
+	note := m.tree.byUUID["n"].note
+	if !database.HasAnchor(note) {
+		t.Fatalf("note was not chipified: %q", note)
+	}
+	if got := database.DisplayAnchors(note, m.chips); got != "#qol 2026-08-01 site" {
+		t.Fatalf("committed note display = %q", got)
+	}
+}
+
 // TestNoteBandTruncates: a long note is a footnote, not a second outline. At
 // rest it costs the outline two rows and says how many it is holding back;
 // editing it opens the whole thing, so nothing is unreachable.

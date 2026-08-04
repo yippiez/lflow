@@ -206,11 +206,12 @@ func DeleteChip(db *DB, id string) error {
 	return errors.Wrapf(err, "deleting chip %s", id)
 }
 
-// GCChips drops chip rows no live node name references — orphans left by deleted
-// or rewritten nodes. Anchors embed the id verbatim, so an instr match suffices.
+// GCChips drops chip rows no live node name or note references — orphans left by
+// deleted or rewritten text. Anchors embed the id verbatim, so instr suffices.
 func GCChips(db *DB) error {
 	_, err := db.Exec(`DELETE FROM chips WHERE id NOT IN (
-		SELECT chips.id FROM chips JOIN nodes ON nodes.deleted = 0 AND instr(nodes.name, chips.id) > 0
+		SELECT chips.id FROM chips JOIN nodes ON nodes.deleted = 0
+			AND (instr(nodes.name, chips.id) > 0 OR instr(nodes.note, chips.id) > 0)
 	)`)
 	return errors.Wrap(err, "gc chips")
 }
