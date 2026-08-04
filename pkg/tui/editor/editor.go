@@ -1833,18 +1833,38 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		}
 		m.flash = "reborn · created_at reset to now"
 	case "/duplicate":
-		// deep-copy this node (and its subtree) in as the next sibling, then
-		// land the cursor on the copy so it is ready to rename/edit
+		// Deep-copy every selected root (subtrees ride along), or just the cursor
+		// node when no row selection is live. The whole operation is one undo step.
+		targets := m.selectionRoots()
+		if len(targets) == 0 {
+			targets = []*item{cur}
+		}
+		for _, target := range targets {
+			if target.structureLocked {
+				m.errorFlash(errStructureLocked.Error())
+				return m, nil
+			}
+			if target.parent == nil {
+				m.errorFlash("cannot duplicate the root node")
+				return m, nil
+			}
+		}
 		m.pushUndo("")
 		ctx := m.cursorCtx()
-		clone, err := m.tree.duplicate(cur)
-		if err != nil {
-			m.errorFlash(err.Error())
-			return m, nil
+		var last *item
+		for _, target := range targets {
+			clone, err := m.tree.duplicate(target)
+			if err != nil {
+				m.errorFlash(err.Error())
+				return m, nil
+			}
+			last = clone
 		}
+		m.clearSel()
 		m.unsaved = true
 		m.refreshRows()
-		m.cursor = m.findRow(clone, ctx)
+		m.cursor = m.findRow(last, ctx)
+		m.flash = fmt.Sprintf("duplicated %s", nodeNoun(len(targets)))
 	case "/note":
 		// a mirror is the same node everywhere: edit the original's note
 		cur = m.tree.resolve(cur)

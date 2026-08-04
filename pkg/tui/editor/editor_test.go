@@ -1613,6 +1613,32 @@ func TestDuplicateInsertsCopyNextToNode(t *testing.T) {
 	}
 }
 
+func TestDuplicateCopiesEverySelectedRoot(t *testing.T) {
+	m, a, b, _ := dupModel()
+	m.cursor = m.rowIndexOf(a)
+	m.press("shift+down") // A and B; B's child rides with B
+
+	mm, _ := m.runSlash("/duplicate")
+	*m = *mm.(*Model)
+
+	kids := m.tree.root.children
+	if got := namesOf(kids); !reflect.DeepEqual(got, []string{"A", "A", "B", "B"}) {
+		t.Fatalf("selected duplicate = %v", got)
+	}
+	if kids[1] == a || kids[3] == b || kids[3].uuid == b.uuid {
+		t.Fatal("selected duplicates need fresh nodes")
+	}
+	if len(kids[3].children) != 1 || kids[3].children[0].name != "C" {
+		t.Fatalf("selected subtree was not copied: %+v", kids[3].children)
+	}
+	if m.selOn {
+		t.Fatal("duplicate must release the row selection")
+	}
+	if m.cursorItem() != kids[3] {
+		t.Fatalf("cursor did not land on the last duplicate")
+	}
+}
+
 // TestDuplicateRootIsNoop: the root has no sibling slot, so duplicating it is
 // refused without mutating the tree. (The view root is never a selectable row,
 // so this exercises tree.duplicate directly -- the guard runSlash relies on.)
