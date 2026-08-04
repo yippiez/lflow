@@ -1000,8 +1000,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// first (e.g. Bash → bullet → delete), so a special node isn't blown away in
 		// one keypress — the next backspace then merges/removes the bullet.
 		if cur.name == "" && cur.mirrorOf == "" && typeOf(cur.typ).key != database.TypeBullets {
-			cur.typ = database.TypeBullets
-			m.unsaved = true
+			m.setNodeType(cur, database.TypeBullets)
 			return m, nil
 		}
 		// caret at the start: merge this node into the one above. Its text appends

@@ -173,3 +173,50 @@ func TestDeleteRunOutRemovesCache(t *testing.T) {
 		t.Errorf("cache should be gone after delete, got %+v", r.out)
 	}
 }
+
+// TestTypeChangeDropsTheRunBand is the stuck-output regression: run a bash node,
+// backspace it back into an ordinary node, and the last command's output stayed
+// hanging under a row that no longer runs anything.
+func TestTypeChangeDropsTheRunBand(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "b", Name: "", Type: database.TypeBash})
+	it := m.tree.byUUID["b"]
+	m.cursor = m.rowIndexOf(it)
+
+	r := m.ensureRun("b")
+	r.out = []outLine{{text: "hello from the last run"}}
+	m.persistRunOut("b")
+	if len(m.ensureRun("b").lines()) == 0 {
+		t.Fatal("the fixture has no output to lose")
+	}
+
+	// backspace on the empty bash row demotes it to a bullet
+	m.press("backspace")
+	if it.typ != database.TypeBullets {
+		t.Fatalf("type = %q, want the demote to bullets", it.typ)
+	}
+	if got := m.ensureRun("b").lines(); len(got) != 0 {
+		t.Errorf("the old output stayed under the node: %v", got)
+	}
+	if raw, err := database.LoadNodeOutput(m.db, "b"); err == nil && raw != "" {
+		t.Errorf("the output row survived on disk: %q", raw)
+	}
+}
+
+// TestTypePickerDropsTheRunBand: the same holds for /type, which is the other
+// way a node stops being the thing that produced its band.
+func TestTypePickerDropsTheRunBand(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "b", Name: "echo hi", Type: database.TypeBash})
+	it := m.tree.byUUID["b"]
+	m.cursor = m.rowIndexOf(it)
+	m.ensureRun("b").out = []outLine{{text: "hi"}}
+	m.persistRunOut("b")
+
+	m.mode = modeType
+	typeSource{}.onSelect(m, pickerItem{value: database.TypeQuote})
+	if it.typ != database.TypeQuote {
+		t.Fatalf("type = %q", it.typ)
+	}
+	if got := m.ensureRun("b").lines(); len(got) != 0 {
+		t.Errorf("output survived a retype: %v", got)
+	}
+}

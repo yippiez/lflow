@@ -366,9 +366,9 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 				}
 				// re-picking Todo on a Todo toggles back to Bullet (the default)
 				if it.value == database.TypeTodo && t.typ == database.TypeTodo {
-					t.typ = database.TypeBullets
+					m.setNodeType(t, database.TypeBullets)
 				} else {
-					t.typ = it.value
+					m.setNodeType(t, it.value)
 				}
 				// a type may want to land on its own face right away (the Table
 				// folds to its grid) — one hook, no per-type branch here

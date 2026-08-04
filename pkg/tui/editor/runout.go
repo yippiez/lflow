@@ -97,6 +97,24 @@ func (m *Model) ensureRunOutLoaded(uuid string) {
 // persistRunOut writes a node's accumulated run band to node_output (overwriting
 // any previous run). An empty band deletes the row, so a re-run that produced
 // nothing clears stale output. Best-effort: a write error never blocks the run.
+// dropRunOut clears a node's run band and forgets it on disk. A band belongs to
+// the type that produced it: a bash node's captured stdout is a bash node's, and
+// a node that stops being one carries an answer to a question nobody can see the
+// asking of any more. Nothing is cancelled here — a live run is stopped by its
+// own caller first (see typeChanged).
+func (m *Model) dropRunOut(uuid string) {
+	r := m.run(uuid)
+	if r == nil {
+		return
+	}
+	r.out = nil
+	r.scr = nil
+	r.dropped = 0
+	r.pwd = ""
+	m.persistRunOut(uuid) // an empty band deletes the row
+	m.setCmdPreview(uuid)
+}
+
 func (m *Model) persistRunOut(uuid string) {
 	r := m.ensureRun(uuid)
 	r.loaded = true // memory is now the source of truth for this uuid

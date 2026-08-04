@@ -1122,6 +1122,25 @@ func (m *Model) editTargetOf(cur *item) *item {
 	return src
 }
 
+// setNodeType is the ONE way a node's type changes: /type, the backspace demote
+// of an empty special node, a plugin's own retype. It exists so the cleanup that
+// has to happen on every one of them happens on every one of them — today that
+// is the run band, which belonged to the type being left behind.
+func (m *Model) setNodeType(it *item, typ string) {
+	if it == nil || it.typ == typ {
+		return
+	}
+	// a command still running under the old type is stopped: its output would
+	// otherwise land in a band the node no longer has
+	if r := m.run(it.uuid); r != nil && r.cancel != nil {
+		r.cancel()
+		m.finishRun(it.uuid)
+	}
+	m.dropRunOut(it.uuid)
+	it.typ = typ
+	m.unsaved = true
+}
+
 // linkChipTrigger reports whether "[[" should open the link picker on this type.
 // It has no cancel-to-literal path, so it stays off where "[" is real syntax
 // (bash test brackets, code, query, quote, json).
