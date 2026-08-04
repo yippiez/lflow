@@ -367,8 +367,20 @@ func (runOutView) Bands(m *Model, it *item, rail string, width, scroll, winH int
 func runViewLines(m *Model, id string) int {
 	m.ensureRunOutLoaded(id)
 	r := m.run(id) // non-nil after ensureRunOutLoaded
-	return 1 + max(len(r.lines()), 1)
+	n := 1 + max(len(r.lines()), 1)
+	// A run IN FLIGHT keeps a floor under its pane: output arrives a line at a
+	// time, and a pane that grew with it would shuffle the outline below on every
+	// line. A finished run has nothing left to arrive, so it is exactly its own
+	// size — which is what keeps ⌥e on a short result from opening a blank page.
+	if r.cancel != nil && n < runPaneFloor {
+		n = runPaneFloor
+	}
+	return n
 }
+
+// runPaneFloor is the height a streaming run's pane holds even while empty —
+// enough to read a few lines of output without the pane resizing under them.
+const runPaneFloor = 10
 
 // runViewKey is the scroll handling both expanded run views use.
 func runViewKey(m *Model, k tea.KeyMsg) (tea.Cmd, bool) {

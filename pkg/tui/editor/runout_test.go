@@ -220,3 +220,56 @@ func TestTypePickerDropsTheRunBand(t *testing.T) {
 		t.Errorf("output survived a retype: %v", got)
 	}
 }
+
+// TestRunPaneSizesToItsContent: ⌥e on a three-line result used to open a page of
+// blank rows — the outline gone, nothing in its place. A finished run's pane is
+// exactly its own size; a run still streaming keeps a floor so the outline below
+// does not shuffle on every line that arrives.
+func TestRunPaneSizesToItsContent(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "b", Name: "echo hi", Type: database.TypeBash})
+	r := m.ensureRun("b")
+	r.out = []outLine{{text: "hi"}}
+	m.persistRunOut("b")
+
+	// finished: one header + one line
+	if got := runViewLines(m, "b"); got != 2 {
+		t.Errorf("finished pane = %d lines, want 2", got)
+	}
+	// streaming: the floor holds even with the same one line
+	r.cancel = func() {}
+	if got := runViewLines(m, "b"); got != runPaneFloor {
+		t.Errorf("streaming pane = %d lines, want the %d floor", got, runPaneFloor)
+	}
+	// and a long finished run is its own height, not the floor
+	r.cancel = nil
+	for i := 0; i < 40; i++ {
+		r.out = append(r.out, outLine{text: "more"})
+	}
+	if got := runViewLines(m, "b"); got != 42 {
+		t.Errorf("long pane = %d lines, want 42", got)
+	}
+}
+
+// TestFocusedPaneNeverTallerThanItsContent: the central loop is what enforces it,
+// so a short view leaves the rows below it on screen.
+func TestFocusedPaneNeverTallerThanItsContent(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "a", Name: "above", Rank: 0},
+		database.Node{UUID: "b", Name: "echo hi", Type: database.TypeBash, Rank: 1},
+		database.Node{UUID: "c", Name: "below", Rank: 2},
+	)
+	m.height = 24
+	r := m.ensureRun("b")
+	r.out = []outLine{{text: "hi"}}
+	m.persistRunOut("b")
+	m.cursor = m.rowIndexOfUUID("b")
+	m.focused = true
+
+	view := stripSGR(m.View())
+	if !strings.Contains(view, "below") {
+		t.Errorf("the focused pane pushed the outline off screen:\n%s", view)
+	}
+	if n := strings.Count(view, "\n"); n > m.height {
+		t.Errorf("frame is %d lines, taller than the %d-row window", n+1, m.height)
+	}
+}
