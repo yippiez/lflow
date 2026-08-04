@@ -95,6 +95,23 @@ func TestReadonlyTempPanelScrolls(t *testing.T) {
 	}
 }
 
+// TestReadonlyMainKeepsWholeWrappedCursorRow: after Down moves focus into the
+// Temporary Domain, the main outline becomes this read-only region. Its window
+// must follow the end of the stashed row, not just its first visual line, so a
+// wrapped last node does not appear to collapse while temp has focus.
+func TestReadonlyMainKeepsWholeWrappedCursorRow(t *testing.T) {
+	m := seedTemp(newTestModel(30, "main"), 8)
+	last := m.tempTree.root.children[7]
+	last.name = "wrapped cursor row keeps its distinctive final words visible"
+
+	lines := m.readonlyRegionLines(m.tempTree, m.tempTree.root, 7, 5, 29, false, -1)
+	plain := stripSGR(strings.Join(lines, "\n"))
+	flowed := strings.Join(strings.Fields(plain), " ")
+	if !strings.Contains(flowed, "final words visible") {
+		t.Fatalf("read-only window clipped the wrapped cursor row to its first line:\n%s", plain)
+	}
+}
+
 // TestScrollTempPanelHitTest: the wheel scrolls the read-only temp panel only
 // when the event lands on the panel's screen region, and never while the panel
 // is focused (tempActive) — there the body window scrolls instead.

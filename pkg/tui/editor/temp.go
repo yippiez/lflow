@@ -162,23 +162,24 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 		budget = 1
 	}
 	var flat []string
-	cursorAt := 0
+	cursorStart, cursorEnd := 0, 0
 	if tr != nil && viewRoot != nil {
 		rows := tr.visibleRows(viewRoot, m.hideCompleted, m.unroll)
 		for i, r := range rows {
 			it := r.it
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
+			rowStart := len(flat)
 			// a divider is a full-width rule, not a glyph+body node; render it as the
 			// rule here too so the read-only region keeps it (never the cursor color)
 			if it.typ == database.TypeDivider {
-				if i == cursor {
-					cursorAt = len(flat)
-				}
 				shown := m.renderItem(it)
 				name := tr.displayName(it)
 				body := renderBody(shown, name, -1, false, m.chips)
 				line := dividerLine(r, maxLine, body, false)
 				flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
+				if i == cursor {
+					cursorStart, cursorEnd = rowStart, len(flat)-1
+				}
 				flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
 				continue
 			}
@@ -197,10 +198,10 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			}
 			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body +
 				m.typeSuffix(r) + m.suggestInline(it)
-			if i == cursor {
-				cursorAt = len(flat)
-			}
 			flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
+			if i == cursor {
+				cursorStart, cursorEnd = rowStart, len(flat)-1
+			}
 			flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
 			// a bash/query node's run output hangs beneath it in the read-only region too
 			flat = append(flat, m.runBandLines(r, below, maxLine)...)
@@ -221,13 +222,19 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 	}
 
 	// viewport: a pinned scroll offset (the read-only temp panel) or the
-	// (stashed) cursor row kept in view
+	// complete wrapped (stashed) cursor row kept in view. Following only the
+	// row's first visual line leaves the rest below the window when focus moves
+	// into temp, making the last main node appear to collapse to one line.
 	start := 0
 	if scroll >= 0 {
 		start = scroll
-	}
-	if cursorAt >= start+budget {
-		start = cursorAt - budget + 1
+	} else {
+		if cursorEnd >= start+budget {
+			start = cursorEnd - budget + 1
+		}
+		if cursorStart < start {
+			start = cursorStart
+		}
 	}
 	if start > len(flat)-budget {
 		start = len(flat) - budget
