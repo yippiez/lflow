@@ -98,7 +98,7 @@ func (m *Model) flashInlineRunActions(it *item) []flashAction {
 // an action-only expand (e.g. voice play). Mirrors the alt+e handler.
 func flashExpandDo(m *Model, it *item) tea.Cmd {
 	if v := nodeViewOf(it); v != nil {
-		if v.Enter(m, it) {
+		if v.enter(m, it) {
 			m.focused = true
 			m.focusScroll = 0
 		}

@@ -1,12 +1,9 @@
 package app
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/utils/clock"
-	"github.com/lflow/lflow/packages/utils/consts"
 	"github.com/pkg/errors"
 )
 
@@ -34,51 +31,5 @@ func InitTestCtx(t *testing.T) Ctx {
 	return Ctx{
 		DB:    db,
 		Paths: paths,
-		Clock: clock.NewMock(), // Use a mock clock to test times
-	}
-}
-
-// InitTestCtxWithDB initializes a test context with the provided database
-// and a temporary directory for all paths.
-// Used when you need full control over database initialization (e.g. migration tests).
-func InitTestCtxWithDB(t *testing.T, db *database.DB) Ctx {
-	paths := getDefaultTestPaths(t)
-
-	if err := InitLflowDirs(paths); err != nil {
-		t.Fatal(errors.Wrap(err, "creating test directories"))
-	}
-
-	return Ctx{
-		DB:    db,
-		Paths: paths,
-		Clock: clock.NewMock(), // Use a mock clock to test times
-	}
-}
-
-// InitTestCtxWithFileDB initializes a test context with a file-based database
-// at the expected path.
-func InitTestCtxWithFileDB(t *testing.T) Ctx {
-	paths := getDefaultTestPaths(t)
-
-	if err := InitLflowDirs(paths); err != nil {
-		t.Fatal(errors.Wrap(err, "creating test directories"))
-	}
-
-	dbPath := filepath.Join(paths.Data, consts.LflowDirName, consts.LflowDBFileName)
-	db, err := database.Open(dbPath)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "opening database"))
-	}
-
-	if _, err := db.Exec(database.DefaultSchemaSQL()); err != nil {
-		t.Fatal(errors.Wrap(err, "running schema sql"))
-	}
-
-	t.Cleanup(func() { db.Close() })
-
-	return Ctx{
-		DB:    db,
-		Paths: paths,
-		Clock: clock.NewMock(), // Use a mock clock to test times
 	}
 }

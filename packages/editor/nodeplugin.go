@@ -257,19 +257,19 @@ func RegisterNodePlugin(p NodePlugin) {
 // nodePluginViewAdapter bridges NodePluginView onto the internal nodeView.
 type nodePluginViewAdapter struct{ v NodePluginView }
 
-func (a nodePluginViewAdapter) Enter(m *Model, it *item) bool {
+func (a nodePluginViewAdapter) enter(m *Model, it *item) bool {
 	return a.v.Enter(m, nodeRef{m: m, it: it})
 }
-func (a nodePluginViewAdapter) Lines(m *Model, it *item, width int) int {
+func (a nodePluginViewAdapter) lines(m *Model, it *item, width int) int {
 	return a.v.Lines(m, nodeRef{m: m, it: it}, width)
 }
-func (a nodePluginViewAdapter) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (a nodePluginViewAdapter) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	return a.v.Bands(m, nodeRef{m: m, it: it}, rail, width, scroll, winH, focused)
 }
-func (a nodePluginViewAdapter) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (a nodePluginViewAdapter) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	return a.v.Key(m, nodeRef{m: m, it: it}, k)
 }
-func (a nodePluginViewAdapter) Leave(m *Model, it *item) {
+func (a nodePluginViewAdapter) leave(m *Model, it *item) {
 	a.v.Leave(m, nodeRef{m: m, it: it})
 }
 
@@ -327,9 +327,6 @@ func NodeRunOut(h NodeHost, uuid string, lines []string) {
 	m.refreshRows()
 }
 
-// NodeClip trims a styled line to a display width (ANSI aware).
-func NodeClip(s string, width int) string { return clip(s, width) }
-
 // NodeWindowBands clamps a band list to [scroll, scroll+winH).
 func NodeWindowBands(content []string, scroll, winH int) []string {
 	if scroll > len(content) {
@@ -356,20 +353,6 @@ func NodeTheme() NodePalette {
 	}
 }
 
-// NodeColor maps a /style color name (red, orange, …) to its themed SGR.
-func NodeColor(name string) string { return styleColorCode[name] }
-
-// NodeFirstNonEmpty returns a unless it is empty.
-func NodeFirstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
-// NodeVisibleWidth measures a styled string's display width (ANSI aware).
-func NodeVisibleWidth(s string) int { return visibleWidth(s) }
-
 // The multi-line caret helpers behind a plugin's code face (see CodeBlockBands):
 // NodeCaretVMove walks the caret up/down a line keeping its column;
 // NodeCaretLineCol / NodeCaretAt convert between a caret index and line/column
@@ -377,6 +360,3 @@ func NodeVisibleWidth(s string) int { return visibleWidth(s) }
 func NodeCaretVMove(s string, caret, dir int) int     { return jsonCaretLineMove(s, caret, dir) }
 func NodeCaretLineCol(s string, caret int) (int, int) { return jsonCaretLC(s, caret) }
 func NodeCaretAt(s string, line, col int) int         { return jsonLCCaret(s, line, col) }
-
-// NodeFuzzyMatch reports whether needle subsequence-matches hay.
-func NodeFuzzyMatch(hay, needle string) bool { return fuzzyMatch(hay, needle) }

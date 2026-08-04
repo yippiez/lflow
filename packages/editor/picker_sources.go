@@ -367,7 +367,7 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		// picking Code on the single cursor node drops straight into its editor —
 		// typing is the whole point, and the block has no inline surface.
 		if cur := m.cursorItem(); it.value == database.TypeCode && len(targets) == 1 && targets[0] == cur {
-			if v := nodeViewOf(cur); v != nil && v.Enter(m, cur) {
+			if v := nodeViewOf(cur); v != nil && v.enter(m, cur) {
 				m.focused = true
 				m.focusScroll = 0
 			}

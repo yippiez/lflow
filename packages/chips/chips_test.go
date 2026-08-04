@@ -34,7 +34,7 @@ func TestDateSpans(t *testing.T) {
 }
 
 func TestLinkSpans(t *testing.T) {
-	got := LinkSpans("see [docs](https://x.com) here")
+	got := linkSpans("see [docs](https://x.com) here")
 	if len(got) != 1 {
 		t.Fatalf("expected 1 link, got %d", len(got))
 	}

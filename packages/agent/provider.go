@@ -21,15 +21,6 @@ type AgentBackend interface {
 // implementation (its own file, see grok.go) + one entry here.
 var backends = []AgentBackend{grokBackend{}, piBackend{}}
 
-// AgentBackends returns the registered backends.
-func AgentBackends() []AgentBackend { return backends }
-
-// AgentAvailable reports whether provider p's CLI is installed and runnable.
-func AgentAvailable(p AgentProvider) bool {
-	b, ok := AgentBackendFor(p)
-	return ok && b.Available()
-}
-
 // AgentBackendFor returns the backend for provider p.
 func AgentBackendFor(p AgentProvider) (AgentBackend, bool) {
 	for _, b := range backends {

@@ -14,7 +14,7 @@ func focusCode(t *testing.T, m *Model, uuid string) *item {
 	t.Helper()
 	cursorOn(m, uuid)
 	it := m.tree.byUUID[uuid]
-	if !(codeView{}).Enter(m, it) {
+	if !(codeView{}).enter(m, it) {
 		t.Fatal("code view refused focus")
 	}
 	m.focused = true
@@ -49,7 +49,7 @@ func TestCodeViewTypesMultiLine(t *testing.T) {
 	if !m.focused {
 		t.Fatal("indentation must not exit the editor")
 	}
-	codeView{}.Leave(m, m.tree.byUUID["c"])
+	codeView{}.leave(m, m.tree.byUUID["c"])
 	want := "def f(xs):\n  total = 0\n    return total"
 	if got := m.tree.byUUID["c"].name; got != want {
 		t.Fatalf("code =\n%q\nwant\n%q", got, want)
@@ -87,7 +87,7 @@ func TestCodeViewTabIndents(t *testing.T) {
 	focusCode(t, m, "c")
 	m.feed(tea.KeyMsg{Type: tea.KeyTab})
 	typeInto(m, "x")
-	codeView{}.Leave(m, m.tree.byUUID["c"])
+	codeView{}.leave(m, m.tree.byUUID["c"])
 	if got := m.tree.byUUID["c"].name; got != "  x" {
 		t.Fatalf("tab should indent two spaces, code = %q", got)
 	}
@@ -95,10 +95,10 @@ func TestCodeViewTabIndents(t *testing.T) {
 
 // TestHLCodeLine: the shared highlighter dims comments and colors keywords.
 func TestHLCodeLine(t *testing.T) {
-	if got := HLCodeLine("# a comment"); !strings.HasPrefix(got, cDim) {
+	if got := hlCodeLine("# a comment"); !strings.HasPrefix(got, cDim) {
 		t.Fatalf("comment must dim: %q", got)
 	}
-	if got := HLCodeLine("def train(x):"); !strings.Contains(got, cAccent+"def") {
+	if got := hlCodeLine("def train(x):"); !strings.Contains(got, cAccent+"def") {
 		t.Fatalf("keyword must color: %q", got)
 	}
 }

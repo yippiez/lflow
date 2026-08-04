@@ -21,9 +21,9 @@ import (
 	"github.com/lflow/lflow/packages/database"
 )
 
-// DefaultBaseURL is the production API root; tests point BaseURL at a local
+// defaultBaseURL is the production API root; tests point BaseURL at a local
 // mock server speaking the same JSON.
-const DefaultBaseURL = "https://workflowy.com/api/v1"
+const defaultBaseURL = "https://workflowy.com/api/v1"
 
 // Node is one Workflowy node as the API returns it.
 type Node struct {
@@ -55,7 +55,7 @@ func (c *Client) base() string {
 	if c.BaseURL != "" {
 		return strings.TrimRight(c.BaseURL, "/")
 	}
-	return DefaultBaseURL
+	return defaultBaseURL
 }
 
 func (c *Client) http() *http.Client {
@@ -86,15 +86,15 @@ func (c *Client) get(ctx context.Context, path string, into interface{}) error {
 	return nil
 }
 
-// GetNode fetches one node by id.
-func (c *Client) GetNode(ctx context.Context, id string) (Node, error) {
+// getNode fetches one node by id.
+func (c *Client) getNode(ctx context.Context, id string) (Node, error) {
 	var n Node
 	err := c.get(ctx, "/nodes/"+id, &n)
 	return n, err
 }
 
-// ListChildren fetches the direct children of a node, sorted by priority.
-func (c *Client) ListChildren(ctx context.Context, parentID string) ([]Node, error) {
+// listChildren fetches the direct children of a node, sorted by priority.
+func (c *Client) listChildren(ctx context.Context, parentID string) ([]Node, error) {
 	var out struct {
 		Nodes []Node `json:"nodes"`
 	}
@@ -119,7 +119,7 @@ const MaxFetch = 500
 // priority at every level. truncated reports whether the MaxFetch cap cut the
 // walk short.
 func (c *Client) FetchSubtree(ctx context.Context, rootID string) (root *TreeNode, truncated bool, err error) {
-	rn, err := c.GetNode(ctx, rootID)
+	rn, err := c.getNode(ctx, rootID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -132,7 +132,7 @@ func (c *Client) FetchSubtree(ctx context.Context, rootID string) (root *TreeNod
 		if count >= MaxFetch {
 			return root, true, nil
 		}
-		kids, err := c.ListChildren(ctx, cur.ID)
+		kids, err := c.listChildren(ctx, cur.ID)
 		if err != nil {
 			return nil, false, err
 		}

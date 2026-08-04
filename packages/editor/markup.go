@@ -536,25 +536,25 @@ func (markupView) picture(m *Model, it *item) bool {
 	return ok
 }
 
-func (v markupView) Enter(m *Model, it *item) bool {
+func (v markupView) enter(m *Model, it *item) bool {
 	if v.picture(m, it) {
-		return (imageView{}).Enter(m, it)
+		return (imageView{}).enter(m, it)
 	}
 	return it != nil
 }
 
-func (v markupView) Leave(m *Model, it *item) {}
+func (v markupView) leave(m *Model, it *item) {}
 
-func (v markupView) Lines(m *Model, it *item, width int) int {
+func (v markupView) lines(m *Model, it *item, width int) int {
 	if v.picture(m, it) {
-		return (imageView{}).Lines(m, it, width)
+		return (imageView{}).lines(m, it, width)
 	}
 	return len(m.markupViewContent(it, "", width))
 }
 
-func (v markupView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (v markupView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	if v.picture(m, it) {
-		return (imageView{}).Key(m, it, k)
+		return (imageView{}).key(m, it, k)
 	}
 	if k.Type == tea.KeyRunes {
 		return nil, true // the document is composed in the outline, not in here
@@ -562,9 +562,9 @@ func (v markupView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-func (v markupView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (v markupView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	if v.picture(m, it) {
-		return (imageView{}).Bands(m, it, rail, width, scroll, winH, focused)
+		return (imageView{}).bands(m, it, rail, width, scroll, winH, focused)
 	}
 	return NodeWindowBands(m.markupViewContent(it, rail, width), scroll, winH)
 }
@@ -622,7 +622,7 @@ func svgFlashActions(m *Model, it *item) []flashAction {
 }
 
 func markupExpandDo(m *Model, it *item) tea.Cmd {
-	if (markupView{}).Enter(m, it) {
+	if (markupView{}).enter(m, it) {
 		m.focused = true
 		m.focusScroll = 0
 	}

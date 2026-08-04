@@ -41,7 +41,7 @@ func TestRunOutPersistsAcrossReload(t *testing.T) {
 		t.Fatalf("pwd = %q, want /tmp/project", pwd)
 	}
 	// the header carries where it ran, on the same line as the rest of the chrome
-	bands := (runOutView{}).Bands(reopened, &item{uuid: "b1", typ: "bash"}, "", 80, 0, 10, true)
+	bands := (runOutView{}).bands(reopened, &item{uuid: "b1", typ: "bash"}, "", 80, 0, 10, true)
 	if len(bands) < 2 || !strings.Contains(bands[0], "/tmp/project") {
 		t.Fatalf("alt+e header should show pwd, got %q", bands)
 	}

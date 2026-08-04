@@ -265,7 +265,7 @@ func (m *Model) viewFocusedBand(groups, bands [][]string, lay viewLayout, maxLin
 			r := rows[m.cursor]
 			below := m.cursor+1 < len(rows) && rows[m.cursor+1].depth > r.depth
 			winH := lay.focusedBudget - len(groups[m.cursor]) - 1
-			total := v.Lines(m, cur, maxLine)
+			total := v.lines(m, cur, maxLine)
 			// The pane is as tall as it needs to be, never as tall as the screen
 			// allows. Taking the whole budget turned ⌥e on a three-line result
 			// into a page of blank rows — the outline gone, nothing in its place.
@@ -284,7 +284,7 @@ func (m *Model) viewFocusedBand(groups, bands [][]string, lay viewLayout, maxLin
 				m.focusScroll = 0
 			}
 			bands[m.cursor] = append(bands[m.cursor],
-				v.Bands(m, cur, continuationPrefix(r, below), maxLine, m.focusScroll, winH, true)...)
+				v.bands(m, cur, continuationPrefix(r, below), maxLine, m.focusScroll, winH, true)...)
 		}
 	}
 }

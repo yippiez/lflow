@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	"github.com/lflow/lflow/packages/utils"
@@ -31,35 +30,12 @@ func MustExec(t *testing.T, message string, db *DB, query string, args ...interf
 
 // InitTestMemoryDB initializes an in-memory test database with the default schema.
 func InitTestMemoryDB(t *testing.T) *DB {
-	return InitTestMemoryDBRaw(t, "")
+	return initTestMemoryDBRaw(t, "")
 }
 
-// InitTestFileDB initializes a file-based test database with the default schema.
-func InitTestFileDB(t *testing.T) (*DB, string) {
-	uuid := mustGenerateTestUUID(t)
-	dbPath := filepath.Join(t.TempDir(), fmt.Sprintf("lflow-%s.db", uuid))
-	db := InitTestFileDBRaw(t, dbPath)
-	return db, dbPath
-}
-
-// InitTestFileDBRaw initializes a file-based test database at the specified path with the default schema.
-func InitTestFileDBRaw(t *testing.T, dbPath string) *DB {
-	db, err := Open(dbPath)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "opening database"))
-	}
-
-	if _, err := db.Exec(DefaultSchemaSQL()); err != nil {
-		t.Fatal(errors.Wrap(err, "running schema sql"))
-	}
-
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
-// InitTestMemoryDBRaw initializes an in-memory test database with the default
+// initTestMemoryDBRaw initializes an in-memory test database with the default
 // schema. If schemaPath is non-empty, that SQL file is used instead.
-func InitTestMemoryDBRaw(t *testing.T, schemaPath string) *DB {
+func initTestMemoryDBRaw(t *testing.T, schemaPath string) *DB {
 	uuid := mustGenerateTestUUID(t)
 	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared", uuid)
 

@@ -4,7 +4,6 @@ package app
 import (
 	"github.com/lflow/lflow/packages/daemon/client"
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/utils/clock"
 )
 
 // Paths contain directory definitions
@@ -27,6 +26,5 @@ type Ctx struct {
 	// the editor uses for live updates. nil in direct (daemon-less) runs.
 	Live               *client.Client
 	Editor             string
-	Clock              clock.Clock
 	EnableUpgradeCheck bool
 }

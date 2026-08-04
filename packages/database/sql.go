@@ -71,11 +71,6 @@ func (d *DB) Exec(query string, values ...interface{}) (sql.Result, error) {
 	return d.Conn.Exec(query, values...)
 }
 
-// Prepare prepares a sql
-func (d *DB) Prepare(query string) (*sql.Stmt, error) {
-	return d.Conn.Prepare(query)
-}
-
 // Query queries rows
 func (d *DB) Query(query string, values ...interface{}) (*sql.Rows, error) {
 	return d.Conn.Query(query, values...)

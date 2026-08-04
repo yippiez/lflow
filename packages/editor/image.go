@@ -196,7 +196,7 @@ func imageFlashActions(m *Model, it *item) []flashAction {
 // the generic flashExpandDo, which reaches typeOf/nodeViewOf) so the registry's
 // static reference to it doesn't form a package init cycle.
 func imageExpandDo(m *Model, it *item) tea.Cmd {
-	if (imageView{}).Enter(m, it) {
+	if (imageView{}).enter(m, it) {
 		m.focused = true
 		m.focusScroll = 0
 	}
@@ -396,12 +396,12 @@ func humanSize(n int64) string {
 // fall through to central scroll/defocus handling.
 type imageView struct{}
 
-func (imageView) Enter(m *Model, it *item) bool {
+func (imageView) enter(m *Model, it *item) bool {
 	_, ok := m.imageLoad(it.uuid)
 	return ok // decline if there is no image to show
 }
 
-func (imageView) Leave(m *Model, it *item) {}
+func (imageView) leave(m *Model, it *item) {}
 
 // imageViewLines is the total band height at a given width: a header line plus the
 // aspect-fit half-block rows.
@@ -417,14 +417,14 @@ func imageViewLines(m *Model, it *item, width int) int {
 	return 1 + halfBlockFit(info.img, cols)
 }
 
-func (imageView) Lines(m *Model, it *item, width int) int { return imageViewLines(m, it, width) }
+func (imageView) lines(m *Model, it *item, width int) int { return imageViewLines(m, it, width) }
 
 // Key: enter — and alt+o, so the outline's open key keeps working once the view
 // has focus rather than being swallowed by it — open the full-resolution picture
 // in the host's image viewer; up/down (and pgup/pgdn) scroll the view so a tall
 // image whose bottom is off-screen can be read — the render loop clamps the
 // offset to the content height. esc (defocus) is handled centrally.
-func (imageView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (imageView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "enter", "alt+o":
 		return imageOpenHost(m, it), true
@@ -451,7 +451,7 @@ func (imageView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 
 // Bands renders the header + half-block picture, self-windowed to [scroll,
 // scroll+winH).
-func (imageView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (imageView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	info, ok := m.imageLoad(it.uuid)
 	if !ok {
 		return []string{clip(rail+cReset+cDim+"  image · empty · ⌥r paste"+cReset, width)}

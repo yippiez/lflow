@@ -6,10 +6,6 @@ node_modules
 /test
 tmp
 *.db
-/server
-pkg/tui/test-lflow
-pkg/tui/tmp/
-pkg/e2e/sync/tmp/
 .venv/
 
 # stray binary from `go build ./pkg/tui` (build-check)

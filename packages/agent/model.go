@@ -20,24 +20,9 @@ func (m Model) ID() string {
 	return m.Upstream + "/" + m.Name
 }
 
-// Empty reports whether the model is unset.
-func (m Model) Empty() bool { return m.Name == "" }
-
 // FlagValue is the value to pass to the backend's model flag: pi wants
 // "upstream/model", grok a bare model id — both are ID().
 func (m Model) FlagValue() string { return m.ID() }
-
-// String is the canonical stored form: "cli:upstream/model". pi models stay
-// unprefixed ("upstream/model") so existing stored settings keep parsing.
-func (m Model) String() string {
-	if m.Empty() {
-		return ""
-	}
-	if m.CLI == "" || m.CLI == AgentProviderPi {
-		return m.ID()
-	}
-	return string(m.CLI) + ":" + m.ID()
-}
 
 // AgentModelParse is the inverse of Model.String: an optional "cli:" prefix names
 // the backend (any registered provider; missing or "pi" means pi), the rest is

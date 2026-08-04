@@ -29,10 +29,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-// LocalInstance is where a locally-run SearxNG lands by default (its own
+// localInstance is where a locally-run SearxNG lands by default (its own
 // docker-compose and every install guide use this port), so a user running one
 // on the same machine needs no configuration at all.
-const LocalInstance = "http://localhost:8888/search"
+const localInstance = "http://localhost:8888/search"
 
 // DefaultLimit is how many hits a search keeps — the first page's top ten.
 const DefaultLimit = 10
@@ -59,11 +59,11 @@ type Client struct {
 	HTTP      *http.Client
 }
 
-// ErrNoInstance is what a run gets when no instance is configured and none is
+// errNoInstance is what a run gets when no instance is configured and none is
 // listening locally — the editor turns it into the red "error: searxng URL
 // missing" status line (the /settings searxng.url field names one) rather than
 // searching somewhere the user did not choose.
-var ErrNoInstance = errors.New("searxng URL missing")
+var errNoInstance = errors.New("searxng URL missing")
 
 // instance resolves where to ask: an explicit override (tests), the environment,
 // credentials.json, and finally the conventional local instance. configured
@@ -76,7 +76,7 @@ func (c *Client) instance() (endpoint string, configured bool) {
 	if u := searxngURL(c.ConfigDir); u != "" {
 		return u, true
 	}
-	return LocalInstance, false
+	return localInstance, false
 }
 
 func (c *Client) http() *http.Client {
@@ -101,7 +101,7 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Result,
 		if !configured && ctx.Err() == nil {
 			// nothing was named and nothing answered on the local port: the user
 			// has no instance, which is a setup message, not a search failure
-			return nil, ErrNoInstance
+			return nil, errNoInstance
 		}
 		return nil, err
 	}

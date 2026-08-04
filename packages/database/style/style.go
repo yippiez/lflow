@@ -51,8 +51,8 @@ func isColor(name string) bool {
 	return false
 }
 
-// Tokens splits a style string into its tokens, dropping empties.
-func Tokens(style string) []string {
+// tokens splits a style string into its tokens, dropping empties.
+func tokens(style string) []string {
 	if style == "" {
 		return nil
 	}
@@ -67,7 +67,7 @@ func Tokens(style string) []string {
 
 // Has reports whether the style carries the given attribute token.
 func Has(style, tok string) bool {
-	for _, t := range Tokens(style) {
+	for _, t := range tokens(style) {
 		if t == tok {
 			return true
 		}
@@ -75,11 +75,11 @@ func Has(style, tok string) bool {
 	return false
 }
 
-// Set adds the attribute token if on, removes it if not, preserving the order
+// set adds the attribute token if on, removes it if not, preserving the order
 // of the remaining tokens.
-func Set(style, tok string, on bool) string {
+func set(style, tok string, on bool) string {
 	var out []string
-	for _, t := range Tokens(style) {
+	for _, t := range tokens(style) {
 		if t == tok {
 			continue
 		}
@@ -93,12 +93,12 @@ func Set(style, tok string, on bool) string {
 
 // Toggle adds the attribute token if absent, removes it if present.
 func Toggle(style, tok string) string {
-	return Set(style, tok, !Has(style, tok))
+	return set(style, tok, !Has(style, tok))
 }
 
 // Color returns the current color name, or "" when none is set.
 func Color(style string) string {
-	for _, t := range Tokens(style) {
+	for _, t := range tokens(style) {
 		if c, ok := strings.CutPrefix(t, "color:"); ok {
 			return c
 		}
@@ -111,7 +111,7 @@ func Color(style string) string {
 // toggle.
 func SetColor(style, color string) string {
 	var out []string
-	for _, t := range Tokens(style) {
+	for _, t := range tokens(style) {
 		if strings.HasPrefix(t, "color:") {
 			continue
 		}
@@ -123,10 +123,10 @@ func SetColor(style, color string) string {
 	return strings.Join(out, ",")
 }
 
-// Validate checks that every token in style is a known attribute or a
+// validate checks that every token in style is a known attribute or a
 // "color:<name>" with a known color. An empty style is valid (unstyled).
-func Validate(style string) error {
-	for _, t := range Tokens(style) {
+func validate(style string) error {
+	for _, t := range tokens(style) {
 		if name, ok := strings.CutPrefix(t, "color:"); ok {
 			if !isColor(name) {
 				return errors.Errorf("unknown color %q: %s", name, strings.Join(Colors, ", "))
@@ -168,7 +168,7 @@ func (c Change) Apply(cur string) (string, error) {
 	}
 	if c.Color != nil {
 		var out []string
-		for _, t := range Tokens(s) {
+		for _, t := range tokens(s) {
 			if !strings.HasPrefix(t, "color:") {
 				out = append(out, t)
 			}
@@ -183,10 +183,10 @@ func (c Change) Apply(cur string) (string, error) {
 		on  *bool
 	}{{"bold", c.Bold}, {"italic", c.Italic}, {"underline", c.Underline}, {"strike", c.Strike}} {
 		if a.on != nil {
-			s = Set(s, a.tok, *a.on)
+			s = set(s, a.tok, *a.on)
 		}
 	}
-	if err := Validate(s); err != nil {
+	if err := validate(s); err != nil {
 		return "", err
 	}
 	return Normalize(s), nil
@@ -196,7 +196,7 @@ func (c Change) Apply(cur string) (string, error) {
 // Attrs order, then a single color), so equal styles compare equal as strings.
 func Normalize(style string) string {
 	seen := map[string]bool{}
-	for _, t := range Tokens(style) {
+	for _, t := range tokens(style) {
 		seen[t] = true
 	}
 	var out []string

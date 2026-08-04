@@ -79,7 +79,7 @@ func Open(url string) error {
 // is the opposite case and keeps using Open.
 func OpenApp(uri string) error {
 	uri = strings.TrimSpace(uri)
-	if runtime.GOOS == "linux" && UnderWSL() {
+	if runtime.GOOS == "linux" && underWSL() {
 		for _, opener := range []string{"wslview"} {
 			if path, err := exec.LookPath(opener); err == nil {
 				return exec.Command(path, uri).Start()
@@ -95,10 +95,10 @@ func OpenApp(uri string) error {
 // wslMarkers are the kernel-version substrings a WSL kernel carries.
 var wslMarkers = []string{"microsoft", "wsl"}
 
-// UnderWSL reports whether this Linux process runs inside the Windows Subsystem
+// underWSL reports whether this Linux process runs inside the Windows Subsystem
 // for Linux — the case where a desktop app the outline wants to reach lives on
 // the Windows side rather than in this filesystem.
-func UnderWSL() bool {
+func underWSL() bool {
 	if runtime.GOOS != "linux" {
 		return false
 	}

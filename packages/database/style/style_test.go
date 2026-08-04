@@ -17,9 +17,9 @@ func TestValidate(t *testing.T) {
 		{"bold,color:nope", false},
 	}
 	for _, c := range cases {
-		err := Validate(c.style)
+		err := validate(c.style)
 		if (err == nil) != c.ok {
-			t.Errorf("Validate(%q) ok=%v, err=%v", c.style, c.ok, err)
+			t.Errorf("validate(%q) ok=%v, err=%v", c.style, c.ok, err)
 		}
 	}
 }

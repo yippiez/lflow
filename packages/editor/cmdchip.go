@@ -274,17 +274,17 @@ func (m *Model) activeView(it *item) nodeView {
 	return nodeViewOf(it)
 }
 
-func (cmdChipView) Enter(m *Model, it *item) bool { return m.focusChip != "" }
+func (cmdChipView) enter(m *Model, it *item) bool { return m.focusChip != "" }
 
-func (cmdChipView) Leave(m *Model, it *item) { m.focusChip, m.focusFollow = "", false }
+func (cmdChipView) leave(m *Model, it *item) { m.focusChip, m.focusFollow = "", false }
 
-func (cmdChipView) Lines(m *Model, it *item, width int) int {
+func (cmdChipView) lines(m *Model, it *item, width int) int {
 	return runViewLines(m, m.focusChip)
 }
 
 // Key scrolls the band; alt+r re-runs (or cancels) the chip in place; esc/alt+e
 // fall through to central defocus.
-func (cmdChipView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (cmdChipView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	if k.String() == "alt+r" {
 		if c, ok := m.chips[m.focusChip]; ok && c.Kind == chipKindCmd {
 			return m.runCmdChip(c), true
@@ -295,7 +295,7 @@ func (cmdChipView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 
 // Bands renders the chip's terminal: the same shared surface a Bash node's
 // expanded view uses, headed by the command itself.
-func (cmdChipView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (cmdChipView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	m.ensureRunOutLoaded(m.focusChip)
 	r := m.run(m.focusChip) // non-nil after ensureRunOutLoaded
 	cmd := ""

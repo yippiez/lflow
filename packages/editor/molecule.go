@@ -597,11 +597,11 @@ func (v moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 
 // Enter accepts either form: a typed notation leaf or an outline-composed
 // molecule (whose own text may be a bare atom).
-func (v moleculeView) Enter(m *Model, it *item) bool {
+func (v moleculeView) enter(m *Model, it *item) bool {
 	return strings.TrimSpace(molTreeSMILES(it)) != ""
 }
 
-func (v moleculeView) Leave(m *Model, it *item) {
+func (v moleculeView) leave(m *Model, it *item) {
 	d := m.nodeStore(it.uuid)
 	delete(d, "molKey")
 	delete(d, "molInfo")
@@ -609,7 +609,7 @@ func (v moleculeView) Leave(m *Model, it *item) {
 	delete(d, "molTotal")
 }
 
-func (v moleculeView) Lines(m *Model, it *item, width int) int {
+func (v moleculeView) lines(m *Model, it *item, width int) int {
 	if t, ok := m.nodeStore(it.uuid)["molTotal"].(int); ok {
 		return t
 	}
@@ -617,7 +617,7 @@ func (v moleculeView) Lines(m *Model, it *item, width int) int {
 	return molChrome + len(lines)
 }
 
-func (v moleculeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (v moleculeView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "down", "j":
 		m.focusScroll++
@@ -636,7 +636,7 @@ func (v moleculeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 // the whole thing.
 const molChrome = 1
 
-func (v moleculeView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (v moleculeView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	innerW := width - visibleWidth(rail)
 	if innerW < 10 {
 		innerW = width

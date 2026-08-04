@@ -404,7 +404,7 @@ func TestAgentPanelShowsTrace(t *testing.T) {
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, cwd: "/home/dev/repo"})
 	m.focusAgentChip(chip)
 
-	bands := (agentChipView{}).Bands(m, m.tree.byUUID["note"], "", 200, 0, 20, true)
+	bands := (agentChipView{}).bands(m, m.tree.byUUID["note"], "", 200, 0, 20, true)
 	joined := stripSGR(strings.Join(bands, "\n"))
 	for _, want := range []string{"✽ flush-resume", "/home/dev/repo", "traces · 1 events", "◆ you", "the sync test is flaky", "alt+r open", "alt+n rename", "alt+c color"} {
 		if !strings.Contains(joined, want) {
@@ -504,7 +504,7 @@ func TestAgentPanelWrapsLongName(t *testing.T) {
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, cwd: "/home/dev/repo"})
 	m.focusAgentChip(chip)
 
-	bands := (agentChipView{}).Bands(m, m.tree.byUUID["note"], "", 48, 0, 20, true)
+	bands := (agentChipView{}).bands(m, m.tree.byUUID["note"], "", 48, 0, 20, true)
 	joined := stripSGR(strings.Join(bands, "\n"))
 	if len(bands) < 4 {
 		t.Fatalf("a long name did not wrap; panel is %d lines:\n%s", len(bands), joined)
@@ -530,14 +530,14 @@ func TestAgentRenameInPanel(t *testing.T) {
 	m.focusAgentChip(chip)
 	it := m.tree.byUUID["note"]
 
-	(agentChipView{}).Key(m, it, key("n"))
+	(agentChipView{}).key(m, it, key("n"))
 	if m.agentRenameState(chip.ID) == nil {
 		t.Fatal("n did not open the rename field")
 	}
 	for _, r := range "retry fix" {
-		(agentChipView{}).Key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		(agentChipView{}).key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	(agentChipView{}).Key(m, it, key("enter"))
+	(agentChipView{}).key(m, it, key("enter"))
 	if s := m.agentLoad(chip.ID); !strings.HasSuffix(s.Name, "retry fix") {
 		t.Fatalf("committed name = %q", s.Name)
 	}
@@ -545,8 +545,8 @@ func TestAgentRenameInPanel(t *testing.T) {
 		t.Error("the field must close on enter")
 	}
 
-	(agentChipView{}).Key(m, it, key("n"))
-	(agentChipView{}).Key(m, it, key("esc"))
+	(agentChipView{}).key(m, it, key("n"))
+	(agentChipView{}).key(m, it, key("esc"))
 	if m.agentRenameState(chip.ID) != nil {
 		t.Error("esc must close the field")
 	}
@@ -593,19 +593,19 @@ func TestAgentRenameReplaces(t *testing.T) {
 	m.focusAgentChip(chip)
 	it := m.tree.byUUID["note"]
 
-	(agentChipView{}).Key(m, it, key("n"))
+	(agentChipView{}).key(m, it, key("n"))
 	if f := m.agentRenameState(chip.ID); f == nil || f.value != "" {
 		t.Fatalf("the field opened with %q, want it empty", f.value)
 	}
 	for _, r := range "flush fix" {
-		(agentChipView{}).Key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		(agentChipView{}).key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	(agentChipView{}).Key(m, it, key("enter"))
+	(agentChipView{}).key(m, it, key("enter"))
 	if s := m.agentLoad(chip.ID); s.Name != "flush fix" {
 		t.Fatalf("name = %q, want the typed name alone", s.Name)
 	}
 	// a session you already named opens with that name, ready to edit
-	(agentChipView{}).Key(m, it, key("n"))
+	(agentChipView{}).key(m, it, key("n"))
 	if f := m.agentRenameState(chip.ID); f == nil || f.value != "flush fix" {
 		t.Errorf("re-opening the field gave %q, want the custom name", f.value)
 	}

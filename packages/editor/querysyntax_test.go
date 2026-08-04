@@ -70,7 +70,7 @@ func TestBracketQualifiers(t *testing.T) {
 // bracketing holds the value together.
 func TestBracketValueMayContainSpaces(t *testing.T) {
 	now := mustDate("2026-06-25")
-	tq := parseTimeQuery("before(2026-06-20 14:30)", now)
+	tq := flattenQuery("before(2026-06-20 14:30)", now)
 	if tq.before == nil {
 		t.Fatal("before(2026-06-20 14:30) did not parse")
 	}
@@ -179,7 +179,7 @@ func TestNegationExcludesAtoms(t *testing.T) {
 		t.Fatalf("buy -type(todo) = %v, want [d]", got)
 	}
 	// an interior hyphen is not an operator — dates and hyphenated words survive
-	if pq := parseTimeQuery("after(2026-06-01)", time.Now()); pq.after == nil {
+	if pq := flattenQuery("after(2026-06-01)", time.Now()); pq.after == nil {
 		t.Fatal("after(2026-06-01) must parse as a date, not a negation")
 	}
 }

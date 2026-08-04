@@ -60,9 +60,9 @@ func EnsureTemp(db *DB) error {
 	return nil
 }
 
-// TempSubtreeUUIDs returns the set of uuids in the temp subtree (the temp root
+// tempSubtreeUUIDs returns the set of uuids in the temp subtree (the temp root
 // and all its descendants), so notebook finders can exclude the lab.
-func TempSubtreeUUIDs(db *DB) (map[string]bool, error) {
+func tempSubtreeUUIDs(db *DB) (map[string]bool, error) {
 	rows, err := db.Query(`WITH RECURSIVE tt(uuid) AS (
 		SELECT ?
 		UNION ALL

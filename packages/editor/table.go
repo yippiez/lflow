@@ -522,7 +522,7 @@ func (m *Model) tableCellFor(it *item, s tableSel) *item {
 // Enter opens the grid editor: an empty table is seeded with something to type
 // into, and the table always folds to its grid face first — editing the grid
 // while the same nodes also render as rows below it would draw them twice.
-func (v tableView) Enter(m *Model, it *item) bool {
+func (v tableView) enter(m *Model, it *item) bool {
 	if it == nil {
 		return false
 	}
@@ -539,17 +539,17 @@ func (v tableView) Enter(m *Model, it *item) bool {
 
 // Leave keeps the selection for the next alt+e; cells are edited in place, so
 // there is nothing to flush. The row-delete arming is dropped.
-func (v tableView) Leave(m *Model, it *item) { delete(m.nodeStore(it.uuid), "tblArm") }
+func (v tableView) leave(m *Model, it *item) { delete(m.nodeStore(it.uuid), "tblArm") }
 
 // Lines is the hint header plus the grid.
-func (v tableView) Lines(m *Model, it *item, width int) int {
+func (v tableView) lines(m *Model, it *item, width int) int {
 	lines, _ := m.tableLines(it, width, nil)
 	return 1 + len(lines)
 }
 
 // Bands renders the hint line and the grid as bands beneath the node,
 // self-windowed with the selected cell kept in view.
-func (v tableView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (v tableView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	s := tableSelOf(m, it)
 	var sel *tableSel
 	if focused {
@@ -591,7 +591,7 @@ func (m *Model) tableHint(it *item) string {
 // Key drives the grid: arrows and tab walk the cells, typing edits the cell
 // under the cursor, and the structural keys grow the grid. Keys it does not
 // claim fall through to central handling (esc, ctrl+c).
-func (v tableView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (v tableView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	key := k.String()
 	if key != "alt+d" {
 		delete(m.nodeStore(it.uuid), "tblArm") // any other key disarms the row delete
@@ -868,7 +868,7 @@ func (m *Model) tableSeed(it *item) {
 // tableOpenCell leaves the grid and zooms the view into a cell, so the outline
 // INSIDE that cell is edited as an ordinary outline. alt+left comes back.
 func (m *Model) tableOpenCell(it *item, c *item) tea.Cmd {
-	tableView{}.Leave(m, it)
+	tableView{}.leave(m, it)
 	m.focused = false
 	target := m.tree.resolve(c)
 	// push the whole path down from the current view root — table › column ›

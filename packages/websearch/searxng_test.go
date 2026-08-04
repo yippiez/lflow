@@ -92,7 +92,7 @@ func TestInstanceResolution(t *testing.T) {
 
 	// nothing named: the conventional local instance, and not "configured"
 	c := &Client{ConfigDir: dir}
-	if ep, configured := c.instance(); ep != LocalInstance || configured {
+	if ep, configured := c.instance(); ep != localInstance || configured {
 		t.Fatalf("default = %q configured=%v, want the local instance, unnamed", ep, configured)
 	}
 

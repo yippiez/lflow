@@ -1,8 +1,6 @@
 package utils
 
 import (
-	"regexp"
-
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
@@ -15,16 +13,4 @@ func GenerateUUID() (string, error) {
 	}
 
 	return u.String(), nil
-}
-
-// regexNumber is a regex that matches a string that looks like an integer
-var regexNumber = regexp.MustCompile(`^\d+$`)
-
-// IsNumber checks if the given string is in the form of a number
-func IsNumber(s string) bool {
-	if s == "" {
-		return false
-	}
-
-	return regexNumber.MatchString(s)
 }

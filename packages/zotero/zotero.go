@@ -172,14 +172,6 @@ func ParseRef(value string) (Ref, bool) {
 	return Ref{Key: mm[2], GroupID: mm[1]}, true
 }
 
-// IsRef reports whether a string is a Zotero select URI — the test that routes
-// a "[label](target)" written by the CLI into a zotero chip rather than a
-// plain link chip.
-func IsRef(value string) bool {
-	_, ok := ParseRef(value)
-	return ok
-}
-
 // DOIURL turns a bare DOI into a resolvable URL, leaving an already-resolved
 // one alone.
 func DOIURL(doi string) string {

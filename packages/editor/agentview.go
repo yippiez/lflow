@@ -23,7 +23,6 @@ type agentHandle struct {
 	id   string
 	v    agentVariant
 	sess agentSession
-	node bool
 }
 
 type agentTrace struct {
@@ -52,16 +51,16 @@ func (m *Model) focusAgentChip(c database.Chip) {
 	}
 }
 
-func (agentChipView) Enter(m *Model, it *item) bool { return m.focusChip != "" }
+func (agentChipView) enter(m *Model, it *item) bool { return m.focusChip != "" }
 
-func (agentChipView) Leave(m *Model, it *item) {
+func (agentChipView) leave(m *Model, it *item) {
 	if m.focusChip != "" {
 		delete(m.nodeStore(m.focusChip), "agentRename")
 	}
 	m.focusChip = ""
 }
 
-func (agentChipView) Lines(m *Model, it *item, width int) int {
+func (agentChipView) lines(m *Model, it *item, width int) int {
 	h, ok := agentChipHandle(m)
 	if !ok {
 		return 0
@@ -69,7 +68,7 @@ func (agentChipView) Lines(m *Model, it *item, width int) int {
 	return len(m.agentBandContent(h, "", width))
 }
 
-func (agentChipView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (agentChipView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	h, ok := agentChipHandle(m)
 	if !ok {
 		return nil, false
@@ -77,7 +76,7 @@ func (agentChipView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	return m.agentViewKey(h, k)
 }
 
-func (agentChipView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (agentChipView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	h, ok := agentChipHandle(m)
 	if !ok {
 		return nil

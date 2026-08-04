@@ -112,7 +112,7 @@ func TestExpandedViewHeightNeverMoves(t *testing.T) {
 	it := m.cursorItem()
 
 	const winH = 8
-	empty := (cmdChipView{}).Bands(m, it, "", 80, 0, winH, true)
+	empty := (cmdChipView{}).bands(m, it, "", 80, 0, winH, true)
 	if len(empty) != winH {
 		t.Fatalf("an empty run drew %d rows, want the full %d-row pane", len(empty), winH)
 	}
@@ -120,7 +120,7 @@ func TestExpandedViewHeightNeverMoves(t *testing.T) {
 		for len(m.run(c.ID).out) < n {
 			m.appendRunOut(c.ID, outLine{text: fmt.Sprintf("line %d", len(m.run(c.ID).out)+1)})
 		}
-		got := (cmdChipView{}).Bands(m, it, "", 80, 0, winH, true)
+		got := (cmdChipView{}).bands(m, it, "", 80, 0, winH, true)
 		if len(got) != winH {
 			t.Errorf("step %d (%d lines): pane is %d rows, want a fixed %d", i, n, len(got), winH)
 		}
@@ -132,7 +132,7 @@ func TestExpandedViewHeightNeverMoves(t *testing.T) {
 	}
 	// scrolling up stops the follow and shows the head — still the same height
 	m.focusFollow = false
-	top := (cmdChipView{}).Bands(m, it, "", 80, 0, winH, true)
+	top := (cmdChipView{}).bands(m, it, "", 80, 0, winH, true)
 	if len(top) != winH {
 		t.Errorf("scrolled pane is %d rows, want %d", len(top), winH)
 	}
@@ -161,7 +161,7 @@ func TestRunningChipClaimsNoBand(t *testing.T) {
 
 	// alt+e is where the output lives, streaming the same feed
 	m.focusCmdChip(m.chips[c.ID])
-	view := strings.Join((cmdChipView{}).Bands(m, m.cursorItem(), "", 80, 0, 20, true), "\n")
+	view := strings.Join((cmdChipView{}).bands(m, m.cursorItem(), "", 80, 0, 20, true), "\n")
 	for _, want := range []string{"one", "two", "three", "four", "running…", "4s", "⌥r stop"} {
 		if !strings.Contains(stripSGR(view), want) {
 			t.Errorf("expanded band missing %q:\n%s", want, stripSGR(view))

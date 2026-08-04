@@ -17,10 +17,9 @@ import (
 // EraseLineRight (\x1b[K), EraseScreenBelow (\x1b[J) — plus printable runes, so
 // a stale-cell overlay shows up as leftover text on a row.
 type vtGrid struct {
-	rows       [][]rune
-	cur        int // current row
-	col        int
-	maxLinesUp int // how far the renderer believes it can move the cursor up
+	rows [][]rune
+	cur  int // current row
+	col  int
 }
 
 func newVTGrid(height int) *vtGrid {

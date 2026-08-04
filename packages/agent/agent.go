@@ -8,7 +8,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"sync"
 )
 
 // AgentProvider identifies a CLI coding-agent backend (pir's "opencode" | "pi" | "grok").
@@ -104,38 +103,6 @@ func AgentRun(ctx context.Context, p AgentProvider, task string, opts AgentRunOp
 		return nil, &Error{Provider: p, Message: "unknown provider"}
 	}
 	return b.Run(ctx, task, opts)
-}
-
-var (
-	modelsMu     sync.Mutex
-	modelsCached []Model
-)
-
-// AgentListModels aggregates the selectable models across all available backends,
-// degrading gracefully when a CLI is missing or fails (pir's parallel listModels).
-// The result is cached after the first non-empty fetch so the model picker can
-// filter per-keystroke without re-shelling the CLIs.
-func AgentListModels() []Model {
-	modelsMu.Lock()
-	defer modelsMu.Unlock()
-	if modelsCached != nil {
-		return modelsCached
-	}
-	var out []Model
-	for _, b := range AgentBackends() {
-		if !b.Available() {
-			continue
-		}
-		ms, err := b.ListModels()
-		if err != nil {
-			continue
-		}
-		out = append(out, ms...)
-	}
-	if len(out) > 0 {
-		modelsCached = out
-	}
-	return out
 }
 
 // Error is a typed provider failure (pir's ProviderError).

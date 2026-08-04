@@ -1644,15 +1644,21 @@ func TestDuplicateCopiesEverySelectedRoot(t *testing.T) {
 }
 
 // TestDuplicateRootIsNoop: the root has no sibling slot, so duplicating it is
-// refused without mutating the tree. (The view root is never a selectable row,
-// so this exercises tree.duplicate directly -- the guard runSlash relies on.)
+// refused without mutating the tree. The view root is never a selectable row
+// in real use, so the test forces the cursor onto it directly to drive
+// runSlash's own parent==nil guard -- the same guard /duplicate relies on.
 func TestDuplicateRootIsNoop(t *testing.T) {
 	m, _, _, _ := dupModel()
 	before := len(m.tree.root.children)
 
-	clone, err := m.tree.duplicate(m.tree.root)
-	if err == nil || clone != nil {
-		t.Fatalf("duplicating the root must fail, got clone=%v err=%v", clone, err)
+	m.rows = []row{{it: m.tree.root}}
+	m.cursor = 0
+
+	mm, _ := m.runSlash("/duplicate")
+	*m = *mm.(*Model)
+
+	if !m.flashErr {
+		t.Fatalf("duplicating the root must flash an error")
 	}
 	if len(m.tree.root.children) != before {
 		t.Fatalf("duplicating the root must not add nodes, got %d", len(m.tree.root.children))

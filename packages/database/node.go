@@ -443,9 +443,9 @@ func NextRank(db *DB, parentUUID string) (int, error) {
 	return int(maxRank.Int64) + 1, nil
 }
 
-// FirstRank returns a rank that sorts before all existing children of the parent,
+// firstRank returns a rank that sorts before all existing children of the parent,
 // so a node moved in lands at the top of the list rather than the bottom.
-func FirstRank(db *DB, parentUUID string) (int, error) {
+func firstRank(db *DB, parentUUID string) (int, error) {
 	var minRank sql.NullInt64
 	if err := db.QueryRow("SELECT MIN(rank) FROM nodes WHERE parent_uuid = ? AND deleted = 0", parentUUID).Scan(&minRank); err != nil {
 		return 0, errors.Wrap(err, "querying min rank")
@@ -466,7 +466,7 @@ func PlaceRank(db *DB, parentUUID string) (int, error) {
 		return 0, errors.Wrapf(err, "querying priority of %s", parentUUID)
 	}
 	if prio == PriorityUp {
-		return FirstRank(db, parentUUID)
+		return firstRank(db, parentUUID)
 	}
 	return NextRank(db, parentUUID)
 }
@@ -583,12 +583,6 @@ func CountSubtree(db *DB, rootUUID string) (int, error) {
 	return len(subtree), nil
 }
 
-// MatchScore describes a search hit with its relevance.
-type MatchScore struct {
-	Node  Node
-	Score float64
-}
-
 // RecentNodes returns every non-deleted node ordered by recency, excluding the
 // fixed root. The editor finder lists it while the query is still empty so
 // the picker starts full instead of blank; the picker windows the display
@@ -630,7 +624,7 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 		return nil, nil
 	}
 
-	tempUUIDs, err := TempSubtreeUUIDs(db)
+	tempUUIDs, err := tempSubtreeUUIDs(db)
 	if err != nil {
 		return nil, err
 	}
@@ -722,7 +716,7 @@ func StreamLiveNodes(db *DB, batchSize int, yield func([]Node) bool) error {
 	if batchSize < 1 {
 		batchSize = 1
 	}
-	tempUUIDs, err := TempSubtreeUUIDs(db)
+	tempUUIDs, err := tempSubtreeUUIDs(db)
 	if err != nil {
 		return err
 	}

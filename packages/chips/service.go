@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Services a link can point at. A link chip whose target is a known service —
+// services a link can point at. A link chip whose target is a known service —
 // the Google suite and the assistants — carries that service's unicode mark
 // beside its name: "→▦ Q3 budget" instead of "→Q3 budget". The mark is the only
 // difference; a service link keeps the same arrow, color, underline and gestures
@@ -27,7 +27,7 @@ type Service struct {
 	path  string   // path prefix the target must carry; "" matches any path
 }
 
-// Services is the ordered registry: ServiceFor returns the first entry whose
+// services is the ordered registry: ServiceFor returns the first entry whose
 // host AND path prefix match (the docs.google.com family is told apart by path
 // alone, so order is only a tiebreak). Adding a service is one entry here.
 //
@@ -35,7 +35,7 @@ type Service struct {
 // spotting in a wall of rows. docs.google.com paths that are not listed (a
 // document, a form) stay ordinary links, which is exactly what an unrecognized
 // target should look like.
-var Services = []Service{
+var services = []Service{
 	// docs.google.com hosts several apps and splits by path
 	{Key: "sheets", Label: "Sheets", Glyph: "▦",
 		hosts: []string{"docs.google.com", "sheets.google.com"}, path: "/spreadsheets"},
@@ -70,7 +70,7 @@ func ServiceFor(target string) (Service, bool) {
 		return Service{}, false
 	}
 	host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
-	for _, s := range Services {
+	for _, s := range services {
 		if s.matches(host, u.Path) {
 			return s, true
 		}
@@ -88,16 +88,16 @@ const serviceIconAfterTitle = false
 // service's mark. Nothing else about the link changes — the editor still draws
 // its "→" and the ordinary link styling around this.
 func ServiceDisplay(s Service, label string) string {
-	title := ServiceTitle(s, label)
+	title := serviceTitle(s, label)
 	if serviceIconAfterTitle {
 		return title + " " + s.Glyph
 	}
 	return s.Glyph + " " + title
 }
 
-// ServiceTitle is the chip's title — an arbitrary, user-renamed name, defaulting
+// serviceTitle is the chip's title — an arbitrary, user-renamed name, defaulting
 // to the service's label.
-func ServiceTitle(s Service, label string) string {
+func serviceTitle(s Service, label string) string {
 	if strings.TrimSpace(label) == "" {
 		return s.Label
 	}

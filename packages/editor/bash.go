@@ -323,25 +323,25 @@ collect:
 // central render loop clamps each frame.
 type runOutView struct{}
 
-func (runOutView) Enter(m *Model, it *item) bool {
+func (runOutView) enter(m *Model, it *item) bool {
 	m.ensureRunOutLoaded(it.uuid)
 	m.focusScroll, m.focusFollow = 0, true
 	return true // focus even when empty so the placeholder explains how to run
 }
 
-func (runOutView) Leave(m *Model, it *item) { m.focusFollow = false }
+func (runOutView) leave(m *Model, it *item) { m.focusFollow = false }
 
-func (runOutView) Lines(m *Model, it *item, width int) int {
+func (runOutView) lines(m *Model, it *item, width int) int {
 	return runViewLines(m, it.uuid)
 }
 
 // Key scrolls the viewer; esc/ctrl+c fall through to central defocus.
-func (runOutView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (runOutView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	return runViewKey(m, k)
 }
 
 // Bands renders the header and output lines, self-windowed to [scroll, scroll+winH).
-func (runOutView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (runOutView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	m.ensureRunOutLoaded(it.uuid)
 	r := m.run(it.uuid) // non-nil after ensureRunOutLoaded
 	hdr := fmt.Sprintf("  %s · %d lines", it.typ, len(r.lines()))

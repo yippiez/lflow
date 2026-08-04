@@ -235,7 +235,14 @@ func TestMirrorRefusesEveryStructuralEdit(t *testing.T) {
 	if m.tree.move(annotation, -1, root) || m.tree.move(annotation, 1, root) {
 		t.Error("an annotation was reordered")
 	}
-	if _, err := m.tree.duplicate(annotation); err == nil {
+	// duplicate goes through the same structureLocked guard as the direct
+	// structural edits above, driven via the real /duplicate slash command.
+	beforeChildren := len(root.children)
+	m.cursor = m.rowIndexOf(annotation)
+	if mm, _ := m.runSlash("/duplicate"); mm != nil {
+		*m = *mm.(*Model)
+	}
+	if len(root.children) != beforeChildren {
 		t.Error("an annotation was duplicated")
 	}
 	// and nothing can be moved INTO the mirror
@@ -558,10 +565,10 @@ func TestMirrorPictureRendersAndOpens(t *testing.T) {
 		t.Error("the crop drew no thumbnail")
 	}
 	// alt+e is the image node's own view
-	if v := nodeViewOf(crop); v == nil || !v.Enter(m, crop) {
+	if v := nodeViewOf(crop); v == nil || !v.enter(m, crop) {
 		t.Error("alt+e declined on a crop")
 	}
-	if v := nodeViewOf(root); v != nil && v.Enter(m, root) {
+	if v := nodeViewOf(root); v != nil && v.enter(m, root) {
 		t.Error("alt+e opened an image view on the title row")
 	}
 

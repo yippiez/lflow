@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -15,9 +16,62 @@ func mustDate(s string) time.Time {
 	return t
 }
 
+// flatQuery is a test-side flattening of a parsed query: residual text plus the
+// combined time bounds, so assertions about tokenizing don't have to walk qExpr
+// themselves. Production evaluation goes through parseQuery directly.
+type flatQuery struct {
+	after, before *time.Time
+	text          string
+}
+
+func flattenQuery(raw string, now time.Time) flatQuery {
+	var fq flatQuery
+	var words []string
+	var walk func(qExpr)
+	walk = func(e qExpr) {
+		if e == nil {
+			return
+		}
+		switch v := e.(type) {
+		case *qAnd:
+			for _, k := range v.kids {
+				walk(k)
+			}
+		case *qOr:
+			for _, k := range v.kids {
+				walk(k)
+			}
+		case *qPipe:
+			for _, k := range v.stages {
+				walk(k)
+			}
+		case *qNot:
+			walk(v.kid)
+		case *qText:
+			if !v.isTag {
+				words = append(words, v.s)
+			} else {
+				words = append(words, "#"+v.s)
+			}
+		case *qSemantic:
+			words = append(words, v.phrase)
+		case *qTime:
+			if v.after != nil {
+				fq.after = v.after
+			}
+			if v.before != nil {
+				fq.before = v.before
+			}
+		}
+	}
+	walk(parseQuery(raw, now).expr)
+	fq.text = strings.Join(words, " ")
+	return fq
+}
+
 func TestParseTimeQuerySplitsTokens(t *testing.T) {
 	now := mustDate("2026-06-25")
-	tq := parseTimeQuery("deploy :after:2026-06-01 :before:2026-06-20 notes", now)
+	tq := flattenQuery("deploy :after:2026-06-01 :before:2026-06-20 notes", now)
 	if tq.text != "deploy notes" {
 		t.Errorf("residual text = %q, want %q", tq.text, "deploy notes")
 	}
@@ -32,23 +86,23 @@ func TestParseTimeQuerySplitsTokens(t *testing.T) {
 
 func TestMatchDatesWindow(t *testing.T) {
 	now := mustDate("2026-06-25")
-	tq := parseTimeQuery(":after:2026-06-01 :before:2026-06-20", now)
+	tq := flattenQuery(":after:2026-06-01 :before:2026-06-20", now)
 
 	inside := []time.Time{mustDate("2026-06-10")}
-	if !tq.matchDates(inside) {
+	if !matchDateWindow(inside, tq.after, tq.before) {
 		t.Error("a date inside the window should match")
 	}
 	before := []time.Time{mustDate("2026-05-30")}
-	if tq.matchDates(before) {
+	if matchDateWindow(before, tq.after, tq.before) {
 		t.Error("a date before the window should not match")
 	}
 	after := []time.Time{mustDate("2026-06-25")}
-	if tq.matchDates(after) {
+	if matchDateWindow(after, tq.after, tq.before) {
 		t.Error("a date after the window should not match")
 	}
 	// any one date in range qualifies the node
 	mixed := []time.Time{mustDate("2026-01-01"), mustDate("2026-06-10")}
-	if !tq.matchDates(mixed) {
+	if !matchDateWindow(mixed, tq.after, tq.before) {
 		t.Error("a node with one in-range date should match")
 	}
 }

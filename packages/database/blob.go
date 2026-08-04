@@ -53,23 +53,3 @@ func GCBlobs(db *DB) error {
 	_, err := db.Exec("DELETE FROM node_blobs WHERE uuid NOT IN (SELECT uuid FROM nodes WHERE deleted = 0)")
 	return errors.Wrap(err, "gc blobs")
 }
-
-// BlobUUIDs returns the set of nodes that carry a blob — a cheap key-only scan
-// (the bytes are never read), so a caller can know which nodes have a picture
-// without loading any of them.
-func BlobUUIDs(db *DB) (map[string]bool, error) {
-	rows, err := db.Query("SELECT uuid FROM node_blobs")
-	if err != nil {
-		return nil, errors.Wrap(err, "listing blob uuids")
-	}
-	defer rows.Close()
-	out := map[string]bool{}
-	for rows.Next() {
-		var uuid string
-		if err := rows.Scan(&uuid); err != nil {
-			return nil, errors.Wrap(err, "scanning blob uuid")
-		}
-		out[uuid] = true
-	}
-	return out, errors.Wrap(rows.Err(), "iterating blob uuids")
-}

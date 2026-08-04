@@ -43,7 +43,7 @@ func codeBlockLines(code string, caret, inner int) []string {
 	out := make([]string, len(lines))
 	for i, l := range lines {
 		num := cDim + fmt.Sprintf("%*d", numW, i+1) + cReset + bgCode
-		body := HLCodeLine(l)
+		body := hlCodeLine(l)
 		if i == caretLine {
 			body = codeCaretLine(l, caretCol)
 		}
@@ -161,7 +161,7 @@ func codeCaretLine(line string, caret int) string {
 	return b.String()
 }
 
-// codeKeywords is the small, cross-language keyword set for HLCodeLine —
+// codeKeywords is the small, cross-language keyword set for hlCodeLine —
 // python/go/js flavored, nothing token-perfect.
 var codeKeywords = map[string]bool{
 	"def": true, "return": true, "if": true, "else": true, "elif": true, "for": true,
@@ -175,9 +175,9 @@ var codeKeywords = map[string]bool{
 	"nil": true, "null": true, "pass": true, "yield": true, "print": true,
 }
 
-// HLCodeLine is the shared simple highlighter: comments dim, strings orange,
+// hlCodeLine is the shared simple highlighter: comments dim, strings orange,
 // numbers green, keywords accent — tolerant, line-local, nothing clever.
-func HLCodeLine(line string) string {
+func hlCodeLine(line string) string {
 	trimmed := strings.TrimSpace(line)
 	if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
 		return cDim + line + cReset + bgCode
@@ -256,13 +256,13 @@ func (codeView) set(m *Model, it *item, buf string, caret int) {
 }
 
 // Enter seeds the buffer from the node and parks the caret at the end.
-func (v codeView) Enter(m *Model, it *item) bool {
+func (v codeView) enter(m *Model, it *item) bool {
 	v.set(m, it, it.name, len([]rune(it.name)))
 	return true
 }
 
 // Leave flushes the buffer back to the node and clears the edit state.
-func (v codeView) Leave(m *Model, it *item) {
+func (v codeView) leave(m *Model, it *item) {
 	buf, _ := v.get(m, it)
 	if buf != it.name {
 		it.name = buf
@@ -274,7 +274,7 @@ func (v codeView) Leave(m *Model, it *item) {
 }
 
 // Lines is the header + one per buffer line + the footer rule.
-func (v codeView) Lines(m *Model, it *item, width int) int {
+func (v codeView) lines(m *Model, it *item, width int) int {
 	buf, _ := v.get(m, it)
 	return 2 + len(strings.Split(buf, "\n"))
 }
@@ -282,7 +282,7 @@ func (v codeView) Lines(m *Model, it *item, width int) int {
 // Key edits the buffer. Enter is a newline inside the block; two spaces at the
 // end exit to a fresh sibling (the trailing spaces trimmed); esc/ctrl+c fall
 // through to central handling.
-func (v codeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (v codeView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	buf, caret := v.get(m, it)
 	rl := []rune(buf)
 	switch k.String() {
@@ -345,7 +345,7 @@ func (v codeView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 }
 
 // Bands renders the focused editor through the shared block.
-func (v codeView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (v codeView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	buf, caret := v.get(m, it)
 	if !focused {
 		caret = -1
@@ -356,7 +356,7 @@ func (v codeView) Bands(m *Model, it *item, rail string, width, scroll, winH int
 // exitCodeToSibling flushes the code buffer, drops focus, and opens a fresh
 // sibling after the node with the cursor on it — the two-space exit gesture.
 func (m *Model) exitCodeToSibling(it *item) tea.Cmd {
-	codeView{}.Leave(m, it)
+	codeView{}.leave(m, it)
 	m.focused = false
 	sib, err := m.tree.insertSiblingAfter(it)
 	if err != nil {

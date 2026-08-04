@@ -32,21 +32,3 @@ func UpsertSystem(db *DB, key, val string) error {
 
 	return nil
 }
-
-// UpdateSystem updates a system configuration
-func UpdateSystem(db *DB, key, val interface{}) error {
-	if _, err := db.Exec("UPDATE system SET value = ? WHERE key = ?", val, key); err != nil {
-		return errors.Wrap(err, "updating system config")
-	}
-
-	return nil
-}
-
-// DeleteSystem delets the given system record
-func DeleteSystem(db *DB, key string) error {
-	if _, err := db.Exec("DELETE FROM system WHERE key = ?", key); err != nil {
-		return errors.Wrap(err, "deleting system config")
-	}
-
-	return nil
-}

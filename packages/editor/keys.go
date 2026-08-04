@@ -124,7 +124,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.focused && m.mode == modeOutline {
 		cur := m.cursorItem()
 		if v := m.activeView(cur); v != nil {
-			if cmd, handled := v.Key(m, cur, k); handled {
+			if cmd, handled := v.key(m, cur, k); handled {
 				return m, cmd
 			}
 			// auto-focus (Code): the view declined this key, so it is meant for the
@@ -135,7 +135,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			auto := m.autoFocused != nil && m.autoFocused == cur
 			switch key {
 			case "esc", "alt+e":
-				v.Leave(m, cur)
+				v.leave(m, cur)
 				m.focused = false
 				if typeOf(cur.typ).blockFaces {
 					// esc off a two-faced code editor collapses to the prose face —
@@ -154,7 +154,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if !auto {
 					return m, nil // manual focus swallows everything else
 				}
-				v.Leave(m, cur)
+				v.leave(m, cur)
 				m.focused = false
 				m.autoFocused = nil
 				switch key {
@@ -664,9 +664,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if v := nodeViewOf(cur); v != nil {
 				if m.focused {
-					v.Leave(m, cur)
+					v.leave(m, cur)
 					m.focused = false
-				} else if v.Enter(m, cur) {
+				} else if v.enter(m, cur) {
 					m.focused = true
 					m.focusScroll = 0
 				}

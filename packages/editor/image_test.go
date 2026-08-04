@@ -1,25 +1,13 @@
 package editor
 
 import (
-	"bytes"
 	"image"
 	"image/color"
-	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// encodeTestPNG renders an image to PNG bytes for tests that need a decodable blob.
-func encodeTestPNG(t *testing.T, img image.Image) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
 
 // solidImage builds a w×h image filled with one color, for deterministic
 // half-block sampling.

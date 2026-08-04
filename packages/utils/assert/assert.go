@@ -2,16 +2,11 @@
 package assert
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"reflect"
 	"runtime/debug"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/pkg/errors"
 )
 
 func getErrorMessage(m string, a, b interface{}) string {
@@ -53,27 +48,11 @@ func Equal(t *testing.T, a, b interface{}, message string) {
 	}
 }
 
-// Equalf fails a test if the actual does not match the expected
-func Equalf(t *testing.T, a, b interface{}, message string) {
-	ok, m := checkEqual(a, b, message)
-	if !ok {
-		t.Fatal(m)
-	}
-}
-
 // NotEqual fails a test if the actual matches the expected
 func NotEqual(t *testing.T, a, b interface{}, message string) {
 	ok, m := checkEqual(a, b, message)
 	if ok {
 		t.Error(m)
-	}
-}
-
-// NotEqualf fails a test if the actual matches the expected
-func NotEqualf(t *testing.T, a, b interface{}, message string) {
-	ok, m := checkEqual(a, b, message)
-	if ok {
-		t.Fatal(m)
 	}
 }
 
@@ -90,41 +69,4 @@ func DeepEqual(t *testing.T, a, b interface{}, message string) {
 	errorMessage := getErrorMessage(message, a, b)
 	errorMessage = fmt.Sprintf("%v\n%v", errorMessage, cmp.Diff(a, b))
 	t.Error(errorMessage)
-}
-
-// EqualJSON asserts that two JSON strings are equal
-func EqualJSON(t *testing.T, a, b, message string) {
-	var o1 interface{}
-	var o2 interface{}
-
-	err := json.Unmarshal([]byte(a), &o1)
-	if err != nil {
-		panic(fmt.Errorf("Error mashalling string 1 :: %s", err.Error()))
-	}
-	err = json.Unmarshal([]byte(b), &o2)
-	if err != nil {
-		panic(fmt.Errorf("Error mashalling string 2 :: %s", err.Error()))
-	}
-
-	if reflect.DeepEqual(o1, o2) {
-		return
-	}
-
-	if len(message) == 0 {
-		message = fmt.Sprintf("%v != %v", a, b)
-	}
-	t.Errorf("%s.\nActual:   %+v.\nExpected: %+v.", message, a, b)
-}
-
-// StatusCodeEquals asserts that the reponse's status code is equal to the
-// expected
-func StatusCodeEquals(t *testing.T, res *http.Response, expected int, message string) {
-	if res.StatusCode != expected {
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			t.Fatal(errors.Wrap(err, "reading body"))
-		}
-
-		t.Errorf("status code mismatch. %s: got %v want %v. Message was: '%s'", message, res.StatusCode, expected, string(body))
-	}
 }

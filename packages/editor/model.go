@@ -652,25 +652,6 @@ func (t *tree) insertFirstChild(parent *item) (*item, error) {
 	return it, nil
 }
 
-// duplicate deep-copies the item's subtree with fresh uuids and inserts the
-// copy as its next sibling — a duplicate "next to it". Mirrors and links keep
-// pointing at their originals. The view root (no parent) cannot be duplicated.
-func (t *tree) duplicate(it *item) (*item, error) {
-	if it.structureLocked {
-		return nil, errStructureLocked
-	}
-	if it.parent == nil {
-		return nil, errors.New("cannot duplicate the root node")
-	}
-	clone, err := t.cloneSubtree(it)
-	if err != nil {
-		return nil, err
-	}
-	clone.parent = it.parent
-	t.insertChildAt(it.parent, indexOf(it)+1, clone)
-	return clone, nil
-}
-
 // cloneSubtree deep-copies an item subtree, handing out fresh uuids and marking
 // the copy as new so it persists on the next save. mirrorOf is preserved so
 // duplicated mirrors keep resolving to their originals.

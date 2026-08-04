@@ -27,7 +27,7 @@ func (jsonView) set(m *Model, it *item, buf string, caret int) {
 }
 
 // Enter seeds the edit buffer (pretty-printed) and places the caret at the end.
-func (v jsonView) Enter(m *Model, it *item) bool {
+func (v jsonView) enter(m *Model, it *item) bool {
 	buf := prettyJSON(it.name)
 	v.set(m, it, buf, len([]rune(buf)))
 	return true
@@ -35,7 +35,7 @@ func (v jsonView) Enter(m *Model, it *item) bool {
 
 // Leave saves the buffer back to the node (pretty-printed if valid) and clears
 // the ephemeral edit state.
-func (v jsonView) Leave(m *Model, it *item) {
+func (v jsonView) leave(m *Model, it *item) {
 	buf, _ := v.get(m, it)
 	if json.Valid([]byte(strings.TrimSpace(buf))) {
 		buf = prettyJSON(buf)
@@ -48,13 +48,13 @@ func (v jsonView) Leave(m *Model, it *item) {
 }
 
 // Lines is header (1) + one per buffer line.
-func (v jsonView) Lines(m *Model, it *item, width int) int {
+func (v jsonView) lines(m *Model, it *item, width int) int {
 	buf, _ := v.get(m, it)
 	return 1 + len(strings.Split(buf, "\n"))
 }
 
 // Key edits the buffer; esc/ctrl+c fall through to central handling.
-func (v jsonView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (v jsonView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	buf, caret := v.get(m, it)
 	switch k.String() {
 	case "left":
@@ -102,7 +102,7 @@ func (v jsonView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 // Bands renders the editor body as bands: a header line, then the buffer lines
 // (colorized, caret on the active line), self-windowed to [scroll, scroll+winH)
 // with the caret kept visible.
-func (v jsonView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (v jsonView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	buf, caret := v.get(m, it)
 	valid := json.Valid([]byte(strings.TrimSpace(buf)))
 	status := cDim + "valid" + cReset

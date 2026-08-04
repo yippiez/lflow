@@ -22,10 +22,10 @@ import (
 // Chip kind keys. These are plain strings matching the editor's chip-kind
 // registry and the values stored in the chips table.
 const (
-	KindTag    = "tag"
-	KindDate   = "date"
-	KindLink   = "link"
-	KindZotero = "zotero"
+	kindTag    = "tag"
+	kindDate   = "date"
+	kindLink   = "link"
+	kindZotero = "zotero"
 )
 
 // zoteroScheme prefixes a Zotero select URI. A "[label](target)" whose target
@@ -92,18 +92,18 @@ func DateSpans(name string) [][2]int {
 	return spans
 }
 
-// LinkSpan is one "[label](target)" match in rune offsets, with its parts.
-type LinkSpan struct {
+// linkSpan is one "[label](target)" match in rune offsets, with its parts.
+type linkSpan struct {
 	Start, End int
 	Label      string
 	Target     string
 }
 
-// LinkSpans returns every "[label](target)" link in name, in order.
-func LinkSpans(name string) []LinkSpan {
-	var out []LinkSpan
+// linkSpans returns every "[label](target)" link in name, in order.
+func linkSpans(name string) []linkSpan {
+	var out []linkSpan
 	for _, loc := range reLink.FindAllStringSubmatchIndex(name, -1) {
-		out = append(out, LinkSpan{
+		out = append(out, linkSpan{
 			Start:  utf8.RuneCountInString(name[:loc[0]]),
 			End:    utf8.RuneCountInString(name[:loc[1]]),
 			Label:  name[loc[2]:loc[3]],
@@ -165,15 +165,15 @@ func Chipify(name string, mk func(kind, value, label string) string) string {
 	runes := []rune(name)
 	var spans []span
 	for _, sp := range TagSpans(name) {
-		spans = append(spans, span{sp[0], sp[1], KindTag, strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#"), ""})
+		spans = append(spans, span{sp[0], sp[1], kindTag, strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#"), ""})
 	}
 	for _, sp := range DateSpans(name) {
-		spans = append(spans, span{sp[0], sp[1], KindDate, string(runes[sp[0]:sp[1]]), ""})
+		spans = append(spans, span{sp[0], sp[1], kindDate, string(runes[sp[0]:sp[1]]), ""})
 	}
-	for _, sp := range LinkSpans(name) {
-		kind := KindLink
+	for _, sp := range linkSpans(name) {
+		kind := kindLink
 		if strings.HasPrefix(sp.Target, zoteroScheme) {
-			kind = KindZotero
+			kind = kindZotero
 		}
 		spans = append(spans, span{sp.Start, sp.End, kind, sp.Target, sp.Label})
 	}

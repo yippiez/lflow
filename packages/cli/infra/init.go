@@ -13,7 +13,6 @@ import (
 	"github.com/lflow/lflow/packages/daemon/client"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/utils"
-	"github.com/lflow/lflow/packages/utils/clock"
 	"github.com/lflow/lflow/packages/utils/consts"
 	"github.com/lflow/lflow/packages/utils/dirs"
 	"github.com/lflow/lflow/packages/utils/log"
@@ -33,8 +32,8 @@ func getDBPath(paths app.Paths, customPath string) string {
 	return fmt.Sprintf("%s/%s/%s", paths.Data, consts.LflowDirName, consts.LflowDBFileName)
 }
 
-// ResolvePaths returns the standard lflow directories.
-func ResolvePaths() app.Paths {
+// resolvePaths returns the standard lflow directories.
+func resolvePaths() app.Paths {
 	return app.Paths{
 		Home:   dirs.Home,
 		Config: dirs.ConfigHome,
@@ -46,7 +45,7 @@ func ResolvePaths() app.Paths {
 // ResolveDBPath resolves the database location: the config override or the
 // standard data dir.
 func ResolveDBPath() (string, error) {
-	paths := ResolvePaths()
+	paths := resolvePaths()
 	// the config file is the only way to relocate the database; on a first
 	// run the file does not exist yet and the standard location is used
 	customDBPath := ""
@@ -60,11 +59,11 @@ func ResolveDBPath() (string, error) {
 // startup as the database's single owner; a direct (LFLOW_NO_DAEMON) run does
 // it for itself.
 func PrepareDB(db *database.DB, versionTag string) error {
-	ctx := app.Ctx{Paths: ResolvePaths(), Version: versionTag, DB: db}
-	if err := InitDB(ctx); err != nil {
+	ctx := app.Ctx{Paths: resolvePaths(), Version: versionTag, DB: db}
+	if err := initDB(ctx); err != nil {
 		return errors.Wrap(err, "initializing database")
 	}
-	if err := InitSystem(ctx); err != nil {
+	if err := initSystem(ctx); err != nil {
 		return errors.Wrap(err, "initializing system data")
 	}
 	return nil
@@ -85,7 +84,7 @@ func clientName() string {
 // is the only process that opens the SQLite file, so every client sees every
 // change live. LFLOW_NO_DAEMON=1 opens the file directly instead.
 func Init(versionTag string) (*app.Ctx, error) {
-	ctx := app.Ctx{Paths: ResolvePaths(), Version: versionTag}
+	ctx := app.Ctx{Paths: resolvePaths(), Version: versionTag}
 
 	if err := initFiles(ctx); err != nil {
 		return nil, errors.Wrap(err, "initializing files")
@@ -138,18 +137,17 @@ func setupCtx(ctx app.Ctx) (app.Ctx, error) {
 		DB:                 ctx.DB,
 		Live:               ctx.Live,
 		Editor:             cf.Editor,
-		Clock:              clock.New(),
 		EnableUpgradeCheck: cf.EnableUpgradeCheck,
 	}
 
 	return ret, nil
 }
 
-// InitDB initializes the database.
+// initDB initializes the database.
 //
 // lflow has no migrations: a fresh database is created by applying the
 // canonical schema.sql wholesale, and an existing one is left untouched.
-func InitDB(ctx app.Ctx) error {
+func initDB(ctx app.Ctx) error {
 	log.Debug("initializing the database\n")
 
 	db := ctx.DB
@@ -187,8 +185,8 @@ func initSystemKV(db *database.DB, key string, val string) error {
 	return nil
 }
 
-// InitSystem inserts system data if missing
-func InitSystem(ctx app.Ctx) error {
+// initSystem inserts system data if missing
+func initSystem(ctx app.Ctx) error {
 	log.Debug("initializing the system\n")
 
 	db := ctx.DB

@@ -147,13 +147,13 @@ func TestTableConversionMovesNothing(t *testing.T) {
 func TestTableViewTypingEditsTheCell(t *testing.T) {
 	m, tbl := newTableModel(80, []string{"task", ""}, []string{"owner", ""})
 	v := tableView{}
-	if !v.Enter(m, tbl) {
+	if !v.enter(m, tbl) {
 		t.Fatalf("Enter declined a table with columns")
 	}
 	// Enter opens on the header; step down into the first cell and type.
-	v.Key(m, tbl, key("down"))
+	v.key(m, tbl, key("down"))
 	for _, r := range "ship" {
-		v.Key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		v.key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	if got := tableOf(m, tbl).cellAt(m, 0, 0).name; got != "ship" {
 		t.Errorf("cell text = %q, want %q", got, "ship")
@@ -162,8 +162,8 @@ func TestTableViewTypingEditsTheCell(t *testing.T) {
 		t.Errorf("editing a cell did not mark the tree unsaved")
 	}
 	// tab crosses into the next column, typing lands there
-	v.Key(m, tbl, tea.KeyMsg{Type: tea.KeyTab})
-	v.Key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	v.key(m, tbl, tea.KeyMsg{Type: tea.KeyTab})
+	v.key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	if got := tableOf(m, tbl).cellAt(m, 1, 0).name; got != "a" {
 		t.Errorf("second column cell = %q, want %q", got, "a")
 	}
@@ -174,9 +174,9 @@ func TestTableViewTypingEditsTheCell(t *testing.T) {
 func TestTableAddRowKeepsTheGridRectangular(t *testing.T) {
 	m, tbl := newTableModel(80, []string{"task", "ship it"}, []string{"owner", "ada"})
 	v := tableView{}
-	v.Enter(m, tbl)
-	v.Key(m, tbl, key("down")) // onto row 0
-	v.Key(m, tbl, tea.KeyMsg{Type: tea.KeyEnter})
+	v.enter(m, tbl)
+	v.key(m, tbl, key("down")) // onto row 0
+	v.key(m, tbl, tea.KeyMsg{Type: tea.KeyEnter})
 
 	g := tableOf(m, tbl)
 	if g.rows != 2 {
@@ -200,8 +200,8 @@ func TestTableAddColumnAppends(t *testing.T) {
 	m, tbl := newTableModel(80, []string{"task", "ship it"})
 	tbl.priority = database.PriorityUp
 	v := tableView{}
-	v.Enter(m, tbl)
-	v.Key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Alt: true, Runes: []rune("n")})
+	v.enter(m, tbl)
+	v.key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Alt: true, Runes: []rune("n")})
 
 	g := tableOf(m, tbl)
 	if len(g.cols) != 2 {
@@ -220,15 +220,15 @@ func TestTableAddColumnAppends(t *testing.T) {
 func TestTableDropRowArmsBeforeDeleting(t *testing.T) {
 	m, tbl := newTableModel(80, []string{"task", "ship it"}, []string{"owner", "ada"})
 	v := tableView{}
-	v.Enter(m, tbl)
-	v.Key(m, tbl, key("down"))
+	v.enter(m, tbl)
+	v.key(m, tbl, key("down"))
 
 	altD := tea.KeyMsg{Type: tea.KeyRunes, Alt: true, Runes: []rune("d")}
-	v.Key(m, tbl, altD)
+	v.key(m, tbl, altD)
 	if g := tableOf(m, tbl); g.rows != 1 {
 		t.Fatalf("first ⌥d deleted a non-empty row (rows = %d)", g.rows)
 	}
-	v.Key(m, tbl, altD)
+	v.key(m, tbl, altD)
 	if g := tableOf(m, tbl); g.rows != 0 {
 		t.Errorf("second ⌥d did not delete the row (rows = %d)", g.rows)
 	}
@@ -242,7 +242,7 @@ func TestTableSeedsAnEmptyTable(t *testing.T) {
 	m.tree.byUUID["leaf"] = leaf
 	m.tree.root.children = append(m.tree.root.children, leaf)
 
-	if !(tableView{}).Enter(m, leaf) {
+	if !(tableView{}).enter(m, leaf) {
 		t.Fatalf("Enter declined an empty table")
 	}
 	g := tableOf(m, leaf)
@@ -265,9 +265,9 @@ func TestTableRefusesChipCellsInline(t *testing.T) {
 	before := cell.name
 
 	v := tableView{}
-	v.Enter(m, tbl)
-	v.Key(m, tbl, key("down"))
-	v.Key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	v.enter(m, tbl)
+	v.key(m, tbl, key("down"))
+	v.key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 
 	if cell.name != before {
 		t.Errorf("chip cell was edited in the grid: %q → %q", before, cell.name)
@@ -285,12 +285,12 @@ func firstOf(lines []string, _ int) []string { return lines }
 func TestTableTypingMaterializesARaggedCell(t *testing.T) {
 	m, tbl := newTableModel(80, []string{"task", "ship it", "docs"}, []string{"notes"})
 	v := tableView{}
-	v.Enter(m, tbl)
-	v.Key(m, tbl, tea.KeyMsg{Type: tea.KeyTab}) // onto the "notes" header
-	v.Key(m, tbl, key("down"))                  // row 1 of a column with no cells
-	v.Key(m, tbl, key("down"))
+	v.enter(m, tbl)
+	v.key(m, tbl, tea.KeyMsg{Type: tea.KeyTab}) // onto the "notes" header
+	v.key(m, tbl, key("down"))                  // row 1 of a column with no cells
+	v.key(m, tbl, key("down"))
 	for _, r := range "one grid" {
-		v.Key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		v.key(m, tbl, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	g := tableOf(m, tbl)
 	if c := g.cellAt(m, 1, 1); c == nil || c.name != "one grid" {
@@ -310,7 +310,7 @@ func TestTableTypingMaterializesARaggedCell(t *testing.T) {
 func TestTableFocusedCellKeepsItsFirstRune(t *testing.T) {
 	m, tbl := newTableModel(80, []string{"fruit", "apples"}, []string{"dairy", "milk"})
 	v := tableView{}
-	v.Enter(m, tbl) // opens on the header, caret at the end of "fruit"
+	v.enter(m, tbl) // opens on the header, caret at the end of "fruit"
 
 	lines, _ := m.tableLines(tbl, 60, &tableSel{col: 0, row: -1, caret: len("fruit")})
 	joined := stripSGR(strings.Join(lines, "\n"))

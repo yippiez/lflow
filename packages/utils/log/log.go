@@ -13,43 +13,21 @@ const (
 )
 
 var (
-	// ColorRed is a red foreground color
-	ColorRed = color.New(color.FgRed)
-	// ColorGreen is a green foreground color
-	ColorGreen = color.New(color.FgGreen)
-	// ColorYellow is a yellow foreground color
-	ColorYellow = color.New(color.FgYellow)
-	// ColorBlue is a blue foreground color
-	ColorBlue = color.New(color.FgBlue)
-	// ColorGray is a gray foreground color
-	ColorGray = color.New(color.FgHiBlack)
+	// colorRed is a red foreground color
+	colorRed = color.New(color.FgRed)
+	// colorGreen is a green foreground color
+	colorGreen = color.New(color.FgGreen)
+	// colorYellow is a yellow foreground color
+	colorYellow = color.New(color.FgYellow)
+	// colorGray is a gray foreground color
+	colorGray = color.New(color.FgHiBlack)
 )
 
 var indent = "  "
 
-// Info prints information
-func Info(msg string) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGray.Sprint("→"), msg)
-}
-
-// Infof prints information with optional format verbs
-func Infof(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGray.Sprint("→"), fmt.Sprintf(msg, v...))
-}
-
-// Success prints a success message
-func Success(msg string) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGreen.Sprint("→"), msg)
-}
-
 // Successf prints a success message with optional format verbs
 func Successf(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGreen.Sprint("→"), fmt.Sprintf(msg, v...))
-}
-
-// Plain prints a plain message without any prefix symbol
-func Plain(msg string) {
-	fmt.Printf("%s%s", indent, msg)
+	fmt.Fprintf(color.Output, "%s%s %s", indent, colorGreen.Sprint("→"), fmt.Sprintf(msg, v...))
 }
 
 // Plainf prints a plain message without any prefix symbol. It takes optional format verbs.
@@ -59,22 +37,12 @@ func Plainf(msg string, v ...interface{}) {
 
 // Warnf prints a warning message with optional format verbs
 func Warnf(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorYellow.Sprint("→"), fmt.Sprintf(msg, v...))
-}
-
-// Error prints an error message
-func Error(msg string) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorRed.Sprint("→"), msg)
+	fmt.Fprintf(color.Output, "%s%s %s", indent, colorYellow.Sprint("→"), fmt.Sprintf(msg, v...))
 }
 
 // Errorf prints an error message with optional format verbs
 func Errorf(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorRed.Sprint("→"), fmt.Sprintf(msg, v...))
-}
-
-// Printf prints an normal message
-func Printf(msg string, v ...interface{}) {
-	fmt.Fprintf(color.Output, "%s%s %s", indent, ColorGray.Sprint("→"), fmt.Sprintf(msg, v...))
+	fmt.Fprintf(color.Output, "%s%s %s", indent, colorRed.Sprint("→"), fmt.Sprintf(msg, v...))
 }
 
 // Askf prints an question with optional format verbs. The leading symbol differs in color depending
@@ -82,9 +50,9 @@ func Printf(msg string, v ...interface{}) {
 func Askf(msg string, masked bool, v ...interface{}) {
 	var symbol string
 	if masked {
-		symbol = ColorGray.Sprint("→")
+		symbol = colorGray.Sprint("→")
 	} else {
-		symbol = ColorGreen.Sprint("→")
+		symbol = colorGreen.Sprint("→")
 	}
 
 	fmt.Fprintf(color.Output, "%s%s %s: ", indent, symbol, fmt.Sprintf(msg, v...))
@@ -99,13 +67,6 @@ func isDebug() bool {
 // stdout: lflow's output is meant to be piped.
 func Debug(msg string, v ...interface{}) {
 	if isDebug() {
-		fmt.Fprintf(color.Error, "%s %s", ColorGray.Sprint("DEBUG:"), fmt.Sprintf(msg, v...))
-	}
-}
-
-// DebugNewline prints a newline only in debug mode
-func DebugNewline() {
-	if isDebug() {
-		fmt.Fprintln(color.Error)
+		fmt.Fprintf(color.Error, "%s %s", colorGray.Sprint("DEBUG:"), fmt.Sprintf(msg, v...))
 	}
 }

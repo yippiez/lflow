@@ -104,20 +104,20 @@ type nodeType struct {
 // it.uuid — so one value serves every node of the type. This is what lets a new
 // rich type plug in via one registry entry instead of a central mode.
 type nodeView interface {
-	// Enter focuses the view (alt+e); seed any edit buffer here. false declines
+	// enter focuses the view (alt+e); seed any edit buffer here. false declines
 	// (nothing to show), leaving focus off.
-	Enter(m *Model, it *item) bool
-	// Lines reports the total band-line count at this width, so the caller can
+	enter(m *Model, it *item) bool
+	// lines reports the total band-line count at this width, so the caller can
 	// clamp the scroll offset. Pure.
-	Lines(m *Model, it *item, width int) int
-	// Bands renders the view as band lines beneath the node, self-windowed to
+	lines(m *Model, it *item, width int) int
+	// bands renders the view as band lines beneath the node, self-windowed to
 	// [scroll, scroll+winH). rail is the tree-rail prefix; focused draws carets.
-	Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string
-	// Key handles a key while focused; handled=false falls through (esc/ctrl+c
+	bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string
+	// key handles a key while focused; handled=false falls through (esc/ctrl+c
 	// are handled centrally).
-	Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool)
-	// Leave is called on esc/defocus — flush the edit buffer to persisted state.
-	Leave(m *Model, it *item)
+	key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool)
+	// leave is called on esc/defocus — flush the edit buffer to persisted state.
+	leave(m *Model, it *item)
 }
 
 // nodeViewOf returns the inline view for an item's type, or nil.

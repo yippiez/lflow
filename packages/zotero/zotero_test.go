@@ -82,9 +82,6 @@ func TestParseRefRoundTrip(t *testing.T) {
 			t.Errorf("ParseRef(%q) accepted a non-reference", bad)
 		}
 	}
-	if !IsRef("zotero://select/library/items/ABCD1234") || IsRef("https://example.com") {
-		t.Error("IsRef disagrees with ParseRef")
-	}
 }
 
 func TestDOIURL(t *testing.T) {

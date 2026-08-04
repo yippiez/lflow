@@ -740,7 +740,7 @@ func (m *Model) reconcileAutoFocus() {
 	// the cursor left an auto-focused block: flush and drop focus
 	if m.autoFocused != nil && m.autoFocused != cur {
 		if v := nodeViewOf(m.autoFocused); v != nil {
-			v.Leave(m, m.autoFocused)
+			v.leave(m, m.autoFocused)
 		}
 		m.focused = false
 		m.autoFocused = nil
@@ -748,7 +748,7 @@ func (m *Model) reconcileAutoFocus() {
 	// the cursor rests on an eligible auto-focus node: enter its view
 	if cur != nil && !m.focused && cur != m.autoFocusHold && !m.selOn &&
 		cur.mirrorOf == "" && !cur.readonly && typeOf(cur.typ).autoFocus {
-		if v := nodeViewOf(cur); v != nil && v.Enter(m, cur) {
+		if v := nodeViewOf(cur); v != nil && v.enter(m, cur) {
 			m.focused = true
 			m.autoFocused = cur
 			m.focusScroll = 0
@@ -771,7 +771,7 @@ func (m *Model) toggleBlockFace(cur *item) {
 	if face != "nlp" && codeShown {
 		if m.focused && m.autoFocused == cur {
 			if v := nodeViewOf(cur); v != nil {
-				v.Leave(m, cur)
+				v.leave(m, cur)
 			}
 			m.focused = false
 			m.autoFocused = nil
