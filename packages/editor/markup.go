@@ -95,23 +95,6 @@ func buildMarkupTags() map[string]markupTagInfo {
 	return m
 }
 
-// markupTagFor returns the tag entry for a word IN THE GIVEN LANGUAGE. A word
-// the language does not name is not an element, which is what makes plain text a
-// text node without any escaping gesture: write the words and they are the words.
-func markupTagFor(typ, word string) (markupTagInfo, bool) {
-	info, ok := markupTags[word]
-	if !ok {
-		return markupTagInfo{}, false
-	}
-	if typ == database.TypeSVG && !info.svg {
-		return markupTagInfo{}, false
-	}
-	if typ == database.TypeHTML && !info.html {
-		return markupTagInfo{}, false
-	}
-	return info, true
-}
-
 // markupElement is one row read as markup: either an element with attributes, or
 // the row's own words as text content.
 type markupElement struct {
