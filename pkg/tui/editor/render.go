@@ -138,12 +138,14 @@ const (
 	glyphDotted    = "◌" // Temporary Domain nodes (ephemeral)
 	glyphSuggest   = "○" // a node with a proposal waiting on review (painted yellow)
 	glyphCloud     = "☁" // a HOSTED coding session (started on the web or a phone)
-	// glyphThinking is a sparkle from the DINGBAT block, deliberately not the
-	// reference mark ※ it replaced: ※ is CJK punctuation, and fonts draw it at a
-	// full-width design even where the terminal allots it one cell, so it bled
-	// into the column beside it. ✻ is the same family as the ✽ a Claude session
-	// chip already wears without trouble.
-	glyphThinking = "✻" // always muted gray, whatever /color says
+	// glyphThinking is the reference mark, and it does NOT live in the glyph
+	// column. ※ is CJK punctuation that fonts draw at a full-width design even
+	// where the terminal allots it one cell, so standing where the bullet goes it
+	// pushed the tree rail out of line with every other row. As a PREFIX it sits
+	// inside the body instead: the row keeps the ordinary circle, the rail stays
+	// straight, and only this row's own text shifts by however wide the mark
+	// draws. Always muted gray, whatever /color says.
+	glyphThinking = "※"
 	// a Bash node wears the cmd chip's prompt, always (see bashGlyph)
 	glyphBashPrompt = "$"
 )

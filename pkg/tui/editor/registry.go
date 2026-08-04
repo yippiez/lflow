@@ -355,7 +355,8 @@ var nodeTypes = []nodeType{
 	{key: database.TypeAgent, label: "Agent", internal: true, inlineEditable: true},
 	// Thinking is a plain marker node: always the muted-gray thinking glyph,
 	// no other behavior.
-	{key: database.TypeThinking, label: "Thinking", glyph: thinkingGlyph, inlineEditable: true,
+	{key: database.TypeThinking, label: "Thinking", inlineEditable: true,
+		prefix:     thinkingPrefix, // the ※ rides in the body, never the glyph column
 		baseColor:  func(it *item) string { return cDim },
 		fixedColor: true},
 	// webresult is GENERATED — a web search hit row a web node hangs under it
@@ -386,7 +387,9 @@ var nodeTypes = []nodeType{
 	// nodeplugin.go.
 }
 
-func thinkingGlyph(it *item) (string, string) { return glyphThinking, cDim }
+// thinkingPrefix marks a thinking row inside its body, leaving the glyph column
+// to the ordinary bullet so the tree rail stays straight (see glyphThinking).
+func thinkingPrefix(it *item) string { return cDim + glyphThinking + " " + cReset }
 
 // byType fills in init() — a var initializer would cycle: nodeTypes references
 // runQuery, which reaches typeOf/byType through the query type filter.
