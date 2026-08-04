@@ -25,8 +25,15 @@ func (m *Model) applyStyleToSpan(cur *item, lo, hi int, value string) {
 		return
 	}
 	m.pushUndo("")
+	styled := cur
+	if m.noteRich {
+		cpy := *cur
+		cpy.uuid = noteSpanUUID(cur)
+		cpy.name = cur.note
+		styled = &cpy
+	}
 	existing := "" // the style already covering the whole run, if any
-	for _, sp := range nodeSpans[cur.uuid] {
+	for _, sp := range nodeSpans[styled.uuid] {
 		if sp.Start <= lo && sp.End >= hi {
 			existing = sp.Style
 			break
@@ -43,13 +50,13 @@ func (m *Model) applyStyleToSpan(cur *item, lo, hi int, value string) {
 			break
 		}
 	}
-	m.setSpanStyle(cur, lo, hi, tok)
+	m.setSpanStyle(styled, lo, hi, tok)
 	m.unsaved = true
 	label := stylePickerLabels[value]
 	if !style.Has(tok, value) && style.Color(tok) != value {
 		label += " off" // re-picking took it back off the run
 	}
-	m.flash = "styled " + trimFlash(string([]rune(cur.name)[lo:hi]), 24) + " · " + label
+	m.flash = "styled " + trimFlash(string([]rune(styled.name)[lo:hi]), 24) + " · " + label
 }
 
 // setSpanStyle rewrites the node's spans so [lo,hi) carries exactly the given

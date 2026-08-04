@@ -178,11 +178,7 @@ func (m *Model) insertLinkChip(value, label string) string {
 	if anchor == "" {
 		return ""
 	}
-	runes := []rune(cur.name)
-	m.boundCaret(len(runes))
-	cur.name = string(runes[:m.caret]) + anchor + string(runes[m.caret:])
-	m.caret += len([]rune(anchor))
-	m.unsaved = true
+	m.insertLiteralAt(cur, m.caret, anchor)
 	return strings.Trim(anchor, string(chipSentinel))
 }
 
@@ -193,6 +189,7 @@ func (m *Model) insertURLLink(raw string) (tea.Model, tea.Cmd) {
 	url := browser.Normalize(raw)
 	m.insertLinkChip(url, urlChipLabel(url))
 	m.flash = "linked → " + clipStr(url, 32)
+	m.finishRichPicker()
 	m.refreshRows()
 	return m, nil
 }

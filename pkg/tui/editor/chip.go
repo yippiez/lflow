@@ -65,19 +65,22 @@ func chipsEnabled(it *item) bool {
 	return it != nil && !typeOf(it.typ).disableChips
 }
 
-// insertLiteralAt splices plain text s into cur.name at caret (no chip) and parks
-// the caret after it.
+// insertLiteralAt splices plain text s into the active rich-text surface (the
+// node name, or its note while a note picker is open) and parks the caret after
+// it.
 func (m *Model) insertLiteralAt(cur *item, caret int, s string) {
-	runes := []rune(cur.name)
+	text := m.richText(cur)
+	runes := []rune(text)
 	if caret > len(runes) {
 		caret = len(runes)
 	}
 	if caret < 0 {
 		caret = 0
 	}
-	cur.name = string(runes[:caret]) + s + string(runes[caret:])
+	m.setRichText(cur, string(runes[:caret])+s+string(runes[caret:]))
+	shiftSpans(m.richSpanUUID(cur), caret, len([]rune(s)))
+	m.persistSpans(m.richSpanUUID(cur))
 	m.caret = caret + len([]rune(s))
-	m.unsaved = true
 }
 
 // spanStartingAt returns the anchor beginning exactly at rune index i, or nil.

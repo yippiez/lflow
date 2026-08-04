@@ -170,6 +170,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEscape}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "space":
+		return tea.KeyMsg{Type: tea.KeySpace}
 	case "alt+enter":
 		return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}
 	case "alt+P", "alt+shift+p":

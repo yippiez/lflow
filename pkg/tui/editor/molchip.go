@@ -149,7 +149,10 @@ func molTokenBeforeCaret(cur *item, caret int) (tok string, start, end int, ok b
 // replacing exactly those runes with the chip anchor. Returns false when there
 // is nothing to convert, so the caller can fall back to inserting a blank chip.
 func (m *Model) molConvertBeforeCaret(cur *item) bool {
-	tok, start, end, ok := molTokenBeforeCaret(cur, m.caret)
+	text := m.richText(cur)
+	probe := *cur
+	probe.name = text
+	tok, start, end, ok := molTokenBeforeCaret(&probe, m.caret)
 	if !ok {
 		return false
 	}
@@ -157,9 +160,8 @@ func (m *Model) molConvertBeforeCaret(cur *item) bool {
 	if anchor == "" {
 		return false
 	}
-	runes := []rune(cur.name)
-	cur.name = string(runes[:start]) + anchor + string(runes[end:])
+	runes := []rune(text)
+	m.setRichText(cur, string(runes[:start])+anchor+string(runes[end:]))
 	m.caret = start + len([]rune(anchor))
-	m.unsaved = true
 	return true
 }

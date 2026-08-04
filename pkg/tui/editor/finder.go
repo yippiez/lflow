@@ -390,6 +390,9 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.noteRich && m.finder.act == actLinkInsert {
+		m.finishRichPicker()
+	}
 	m.refreshRows()
 	return m, nil
 }

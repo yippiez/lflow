@@ -133,7 +133,7 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 		if es, ok := src.(pickerEscapeSource); ok {
 			es.onEscape(m)
 		}
-		m.mode = modeOutline
+		m.finishRichPicker()
 		return true, m, nil
 	case "up":
 		p.moveUp()
@@ -151,14 +151,14 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 	case "backspace":
 		if inline != nil {
 			if inline.onBackspace(m, p) {
-				m.mode = modeOutline
+				m.finishRichPicker()
 			}
 		} else if p.searchable {
 			if qr := []rune(p.query); len(qr) > 0 {
 				p.query = string(qr[:len(qr)-1])
 				p.sel = 0
 			} else {
-				m.mode = modeOutline
+				m.finishRichPicker()
 			}
 		}
 		return true, m, nil
@@ -177,7 +177,7 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 	if k.Type == tea.KeySpace && !k.Alt {
 		if inline != nil {
 			if inline.onSpace(m, p) {
-				m.mode = modeOutline
+				m.finishRichPicker()
 			}
 		} else if p.searchable {
 			p.query += " "
@@ -188,7 +188,7 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 	if k.Type == tea.KeyRunes && !k.Alt {
 		if inline != nil {
 			if inline.onRune(m, p, k.Runes) {
-				m.mode = modeOutline
+				m.finishRichPicker()
 			}
 		} else if p.searchable {
 			p.query += string(k.Runes)

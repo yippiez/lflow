@@ -79,7 +79,7 @@ func (f *bodyFinder) refresh(m *Model, be finderBackend) {
 func (f *bodyFinder) handleKey(m *Model, k tea.KeyMsg, be finderBackend) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
-		m.mode = modeOutline
+		m.finishRichPicker()
 		return m, nil
 	case "up":
 		if f.sel > 0 {
@@ -104,7 +104,7 @@ func (f *bodyFinder) handleKey(m *Model, k tea.KeyMsg, be finderBackend) (tea.Mo
 		if f.sel < len(f.hits) {
 			return be.onSelect(m, f.hits[f.sel])
 		}
-		m.mode = modeOutline
+		m.finishRichPicker()
 		return m, nil
 	}
 	if k.Type == tea.KeySpace && !k.Alt {

@@ -31,12 +31,12 @@ func (m *Model) clearTextSel() {
 // ok is false when nothing is selected, the run is empty, or the cursor moved
 // off the node the selection belongs to.
 func (m *Model) textSelection() (*item, int, int, bool) {
-	cur := m.cursorItem()
-	if !m.textSelOn || cur == nil || cur.uuid != textSelUUID {
+	cur := m.richTextItem(m.cursorItem())
+	if !m.textSelOn || cur == nil || m.richSpanUUID(cur) != textSelUUID {
 		return nil, 0, 0, false
 	}
 	lo, hi := textSelLo, textSelHi
-	if n := len([]rune(cur.name)); hi > n {
+	if n := len([]rune(m.richText(cur))); hi > n {
 		hi = n
 	}
 	if hi <= lo {
@@ -49,17 +49,17 @@ func (m *Model) textSelection() (*item, int, int, bool) {
 // rune) and grows the selection to it. The first press anchors at the caret;
 // the selection never leaves the node it started on.
 func (m *Model) extendTextSel(dir int, byWord bool) {
-	cur := m.cursorItem()
+	cur := m.richTextItem(m.cursorItem())
 	if cur == nil {
 		return
 	}
-	runes := []rune(cur.name)
+	runes := []rune(m.richText(cur))
 	if len(runes) == 0 {
 		return
 	}
 	m.clearSel() // rows or runes, never both
 	caret := m.boundCaret(len(runes))
-	if !m.textSelOn || cur.uuid != textSelUUID {
+	if !m.textSelOn || m.richSpanUUID(cur) != textSelUUID {
 		m.textSelOn = true
 		m.textSelAnchor = caret
 	}
@@ -91,12 +91,12 @@ func (m *Model) extendTextSel(dir int, byWord bool) {
 
 // syncTextSel republishes the ordered selection bounds for the renderer.
 func (m *Model) syncTextSel() {
-	cur := m.cursorItem()
+	cur := m.richTextItem(m.cursorItem())
 	if !m.textSelOn || cur == nil {
 		textSelUUID = ""
 		return
 	}
-	runes := []rune(cur.name)
+	runes := []rune(m.richText(cur))
 	lo, hi := m.textSelAnchor, m.caret
 	if lo > hi {
 		lo, hi = hi, lo
@@ -111,7 +111,7 @@ func (m *Model) syncTextSel() {
 		textSelUUID = "" // an empty run draws nothing, but the anchor stays live
 		return
 	}
-	textSelUUID, textSelLo, textSelHi = cur.uuid, lo, hi
+	textSelUUID, textSelLo, textSelHi = m.richSpanUUID(cur), lo, hi
 	m.flash = fmt.Sprintf("selected %q · alt+c styles it", trimFlash(string(runes[lo:hi]), 16))
 }
 

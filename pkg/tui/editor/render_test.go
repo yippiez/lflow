@@ -292,6 +292,65 @@ func TestNoteBandRendersRichChipsAndNodeStyle(t *testing.T) {
 	}
 }
 
+func TestNoteEditorInsertsChipsThroughGesturesAndMenu(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: "task"})
+	cursorOn(m, "n")
+	mm, _ := m.runSlash("/note")
+	m = mm.(*Model)
+
+	m.press("#")
+	for _, r := range "qol" {
+		m.press(string(r))
+	}
+	m.press("space")
+	if m.mode != modeNote || m.noteRich {
+		t.Fatalf("tag picker did not return to note editing: mode=%v rich=%v", m.mode, m.noteRich)
+	}
+	m.press("$")
+	m.press("$")
+	m.press("alt+a")
+	for _, r := range "date" {
+		m.press(string(r))
+	}
+	m.press("enter")
+
+	note := m.tree.byUUID["n"].note
+	kinds := map[string]bool{}
+	for _, sp := range anchorSpans([]rune(note)) {
+		kinds[m.chips[sp.id].Kind] = true
+	}
+	for _, want := range []string{chipKindTag, chipKindCmd, chipKindDate} {
+		if !kinds[want] {
+			t.Fatalf("note missing %s chip after real editor gestures: %q (%v)", want, note, kinds)
+		}
+	}
+	if m.mode != modeNote || m.noteRich {
+		t.Fatalf("/insert did not return to note editing: mode=%v rich=%v", m.mode, m.noteRich)
+	}
+}
+
+func TestNoteEditorStylesSelectedText(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: "task", Note: "plain words"})
+	cursorOn(m, "n")
+	mm, _ := m.runSlash("/note")
+	m = mm.(*Model)
+	m.press("ctrl+shift+left") // words
+	m.press("alt+c")
+	m.press("enter") // Bold is the first style
+
+	spans := nodeSpans[noteSpanUUID(m.tree.byUUID["n"])]
+	if len(spans) != 1 || spans[0].Style != "bold" || spans[0].Start != 6 || spans[0].End != 11 {
+		t.Fatalf("note spans = %+v, want bold [6,11)", spans)
+	}
+	band := strings.Join(m.noteBandLines(row{it: m.tree.byUUID["n"]}, 80, false, -1), "\n")
+	if !strings.Contains(band, cBold) {
+		t.Fatalf("styled note did not render bold: %q", band)
+	}
+	if m.mode != modeNote || m.textSelOn {
+		t.Fatalf("style picker did not return cleanly to note: mode=%v selected=%v", m.mode, m.textSelOn)
+	}
+}
+
 func TestNoteCommitChipifiesTagsDatesAndLinks(t *testing.T) {
 	m, _ := dbModel(t, database.Node{UUID: "n", Name: "task", Note: "#qol 2026-08-01 [site](https://example.com)"})
 	cursorOn(m, "n")

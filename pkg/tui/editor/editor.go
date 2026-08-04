@@ -185,6 +185,10 @@ type Model struct {
 	finder bodyFinder
 
 	notePrev string // note backup for esc in note mode
+	// noteRich stays true while a chip/style picker opened from /note is on top.
+	// Those pickers normally edit cur.name; this flag redirects them to cur.note
+	// and returns to note editing when the nested picker closes.
+	noteRich bool
 
 	// alt+e link-chip editor (modeLinkEdit)
 	linkEditID     string // chip id being edited
@@ -1991,9 +1995,12 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeOutline
 		return m, nil
 	}
-	switch k.String() {
+	key := k.String()
+	switch key {
 	case "esc":
 		cur.note = m.notePrev
+		m.clearTextSel()
+		m.noteRich = false
 		m.mode = modeOutline
 		m.caret = len([]rune(cur.name))
 		return m, nil
@@ -2012,10 +2019,69 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		m.clearTextSel()
+		m.noteRich = false
 		m.mode = modeOutline
 		m.unsaved = true
 		m.caret = len([]rune(cur.name))
 		return m, nil
+	case "shift+left":
+		m.extendTextSel(-1, false)
+		return m, nil
+	case "shift+right":
+		m.extendTextSel(1, false)
+		return m, nil
+	case "ctrl+shift+left", "alt+shift+left":
+		m.extendTextSel(-1, true)
+		return m, nil
+	case "ctrl+shift+right", "alt+shift+right":
+		m.extendTextSel(1, true)
+		return m, nil
+	case "alt+a", "alt+P":
+		return m.openNoteInsert()
+	case "alt+c":
+		if _, _, _, ok := m.textSelection(); ok {
+			m.noteRich = true
+			m.mode = modeStyle
+			m.list.open(m, styleSource{}, true)
+		}
+		return m, nil
+	}
+
+	// The doubled chip gestures work in notes exactly as they do in node text.
+	if k.Type == tea.KeyRunes && len(k.Runes) > 0 && !k.Alt && !k.Paste {
+		typed := string(k.Runes)
+		switch {
+		case typed == "[" && m.noteRuneBefore('['):
+			m.removeNoteRuneBeforeCaret()
+			m.noteRich = true
+			m.openFinder(actLinkInsert)
+			return m, nil
+		case typed == "$" && m.noteRuneBefore('$'):
+			m.removeNoteRuneBeforeCaret()
+			if anchor := m.createChip(chipKindCmd, ""); anchor != "" {
+				m.insertLiteralAt(cur, m.caret, anchor)
+				m.flash = "empty $ chip · alt+i edits the command"
+			}
+			return m, nil
+		case typed == "@" && m.noteRuneBefore('@'):
+			m.removeNoteRuneBeforeCaret()
+			m.noteRich = true
+			return m.openCitePicker(citeChip)
+		case typed == "#" && m.noteAtWordStart():
+			m.noteRich = true
+			return m.openCompleter(cur, complTag, "#")
+		case typed == ":" && m.noteAtWordStart():
+			m.noteRich = true
+			return m.openIconPicker(cur)
+		}
+	}
+
+	before := cur.note
+	beforeCaret := m.caret
+	if key == " " || (k.Type == tea.KeySpace && !k.Alt) {
+		m.chipifyNoteBeforeCaret(cur)
+		before, beforeCaret = cur.note, m.caret
 	}
 	// text editing is consistent everywhere: the note field honors the same
 	// caret vocabulary as the link editor, via the shared textField primitive.
@@ -2023,6 +2089,14 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if f.handleKey(k) {
 		cur.note = f.value
 		m.caret = f.caret
+		delta := len([]rune(cur.note)) - len([]rune(before))
+		if delta != 0 {
+			at := min(beforeCaret, m.caret)
+			shiftSpans(noteSpanUUID(cur), at, delta)
+			m.persistSpans(noteSpanUUID(cur))
+		}
+		m.clearTextSel()
+		m.unsaved = true
 	}
 	return m, nil
 }

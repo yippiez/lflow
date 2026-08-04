@@ -189,6 +189,7 @@ func (agentStartSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	m.agentPickNode = ""
 	cur := m.cursorItem()
 	if it.value == "" || (cur == nil && target == "") {
+		m.finishRichPicker()
 		return m, nil
 	}
 	parts := strings.SplitN(it.value, "/", 3)
@@ -211,5 +212,6 @@ func (agentStartSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.insertAgentChip(cur, v, attach)
+	m.finishRichPicker()
 	return m, nil
 }

@@ -120,16 +120,16 @@ func (m *Model) complItems(query string) []complItem {
 	return ret
 }
 
-// openCompleter types the trigger into the node and switches to the completer.
+// openCompleter types the trigger into the active rich-text surface and switches
+// to the completer.
 func (m *Model) openCompleter(cur *item, kind complKind, trigger string) (tea.Model, tea.Cmd) {
-	runes := []rune(cur.name)
+	runes := []rune(m.richText(cur))
 	m.boundCaret(len(runes))
-	cur.name = string(runes[:m.caret]) + trigger + string(runes[m.caret:])
+	m.setRichText(cur, string(runes[:m.caret])+trigger+string(runes[m.caret:]))
 	m.compl = complState{kind: kind, start: m.caret}
 	m.list = listPicker{searchable: true}
 	m.caret += len([]rune(trigger))
 	m.mode = modeComplete
-	m.unsaved = true
 	return m, nil
 }
 
@@ -140,7 +140,7 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 	if cur == nil {
 		return false
 	}
-	runes := []rune(cur.name)
+	runes := []rune(m.richText(cur))
 	end := m.caret
 	if end > len(runes) {
 		end = len(runes)
@@ -149,7 +149,7 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 		if chosen.value == "" {
 			return false
 		}
-		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
+		m.setRichText(cur, string(runes[:m.compl.start])+chosen.value+string(runes[end:]))
 		m.caret = m.compl.start + len([]rune(chosen.value))
 		// An empty "()" is a hole to fill, so the caret lands between the parens
 		// rather than after them. A qualifier that already carries its value —
@@ -172,7 +172,7 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 		if chosen.value == "" {
 			return false
 		}
-		cur.name = string(runes[:m.compl.start]) + chosen.value + string(runes[end:])
+		m.setRichText(cur, string(runes[:m.compl.start])+chosen.value+string(runes[end:]))
 		m.caret = m.compl.start + len([]rune(chosen.value))
 		m.skipClosingParen(cur)
 		m.unsaved = true
@@ -202,7 +202,7 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 			}
 		}
 		// the replaced range is ":" + typed query.
-		cur.name = string(runes[:m.compl.start]) + insert + string(runes[end:])
+		m.setRichText(cur, string(runes[:m.compl.start])+insert+string(runes[end:]))
 		m.caret = m.compl.start + len([]rune(insert))
 		m.unsaved = true
 		return false
@@ -218,7 +218,7 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 	if anchor == "" {
 		return false
 	}
-	cur.name = string(runes[:m.compl.start]) + anchor + string(runes[end:])
+	m.setRichText(cur, string(runes[:m.compl.start])+anchor+string(runes[end:]))
 	m.caret = m.compl.start + len([]rune(anchor))
 	m.unsaved = true
 	return false
@@ -228,7 +228,7 @@ func (m *Model) applyCompletion(cur *item, chosen pickerItem) (chain bool) {
 // completing a value inside "type(…)" leaves the caret ready for the next atom
 // instead of stranded inside the brackets.
 func (m *Model) skipClosingParen(cur *item) {
-	runes := []rune(cur.name)
+	runes := []rune(m.richText(cur))
 	if m.caret < len(runes) && runes[m.caret] == ')' {
 		m.caret++
 	}
@@ -252,12 +252,12 @@ func typedQueryCmd(typed string) (string, bool) {
 // qualifier out by hand must land the same "type(" text that picking it from the
 // popup does, not a stray colon in front of it.
 func (m *Model) dropCompleterTrigger(cur *item) {
-	runes := []rune(cur.name)
+	runes := []rune(m.richText(cur))
 	at := m.compl.start
 	if cur == nil || at < 0 || at >= len(runes) || runes[at] != ':' {
 		return
 	}
-	cur.name = string(runes[:at]) + string(runes[at+1:])
+	m.setRichText(cur, string(runes[:at])+string(runes[at+1:]))
 	if m.caret > at {
 		m.caret--
 	}
@@ -270,11 +270,11 @@ func (m *Model) delCharBeforeCaret(cur *item) {
 	if cur == nil || m.caret <= 0 {
 		return
 	}
-	runes := []rune(cur.name)
+	runes := []rune(m.richText(cur))
 	if m.caret > len(runes) {
 		m.caret = len(runes)
 	}
-	cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+	m.setRichText(cur, string(runes[:m.caret-1])+string(runes[m.caret:]))
 	m.caret--
 	m.unsaved = true
 }

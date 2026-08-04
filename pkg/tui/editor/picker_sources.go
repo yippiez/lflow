@@ -203,6 +203,7 @@ func (insertSource) initialSel(*Model) int { return 0 }
 func (insertSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	if it.value == "" {
+		m.finishRichPicker()
 		return m, nil
 	}
 	return m.insertChip(it.value)
@@ -266,6 +267,11 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 			m.insertLiteralAt(cur, m.caret, anchor)
 			m.flash = "empty ⌬ chip · no molecule found before the caret"
 		}
+	}
+	// Agent/Zotero/tag/icon/link hand off to another picker and keep noteRich
+	// until that nested surface settles. Immediate insertions return to /note.
+	if m.noteRich && m.mode == modeOutline {
+		m.finishRichPicker()
 	}
 	return m, nil
 }
@@ -454,7 +460,7 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	if cur, lo, hi, ok := m.textSelection(); ok && it.value != "" {
 		m.applyStyleToSpan(cur, lo, hi, it.value)
 		m.clearTextSel()
-		m.mode = modeOutline
+		m.finishRichPicker()
 		m.refreshRows()
 		return m, nil
 	}
@@ -484,7 +490,7 @@ func (styleSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		}
 		m.unsaved = true
 	}
-	m.mode = modeOutline
+	m.finishRichPicker()
 	return m, nil
 }
 
@@ -565,7 +571,7 @@ func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	if m.mode == modeFinder {
 		return m, nil
 	}
-	m.mode = modeOutline
+	m.finishRichPicker()
 	return m, nil
 }
 
@@ -579,12 +585,11 @@ func (completerSource) onRune(m *Model, p *listPicker, r []rune) bool {
 	p.query += string(r)
 	p.sel = 0
 	if cur := m.cursorItem(); cur != nil {
-		runes := []rune(cur.name)
+		runes := []rune(m.richText(cur))
 		m.boundCaret(len(runes))
 		ins := []rune(string(r))
-		cur.name = string(runes[:m.caret]) + string(ins) + string(runes[m.caret:])
+		m.setRichText(cur, string(runes[:m.caret])+string(ins)+string(runes[m.caret:]))
 		m.caret += len(ins)
-		m.unsaved = true
 	}
 	// Typing the qualifier rather than picking it reaches the same chained value
 	// picker as Enter on type:. Dropping the trigger colon first keeps hand-typed
@@ -610,14 +615,17 @@ func (completerSource) onSpace(m *Model, p *listPicker) bool {
 	// query command leaves the text literal. Either way the space is typed normally.
 	cur := m.cursorItem()
 	if m.compl.kind == complTag && cur != nil {
-		m.chipifyBeforeCaret(cur)
+		if m.noteRich {
+			m.chipifyNoteBeforeCaret(cur)
+		} else {
+			m.chipifyBeforeCaret(cur)
+		}
 	}
 	if cur != nil {
-		runes := []rune(cur.name)
+		runes := []rune(m.richText(cur))
 		m.boundCaret(len(runes))
-		cur.name = string(runes[:m.caret]) + " " + string(runes[m.caret:])
+		m.setRichText(cur, string(runes[:m.caret])+" "+string(runes[m.caret:]))
 		m.caret++
-		m.unsaved = true
 	}
 	return true
 }

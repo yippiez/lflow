@@ -161,11 +161,7 @@ func (m *Model) insertZoteroCite(it zotero.Item) {
 	if anchor == "" {
 		return
 	}
-	runes := []rune(cur.name)
-	m.boundCaret(len(runes))
-	cur.name = string(runes[:m.caret]) + anchor + string(runes[m.caret:])
-	m.caret += len([]rune(anchor))
-	m.unsaved = true
+	m.insertLiteralAt(cur, m.caret, anchor)
 }
 
 // ── following a citation ───────────────────────────────────────────────────
@@ -373,14 +369,17 @@ func (zoteroSource) initialSel(*Model) int { return 0 }
 func (zoteroSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
 	if it.value == "" {
+		m.finishRichPicker()
 		return m, nil
 	}
 	lib, ok := m.zoteroLibrary()
 	if !ok {
+		m.finishRichPicker()
 		return m, nil
 	}
 	entry, found := lib.ByKey(it.value)
 	if !found {
+		m.finishRichPicker()
 		return m, nil
 	}
 	if m.citeAct == citeMirror {
@@ -390,6 +389,7 @@ func (zoteroSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	}
 	m.insertZoteroCite(entry)
 	m.flash = "cited · " + clipStr(entry.Label(), 28)
+	m.finishRichPicker()
 	m.refreshRows()
 	return m, nil
 }
