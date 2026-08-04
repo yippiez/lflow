@@ -412,7 +412,6 @@ func (m *Model) jumpTo(target database.Node) error {
 	m.tree = t
 	m.viewStack = []*item{t.root}
 	m.undoStack = nil
-	m.clearOnFrame = true // a jump lands on a new view root: wipe the old one
 	m.refreshAncestors()
 	m.cursor = 0
 	m.caret = 0
@@ -570,7 +569,6 @@ func (m *Model) bringFromDB(target database.Node, cur *item) error {
 	}
 	m.tree = t
 	m.viewStack = []*item{t.root}
-	m.clearOnFrame = true // jumping to a target in the tree: wipe the previous view
 	m.refreshAncestors()
 	m.refreshRows()
 	if it, ok := t.byUUID[target.UUID]; ok {

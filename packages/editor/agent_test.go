@@ -938,17 +938,6 @@ func TestAgentDeclaredNameBeatsAFirstPrompt(t *testing.T) {
 // TestAgentIdentOverlaysTheTranscript: Claude Code keeps a session's name and
 // color BESIDE the transcript, so a session read only from its transcript came
 // back nameless and was labelled with its first prompt.
-func TestReturningFromAgentClearsExternalScrollback(t *testing.T) {
-	m := newTestModel(60, "agent handle")
-	m.handleAgentClosed(agentClosedMsg{variant: "missing"})
-	if !m.clearOnFrame {
-		t.Fatal("agent return did not flag a clean repaint")
-	}
-	if frame := m.View(); !strings.HasPrefix(frame, cClearScrollback) {
-		t.Fatalf("first frame after agent return did not clear external scrollback: %q", frame)
-	}
-}
-
 func TestAgentIdentOverlaysTheTranscript(t *testing.T) {
 	s := agentStoreSession{variant: "claude", id: "abc", title: "the whole first prompt, pasted"}
 	s.applyIdent(agentIdent{name: "lflow-ab", color: "red"})

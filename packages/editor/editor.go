@@ -1,9 +1,11 @@
-// Package editor implements the inline scrollback-mode outline editor:
+// Package editor implements the full-screen (alt-screen) outline editor:
 // black background, muted gray ○/●/□ glyphs and connectors plus 1/2/3
 // heading digits, the selected row marked by its glyph turning red, a block
 // cursor that inverts the cell beneath it, a minimal dim bottom bar, a
 // type-to-filter slash menu above the bar, and a full-panel fuzzy finder for
-// /mirror:to /mirror:from /move:to /move:here /goto /backlinks. It never enters the alternate screen.
+// /mirror:to /mirror:from /move:to /move:here /goto /backlinks. On quit the
+// alt screen is popped and the styled outline is printed once to the normal
+// screen, ahead of the "→ saved" summary.
 package editor
 
 import (
@@ -162,12 +164,6 @@ type Model struct {
 	// mirror of an ancestor may re-enter its target, one level per expand
 	// press. Ephemeral view state — never persisted or synced.
 	unroll map[string]int
-	// clearOnFrame asks the next View to open with cClearScrollback, wiping the
-	// terminal's scrollback history before the new view draws. Set by the
-	// navigation keys (zoom, /goto, walk-up) so an old node's rows that have
-	// already scrolled into the scrollback buffer don't linger above the new
-	// view. Ephemeral — never persisted or synced.
-	clearOnFrame bool
 	// alt+g is a two-key goto leader off links: g opens the node finder and s
 	// jumps to the next pending suggestion. Contextual link/Zotero opens still
 	// happen immediately on alt+g.
@@ -485,7 +481,6 @@ func (m *Model) reopenAt(rootUUID, focusUUID string) {
 	m.tree = t
 	m.viewStack = []*item{t.root}
 	m.undoStack = nil // a reload is a fresh editing context
-	m.clearOnFrame = true
 	m.refreshAncestors()
 	m.refreshRows()
 	m.cursor = 0
@@ -856,22 +851,10 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// A width change reflows the physical terminal before bubbletea repaints:
-		// a row that occupied one physical line at the old width may now wrap to
-		// two (or collapse to one), so the inline (no-alt-screen) renderer's
-		// cursor-up count — measured in old-width lines — no longer matches the
-		// reflowed layout. It then rewrites the new frame starting one row off and
-		// strands the wider row's first physical line above it (the F7 leftover:
-		// the old 60-col row survives, truncated, above the fresh 40-col render).
-		// Per-line clear-to-EOL cannot reach a row the renderer never revisits.
-		// tea.ClearScreen wipes the whole terminal and homes the cursor, so the
-		// next frame repaints from a known-empty screen with no stale rows.
-		widthChanged := msg.Width != m.width
+		// The alt screen repaints in full every frame, so a resize needs no
+		// special-case clear — just record the new size.
 		m.width = msg.Width
 		m.height = msg.Height
-		if widthChanged {
-			return m, tea.ClearScreen
-		}
 		return m, nil
 	case tea.MouseMsg:
 		m.handleMouse(msg)
@@ -1954,7 +1937,6 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/shortcuts":
 		m.mode = modeShortcuts
 		m.focusScroll = 0
-		m.clearOnFrame = true
 	case "/priority:up", "/priority:down":
 		// where incoming and moved-in nodes land among this node's children:
 		// top (up) or bottom (down). A mirror sets its original.
@@ -2348,13 +2330,15 @@ func RunFile(ctx context.DnoteCtx, nodeUUID string, fs FileSession) error {
 	m.backfillChipsOnce() // one-time: convert legacy plain-text #tags/dates to chips
 	m.refreshRows()
 
-	// WARNING (invariant): inline scrollback only — NEVER pass tea.WithAltScreen.
-	// The alt-screen erases the styled outline on quit and breaks scriptable
-	// scrollback output. Lint-enforced (see rules/).
+	// Full-screen: the editor owns the alt screen for the whole run, so a
+	// mid-session resize or overflow frame never touches the user's real
+	// scrollback. bubbletea restores the normal screen on exit, discarding
+	// whatever was last drawn there — the styled outline below is what
+	// actually reaches the normal screen, printed once after Run returns.
 	// The mouse is NOT captured by default — the terminal owns drag-select and
 	// copy-on-select. The "mouse: wheel" setting turns capture on (Init /
 	// handleSettingsKey) so the wheel scrolls the outline instead.
-	p := tea.NewProgram(m) // inline: no alt screen
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {
 		return errors.Wrap(err, "running editor")
@@ -2367,6 +2351,16 @@ func RunFile(ctx context.DnoteCtx, nodeUUID string, fs FileSession) error {
 	if fm.err != nil {
 		return fm.err
 	}
+
+	// The alt screen is gone now; this is the first thing printed to the
+	// normal screen. m.quitting is still set from the Quit path, so
+	// finalView renders the same fully-expanded, quit-time-styled outline it
+	// always has (tableBandLines etc. still suppress their live-only bits).
+	width := fm.width
+	if width <= 0 {
+		width = 80
+	}
+	fmt.Print(strings.Join(fm.finalView(width-1), "\n") + "\n")
 
 	total, _ := fm.tree.stats()
 	fmt.Print(savedSummary(fm.tree.displayName(fm.tree.root), fm.chips, total, fm.saved.written))

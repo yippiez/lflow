@@ -29,16 +29,6 @@ const (
 	// leads the line rather than trailing it so the renderer's width truncation,
 	// which drops escape bytes past the cut, cannot discard it on full-width rows.
 	cClearEOL = "\x1b[K"
-	// cClearScrollback wipes the terminal history, the visible screen and homes
-	// the cursor (\x1b[3J is the xterm/VTE scrollback-clear extension; terminals
-	// without it ignore it, leaving the screen clear from \x1b[2J). Prepended to
-	// the head of the first frame after a view jump: the inline renderer can only
-	// move the cursor back over its own previous frame — rows that have already
-	// scrolled into the terminal's scrollback buffer are unreachable, so without
-	// this the old node's rows would linger above the new one when you scroll
-	// back. It is zero-width to the renderer's line measurement (verified against
-	// charmbracelet/x/ansi), so frame accounting is unaffected.
-	cClearScrollback = "\x1b[3J\x1b[2J\x1b[H"
 )
 
 // The themeable palette. These are vars (not consts) so /theme can reassign them

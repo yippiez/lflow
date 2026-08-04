@@ -6,14 +6,23 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #
 # Bug (pre 6383a85): pressing ctrl+c erased the editor frame; View() returned
 # "" on quit so bubbletea blanked the screen, losing the outline. ctrl+q did
-# the same. The expected behavior is that the final bubbletea frame is the
-# whole tree rendered with glyphs (○ …) so the outline survives in the
-# terminal scrollback after the editor process exits.
+# the same.
 #
-# Fix (6383a85): View() now returns finalView() when m.quitting is true,
-# rendering every tree row with glyphs and connectors as the last frame.
-# Because the normal-screen cursor follows that final render, the outline
-# stays visible in the terminal (and scrollback) after exit.
+# Fix (6383a85, inline-scrollback era): View() returned finalView() when
+# m.quitting was true, rendering every tree row with glyphs and connectors as
+# bubbletea's LAST frame, so the outline stayed on the terminal's normal
+# screen after exit.
+#
+# Post-alt-screen-migration contract: the editor now runs the whole session
+# inside tea.WithAltScreen, so whatever View() draws while quitting paints
+# inside the alt screen and is discarded the instant bubbletea pops back to
+# the normal screen — there is no "last frame in scrollback" anymore. Instead,
+# Run/RunFile print the styled outline (via finalView) THEMSELVES, directly to
+# the normal screen with fmt.Print, right after p.Run() returns and before the
+# "→ saved" summary. The outline therefore appears on the NORMAL screen once,
+# after the alt screen (and the shell prompt beneath it) is restored — this
+# test's tmux capture-pane -S - still finds it because it captures the whole
+# pane history, alt-screen or not.
 #
 # Repro steps:
 #   1. setup; launch
@@ -22,7 +31,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   4. quit the editor (send C-c)
 #   5. snapshot the pane (including history) after the editor exits
 #
-# Expected (post-fix):
+# Expected:
 #   Both "○ Hello" and "○ World" appear in the pane/scrollback after quit.
 
 # Helper: capture the full pane including history (-S - = from start of history).

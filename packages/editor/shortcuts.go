@@ -126,7 +126,6 @@ func (m *Model) handleShortcutsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q", "enter":
 		m.mode = modeOutline
 		m.focusScroll = 0
-		m.clearOnFrame = true
 	case "up", "k":
 		m.focusScroll--
 	case "down", "j":

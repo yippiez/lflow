@@ -10,8 +10,8 @@ func TestShortcutsCommandOpensSeparateScrollablePage(t *testing.T) {
 	m.height = 12
 	mm, _ := m.runSlash("/shortcuts")
 	m = mm.(*Model)
-	if m.mode != modeShortcuts || !m.clearOnFrame {
-		t.Fatalf("/shortcuts mode=%v clear=%v", m.mode, m.clearOnFrame)
+	if m.mode != modeShortcuts {
+		t.Fatalf("/shortcuts mode=%v", m.mode)
 	}
 	page := stripSGR(m.View())
 	if !strings.HasPrefix(page, "Move and select\n") || !strings.Contains(page, "shift+↑") {
@@ -26,7 +26,7 @@ func TestShortcutsCommandOpensSeparateScrollablePage(t *testing.T) {
 		t.Fatal("pgdown did not scroll the shortcut page")
 	}
 	m.press("esc")
-	if m.mode != modeOutline || !m.clearOnFrame {
-		t.Fatalf("esc mode=%v clear=%v", m.mode, m.clearOnFrame)
+	if m.mode != modeOutline {
+		t.Fatalf("esc mode=%v", m.mode)
 	}
 }

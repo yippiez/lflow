@@ -25,10 +25,10 @@ func (m *Model) View() string {
 		if m.err != nil {
 			return ""
 		}
-		// the final frame is what the terminal scrollback keeps: the whole
-		// outline, fully expanded, styled exactly like the live editor. The
-		// trailing newline matters: the renderer erases the last line of the
-		// final frame on shutdown, so give it an empty one to eat.
+		// This frame paints inside the alt screen and is discarded when
+		// bubbletea pops back to the normal screen on exit — Run prints the
+		// real post-exit outline itself via finalView. What renders here
+		// only has to be inoffensive for the instant it's on screen.
 		return strings.Join(m.finalView(maxLine), "\n") + "\n"
 	}
 
@@ -89,19 +89,7 @@ func (m *Model) View() string {
 		lines[i] = cClearEOL + l + cReset
 	}
 
-	// After a view jump (zoom, /goto, walk-up) the previous node's rows may have
-	// scrolled into the terminal's scrollback buffer, where the inline renderer
-	// cannot reach them with cursor-up — they would linger above the new view
-	// forever. Open such a frame by wiping scrollback + screen and homing the
-	// cursor, so the new node draws from a known-empty terminal. The escape is
-	// zero-width to the renderer's line measurement, so it cannot skew the
-	// cursor-up bookkeeping of the frames that follow.
-	out := strings.Join(lines, "\n")
-	if m.clearOnFrame && len(lines) > 0 {
-		out = cClearScrollback + out
-		m.clearOnFrame = false
-	}
-	return out
+	return strings.Join(lines, "\n")
 }
 
 // finalView renders the complete tree with glyphs and connectors but no

@@ -1,0 +1,11 @@
+id: no-scrollback-wipe
+snapshots:
+  ? |
+    func f() {
+      clearScrollback := "\x1b[3J\x1b[2J\x1b[H"
+    }
+  : labels:
+    - source: '"\x1b[3J\x1b[2J\x1b[H"'
+      style: primary
+      start: 32
+      end: 54

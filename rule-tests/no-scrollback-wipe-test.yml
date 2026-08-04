@@ -1,0 +1,15 @@
+id: no-scrollback-wipe
+valid:
+  - |
+    func f() {
+      cReset := "\x1b[0m"
+    }
+  - |
+    func f() {
+      clearEOL := "\x1b[K"
+    }
+invalid:
+  - |
+    func f() {
+      clearScrollback := "\x1b[3J\x1b[2J\x1b[H"
+    }

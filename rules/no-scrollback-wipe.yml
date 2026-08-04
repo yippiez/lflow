@@ -1,0 +1,31 @@
+id: no-scrollback-wipe
+language: go
+severity: error
+message: Do not emit \x1b[3J — it wipes the user's REAL terminal scrollback.
+note: |
+  \x1b[3J is the xterm/VTE scrollback-clear extension: on a real terminal it
+  discards history that exists OUTSIDE anything lflow ever drew, alt screen or
+  not. It used to be load-bearing for the editor's old inline (no-alt-screen)
+  mode — see the deleted cClearScrollback — but the editor now runs inside
+  tea.WithAltScreen, where the alternate buffer already isolates every frame
+  from the user's real screen and history; there is no longer any legitimate
+  reason to reach past it and wipe scrollback the app never owned. Forbidden
+  everywhere in packages/** and cmd/**.
+rule:
+  any:
+    - kind: interpreted_string_literal
+      regex: '\\x1b\[3J'
+    - kind: raw_string_literal
+      regex: '\\x1b\[3J'
+files:
+  - packages/**
+  - cmd/**
+ignores:
+  # this is the regression guard for the rule itself: it asserts the escape is
+  # ABSENT from the editor's own frames, so it has to reference the literal
+  - packages/editor/render_flush_test.go
+  # feeds a real `clear` command's byte stream through the editor's OWN VT
+  # emulator (termScreen, used to render a subprocess's output inside a
+  # read-only band) — decoding what a child process printed is not the editor
+  # writing the escape to the real terminal it owns
+  - packages/editor/term_test.go

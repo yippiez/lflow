@@ -150,12 +150,17 @@ func atoiOr(s string, def int) int {
 	return n
 }
 
-// flushSim reproduces bubbletea's standardRenderer.flush for the inline path:
-// move the cursor up over the previous frame, then for each line truncate to the
-// terminal width and emit it, appending EraseLineRight only when the visible
-// content is narrower than the terminal, and erasing the screen below when the
-// new frame has fewer lines than the last. A resize is modelled by passing a nil
-// prev (repaint clears the renderer's line cache).
+// flushSim reproduces bubbletea's standardRenderer.flush for the alt-screen
+// path: home the cursor to the top-left (not cursor-up over the previous
+// frame's line count — altScreenActive always repositions with
+// CursorHomePosition, so a reflow that changes how many physical rows the
+// previous frame occupied can never desync it), then for each line truncate to
+// the terminal width and emit it, appending EraseLineRight only when the
+// visible content is narrower than the terminal, and erasing the screen below
+// when the new frame has fewer lines than the last. A resize is modelled by
+// passing a nil prev (bubbletea's renderer drops its line cache on every
+// WindowSizeMsg — see standardRenderer's WindowSizeMsg case — independent of
+// whatever Cmd the app's own Update returns).
 type flushSim struct {
 	g             *vtGrid
 	prevLines     []string
@@ -166,9 +171,7 @@ type flushSim struct {
 
 func (s *flushSim) flush(frame string) {
 	newLines := strings.Split(frame, "\n")
-	if s.linesRendered > 1 {
-		s.g.write(ansi.CursorUp(s.linesRendered - 1))
-	}
+	s.g.write(ansi.CursorHomePosition)
 	for i := 0; i < len(newLines); i++ {
 		canSkip := len(s.prevLines) > i && s.prevLines[i] == newLines[i]
 		if canSkip {
@@ -205,18 +208,6 @@ func (s *flushSim) flush(frame string) {
 // every line is re-emitted at the new width.
 func (s *flushSim) resize(w int) {
 	s.width = w
-	s.prevLines = nil
-	s.firstRender = true
-}
-
-// clearScreen models bubbletea executing the tea.ClearScreen command the resize
-// handler returns: the terminal is wiped (ESC[2J ESC[H) and the renderer forgets
-// the previous frame's height, so the next flush starts from a known-empty grid
-// with no stale rows to move the cursor up over.
-func (s *flushSim) clearScreen() {
-	s.g.write(ansi.EraseDisplay(2))
-	s.g.write(ansi.CursorOrigin)
-	s.linesRendered = 0
 	s.prevLines = nil
 	s.firstRender = true
 }
@@ -326,50 +317,42 @@ func TestViewLinesLeadWithClearAfterShrink(t *testing.T) {
 	}
 }
 
-// TestWidthChangeClearsScreen is the rest of the F7 break: clearing each frame
-// line's own tail is not enough. When the width changes the physical terminal
-// reflows before bubbletea repaints, so a 60-col row that filled one physical
-// line wraps to two at 40 — and the inline renderer's cursor-up count, measured
-// in old-width lines, lands one row off and strands the wider row's first
-// physical line above the fresh render. Per-line clear-to-EOL can never reach a
-// row the renderer doesn't revisit. The resize handler must therefore return
-// tea.ClearScreen so the whole terminal is wiped and the next frame repaints
-// from a known-empty screen. We assert the command the resize produces is
-// exactly bubbletea's ClearScreen, and that a pure height change does not force
-// the (visually jarring) full clear.
-func TestWidthChangeClearsScreen(t *testing.T) {
+// TestWidthChangeNeedsNoClearCommand is the alt-screen close of the old F7
+// break: on the pre-migration inline renderer, a width change reflowed the
+// physical terminal before bubbletea repainted, so the renderer's cursor-up
+// count — measured in old-width lines — landed one row off and stranded the
+// wider row's first physical line above the fresh render, which the resize
+// handler papered over by returning tea.ClearScreen. The alt-screen renderer
+// always repositions with CursorHomePosition rather than cursor-up over the
+// previous frame, so that desync cannot happen for width OR height changes —
+// the handler needs no special-case command for either.
+func TestWidthChangeNeedsNoClearCommand(t *testing.T) {
 	m := newTestModel(60, "alpha")
 
 	// establish a width so the next message is a real change, not the first size
 	mm, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
 	m = mm.(*Model)
 
-	// a width change must clear the screen
-	mm, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
-	m = mm.(*Model)
-	if cmd == nil {
-		t.Fatal("width change returned no command; the strand-above-the-frame leftover survives without a full screen clear")
-	}
-	if got, want := cmd(), tea.ClearScreen(); got != want {
-		t.Fatalf("width change command = %#v, want tea.ClearScreen %#v", got, want)
+	if _, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24}); cmd != nil {
+		t.Fatalf("width change returned a command %#v; the alt screen repaints from "+
+			"home every frame, no manual clear needed", cmd())
 	}
 
-	// a pure height change must not clear the screen (no reflow, no leftover)
 	if _, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 30}); cmd != nil {
-		t.Fatalf("height-only change returned a command %#v; it should not force a clear", cmd())
+		t.Fatalf("height change returned a command %#v; it should not force a clear", cmd())
 	}
 }
 
-// TestSlashMenuResizeLeavesNoStaleLine is the F11 break: with the slash menu
-// open, narrowing the terminal (60->30) must not strand a ghost of the wider
-// frame's menu below the redrawn one. Each menu line is wider at 60 cols than at
-// 30 (the command's long description fills the row), so the inline renderer's
-// in-place rewrite would leave the 60-col tail past column 30 — and a row that
-// reflowed differently would survive entirely. The guarantee is the same one the
-// resize handler returns for every width change: tea.ClearScreen wipes the whole
-// display before the narrower frame repaints. We open the menu, replay the
-// 60-col frame, then the clear + the 30-col frame, and assert the settled grid
-// holds each menu command's name exactly once with no wider tail surviving.
+// TestSlashMenuResizeLeavesNoStaleLine is the alt-screen version of the old
+// F11 break: with the slash menu open, narrowing the terminal (60->30) must
+// not strand a ghost of the wider frame's menu below the redrawn one. Each
+// menu line is wider at 60 cols than at 30 (the command's long description
+// fills the row). Under the old inline renderer this needed an app-level
+// tea.ClearScreen; the alt-screen renderer homes the cursor and drops its line
+// cache on every WindowSizeMsg on its own (see flushSim's doc), so the resize
+// handler needs no special-case command at all. We open the menu, replay the
+// 60-col frame, then the 30-col frame, and assert the settled grid holds each
+// menu command's name exactly once with no wider tail surviving.
 func TestSlashMenuResizeLeavesNoStaleLine(t *testing.T) {
 	m := newTestModel(60, "alpha")
 	mm, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
@@ -384,14 +367,14 @@ func TestSlashMenuResizeLeavesNoStaleLine(t *testing.T) {
 	sim := &flushSim{g: newVTGrid(24), firstRender: true, width: 60}
 	sim.flush(m.View())
 
-	// narrow the terminal: a width change must clear the whole screen
+	// narrow the terminal: no clear command needed, the alt-screen frame homes
+	// on its own
 	mm, cmd := m.Update(tea.WindowSizeMsg{Width: 30, Height: 24})
 	m = mm.(*Model)
-	if cmd == nil || cmd() != tea.ClearScreen() {
-		t.Fatalf("narrowing with the menu open did not return tea.ClearScreen; " +
-			"the wider menu lines would be stranded below the redrawn menu")
+	if cmd != nil {
+		t.Fatalf("narrowing with the menu open returned a command %#v; the alt "+
+			"screen needs no manual clear", cmd())
 	}
-	sim.clearScreen()
 	sim.resize(30)
 	sim.flush(m.View())
 
@@ -421,44 +404,35 @@ func TestSlashMenuResizeLeavesNoStaleLine(t *testing.T) {
 	}
 }
 
-// TestResizeStormRedrawsOneCleanFrame is the F22 break: rapidly cycling the
-// terminal between a wide/tall geometry and a tiny one with keypresses
-// interleaved must never leave stacked copies of the outline in the buffer.
+// TestResizeStormRedrawsOneCleanFrame is the alt-screen version of the old F22
+// break: rapidly cycling the terminal between a wide/tall geometry and a tiny
+// one with keypresses interleaved must never leave stacked copies of the
+// outline in the buffer.
 //
-// The mechanism that prevents the stacking is the full clear bubbletea's inline
-// renderer can only manage with tea.ClearScreen: on a plain WindowSizeMsg it
-// repaints (drops the line cache) but still moves the cursor up over only the
-// *previous* frame's line count and erases line-by-line from there, so when a
-// short 10x4 frame grows back to a tall 80x24 one the renderer cannot reach the
-// rows the earlier tall frame painted and the old outline is stranded above the
-// fresh one. tea.ClearScreen wipes the whole display and homes the cursor, so
-// the next frame repaints from an empty grid.
-//
-// We assert the load-bearing guarantee at the command level — every width change
-// in the storm must yield tea.ClearScreen — and then replay every frame and
-// every clear against the virtual terminal and assert the settled grid holds
-// each node's bullet exactly once. Drop the per-width clear and the grow-back
-// frames stack; this test catches that.
+// On the old inline renderer this needed an app-level tea.ClearScreen: a plain
+// WindowSizeMsg repainted (dropped the line cache) but still moved the cursor
+// up over only the *previous* frame's line count, so when a short 10x4 frame
+// grew back to a tall 80x24 one the renderer couldn't reach the rows the
+// earlier tall frame painted and the old outline stranded above the fresh one.
+// The alt-screen renderer always repositions with CursorHomePosition instead
+// of cursor-up, so that desync — and the app-level workaround for it — is
+// gone. We assert no resize in the storm needs a command, then replay every
+// frame against the virtual terminal and assert the settled grid holds each
+// node's bullet exactly once.
 func TestResizeStormRedrawsOneCleanFrame(t *testing.T) {
 	m := newTestModel(80, "alpha", "beta", "gamma")
 
 	sim := &flushSim{g: newVTGrid(24), firstRender: true, width: 80}
-	prevWidth := 80
 
-	// applySize feeds a WindowSizeMsg, requires a width change to clear the whole
-	// screen, replays that clear, repaints the renderer at the new width, then
-	// flushes the fresh frame.
+	// applySize feeds a WindowSizeMsg, asserts it needs no command, repaints the
+	// renderer at the new width, then flushes the fresh frame.
 	applySize := func(w, h int) {
 		mm, cmd := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 		m = mm.(*Model)
-		if w != prevWidth {
-			if cmd == nil || cmd() != tea.ClearScreen() {
-				t.Fatalf("resize to %dx%d did not return tea.ClearScreen; a storm of "+
-					"width changes will stack frames without a full clear", w, h)
-			}
-			sim.clearScreen()
+		if cmd != nil {
+			t.Fatalf("resize to %dx%d returned a command %#v; the alt screen needs "+
+				"no manual clear", w, h, cmd())
 		}
-		prevWidth = w
 		sim.resize(w)
 		sim.flush(m.View())
 	}
@@ -492,17 +466,15 @@ func TestResizeStormRedrawsOneCleanFrame(t *testing.T) {
 	}
 }
 
-// TestNavigationWipesScrollback is the scrollback-ghost break: zooming between
-// nodes must wipe the terminal's scrollback before the new view draws. The
-// inline renderer can only move the cursor back over its own last frame with
-// cursor-up — rows that have already scrolled into the scrollback buffer are
-// out of reach and would linger above the new view when the user scrolls up.
-// The navigation keys flag the next frame to open with cClearScrollback
-// (ESC[3J ESC[2J ESC[H), clearing history and screen. We assert zoom-in and
-// zoom-out both flag the next frame, the frame carries the clear at its head,
-// and exactly one frame does — ordinary redraws (typing, cursor moves, live
-// sync) must never re-clear.
-func TestNavigationWipesScrollback(t *testing.T) {
+// TestNavigationResetsScrollPin is the alt-screen-era replacement for the old
+// inline-renderer scrollback-clear guarantee (\x1b[3J), which the alt screen
+// made both unreachable (the terminal's real scrollback is never touched from
+// inside it) and unnecessary (the whole screen repaints every frame). What
+// still matters post-migration: zooming clears the pgup/pgdown viewport pin
+// left over from the previous view, and no frame ever re-introduces \x1b[3J —
+// emitting it from inside the alt screen would wipe the user's real shell
+// history, not the app's own scrollback.
+func TestNavigationResetsScrollPin(t *testing.T) {
 	root := &item{}
 	tr := &tree{root: root, byUUID: map[string]*item{}, externalNames: map[string]string{}}
 	parent := &item{name: "parent", parent: root, uuid: "p"}
@@ -514,37 +486,30 @@ func TestNavigationWipesScrollback(t *testing.T) {
 
 	m := &Model{tree: tr, viewStack: []*item{root}, width: 60, height: 24}
 	m.refreshRows()
+	m.scrolling = true // simulate a pending pgup/pgdown pin from the old view
 
-	// zoom into the parent: the next frame must open by clearing scrollback
+	// zoom into the parent: any key other than pgup/pgdown drops the pin
 	m.press("alt+right")
 	if m.viewRoot() != parent {
 		t.Fatalf("alt+right did not zoom into the parent node")
 	}
-	if !m.clearOnFrame {
-		t.Fatal("zoom-in did not flag the next frame to clear scrollback")
+	if m.scrolling {
+		t.Fatal("zoom-in did not reset the viewport scroll pin")
 	}
-	frame := m.View()
-	if !strings.HasPrefix(frame, cClearScrollback) {
-		t.Fatalf("post-zoom frame does not open with the scrollback clear %q: %q",
-			cClearScrollback, frame)
-	}
-	if m.clearOnFrame {
-		t.Fatal("the clear flag was not consumed by the zoom frame")
-	}
-	// a second, unchanged render must not re-clear
-	if again := m.View(); strings.HasPrefix(again, cClearScrollback) {
-		t.Fatalf("an ordinary redraw re-cleared scrollback: %q", again)
+	if frame := m.View(); strings.Contains(frame, "\x1b[3J") {
+		t.Fatalf("post-zoom frame wiped scrollback: %q", frame)
 	}
 
-	// zoom back out: the same guarantee on the way out
+	m.scrolling = true
+	// zoom back out: same guarantee on the way out
 	m.press("alt+left")
 	if m.viewRoot() != root {
 		t.Fatalf("alt+left did not zoom back out to the root")
 	}
-	if !m.clearOnFrame {
-		t.Fatal("zoom-out did not flag the next frame to clear scrollback")
+	if m.scrolling {
+		t.Fatal("zoom-out did not reset the viewport scroll pin")
 	}
-	if out := m.View(); !strings.HasPrefix(out, cClearScrollback) {
-		t.Fatalf("post-zoom-out frame does not open with the scrollback clear: %q", out)
+	if frame := m.View(); strings.Contains(frame, "\x1b[3J") {
+		t.Fatalf("post-zoom-out frame wiped scrollback: %q", frame)
 	}
 }

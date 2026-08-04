@@ -604,7 +604,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewStack = append(m.viewStack, cur)
 			m.cursor = 0
 			m.caret = 0
-			m.clearOnFrame = true // wipe the scrolled-away rows of the previous view
 			m.refreshRows()
 		}
 		return m, nil
@@ -613,7 +612,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.viewStack) > 1 {
 			zoomed := m.viewRoot()
 			m.viewStack = m.viewStack[:len(m.viewStack)-1]
-			m.clearOnFrame = true // wipe the scrolled-away rows of the zoomed-in view
 			m.refreshRows()
 			m.cursor = m.rowIndexOf(zoomed)
 			m.caret = 0
