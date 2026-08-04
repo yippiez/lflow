@@ -16,8 +16,22 @@ import (
 // Attrs is the set of boolean text attributes, in picker order.
 var Attrs = []string{"bold", "italic", "underline", "strike"}
 
-// Colors is the eight color names, in picker order.
-var Colors = []string{"red", "orange", "yellow", "green", "cyan", "blue", "purple", "gray"}
+// Colors is the color names, in picker order. A "light" name is a second,
+// brighter take on the hue next to it — not a shade generated from it, but its
+// own entry in every theme's palette, so a theme decides what its own light
+// green looks like.
+//
+// NOTE: "purple" is the DARK purple. The lighter one lflow shipped first is
+// "lightpurple", so a node already carrying color:purple reads darker than it
+// used to — deliberately, so the plain name is the plain color and the light
+// one says so.
+var Colors = []string{
+	"red", "orange", "yellow",
+	"green", "lightgreen",
+	"cyan", "blue",
+	"purple", "lightpurple",
+	"gray",
+}
 
 func isAttr(tok string) bool {
 	for _, a := range Attrs {

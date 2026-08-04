@@ -151,7 +151,7 @@ func deleteCharacter(m *Model, name string) {
 type characterColorSource struct{}
 
 // characterColorOptions is the picker order: none first (the default), then
-// the shared style palette — the same 8 colors /style and tag colors use.
+// the shared style palette — the same colors /style and tag colors use.
 func characterColorOptions() []string {
 	return append([]string{"none"}, styleColorOrder...)
 }

@@ -8,20 +8,25 @@ import "github.com/lflow/lflow/pkg/tui/style"
 // single source shared with the CLI's --style/--color flags; this file owns only
 // what the editor adds on top: the SGR escape codes and render-time helpers.
 
-// styleColorOrder is the eight /color options, in the order the picker lists
-// them. Each maps to a truecolor SGR foreground in styleColorCode, drawn from
-// the locked editor palette so styled text stays on-brand.
+// styleColorOrder is the /color options, in the order the picker lists them.
+// Each maps to a truecolor SGR foreground in styleColorCode, drawn from the
+// locked editor palette so styled text stays on-brand.
 var styleColorOrder = style.Colors
 
+// The system palette, and the shape every theme's swatch map has to fill —
+// applyTheme replaces this wholesale at init, so a new color name added here
+// without a theme field would silently render unstyled.
 var styleColorCode = map[string]string{
-	"red":    "\x1b[38;2;244;71;71m",   // #f44747
-	"orange": "\x1b[38;2;206;145;120m", // #ce9178
-	"yellow": "\x1b[38;2;255;215;95m",  // #ffd75f
-	"green":  "\x1b[38;2;106;153;85m",  // #6a9955
-	"cyan":   "\x1b[38;2;78;201;176m",  // #4ec9b0
-	"blue":   "\x1b[38;2;86;156;214m",  // #569cd6
-	"purple": "\x1b[38;2;197;134;192m", // #c586c0
-	"gray":   "\x1b[38;2;122;122;122m", // #7a7a7a
+	"red":         "\x1b[38;2;244;71;71m",   // #f44747
+	"orange":      "\x1b[38;2;206;145;120m", // #ce9178
+	"yellow":      "\x1b[38;2;255;215;95m",  // #ffd75f
+	"green":       "\x1b[38;2;106;153;85m",  // #6a9955
+	"lightgreen":  "\x1b[38;2;92;255;138m",  // #5cff8a
+	"cyan":        "\x1b[38;2;78;201;176m",  // #4ec9b0
+	"blue":        "\x1b[38;2;86;156;214m",  // #569cd6
+	"purple":      "\x1b[38;2;168;85;199m",  // #a855c7
+	"lightpurple": "\x1b[38;2;197;134;192m", // #c586c0
+	"gray":        "\x1b[38;2;122;122;122m", // #7a7a7a
 }
 
 // The token-list helpers live in pkg/tui/style; these thin aliases keep the

@@ -17,6 +17,12 @@ type theme struct {
 	name string
 	// UI palette: foreground SGR sequences.
 	fg, dim, accent, red, orange, yellow, green, cyan, purple string
+	// The second take on two hues, offered as their own /color swatches.
+	// greenLight is the neon one — bright and saturated, not a pale green — and
+	// purpleDark is the swatch named plain "purple"; the field above stays the
+	// lighter "lightpurple" AND the UI's magenta decoration, so adding these
+	// darkened nothing that was already on screen.
+	greenLight, purpleDark string
 	// background blocks behind code rows, bash rows, date pills, and query hits.
 	bgCode, bgPill, bgHit string
 	// page background for the main region ("" = transparent / terminal
@@ -37,7 +43,8 @@ var themes = []theme{
 		fg:   fg(212, 212, 212), dim: fg(122, 122, 122), accent: fg(86, 156, 214),
 		red: fg(244, 71, 71), orange: fg(206, 145, 120), yellow: fg(255, 215, 95),
 		green: fg(106, 153, 85), cyan: fg(78, 201, 176), purple: fg(197, 134, 192),
-		bgCode: bg(31, 31, 31), bgPill: bg(38, 79, 120), bgHit: bg(92, 72, 12),
+		greenLight: fg(92, 255, 138), purpleDark: fg(168, 85, 199),
+		bgCode:     bg(31, 31, 31), bgPill: bg(38, 79, 120), bgHit: bg(92, 72, 12),
 	},
 	{
 		// "gray" is system with a gray page behind the main region instead of
@@ -46,22 +53,25 @@ var themes = []theme{
 		fg:   fg(212, 212, 212), dim: fg(122, 122, 122), accent: fg(86, 156, 214),
 		red: fg(244, 71, 71), orange: fg(206, 145, 120), yellow: fg(255, 215, 95),
 		green: fg(106, 153, 85), cyan: fg(78, 201, 176), purple: fg(197, 134, 192),
-		bgCode: bg(31, 31, 31), bgPill: bg(38, 79, 120), bgHit: bg(92, 72, 12),
-		bgPage: bg(38, 38, 38),
+		greenLight: fg(92, 255, 138), purpleDark: fg(168, 85, 199),
+		bgCode:     bg(31, 31, 31), bgPill: bg(38, 79, 120), bgHit: bg(92, 72, 12),
+		bgPage:     bg(38, 38, 38),
 	},
 	{
 		name: "nord",
 		fg:   fg(216, 222, 233), dim: fg(97, 110, 136), accent: fg(129, 161, 193),
 		red: fg(191, 97, 106), orange: fg(208, 135, 112), yellow: fg(235, 203, 139),
 		green: fg(163, 190, 140), cyan: fg(136, 192, 208), purple: fg(180, 142, 173),
-		bgCode: bg(46, 52, 64), bgPill: bg(67, 76, 94), bgHit: bg(92, 78, 34),
+		greenLight: fg(166, 245, 148), purpleDark: fg(157, 107, 161),
+		bgCode:     bg(46, 52, 64), bgPill: bg(67, 76, 94), bgHit: bg(92, 78, 34),
 	},
 	{
 		name: "gruvbox",
 		fg:   fg(235, 219, 178), dim: fg(146, 131, 116), accent: fg(131, 165, 152),
 		red: fg(251, 73, 52), orange: fg(254, 128, 25), yellow: fg(250, 189, 47),
 		green: fg(184, 187, 38), cyan: fg(142, 192, 124), purple: fg(211, 134, 155),
-		bgCode: bg(60, 56, 54), bgPill: bg(80, 73, 69), bgHit: bg(104, 78, 12),
+		greenLight: fg(196, 255, 20), purpleDark: fg(177, 98, 134),
+		bgCode:     bg(60, 56, 54), bgPill: bg(80, 73, 69), bgHit: bg(104, 78, 12),
 	},
 }
 
@@ -80,9 +90,9 @@ func themeByName(name string) (theme, bool) {
 }
 
 // applyTheme reseeds the live palette from t: the render.go UI vars and the
-// style.go /color swatch map. The eight named swatches map onto the theme's
-// colors (blue→accent, gray→dim, the rest by name) so per-node /color stays
-// on-theme.
+// style.go /color swatch map. The named swatches map onto the theme's colors
+// (blue→accent, gray→dim, lightpurple→purple, the rest by name) so per-node
+// /color stays on-theme.
 func applyTheme(t theme) {
 	cFG, cDim, cAccent = t.fg, t.dim, t.accent
 	cRed, cYellow, cGreen = t.red, t.yellow, t.green
@@ -90,8 +100,10 @@ func applyTheme(t theme) {
 	bgCode, bgPill, bgHit, bgPage = t.bgCode, t.bgPill, t.bgHit, t.bgPage
 	styleColorCode = map[string]string{
 		"red": t.red, "orange": t.orange, "yellow": t.yellow,
-		"green": t.green, "cyan": t.cyan, "blue": t.accent,
-		"purple": t.purple, "gray": t.dim,
+		"green": t.green, "lightgreen": t.greenLight,
+		"cyan": t.cyan, "blue": t.accent,
+		"purple": t.purpleDark, "lightpurple": t.purple,
+		"gray": t.dim,
 	}
 	activeThemeName = t.name
 }

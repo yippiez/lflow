@@ -20,6 +20,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/consts"
 	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
+	"github.com/lflow/lflow/pkg/tui/style"
 	"github.com/lflow/lflow/pkg/tui/wf"
 	"github.com/lflow/lflow/pkg/tui/wire"
 	"github.com/lflow/lflow/pkg/tui/zotero"
@@ -106,34 +107,44 @@ type stylePickerItem struct {
 	value string
 }
 
-var stylePickerItems = []stylePickerItem{
-	{"toggle", "bold"},
-	{"toggle", "italic"},
-	{"toggle", "underline"},
-	{"toggle", "strike"},
-	{"color", "red"},
-	{"color", "orange"},
-	{"color", "yellow"},
-	{"color", "green"},
-	{"color", "cyan"},
-	{"color", "blue"},
-	{"color", "purple"},
-	{"color", "gray"},
+// The picker is BUILT from the shared vocabulary rather than repeating it, so a
+// color added in pkg/tui/style appears here — and in the tag, agent and line
+// color pickers, which all read the same list — without a second edit that can
+// be forgotten.
+var stylePickerItems = buildStylePickerItems()
+
+var stylePickerLabels = buildStylePickerLabels()
+
+func buildStylePickerItems() []stylePickerItem {
+	out := make([]stylePickerItem, 0, len(style.Attrs)+len(style.Colors))
+	for _, a := range style.Attrs {
+		out = append(out, stylePickerItem{"toggle", a})
+	}
+	for _, c := range style.Colors {
+		out = append(out, stylePickerItem{"color", c})
+	}
+	return out
 }
 
-var stylePickerLabels = map[string]string{
-	"bold":      "Bold",
-	"italic":    "Italic",
-	"underline": "Underline",
-	"strike":    "Strikethrough",
-	"red":       "Red",
-	"orange":    "Orange",
-	"yellow":    "Yellow",
-	"green":     "Green",
-	"cyan":      "Cyan",
-	"blue":      "Blue",
-	"purple":    "Purple",
-	"gray":      "Gray",
+// styleLabelWords names the tokens whose label is not just their capitalized
+// selves: an attribute the user knows by another word, and the "light" colors,
+// which read as two words.
+var styleLabelWords = map[string]string{
+	"strike":      "Strikethrough",
+	"lightgreen":  "Light green",
+	"lightpurple": "Light purple",
+}
+
+func buildStylePickerLabels() map[string]string {
+	out := map[string]string{}
+	for _, sp := range buildStylePickerItems() {
+		if label, ok := styleLabelWords[sp.value]; ok {
+			out[sp.value] = label
+			continue
+		}
+		out[sp.value] = strings.ToUpper(sp.value[:1]) + sp.value[1:]
+	}
+	return out
 }
 
 // Model is the bubbletea model for the editor.
