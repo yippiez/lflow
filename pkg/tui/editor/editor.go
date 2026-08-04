@@ -341,9 +341,12 @@ type Model struct {
 	// node each proposal is about, refreshed whenever the feed reports a
 	// suggestions write. suggestUUID/suggestSel are the review cursor while
 	// modeSuggest is up. A proposal has changed nothing until it is approved.
-	suggests    map[string][]database.Suggestion
-	suggestUUID string
-	suggestSel  int
+	suggests map[string][]database.Suggestion
+	// suggestOrder is the queue's targets in filing order, deduplicated — what
+	// alt+g s walks. The map above cannot answer "next", only "here".
+	suggestOrder []string
+	suggestUUID  string
+	suggestSel   int
 
 	// hideCompleted is the /hide:complete toggle: when true, completed nodes (and their
 	// subtrees) drop out of the visible outline. Session-only — not persisted.

@@ -35,10 +35,17 @@ func (m *Model) loadSuggests() {
 		return // a failed read leaves the previous queue; the next event retries
 	}
 	byTarget := map[string][]database.Suggestion{}
+	// The map answers "what is pending on this node"; the order answers "which
+	// node next". ListSuggestions orders by (created_on, uuid), so the queue walks
+	// oldest-first and the same way on every machine — a map alone loses that.
+	var order []string
 	for _, s := range list {
+		if _, seen := byTarget[s.TargetUUID]; !seen {
+			order = append(order, s.TargetUUID)
+		}
 		byTarget[s.TargetUUID] = append(byTarget[s.TargetUUID], s)
 	}
-	m.suggests = byTarget
+	m.suggests, m.suggestOrder = byTarget, order
 	m.clampSuggestSel()
 }
 
@@ -101,37 +108,111 @@ func (m *Model) enterSuggestReview() {
 	m.suggestSel = 0
 }
 
-// gotoSuggestion (/goto:suggestion or alt+g s) moves the cursor to the next visible node
-// carrying a proposal and opens review on it — the way to reach one that
-// arrived while you were reading somewhere else.
+// gotoSuggestion (/goto:suggestion or alt+g s) moves to the next node carrying a
+// proposal and opens review on it — the way to reach one that arrived while you
+// were reading somewhere else.
+//
+// The queue is GLOBAL, not what happens to be on screen: a proposal filed
+// against a node in another part of the outline is still waiting for you, and
+// "none in this view" was a dead end you could not act on from where you stood.
+// So a target outside the loaded view reopens the outline at its parent — its
+// parent, not the target itself, because review needs the target to BE a row and
+// a view root is not one.
+//
+// Repeated presses walk the queue from wherever the last one left you, wrapping,
+// so the chord triages everything pending without ever going back to the finder.
 func (m *Model) gotoSuggestion() {
 	total := m.pendingSuggestCount()
 	if total == 0 {
 		m.flash = "no suggestions"
 		return
 	}
-	// start after the cursor so repeated calls walk the queue
-	for off := 1; off <= len(m.rows); off++ {
-		i := (m.cursor + off) % len(m.rows)
-		it := m.rows[i].it
-		if it == nil || len(m.suggestsFor(it.uuid)) == 0 {
-			continue
+	order := m.suggestOrder
+	if len(order) == 0 {
+		m.flash = "no suggestions"
+		return
+	}
+
+	// resume after whatever the queue last put us on: the node under review, else
+	// the cursor's node if it happens to carry one, else the head of the queue
+	start := -1
+	from := m.suggestUUID
+	if from == "" {
+		if cur := m.cursorItem(); cur != nil {
+			from = cur.uuid
 		}
+	}
+	for i, uuid := range order {
+		if uuid == from {
+			start = i
+			break
+		}
+	}
+
+	for off := 1; off <= len(order); off++ {
+		target := order[(start+off+len(order))%len(order)]
+		if len(m.suggestsFor(target)) == 0 {
+			continue // settled underneath us between load and now
+		}
+		if m.openSuggestOn(target) {
+			return
+		}
+	}
+	m.flash = fmt.Sprintf("%s · target missing", suggestNoun(total))
+}
+
+// openSuggestOn puts the cursor on target and starts review, reopening the
+// outline around it when it is not a row in the current view. It reports whether
+// the target could be reached at all — a suggestion can outlive the node it is
+// about, and that one is skipped rather than dead-ending the walk.
+func (m *Model) openSuggestOn(target string) bool {
+	if i := m.rowIndexOfUUID(target); i >= 0 {
 		m.cursor = i
 		m.caret = 0
-		m.mode = modeSuggest
-		m.suggestUUID = it.uuid
-		m.suggestSel = 0
-		return
+		m.enterSuggestOn(target)
+		return true
 	}
-	// the view's own root is not a row here, so a proposal against it has
-	// nowhere to hang until the view steps out to where it is one
-	if root := m.viewRoot(); root != nil && len(m.suggestsFor(root.uuid)) > 0 {
-		m.flash = fmt.Sprintf("%s on this view's root · alt+left steps out to it",
-			suggestNoun(len(m.suggestsFor(root.uuid))))
-		return
+	if m.db == nil {
+		return false
 	}
-	m.flash = fmt.Sprintf("%s · none in this view", suggestNoun(total))
+	n, err := database.GetNode(m.db, target)
+	if err != nil {
+		return false
+	}
+	// a top-level node has no parent to open under, so the forest root is the
+	// view that makes it a row
+	parent := n.ParentUUID
+	if parent == "" {
+		parent = database.RootUUID
+	}
+	m.reopenAt(parent, target)
+	if m.rowIndexOfUUID(target) < 0 {
+		return false
+	}
+	m.enterSuggestOn(target)
+	return true
+}
+
+// enterSuggestOn opens review on a node the cursor already sits on.
+func (m *Model) enterSuggestOn(target string) {
+	m.mode = modeSuggest
+	m.suggestUUID = target
+	m.suggestSel = 0
+}
+
+// rowIndexOfUUID finds the visible row for a uuid, or -1 when it is not on
+// screen. A mirror can put the same node on several rows; the first is as good
+// as any, since review hangs off the node, not the placement.
+func (m *Model) rowIndexOfUUID(uuid string) int {
+	if uuid == "" {
+		return -1
+	}
+	for i, r := range m.rows {
+		if r.it != nil && r.it.uuid == uuid {
+			return i
+		}
+	}
+	return -1
 }
 
 // handleSuggestKey drives review mode: y/enter approves, n/x rejects, up/down
@@ -148,6 +229,11 @@ func (m *Model) handleSuggestKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "tab":
 		m.suggestSel++
 		m.clampSuggestSel()
+	case "alt+g":
+		// review mode owns the keyboard, so the goto leader has to be armed from
+		// inside it too — otherwise walking the queue means esc before every hop
+		m.gotoPending = true
+		m.flash = "goto · g node · s suggestion · esc cancel"
 	case "esc", "alt+v", "q":
 		m.mode = modeOutline
 		m.suggestUUID = ""

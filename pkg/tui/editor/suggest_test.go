@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lflow/lflow/pkg/tui/context"
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
@@ -140,6 +141,124 @@ func TestGotoChordWithAltHeld(t *testing.T) {
 	if m.gotoPending {
 		t.Fatal("the goto leader stayed armed after alt+g alt+g")
 	}
+}
+
+// forestModel builds a db-backed model over a two-branch forest and opens the
+// view on one branch, so the other branch's nodes are not loaded at all — the
+// shape that used to dead-end goto-suggestion with "none in this view".
+func forestModel(t *testing.T) (*Model, *database.DB) {
+	t.Helper()
+	db := database.InitTestMemoryDB(t)
+	if err := database.EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []database.Node{
+		{UUID: "a", ParentUUID: database.RootUUID, Name: "branch a", Rank: 0},
+		{UUID: "a1", ParentUUID: "a", Name: "here", Rank: 0},
+		{UUID: "b", ParentUUID: database.RootUUID, Name: "branch b", Rank: 1},
+		{UUID: "b1", ParentUUID: "b", Name: "over there", Rank: 0},
+		{UUID: "b2", ParentUUID: "b", Name: "also over there", Rank: 1},
+	} {
+		n.Type = database.TypeBullets
+		if err := n.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tr, err := loadTree(db, "a") // the view is branch a; branch b is off-tree
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Model{db: db, ctx: context.DnoteCtx{DB: db}, tree: tr,
+		viewStack: []*item{tr.root}, width: 80, height: 24,
+		chips: map[string]database.Chip{}}
+	m.refreshRows()
+	return m, db
+}
+
+// TestGotoSuggestionReachesOffViewTargets: the queue is global, so a proposal
+// filed against a node outside the loaded view reopens the outline at that
+// node's PARENT — the target has to be a row for review to hang off it.
+func TestGotoSuggestionReachesOffViewTargets(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestEdit,
+		TargetUUID: "b1", Name: "renamed", Fields: database.FieldName, CreatedOn: 1})
+	m.loadSuggests()
+
+	if m.rowIndexOfUUID("b1") >= 0 {
+		t.Fatal("b1 should not be on screen before the jump")
+	}
+	m.gotoSuggestion()
+
+	if m.tree.root.uuid != "b" {
+		t.Fatalf("view root = %q, want the target's parent b", m.tree.root.uuid)
+	}
+	if m.mode != modeSuggest || m.suggestUUID != "b1" {
+		t.Fatalf("review did not open on b1: mode=%v uuid=%q flash=%q", m.mode, m.suggestUUID, m.flash)
+	}
+	if cur := m.cursorItem(); cur == nil || cur.uuid != "b1" {
+		t.Fatalf("cursor did not land on the target: %+v", cur)
+	}
+}
+
+// TestGotoSuggestionWalksTheQueue: the first target is the oldest one filed —
+// deterministically, not whatever the map iterated first — and repeated presses
+// walk the rest of the queue and wrap.
+func TestGotoSuggestionWalksTheQueue(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s3", Kind: database.SuggestComplete,
+		TargetUUID: "a1", CreatedOn: 3})
+	m.loadSuggests()
+
+	if want := []string{"b1", "b2", "a1"}; !equalStrs(m.suggestOrder, want) {
+		t.Fatalf("queue order = %v, want %v", m.suggestOrder, want)
+	}
+	for _, want := range []string{"b1", "b2", "a1", "b1"} { // wraps back around
+		m.gotoSuggestion()
+		if m.suggestUUID != want {
+			t.Fatalf("walk landed on %q, want %q (flash %q)", m.suggestUUID, want, m.flash)
+		}
+		if cur := m.cursorItem(); cur == nil || cur.uuid != want {
+			t.Fatalf("cursor did not follow the walk to %q: %+v", want, cur)
+		}
+	}
+}
+
+// TestGotoSuggestionChordFromReview: alt+g s hops straight from one proposal to
+// the next without an esc in between — review mode arms the leader itself.
+func TestGotoSuggestionChordFromReview(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	m.loadSuggests()
+
+	m.press("alt+g")
+	m.press("s")
+	if m.suggestUUID != "b1" {
+		t.Fatalf("first hop = %q, want b1", m.suggestUUID)
+	}
+	m.press("alt+g")
+	m.press("s")
+	if m.mode != modeSuggest || m.suggestUUID != "b2" {
+		t.Fatalf("second hop from review = %q mode=%v, want b2 in review", m.suggestUUID, m.mode)
+	}
+}
+
+func equalStrs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestSuggestShowsOnBlockFacedTypes: a Code node's row IS its block, so the
