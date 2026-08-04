@@ -14,16 +14,16 @@ import (
 	"github.com/lflow/lflow/packages/utils"
 	"github.com/lflow/lflow/packages/utils/assert"
 	"github.com/lflow/lflow/packages/utils/consts"
-	"github.com/lflow/lflow/packages/utils/testutils"
+	"github.com/lflow/lflow/tests/cmdhelper"
 	"github.com/pkg/errors"
 )
 
 var binaryName = "test-lflow"
 
 // setupTestEnv creates a unique test directory for parallel test execution
-func setupTestEnv(t *testing.T) (string, testutils.RunDnoteCmdOptions) {
+func setupTestEnv(t *testing.T) (string, cmdhelper.RunLflowCmdOptions) {
 	testDir := t.TempDir()
-	opts := testutils.RunDnoteCmdOptions{
+	opts := cmdhelper.RunLflowCmdOptions{
 		Env: []string{
 			// HOME isolates ~/.lflow/settings.json to the test dir
 			fmt.Sprintf("HOME=%s", testDir),
@@ -48,7 +48,7 @@ func TestInit(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	// run an arbitrary command to trigger initialization
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -83,9 +83,9 @@ func TestInit(t *testing.T) {
 func TestAddRootAndChild(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "experiment results")
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "experiment results", "baseline numbers")
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "experiment results", "attempt 2")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "experiment results")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "--parent", "experiment results", "baseline numbers")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "--parent", "experiment results", "attempt 2")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -115,7 +115,7 @@ func TestAddRootAndChild(t *testing.T) {
 func TestAppendStdin(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "bench log")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "bench log")
 
 	writeLines := func(stdout io.Reader, stdin io.WriteCloser) error {
 		if _, err := io.WriteString(stdin, "line one\nline two\nline three\n"); err != nil {
@@ -124,7 +124,7 @@ func TestAppendStdin(t *testing.T) {
 		stdin.Close()
 		return nil
 	}
-	testutils.MustWaitDnoteCmd(t, opts, writeLines, binaryName, "node", "add", "--parent", "bench log")
+	cmdhelper.MustWaitLflowCmd(t, opts, writeLines, binaryName, "node", "add", "--parent", "bench log")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -141,8 +141,8 @@ func TestAppendStdin(t *testing.T) {
 func TestAddNoteFlag(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "target")
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--parent", "target", "child item", "--note", "some context")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "target")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "--parent", "target", "child item", "--note", "some context")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -161,7 +161,7 @@ func TestAddNoteFlag(t *testing.T) {
 func TestAddChipifiesText(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "ship #project by 2026-07-01 see [docs](https://x.com)")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "ship #project by 2026-07-01 see [docs](https://x.com)")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -179,7 +179,7 @@ func TestAddChipifiesText(t *testing.T) {
 	}
 
 	// list resolves the anchors back to their display forms
-	out := testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 	if !strings.Contains(out, "#project") {
 		t.Errorf("list should resolve the tag chip, got %q", out)
 	}
@@ -188,7 +188,7 @@ func TestAddChipifiesText(t *testing.T) {
 func TestAddRawSkipsChipify(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "--raw", "literal #notatag text")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "--raw", "literal #notatag text")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -205,7 +205,7 @@ func TestAddRawSkipsChipify(t *testing.T) {
 func TestAddStyleFlags(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "styled item", "--bold", "--color", "blue")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "styled item", "--bold", "--color", "blue")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -218,8 +218,8 @@ func TestAddStyleFlags(t *testing.T) {
 func TestEditStyleAndType(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "edit me")
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "edit me", "--type", "h2", "--underline", "--color", "red")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "edit me")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "edit", "edit me", "--type", "h2", "--underline", "--color", "red")
 
 	db := database.OpenTestDB(t, testDir)
 
@@ -230,7 +230,7 @@ func TestEditStyleAndType(t *testing.T) {
 	assert.Equal(t, style, "underline,color:red", "style tokens mismatch")
 
 	// editing again preserves untouched style aspects and unsets bold/color via flags
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "edit me", "--color", "")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "edit", "edit me", "--color", "")
 	database.MustScan(t, "getting style after color clear",
 		db.QueryRow("SELECT style FROM nodes WHERE name = ?", "edit me"), &style)
 	assert.Equal(t, style, "underline", "clearing color should preserve other tokens")
@@ -240,12 +240,12 @@ func TestList(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	// initialize, then seed
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 	db := database.OpenTestDB(t, testDir)
-	testutils.SetupNodes1(t, db)
+	cmdhelper.SetupNodes1(t, db)
 	db.Close()
 
-	out := testutils.RunDnoteCmd(t, opts, binaryName, "node", "list", "experiment results")
+	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list", "experiment results")
 	if !strings.Contains(out, "- baseline numbers") {
 		t.Errorf("markdown output missing child: %q", out)
 	}
@@ -253,7 +253,7 @@ func TestList(t *testing.T) {
 		t.Errorf("markdown output missing indented grandchild: %q", out)
 	}
 
-	out = testutils.RunDnoteCmd(t, opts, binaryName, "node", "list", "experiment results", "--format", "json")
+	out = cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list", "experiment results", "--format", "json")
 	var tree struct {
 		Name     string `json:"name"`
 		Children []struct {
@@ -266,7 +266,7 @@ func TestList(t *testing.T) {
 	assert.Equal(t, tree.Name, "experiment results", "json root name mismatch")
 	assert.Equal(t, len(tree.Children), 2, "json child count mismatch")
 
-	out = testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	out = cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 	if !strings.Contains(out, "experiment results") || !strings.Contains(out, "reading list") {
 		t.Errorf("roots listing missing roots: %q", out)
 	}
@@ -275,12 +275,12 @@ func TestList(t *testing.T) {
 func TestListResolvesQuery(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 	db := database.OpenTestDB(t, testDir)
-	testutils.SetupNodes1(t, db)
+	cmdhelper.SetupNodes1(t, db)
 	db.Close()
 
-	out := testutils.RunDnoteCmd(t, opts, binaryName, "node", "list", "experiment")
+	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list", "experiment")
 	if !strings.Contains(out, "- baseline numbers") {
 		t.Errorf("list by query missing outline: %q", out)
 	}
@@ -289,7 +289,7 @@ func TestListResolvesQuery(t *testing.T) {
 func TestResolveMissExitsNonZero(t *testing.T) {
 	_, opts := setupTestEnv(t)
 
-	cmd, _, _, err := testutils.NewDnoteCmd(opts, binaryName, "node", "list", "quantum")
+	cmd, _, _, err := cmdhelper.NewLflowCmd(opts, binaryName, "node", "list", "quantum")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,12 +302,12 @@ func TestResolveMissExitsNonZero(t *testing.T) {
 func TestRemove(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 	db := database.OpenTestDB(t, testDir)
-	testutils.SetupNodes1(t, db)
+	cmdhelper.SetupNodes1(t, db)
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "remove", "-f", "baseline numbers")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "remove", "-f", "baseline numbers")
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -322,12 +322,12 @@ func TestRemove(t *testing.T) {
 func TestMove(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 	db := database.OpenTestDB(t, testDir)
-	testutils.SetupNodes1(t, db)
+	cmdhelper.SetupNodes1(t, db)
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "move", "attempt 2", "reading list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "move", "attempt 2", "reading list")
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -341,12 +341,12 @@ func TestMove(t *testing.T) {
 func TestComplete(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 	db := database.OpenTestDB(t, testDir)
-	testutils.SetupNodes1(t, db)
+	cmdhelper.SetupNodes1(t, db)
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "attempt 2", "--state", "complete")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "edit", "attempt 2", "--state", "complete")
 
 	db = database.OpenTestDB(t, testDir)
 
@@ -358,7 +358,7 @@ func TestComplete(t *testing.T) {
 	}
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "attempt 2", "--state", "uncomplete")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "edit", "attempt 2", "--state", "uncomplete")
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -370,12 +370,12 @@ func TestComplete(t *testing.T) {
 func TestExport(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 	db := database.OpenTestDB(t, testDir)
-	testutils.SetupNodes1(t, db)
+	cmdhelper.SetupNodes1(t, db)
 	db.Close()
 
-	out := testutils.RunDnoteCmd(t, opts, binaryName, "export")
+	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "export")
 	var forest []struct {
 		Name string `json:"name"`
 	}
@@ -399,7 +399,7 @@ func TestDBPathConfig(t *testing.T) {
 		t.Fatal(errors.Wrap(err, "writing settings"))
 	}
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "list")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "list")
 
 	ok, err := utils.FileExists(customDBPath)
 	if err != nil {
@@ -415,8 +415,8 @@ func TestDBPathConfig(t *testing.T) {
 func TestSuggestAddNeedsApproval(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "reading list")
-	out := testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "add",
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "reading list")
+	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "add",
 		"--parent", "reading list", "--message", "found this", "Designing Data-Intensive Applications")
 	if !strings.Contains(out, "suggested 1 node") {
 		t.Fatalf("suggest add output = %q", out)
@@ -440,12 +440,12 @@ func TestSuggestAddNeedsApproval(t *testing.T) {
 		db.QueryRow("SELECT uuid FROM suggestions LIMIT 1"), &id)
 	db.Close()
 
-	listed := testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "list")
+	listed := cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "list")
 	if !strings.Contains(listed, id[:6]) {
 		t.Fatalf("suggest list did not show %s: %q", id[:6], listed)
 	}
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "approve", id[:6])
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", id[:6])
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -469,8 +469,8 @@ func TestSuggestAddNeedsApproval(t *testing.T) {
 func TestSuggestEditRejectKeepsText(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "ship the thing")
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "edit", "ship the thing",
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "ship the thing")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "edit", "ship the thing",
 		"--name", "ship the other thing")
 
 	db := database.OpenTestDB(t, testDir)
@@ -479,12 +479,12 @@ func TestSuggestEditRejectKeepsText(t *testing.T) {
 		db.QueryRow("SELECT uuid FROM suggestions LIMIT 1"), &id)
 	db.Close()
 
-	shown := testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "show", id[:6])
+	shown := cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "show", id[:6])
 	if !strings.Contains(shown, "ship the other thing") {
 		t.Fatalf("suggest show did not render the proposal: %q", shown)
 	}
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "reject", id[:6])
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "reject", id[:6])
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -503,10 +503,10 @@ func TestSuggestEditRejectKeepsText(t *testing.T) {
 func TestSuggestApproveEditAppliesText(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "draft heading")
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "edit", "draft heading",
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "draft heading")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "edit", "draft heading",
 		"--name", "final heading", "--type", "h1")
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "approve", "--all")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", "--all")
 
 	db := database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -522,11 +522,11 @@ func TestSuggestApproveEditAppliesText(t *testing.T) {
 func TestSuggestApproveSkipsDriftedTarget(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "original text")
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "edit", "original text", "--name", "suggested text")
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "edit", "original text", "--name", "moved on")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "original text")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "edit", "original text", "--name", "suggested text")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "edit", "original text", "--name", "moved on")
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "approve", "--all")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", "--all")
 
 	db := database.OpenTestDB(t, testDir)
 	var name, status string
@@ -537,7 +537,7 @@ func TestSuggestApproveSkipsDriftedTarget(t *testing.T) {
 	assert.Equal(t, status, database.SuggestPending, "a drifted suggestion should stay pending")
 	db.Close()
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "approve", "--all", "--force")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", "--all", "--force")
 
 	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
@@ -555,11 +555,11 @@ func TestSuggestApproveSkipsDriftedTarget(t *testing.T) {
 func TestSuggestListJSON(t *testing.T) {
 	_, opts := setupTestEnv(t)
 
-	testutils.RunDnoteCmd(t, opts, binaryName, "node", "add", "inbox")
-	testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "add", "--parent", "inbox",
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "inbox")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "add", "--parent", "inbox",
 		"--author", "agent", "--message", "spotted a gap", "write the migration guide")
 
-	out := testutils.RunDnoteCmd(t, opts, binaryName, "suggest", "list", "--format", "json")
+	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "list", "--format", "json")
 
 	var got []database.Suggestion
 	if err := json.Unmarshal([]byte(out), &got); err != nil {

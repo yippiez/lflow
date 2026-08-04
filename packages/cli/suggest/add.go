@@ -7,10 +7,10 @@ import (
 
 	"github.com/lflow/lflow/packages/cli/context"
 	"github.com/lflow/lflow/packages/cli/infra"
+	"github.com/lflow/lflow/packages/cli/ui"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
 	"github.com/lflow/lflow/packages/utils/log"
-	"github.com/lflow/lflow/packages/utils/ui"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )

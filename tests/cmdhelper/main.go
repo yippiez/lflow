@@ -1,5 +1,6 @@
-// Package testutils provides utilities used in tests
-package testutils
+// Package cmdhelper provides utilities used in tests that shell out to the
+// built lflow binary
+package cmdhelper
 
 import (
 	"bytes"
@@ -12,8 +13,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-// NewDnoteCmd returns a new Dnote command and a pointer to stderr
-func NewDnoteCmd(opts RunDnoteCmdOptions, binaryName string, arg ...string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer, error) {
+// NewLflowCmd returns a new lflow command and a pointer to stderr
+func NewLflowCmd(opts RunLflowCmdOptions, binaryName string, arg ...string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer, error) {
 	var stderr, stdout bytes.Buffer
 
 	binaryPath, err := filepath.Abs(binaryName)
@@ -30,21 +31,22 @@ func NewDnoteCmd(opts RunDnoteCmdOptions, binaryName string, arg ...string) (*ex
 	return cmd, &stderr, &stdout, nil
 }
 
-// RunDnoteCmdOptions is an option for RunDnoteCmd
-type RunDnoteCmdOptions struct {
+// RunLflowCmdOptions is an option for RunLflowCmd
+type RunLflowCmdOptions struct {
 	Env []string
 }
 
 // RunLflowCmd runs a lflow command
-func RunDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, binaryName string, arg ...string) string {
+func RunLflowCmd(t *testing.T, opts RunLflowCmdOptions, binaryName string, arg ...string) string {
 	t.Logf("running: %s %s", binaryName, strings.Join(arg, " "))
 
-	cmd, stderr, stdout, err := NewDnoteCmd(opts, binaryName, arg...)
+	cmd, stderr, stdout, err := NewLflowCmd(opts, binaryName, arg...)
 	if err != nil {
 		t.Logf("\n%s", stdout)
 		t.Fatal(errors.Wrap(err, "getting command").Error())
 	}
 
+	// DNOTE_DEBUG name is kept: packages/utils/log reads this exact env var
 	cmd.Env = append(cmd.Env, "DNOTE_DEBUG=1")
 
 	if err := cmd.Run(); err != nil {
@@ -59,7 +61,7 @@ func RunDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, binaryName string, arg .
 }
 
 // WaitLflowCmd runs a lflow command and passes stdout to the callback.
-func WaitDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, runFunc func(io.Reader, io.WriteCloser) error, binaryName string, arg ...string) (string, error) {
+func WaitLflowCmd(t *testing.T, opts RunLflowCmdOptions, runFunc func(io.Reader, io.WriteCloser) error, binaryName string, arg ...string) (string, error) {
 	t.Logf("running: %s %s", binaryName, strings.Join(arg, " "))
 
 	binaryPath, err := filepath.Abs(binaryName)
@@ -108,8 +110,8 @@ func WaitDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, runFunc func(io.Reader,
 	return output.String(), nil
 }
 
-func MustWaitDnoteCmd(t *testing.T, opts RunDnoteCmdOptions, runFunc func(io.Reader, io.WriteCloser) error, binaryName string, arg ...string) string {
-	output, err := WaitDnoteCmd(t, opts, runFunc, binaryName, arg...)
+func MustWaitLflowCmd(t *testing.T, opts RunLflowCmdOptions, runFunc func(io.Reader, io.WriteCloser) error, binaryName string, arg ...string) string {
+	output, err := WaitLflowCmd(t, opts, runFunc, binaryName, arg...)
 	if err != nil {
 		t.Fatal(err)
 	}

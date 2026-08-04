@@ -42,14 +42,9 @@ var layers = map[string]int{
 // as good as the ones below.
 var grandfathered = map[string]bool{
 	// DnoteCtx (the process runtime: paths, DB, daemon conn) lives under
-	// cli/context; the editor and utils/ui take it as their entry-point
-	// argument. Fix: move it to a low-level packages/app and rewrite imports.
+	// cli/context; the editor takes it as its entry-point argument.
+	// Fix: move it to a low-level packages/app and rewrite imports.
 	"packages/editor -> packages/cli": true,
-	"packages/utils -> packages/cli":  true,
-	// utils/testutils seeds test databases, so a test-only helper drags the
-	// schema layer under utils. Fix: move it to tests/cmdhelper beside its
-	// consumers (it still carries Dnote-era names, too).
-	"packages/utils -> packages/database": true,
 }
 
 func layerOf(pkg string) (string, int, bool) {

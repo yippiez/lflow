@@ -14,7 +14,7 @@ func TestGetTmpContentPath(t *testing.T) {
 	t.Run("no collision", func(t *testing.T) {
 		ctx := context.InitTestCtx(t)
 
-		res, err := GetTmpContentPath(ctx)
+		res, err := GetTmpContentPath(ctx.Paths.Cache)
 		if err != nil {
 			t.Fatal(errors.Wrap(err, "executing"))
 		}
@@ -33,7 +33,7 @@ func TestGetTmpContentPath(t *testing.T) {
 		}
 
 		// execute
-		res, err := GetTmpContentPath(ctx)
+		res, err := GetTmpContentPath(ctx.Paths.Cache)
 		if err != nil {
 			t.Fatal(errors.Wrap(err, "executing"))
 		}
@@ -57,7 +57,7 @@ func TestGetTmpContentPath(t *testing.T) {
 		}
 
 		// execute
-		res, err := GetTmpContentPath(ctx)
+		res, err := GetTmpContentPath(ctx.Paths.Cache)
 		if err != nil {
 			t.Fatal(errors.Wrap(err, "executing"))
 		}
