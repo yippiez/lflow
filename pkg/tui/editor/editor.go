@@ -659,7 +659,17 @@ func (m *Model) refreshRows() {
 // repeated occurrences of the same mirror apart.
 func (m *Model) expandStep() {
 	cur := m.cursorItem()
-	if cur == nil || len(m.tree.childItems(cur)) == 0 || m.cursor >= len(m.rows) {
+	if cur == nil || m.cursor >= len(m.rows) {
+		return
+	}
+	// An Agent node's children ARE its transcript, so opening one that has none
+	// yet writes it: expanding a session is asking to see what happened in it,
+	// and an empty fold would be the node refusing to answer. See agenttrace.go.
+	if cur.typ == database.TypeAgent && lockedTurnCount(cur) == 0 {
+		m.agentTranscribe(cur)
+		return
+	}
+	if len(m.tree.childItems(cur)) == 0 {
 		return
 	}
 	r := m.rows[m.cursor]

@@ -94,9 +94,13 @@ func TestAgentVariantsRegistered(t *testing.T) {
 		}
 	}
 	// Sessions have exactly two surfaces: the inline chip and one whole-row Agent
-	// node whose trace is virtual rather than persisted as children.
-	if nt := typeOf(database.TypeAgent); nt.key != database.TypeAgent || nt.view == nil || nt.run == nil {
+	// node, whose row wears the same pill and whose children ARE its transcript.
+	nt := typeOf(database.TypeAgent)
+	if nt.key != database.TypeAgent || nt.view == nil || nt.run == nil || nt.renderM == nil {
 		t.Errorf("Agent node is under-declared: %+v", nt)
+	}
+	if nt.inlineEditable {
+		t.Error("the Agent row is the session's name — it is renamed with ⌥n, never typed over")
 	}
 	// every agent wears its own MARK — that is what tells two chips apart. Color
 	// can collide (the palette is smaller than the registry) but must never be the

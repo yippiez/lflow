@@ -349,10 +349,24 @@ var nodeTypes = []nodeType{
 	// conversation stays local and is never persisted as outline children.
 	{
 		key: database.TypeAgent, label: "Agent", inlineEditable: false,
-		glyph:      agentNodeGlyph,
-		run:        runAgentNode,
-		view:       agentNodeView{},
-		toContextM: agentNodeToContext,
+		glyph:        agentNodeGlyph,
+		renderM:      func(m *Model, it *item) string { return m.agentNodeRender(it) },
+		run:          runAgentNode,
+		view:         agentNodeView{}, // ⌥e: the session panel (rename, recolor, refresh)
+		flashActions: agentNodeFlashActions,
+		toContextM:   agentNodeToContext,
+	},
+	// a Diff node is a file change an agent's write tool recorded (see
+	// agentdiff.go): the node's name IS the patch, the row says which file and
+	// how big the change is, and ⌥e reads it colored. Never editable — a diff is
+	// a record of something that already happened.
+	{
+		key: database.TypeDiff, label: "Diff", inlineEditable: false,
+		glyph:        diffGlyph,
+		render:       diffRender,
+		view:         diffView{},
+		flashActions: diffFlashActions,
+		toContext:    diffToContext,
 	},
 	// Thinking is a plain marker node: always the muted-gray thinking glyph,
 	// no other behavior.

@@ -35,6 +35,10 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
+	// TypeDiff is a file change an agent's write tool recorded: the node's name
+	// IS the patch, ⌥e reads it colored, and it is locked — a diff is a record of
+	// something that already happened. See editor/agentdiff.go.
+	TypeDiff = "diff"
 	// TypeSVG and TypeHTML are markup composed AS an outline, the way TypeMath is
 	// an expression composed as one: a node's text is a tag with its attributes
 	// and its children are its child elements, so the outline structure IS the
@@ -122,6 +126,7 @@ var TypeOrder = []string{
 	TypeThinking,
 	TypeLine,
 	TypeAgent,
+	TypeDiff,
 	TypeWebResult,
 	TypeZotero,
 }

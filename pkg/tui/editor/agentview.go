@@ -29,7 +29,23 @@ type agentHandle struct {
 type agentTrace struct {
 	kind string
 	text string
+	// diff is the file change a WRITE tool call carried, when the CLI records
+	// one: the tool named a file and gave the text going in and, for an edit, the
+	// text coming out. It is what a Diff node is made of (see agenttrace.go).
+	diff *agentDiff
 }
+
+// agentDiff is one file change read out of a tool call — the path and the
+// hunks, never a patch lflow assembled itself. A CLI that does not record what
+// its write tool wrote simply yields none.
+type agentDiff struct {
+	path  string
+	hunks []agentHunk
+}
+
+// agentHunk is one replacement: the text that was there and the text that
+// replaced it. A whole-file write has an empty old side.
+type agentHunk struct{ old, new string }
 
 func agentChipHandle(m *Model) (agentHandle, bool) {
 	c, ok := m.chips[m.focusChip]
@@ -324,13 +340,16 @@ func agentContentTrace(role string, content any) []agentTrace {
 					out = append(out, agentTrace{kind: "thinking", text: text})
 				}
 			case "tool_use", "tool_call", "toolcall", "function_call", "functioncall":
-				text := agentString(part, "name", "tool")
-				if args := part["input"]; args != nil {
-					text = strings.TrimSpace(text + " " + compactAgentValue(args))
-				} else if args := part["arguments"]; args != nil {
-					text = strings.TrimSpace(text + " " + compactAgentValue(args))
+				name := agentString(part, "name", "tool")
+				args, _ := part["input"].(map[string]any)
+				if args == nil {
+					args, _ = part["arguments"].(map[string]any)
 				}
-				out = append(out, agentTrace{kind: "tool", text: text})
+				text := name
+				if raw := firstNonNil(part["input"], part["arguments"]); raw != nil {
+					text = strings.TrimSpace(name + " " + compactAgentValue(raw))
+				}
+				out = append(out, agentTrace{kind: "tool", text: text, diff: agentToolDiff(name, args)})
 			case "tool_result", "toolresult", "function_result", "functionresult":
 				result := part["content"]
 				if result == nil {
@@ -343,6 +362,15 @@ func agentContentTrace(role string, content any) []agentTrace {
 			}
 		}
 		return out
+	}
+	return nil
+}
+
+func firstNonNil(vs ...any) any {
+	for _, v := range vs {
+		if v != nil {
+			return v
+		}
 	}
 	return nil
 }
