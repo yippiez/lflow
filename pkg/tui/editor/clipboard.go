@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-// Yank and cut: alt+y and alt+x act on whatever is selected — the horizontal
-// run (shift+←/→), else the selected rows (shift+↑/↓), else the cursor node's
-// own subtree. ctrl+c is quit, so yank is alt+y; ctrl+x stays as the cut twin
-// for terminals that swallow alt chords.
+// Yank and cut: y/x act once a horizontal or row selection exists. alt+y and
+// alt+x do the same and, with no selection, act on the cursor node's subtree.
+// ctrl+c is quit, so ctrl+x stays as the cut twin for terminals that swallow
+// alt chords.
 //
 // The text goes to the HOST clipboard the way the image node grabs one (see
 // image.go): probe the platform's tool, first hit wins. On top of that it always
@@ -80,7 +80,7 @@ func osc52(text string) bool {
 // horizontal selection first, then the row selection, then the cursor node —
 // copies it as plain text and, when cutting, removes it.
 func (m *Model) copyCut(cut bool) {
-	verb := "yanked" // the key is alt+y, so the status line says yanked
+	verb := "copied"
 	if cut {
 		verb = "cut"
 	}
@@ -108,7 +108,7 @@ func (m *Model) copyCut(cut bool) {
 			return
 		}
 	}
-	m.flash = verb + " " + m.countNodes(roots) + " · " + via
+	m.flash = m.countNodes(roots) + " " + verb + " to clipboard · " + via
 }
 
 // copyCutRun copies [lo,hi) of the node's text; cutting splices it out, taking

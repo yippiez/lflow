@@ -159,9 +159,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.snapshotForKey(key, k)
 
 	// selection lifecycle: shift+arrows grow a selection — ↑/↓ by row
-	// (multisel.go), ←/→ by word inside the node's own text (textsel.go), with
-	// ctrl/alt+shift+←/→ adjusting that run one rune at a time. Any other plain
-	// movement, typing or esc drops it (the ops below act on it instead).
+	// (multisel.go), ←/→ inside the node's own text (textsel.go). Any other plain
+	// movement, typing or esc drops it, except y/x: once a selection is live those
+	// are commands (copy/cut), not text.
 	if m.mode == modeOutline {
 		switch key {
 		case "shift+up":
@@ -195,7 +195,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch key {
 			// the style picker (and the menus that reach it) style the run;
 			// yank/cut take it to the clipboard (see clipboard.go)
-			case "/", "alt+P", "alt+a", "alt+c", "alt+y", "alt+x", "ctrl+x":
+			case "/", "alt+P", "alt+a", "alt+c", "y", "x", "alt+y", "alt+x", "ctrl+x":
 			default:
 				m.clearTextSel()
 			}
@@ -208,7 +208,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
 				"/", "alt+P", "alt+a", // the slash menu may apply /type //style //move to the selection
 				"alt+t", "alt+c", // the type/style pickers retype/re-style the whole selection
-				"alt+y", "alt+x", "ctrl+x": // yank/cut take the whole selection
+				"y", "x", "alt+y", "alt+x", "ctrl+x": // yank/cut take the whole selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -216,6 +216,13 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.clearSel()
 			}
 		}
+	}
+
+	// Vim-shaped single keys are commands only after a selection exists; with no
+	// selection they remain ordinary editable text.
+	if (m.textSelOn || m.selOn) && (key == "y" || key == "x") {
+		m.copyCut(key == "x")
+		return m, nil
 	}
 
 	switch key {

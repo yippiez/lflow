@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -115,8 +116,34 @@ func TestCopyNodesIndentsSubtree(t *testing.T) {
 	if got := clip(); got != want {
 		t.Fatalf("copied %q, want %q", got, want)
 	}
-	if !strings.Contains(m.flash, "yanked 3 nodes") {
-		t.Fatalf("flash = %q, want the node count", m.flash)
+	if !strings.Contains(m.flash, "3 nodes copied to clipboard") {
+		t.Fatalf("flash = %q, want the node count and clipboard destination", m.flash)
+	}
+}
+
+// TestPlainYAndXActOnASelection: after shift selects rows, y/x are clipboard
+// commands rather than text inserted into the cursor node.
+func TestPlainYAndXActOnASelection(t *testing.T) {
+	clip := clipCapture(t)
+	m := newTestModel(80, "alpha", "beta", "gamma")
+	m.press("shift+down")
+	m.press("y")
+	if got := clip(); got != "alpha\nbeta\n" {
+		t.Fatalf("plain y copied %q", got)
+	}
+	if !strings.Contains(m.flash, "2 nodes copied to clipboard") {
+		t.Fatalf("copy flash = %q", m.flash)
+	}
+	if names := namesOf(m.tree.root.children); !reflect.DeepEqual(names, []string{"alpha", "beta", "gamma"}) {
+		t.Fatalf("copy changed nodes: %v", names)
+	}
+
+	m.press("x")
+	if names := namesOf(m.tree.root.children); !reflect.DeepEqual(names, []string{"gamma"}) {
+		t.Fatalf("plain x left nodes: %v", names)
+	}
+	if !strings.Contains(m.flash, "2 nodes cut to clipboard") {
+		t.Fatalf("cut flash = %q", m.flash)
 	}
 }
 

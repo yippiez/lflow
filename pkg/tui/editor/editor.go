@@ -501,6 +501,9 @@ func (m *Model) pushUndo(mark string) {
 // structural action is its own step.
 func (m *Model) snapshotForKey(key string, k tea.KeyMsg) {
 	cur := m.cursorItem()
+	if (m.selOn || m.textSelOn) && (key == "y" || key == "x") {
+		return // clipboard.go snapshots the cut; copy does not mutate
+	}
 	switch key {
 	case "enter", "tab", "shift+tab",
 		"alt+shift+up", "ctrl+shift+up", "ctrl+alt+up",
