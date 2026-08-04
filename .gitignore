@@ -20,3 +20,4 @@ pkg/e2e/sync/tmp/
 
 # local secrets
 .env
+/lflow

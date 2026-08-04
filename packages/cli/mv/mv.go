@@ -1,0 +1,137 @@
+// Package mv reparents a node under a new parent.
+package mv
+
+import (
+	"os"
+	"time"
+
+	"github.com/lflow/lflow/packages/cli/context"
+	"github.com/lflow/lflow/packages/cli/infra"
+	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/database/resolve"
+	"github.com/lflow/lflow/packages/utils/log"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
+)
+
+type options struct {
+	top    bool
+	after  string
+	strict bool
+}
+
+// NewCmd returns a new mv command
+func NewCmd(ctx context.DnoteCtx) *cobra.Command {
+	opts := &options{}
+
+	cmd := &cobra.Command{
+		Use:   "move <node> <new-parent>",
+		Short: "Move a node under another node",
+		RunE:  newRun(ctx, opts),
+	}
+
+	f := cmd.Flags()
+	f.BoolVar(&opts.top, "top", false, "place as the first child instead of the last")
+	f.StringVar(&opts.after, "after", "", "place after the given sibling")
+	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
+
+	return cmd
+}
+
+// isDescendant reports whether candidate is inside the subtree of root.
+func isDescendant(db *database.DB, rootUUID, candidateUUID string) (bool, error) {
+	subtree, err := database.GetSubtree(db, rootUUID)
+	if err != nil {
+		return false, err
+	}
+	for _, n := range subtree {
+		if n.UUID == candidateUUID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func newRun(ctx context.DnoteCtx, opts *options) infra.RunEFunc {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return errors.New("usage: lflow mv <node> <new-parent>")
+		}
+		db := ctx.DB
+
+		nodeRes, err := resolve.Resolve(db, args[0])
+		if err != nil {
+			if _, ok := err.(resolve.ErrNoMatch); ok {
+				resolve.PrintNoMatch(args[0])
+				os.Exit(1)
+			}
+			return err
+		}
+		parentRes, err := resolve.Resolve(db, args[1])
+		if err != nil {
+			if _, ok := err.(resolve.ErrNoMatch); ok {
+				resolve.PrintNoMatch(args[1])
+				os.Exit(1)
+			}
+			return err
+		}
+
+		if opts.strict && (nodeRes.Total > 1 || parentRes.Total > 1) {
+			resolve.PrintMatches(db, append(nodeRes.Matches, parentRes.Matches...))
+			os.Exit(1)
+		}
+
+		if nodeRes.Node.LockValue().Has(database.LockIndentOutdent) {
+			return errors.New("node structure is locked")
+		}
+		if parentRes.Node.LockValue().Has(database.LockIndentOutdent) {
+			return errors.New("new parent structure is locked")
+		}
+		if nodeRes.Node.UUID == parentRes.Node.UUID {
+			return errors.New("cannot move a node into itself")
+		}
+		cyclic, err := isDescendant(db, nodeRes.Node.UUID, parentRes.Node.UUID)
+		if err != nil {
+			return errors.Wrap(err, "checking for cycles")
+		}
+		if cyclic {
+			return errors.New("cannot move a node into its own subtree")
+		}
+
+		var rank int
+		switch {
+		// no explicit position: a priority-up parent takes the node on top
+		case opts.top || (opts.after == "" && parentRes.Node.Priority == database.PriorityUp):
+			rank = 0
+			if err := database.ShiftRanksAll(db, parentRes.Node.UUID, 1); err != nil {
+				return errors.Wrap(err, "shifting sibling ranks")
+			}
+		case opts.after != "":
+			sibRes, err := resolve.Resolve(db, opts.after)
+			if err != nil {
+				return errors.Wrap(err, "resolving --after sibling")
+			}
+			if sibRes.Node.ParentUUID != parentRes.Node.UUID {
+				return errors.New("--after node is not a child of the new parent")
+			}
+			rank = sibRes.Node.Rank + 1
+			if err := database.ShiftRanksAfter(db, parentRes.Node.UUID, sibRes.Node.Rank, 1); err != nil {
+				return errors.Wrap(err, "shifting sibling ranks")
+			}
+		default:
+			rank, err = database.NextRank(db, parentRes.Node.UUID)
+			if err != nil {
+				return err
+			}
+		}
+
+		now := time.Now().UnixNano()
+		if err := database.ReparentTouched(db, nodeRes.Node.UUID, parentRes.Node.UUID, rank, now); err != nil {
+			return errors.Wrap(err, "moving node")
+		}
+
+		log.Successf("moved %q → %q\n", nodeRes.Node.Name, parentRes.Node.Name)
+
+		return nil
+	}
+}
