@@ -331,7 +331,7 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 	// cursor cue is a single red · (see emptyLine). It still hangs a note.
 	if it.typ == database.TypeEmpty {
 		group = []string{emptyLine(r, maxLine, o.selected && m.mode != modeFlash)}
-		bands = m.noteBandLines(r, maxLine, o.below, noteCaret)
+		bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 		if o.interactive {
 			bands = append(bands, m.suggestBlockLines(r, o.below, maxLine)...)
 		}
@@ -353,7 +353,7 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 		body := renderBody(shown, name, caret, o.selected, m.chips)
 		line := dividerLine(r, maxLine, body, o.selected && m.mode != modeFlash)
 		group = wrapLine(line, maxLine, continuationPrefix(r, o.below))
-		bands = m.noteBandLines(r, maxLine, o.below, noteCaret)
+		bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 		if o.interactive {
 			bands = append(bands, m.suggestBlockLines(r, o.below, maxLine)...)
 		}
@@ -377,7 +377,7 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 				glyphColor = cRed
 			}
 			group = m.blockGroupLines(r, content, o.below, glyphColor+glyph+cReset)
-			bands = m.noteBandLines(r, maxLine, o.below, noteCaret)
+			bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 			// runnable nodes (bash/query) hang their ephemeral output beneath them,
 			// block-faced ones included
 			bands = append(bands, m.runBandLines(r, o.below, maxLine)...)
@@ -442,7 +442,7 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 	}
 	group = wrapLine(line, maxLine, continuationPrefix(r, o.below))
 
-	bands = m.noteBandLines(r, maxLine, o.below, noteCaret)
+	bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 	// runnable nodes (bash/query) hang their ephemeral output beneath them. the
 	// focused bash node shows its full scrollable viewer (the nodeView band
 	// below) instead of this capped inline band, so don't render both
@@ -545,9 +545,10 @@ func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
 // caret < 0 renders the band read-only (whitespace tidied for display). caret
 // >= 0 makes the band the editing surface for the note: the exact text is kept
 // so offsets line up, and a block cursor is drawn at caret. Returns nil only
-// when there is no note and we are not editing.
-func (m *Model) noteBandLines(r row, maxLine int, subtreeBelow bool, caret int) []string {
-	note := stripControlBytes(m.tree.displayNote(r.it))
+// when there is no note and we are not editing. tr is the row's OWN tree,
+// passed explicitly rather than read off m.tree — see renderRow.
+func (m *Model) noteBandLines(tr *tree, r row, maxLine int, subtreeBelow bool, caret int) []string {
+	note := stripControlBytes(tr.displayNote(r.it))
 	editing := caret >= 0
 	if !editing {
 		note = strings.TrimSpace(note)

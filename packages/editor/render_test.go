@@ -237,7 +237,7 @@ func TestNoteBandLines(t *testing.T) {
 	tr := &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}
 	m := &Model{tree: tr}
 
-	lines := m.noteBandLines(row{it: it, depth: 0}, 60, true, -1)
+	lines := m.noteBandLines(m.tree, row{it: it, depth: 0}, 60, true, -1)
 	if len(lines) == 0 {
 		t.Fatal("expected band lines for a noted node")
 	}
@@ -255,7 +255,7 @@ func TestNoteBandLines(t *testing.T) {
 		t.Errorf("band rail should draw │ above children: %q", joined)
 	}
 
-	if b := m.noteBandLines(row{it: &item{uuid: "x"}, depth: 0}, 60, true, -1); b != nil {
+	if b := m.noteBandLines(m.tree, row{it: &item{uuid: "x"}, depth: 0}, 60, true, -1); b != nil {
 		t.Errorf("a note-less node should yield no band, got %v", b)
 	}
 }
@@ -277,7 +277,7 @@ func TestNoteBandRendersRichChips(t *testing.T) {
 		database.ChipAnchor("icon") + " " + database.ChipAnchor("agent") + " " +
 		database.ChipAnchor("mol") + " " + database.ChipAnchor("zot")
 	m := &Model{tree: &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}, chips: chips}
-	joined := strings.Join(m.noteBandLines(row{it: it}, 240, false, -1), "\n")
+	joined := strings.Join(m.noteBandLines(m.tree, row{it: it}, 240, false, -1), "\n")
 	plain := strings.ReplaceAll(stripSGR(joined), "\u00a0", " ")
 	for _, want := range []string{"rich", "#qol", "2026-08-01", "site", "$ go test", "session", "CCO", "Smith 2024"} {
 		if !strings.Contains(plain, want) {
@@ -306,7 +306,7 @@ func TestNoteRestsGrayAndItalic(t *testing.T) {
 	it := &item{uuid: "n", note: "a plain note"}
 	m := &Model{tree: &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}},
 		chips: map[string]database.Chip{}}
-	joined := strings.Join(m.noteBandLines(row{it: it}, 120, false, -1), "\n")
+	joined := strings.Join(m.noteBandLines(m.tree, row{it: it}, 120, false, -1), "\n")
 
 	if !strings.Contains(joined, styleColorCode["gray"]) {
 		t.Errorf("a resting note is not the gray swatch: %q", joined)
@@ -375,7 +375,7 @@ func TestNoteEditorStylesSelectedText(t *testing.T) {
 	if len(spans) != 1 || spans[0].Style != "bold" || spans[0].Start != 6 || spans[0].End != 11 {
 		t.Fatalf("note spans = %+v, want bold [6,11)", spans)
 	}
-	band := strings.Join(m.noteBandLines(row{it: m.tree.byUUID["n"]}, 80, false, -1), "\n")
+	band := strings.Join(m.noteBandLines(m.tree, row{it: m.tree.byUUID["n"]}, 80, false, -1), "\n")
 	if !strings.Contains(band, cBold) {
 		t.Fatalf("styled note did not render bold: %q", band)
 	}
@@ -408,7 +408,7 @@ func TestNoteBandTruncates(t *testing.T) {
 	tr := &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}
 	m := &Model{tree: tr}
 
-	lines := m.noteBandLines(row{it: it, depth: 0}, 60, false, -1)
+	lines := m.noteBandLines(m.tree, row{it: it, depth: 0}, 60, false, -1)
 	if len(lines) != noteBandMaxLines {
 		t.Fatalf("resting band is %d lines, want at most %d: %v", len(lines), noteBandMaxLines, lines)
 	}
@@ -417,14 +417,14 @@ func TestNoteBandTruncates(t *testing.T) {
 		t.Errorf("band should say how many lines it hides: %q", joined)
 	}
 	// the same note under the caret is whole — the count is a resting-state thing
-	if editing := m.noteBandLines(row{it: it, depth: 0}, 60, false, 0); len(editing) <= noteBandMaxLines {
+	if editing := m.noteBandLines(m.tree, row{it: it, depth: 0}, 60, false, 0); len(editing) <= noteBandMaxLines {
 		t.Errorf("editing band is %d lines, want the whole note", len(editing))
 	}
 
 	// a note that already fits is left exactly as it was
 	short := &item{uuid: "s", note: "one short line"}
 	tr.byUUID["s"] = short
-	if b := m.noteBandLines(row{it: short, depth: 0}, 60, false, -1); len(b) != 1 {
+	if b := m.noteBandLines(m.tree, row{it: short, depth: 0}, 60, false, -1); len(b) != 1 {
 		t.Errorf("a one-line note rendered %d lines: %v", len(b), b)
 	}
 }
@@ -467,7 +467,7 @@ func TestNoteBandEditing(t *testing.T) {
 	tr := &tree{byUUID: map[string]*item{"n": it}, externalNames: map[string]string{}}
 	m := &Model{tree: tr}
 
-	lines := m.noteBandLines(row{it: it, depth: 0}, 60, false, 2)
+	lines := m.noteBandLines(m.tree, row{it: it, depth: 0}, 60, false, 2)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, cInvert) {
 		t.Errorf("editing band should draw a block cursor: %q", joined)
@@ -479,7 +479,7 @@ func TestNoteBandEditing(t *testing.T) {
 	// an empty note still yields an editable band with a trailing cursor cell
 	empty := &item{uuid: "e", note: ""}
 	tr.byUUID["e"] = empty
-	eb := m.noteBandLines(row{it: empty, depth: 0}, 60, false, 0)
+	eb := m.noteBandLines(m.tree, row{it: empty, depth: 0}, 60, false, 0)
 	if len(eb) == 0 || !strings.Contains(strings.Join(eb, ""), cInvert) {
 		t.Errorf("empty note in edit mode should still give a cursor band: %v", eb)
 	}
@@ -979,7 +979,7 @@ func TestStyleFollowsTheCaretIntoTheNote(t *testing.T) {
 		t.Errorf("note span = %+v, want the whole note in red", got)
 	}
 	// the note band now paints that red over its resting gray
-	joined := strings.Join(m.noteBandLines(m.rows[m.cursor], 120, false, -1), "\n")
+	joined := strings.Join(m.noteBandLines(m.tree, m.rows[m.cursor], 120, false, -1), "\n")
 	if !strings.Contains(joined, styleColorCode["red"]) {
 		t.Errorf("the styled note did not render red: %q", joined)
 	}

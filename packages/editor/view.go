@@ -310,7 +310,7 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 	var flat []string
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
 	// as a band at the top of the view — the same band a row would hang below it.
-	rootNote := m.noteBandLines(row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
+	rootNote := m.noteBandLines(m.tree, row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
 	if m.mode == modeFlash {
 		for k := range rootNote {
 			rootNote[k] = cDim + stripSGR(rootNote[k]) + cReset
