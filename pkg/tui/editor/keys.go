@@ -222,7 +222,21 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// the style picker (and the menus that reach it) style the run;
 			// yank/cut take it to the clipboard (see clipboard.go)
 			case "/", "alt+P", "alt+a", "alt+c", "y", "x", "alt+y", "alt+x", "ctrl+x":
+			case "backspace":
+				// a selection is content: backspace removes ALL of it, not the
+				// one character behind the caret
+				if m.deleteTextSelection() {
+					return m, nil
+				}
+				m.clearTextSel()
 			default:
+				// typing over a selection REPLACES it — the run goes, and the key
+				// that removed it lands where it was. Anything that is not a typed
+				// character just releases the selection as before.
+				if isTypedRune(k) {
+					m.deleteTextSelection()
+					break
+				}
 				m.clearTextSel()
 			}
 		}

@@ -2137,6 +2137,19 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// A selection behaves like a selection here too: typing over it replaces it,
+	// backspace removes it whole. Both run before the gestures below so the run
+	// is already gone by the time the typed character is placed.
+	if m.textSelOn {
+		if key == "backspace" {
+			if m.deleteTextSelection() {
+				return m, nil
+			}
+		} else if isTypedRune(k) {
+			m.deleteTextSelection()
+		}
+	}
+
 	// The doubled chip gestures work in notes exactly as they do in node text.
 	if k.Type == tea.KeyRunes && len(k.Runes) > 0 && !k.Alt && !k.Paste {
 		typed := string(k.Runes)

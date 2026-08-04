@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"github.com/lflow/lflow/pkg/tui/database"
+
 	"strings"
 	"testing"
 )
@@ -75,5 +77,93 @@ func TestTextSelectionDropsOnMovementAndEsc(t *testing.T) {
 	m.press("shift+down")
 	if m.textSelOn || !m.selOn {
 		t.Fatalf("shift+down must swap to a row selection (text=%v rows=%v)", m.textSelOn, m.selOn)
+	}
+}
+
+// TestTypingReplacesTheSelection: selecting a word and typing used to leave the
+// word sitting there with a stray letter beside it. A selection is content —
+// typing over it replaces it, backspace removes it whole.
+func TestTypingReplacesTheSelection(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: "delete this word now"})
+	it := m.tree.byUUID["n"]
+	m.cursor = m.rowIndexOf(it)
+
+	// select "this " with shift+ctrl+right from the start of it
+	m.caret = len("delete ")
+	m.press("ctrl+shift+right")
+	// a word jump takes the word, not the space after it
+	if _, lo, hi, ok := m.textSelection(); !ok || lo != 7 || hi != 11 {
+		t.Fatalf("selection = %d..%d ok=%v", lo, hi, ok)
+	}
+	m.press("X")
+
+	if it.name != "delete X word now" {
+		t.Errorf("name = %q, want the selection replaced by the typed letter", it.name)
+	}
+	if m.caret != 8 {
+		t.Errorf("caret = %d, want it after the typed letter", m.caret)
+	}
+	if m.textSelOn {
+		t.Error("the selection outlived the typing")
+	}
+}
+
+// TestBackspaceDeletesTheSelection: the same run, removed rather than replaced.
+func TestBackspaceDeletesTheSelection(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: "delete this word now"})
+	it := m.tree.byUUID["n"]
+	m.cursor = m.rowIndexOf(it)
+	m.caret = len("delete ")
+	m.press("ctrl+shift+right")
+
+	m.press("backspace")
+	if it.name != "delete  word now" {
+		t.Errorf("name = %q, want the whole selected word gone", it.name)
+	}
+	if m.caret != 7 {
+		t.Errorf("caret = %d, want it where the run began", m.caret)
+	}
+}
+
+// TestSelectionReplaceTakesItsChipsWithIt: an anchor inside the deleted run
+// would otherwise survive as an orphan "@?" pointing at nothing.
+func TestSelectionReplaceTakesItsChipsWithIt(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: "keep "})
+	it := m.tree.byUUID["n"]
+	m.cursor = m.rowIndexOf(it)
+	m.caret = len([]rune(it.name))
+	anchor := m.createLabeledChip(chipKindTag, "qol", "")
+	it.name += anchor
+	id := anchorChipID(anchor)
+
+	textSelUUID, textSelLo, textSelHi = it.uuid, len([]rune("keep ")), len([]rune(it.name))
+	m.textSelOn = true
+	m.press("z")
+
+	if it.name != "keep z" {
+		t.Errorf("name = %q", it.name)
+	}
+	if _, ok := m.chips[id]; ok {
+		t.Error("the chip record outlived the anchor that was deleted")
+	}
+}
+
+// TestNoteSelectionReplaces: the note surface behaves the same way.
+func TestNoteSelectionReplaces(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: "row", Note: "delete this word"})
+	it := m.tree.byUUID["n"]
+	m.cursor = m.rowIndexOf(it)
+	m.mode = modeNote
+	m.caret = len("delete ")
+	m.press("ctrl+shift+right")
+	if _, _, _, ok := m.textSelection(); !ok {
+		t.Fatal("no note selection")
+	}
+	m.press("Q")
+	if it.note != "delete Q word" {
+		t.Errorf("note = %q, want the selection replaced", it.note)
+	}
+	if it.name != "row" {
+		t.Errorf("the node's name was touched: %q", it.name)
 	}
 }

@@ -1,6 +1,10 @@
 package editor
 
-import "fmt"
+import (
+	"fmt"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 // Horizontal selection: shift+←/→ grows the cursor node's own text one rune at
 // a time; ctrl/alt+shift+←/→ grows it by a word. This follows the selection
@@ -43,6 +47,64 @@ func (m *Model) textSelection() (*item, int, int, bool) {
 		return nil, 0, 0, false
 	}
 	return cur, lo, hi, true
+}
+
+// isTypedRune reports whether a key is a character the user typed — the thing
+// that should replace a selection. Alt-chords are commands, not text; a paste is
+// text and replaces the run the same way.
+func isTypedRune(k tea.KeyMsg) bool {
+	if k.Alt {
+		return false
+	}
+	return k.Type == tea.KeyRunes && len(k.Runes) > 0 || k.Type == tea.KeySpace
+}
+
+// deleteTextSelection removes the selected run from whichever surface owns it —
+// a node's name or its note — and parks the caret where the run began. It
+// reports whether anything was deleted.
+//
+// It is what makes a selection behave like a selection: typing over one replaces
+// it, backspace over one removes it. Selecting a word and typing used to leave
+// the word sitting there with a stray letter beside it, which is not what any
+// editor anywhere does.
+func (m *Model) deleteTextSelection() bool {
+	cur, lo, hi, ok := m.textSelection()
+	if !ok {
+		return false
+	}
+	// the note is edited on the resolved node; a name goes through editTarget so
+	// a mirror deletes from its source
+	target := cur
+	if !m.richNoteActive() {
+		if target = m.editTargetOf(cur); target == nil {
+			return false
+		}
+	}
+	m.pushUndo("")
+
+	text := m.richText(target)
+	runes := []rune(text)
+	if hi > len(runes) {
+		hi = len(runes)
+	}
+	if lo < 0 || lo >= hi {
+		return false
+	}
+	// a chip inside the run goes with it — the anchor would otherwise survive as
+	// an orphan "@?" pointing at a record nothing can reach
+	for _, sp := range anchorSpans(runes) {
+		if sp.start >= lo && sp.end <= hi {
+			m.deleteChipID(sp.id)
+		}
+	}
+	m.setRichText(target, string(runes[:lo])+string(runes[hi:]))
+	id := m.richSpanUUID(target)
+	shiftSpans(id, lo, lo-hi)
+	m.persistSpans(id)
+	m.caret = lo
+	m.clearTextSel()
+	m.unsaved = true
+	return true
 }
 
 // extendTextSel moves the caret one step (a word when byWord, otherwise one
