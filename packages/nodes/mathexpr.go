@@ -91,7 +91,16 @@ func mathLinear(n *SrcNode) string {
 	for _, k := range n.Kids {
 		args = append(args, mathLinear(k))
 	}
-	if isOperatorToken(text) || mathInfixKnown(text) {
+	// same precedence as mathExpr: known infix, then known prefix/function
+	// symbols (√, Σ, …) — checking isOperatorToken first would catch these
+	// short unicode symbols too and flatten "√x" down to a bare "(x)"
+	if mathInfixKnown(text) {
+		return "(" + strings.Join(args, " "+text+" ") + ")"
+	}
+	if _, ok := mathFn[text]; ok {
+		return text + "(" + strings.Join(args, ", ") + ")"
+	}
+	if isOperatorToken(text) {
 		return "(" + strings.Join(args, " "+text+" ") + ")"
 	}
 	return text + "(" + strings.Join(args, ", ") + ")"

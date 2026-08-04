@@ -186,7 +186,22 @@ func (pythonCodec) Parse(src string) ([]*SrcNode, error) {
 	}
 	stack := []ent{{n: root, indent: -1}}
 
+	// triple != "" while inside a multi-line string literal: those lines
+	// attach VERBATIM (raw, untrimmed, blanks included) to the statement
+	// that opened them rather than through the indentation grid, so a
+	// docstring's interior column positions survive the 4-space renormalize.
+	var triple string
+	var open *SrcNode
+
 	for _, raw := range strings.Split(strings.TrimRight(src, "\n"), "\n") {
+		if triple != "" {
+			open.Text += "\n" + raw
+			if strings.Contains(raw, triple) {
+				triple = ""
+				open = nil
+			}
+			continue
+		}
 		line := strings.TrimRight(raw, " \t")
 		w, trimmed := indentWidth(line)
 		if trimmed == "" {
@@ -200,8 +215,45 @@ func (pythonCodec) Parse(src string) ([]*SrcNode, error) {
 		}
 		n := stack[len(stack)-1].n.Kid(classifyPython(trimmed))
 		stack = append(stack, ent{n: n, indent: w})
+		if d, opened := scanTripleOpen(trimmed); opened {
+			triple, open = d, n
+		}
 	}
 	return root.Kids, nil
+}
+
+// scanTripleOpen scans a fresh statement line (one not already inside a
+// multi-line string) for a triple-quote that opens without closing again on
+// the same line. A simple ' / " scanner (backslash-escaped) keeps ordinary
+// string content from being mistaken for the delimiter, and a bare `#`
+// outside any string stops the scan at the comment leader.
+func scanTripleOpen(line string) (delim string, opened bool) {
+	for i := 0; i < len(line); {
+		switch {
+		case strings.HasPrefix(line[i:], `"""`), strings.HasPrefix(line[i:], `'''`):
+			d := line[i : i+3]
+			if j := strings.Index(line[i+3:], d); j >= 0 {
+				i += 3 + j + 3
+				continue
+			}
+			return d, true
+		case line[i] == '#':
+			return "", false
+		case line[i] == '\'' || line[i] == '"':
+			q := line[i]
+			j := i + 1
+			for j < len(line) && line[j] != q {
+				if line[j] == '\\' {
+					j++
+				}
+				j++
+			}
+			i = j + 1
+		default:
+			i++
+		}
+	}
+	return "", false
 }
 
 func (pythonCodec) Render(doc []*SrcNode) (string, error) {

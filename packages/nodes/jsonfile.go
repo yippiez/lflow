@@ -149,13 +149,13 @@ func jsonValueKids(n *SrcNode, v any) {
 		var text string
 		switch {
 		case e.Key != nil && !isContainer:
-			text = *e.Key + ": " + scalarLiteral(e.Val)
+			text = jsonKeyText(*e.Key) + ": " + scalarLiteral(e.Val)
 		case e.Key != nil && arr:
-			text = *e.Key + " []"
+			text = jsonKeyText(*e.Key) + " []"
 		case e.Key != nil && len(sub) == 0:
-			text = *e.Key + " {}" // an empty object must not read as a scalar leaf
+			text = jsonKeyText(*e.Key) + " {}" // an empty object must not read as a scalar leaf
 		case e.Key != nil:
-			text = *e.Key
+			text = jsonKeyText(*e.Key)
 		case !isContainer:
 			text = scalarLiteral(e.Val)
 		case arr:
@@ -166,6 +166,26 @@ func jsonValueKids(n *SrcNode, v any) {
 		k := n.Kid(&SrcNode{Type: database.TypeText, Text: text})
 		jsonValueKids(k, e.Val)
 	}
+}
+
+// keyNeedsQuote reports whether a raw key would misparse in the node-text
+// encoding: `note: important` truncates on the ": " that belongs to the key
+// itself, and a key ending " []"/" {}" is indistinguishable from a container
+// marker.
+func keyNeedsQuote(key string) bool {
+	return strings.Contains(key, ": ") || strings.HasSuffix(key, " []") ||
+		strings.HasSuffix(key, " {}") || strings.HasPrefix(key, `"`)
+}
+
+// jsonKeyText renders a key for the node-text encoding: JSON-quoted when the
+// raw form would be ambiguous (see keyNeedsQuote / nodeJSONShape), the clean
+// unquoted form otherwise.
+func jsonKeyText(key string) string {
+	if !keyNeedsQuote(key) {
+		return key
+	}
+	b, _ := json.Marshal(key)
+	return string(b)
 }
 
 func (c jsonCodec) Render(doc []*SrcNode) (string, error) {
@@ -187,6 +207,17 @@ func nodeJSONShape(n *SrcNode) (key, literal, kind string, err error) {
 		return "", "", "", errors.Errorf("json cannot hold a %s node (%q) — text nodes only", n.Type, n.Text)
 	}
 	text := strings.TrimSpace(n.Text)
+	// a key that was ambiguous in its raw form was JSON-quoted on write
+	// (jsonKeyText) — decode the string literal first, then read whatever
+	// suffix follows it. ok is false for a line that only LOOKS like a
+	// quoted key (a bare quoted scalar, e.g. a `"a: b"` array item, decodes
+	// clean but has no suffix and no children of its own) — that falls
+	// through to the plain-literal handling below.
+	if strings.HasPrefix(text, `"`) {
+		if k, l, kd, ok := jsonQuotedKeyShape(text, len(n.Kids) > 0); ok {
+			return k, l, kd, nil
+		}
+	}
 	// container markers work with or without children, so an emptied
 	// container still renders as its kind
 	if k, ok := strings.CutSuffix(text, " []"); ok {
@@ -208,6 +239,33 @@ func nodeJSONShape(n *SrcNode) (key, literal, kind string, err error) {
 		return text[:i], text[i+2:], "", nil
 	}
 	return "", text, "", nil
+}
+
+// jsonQuotedKeyShape decodes a `"key"…` line's leading JSON string, then
+// classifies what follows it: `: <literal>` a scalar, ` []`/` {}` a
+// container marker, or nothing at all — a bare key, only valid when the node
+// actually has children (hasKids), since that's the only shape jsonKeyText
+// ever writes without a suffix; otherwise this isn't a key line at all (a
+// bare quoted scalar) and ok comes back false so the caller falls back to
+// treating the text as a plain literal.
+func jsonQuotedKeyShape(text string, hasKids bool) (key, literal, kind string, ok bool) {
+	dec := json.NewDecoder(strings.NewReader(text))
+	if dec.Decode(&key) != nil {
+		return "", "", "", false
+	}
+	rest := text[dec.InputOffset():]
+	switch {
+	case rest == "" && hasKids:
+		return key, "", "object", true
+	case rest == " []":
+		return key, "", "array", true
+	case rest == " {}":
+		return key, "", "object", true
+	}
+	if lit, ok := strings.CutPrefix(rest, ": "); ok {
+		return key, lit, "", true
+	}
+	return "", "", "", false
 }
 
 func renderJSONContainer(b *strings.Builder, kids []*SrcNode, kind string, depth int) error {

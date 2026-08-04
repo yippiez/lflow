@@ -1,10 +1,12 @@
 package nodes
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/editor"
+	"github.com/pkg/errors"
 )
 
 // The Rust node + codec: the Rust sibling of the python node. One logical
@@ -142,6 +144,9 @@ func (rustCodec) Parse(src string) ([]*SrcNode, error) {
 			stack[len(stack)-1].Kid(&SrcNode{Type: database.TypeRust})
 			continue
 		}
+		if rustUnterminatedRawString(trimmed) {
+			return nil, errors.New("multi-line raw strings are not yet supported")
+		}
 		// a leading `}` closes the current block; `} else {` etc. continues
 		for strings.HasPrefix(trimmed, "}") {
 			if len(stack) > 1 {
@@ -152,7 +157,12 @@ func (rustCodec) Parse(src string) ([]*SrcNode, error) {
 		if trimmed == "" {
 			continue
 		}
-		opens := strings.HasSuffix(trimmed, "{")
+		// classify (comment? string?) BEFORE deciding the line opens a block
+		// — a trailing `{` inside a comment ("// for x in y {") or a string
+		// literal is never a real block opener; trusting it blind deletes the
+		// `{` from the comment/string text and re-parents everything after.
+		isComment := trimmed == "//" || strings.HasPrefix(trimmed, "// ")
+		opens := !isComment && rustLastBraceIsCode(trimmed)
 		if opens {
 			trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "{"))
 		}
@@ -162,6 +172,43 @@ func (rustCodec) Parse(src string) ([]*SrcNode, error) {
 		}
 	}
 	return root.Kids, nil
+}
+
+// rustLastBraceIsCode reports whether trimmed's trailing `{` sits in code —
+// not inside a "..." string literal left open by the rest of the line (a
+// plain string can legally continue onto the next line in Rust). A simple
+// scanner with backslash-escape handling is enough to tell the two apart.
+func rustLastBraceIsCode(trimmed string) bool {
+	if !strings.HasSuffix(trimmed, "{") {
+		return false
+	}
+	inStr := false
+	for i := 0; i < len(trimmed)-1; i++ {
+		switch {
+		case inStr && trimmed[i] == '\\':
+			i++
+		case trimmed[i] == '"':
+			inStr = !inStr
+		}
+	}
+	return !inStr
+}
+
+// rustRawStringOpen matches a raw-string opener: r"…, r#"…, r##"…, and so on.
+var rustRawStringOpen = regexp.MustCompile(`r(#*)"`)
+
+// rustUnterminatedRawString reports whether trimmed opens a raw string whose
+// matching closer (`"` followed by the same run of `#`) never appears later
+// on the line — a multi-line raw string. This line-based codec can't
+// losslessly represent one, so Parse refuses instead of corrupting it.
+func rustUnterminatedRawString(trimmed string) bool {
+	for _, m := range rustRawStringOpen.FindAllStringSubmatchIndex(trimmed, -1) {
+		hashes := trimmed[m[2]:m[3]]
+		if !strings.Contains(trimmed[m[1]:], `"`+hashes) {
+			return true
+		}
+	}
+	return false
 }
 
 func (rustCodec) Render(doc []*SrcNode) (string, error) {

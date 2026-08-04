@@ -34,7 +34,24 @@ func isTomlSection(s string) bool {
 func (tomlCodec) Parse(src string) ([]*SrcNode, error) {
 	root := &SrcNode{}
 	cur := root // the open section
+
+	// triple != "" while inside a """/''' multi-line string: those lines
+	// attach VERBATIM to the key that opened them — TrimSpace'ing every line
+	// (and dropping blanks) would delete the string's own interior
+	// indentation and blank lines, and an interior line shaped like [x]
+	// would misparse as a section header.
+	var triple string
+	var open *SrcNode
+
 	for _, raw := range strings.Split(strings.TrimRight(src, "\n"), "\n") {
+		if triple != "" {
+			open.Text += "\n" + raw
+			if strings.Contains(raw, triple) {
+				triple = ""
+				open = nil
+			}
+			continue
+		}
 		trimmed := strings.TrimSpace(raw)
 		switch {
 		case trimmed == "":
@@ -46,7 +63,10 @@ func (tomlCodec) Parse(src string) ([]*SrcNode, error) {
 		case trimmed == "#":
 			cur.Kid(&SrcNode{Type: database.TypeComment})
 		default:
-			cur.Kid(&SrcNode{Type: database.TypeText, Text: trimmed})
+			n := cur.Kid(&SrcNode{Type: database.TypeText, Text: trimmed})
+			if d, opened := scanTripleOpen(trimmed); opened {
+				triple, open = d, n
+			}
 		}
 	}
 	return root.Kids, nil

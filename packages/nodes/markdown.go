@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/lflow/lflow/packages/database"
@@ -54,19 +55,11 @@ func headingLevel(s string) int {
 var headingTypes = [4]string{"", database.TypeH1, database.TypeH2, database.TypeH3}
 var headingLevels = map[string]int{database.TypeH1: 1, database.TypeH2: 2, database.TypeH3: 3}
 
-// classifyMarker restores a node carried through markdown as a comment
-// marker: `nlp: …` and `lflow <type>: …`. Plain comments return nil.
-func classifyMarker(body string) *SrcNode {
-	if rest, ok := strings.CutPrefix(body, "nlp: "); ok {
-		return &SrcNode{Type: database.TypeNLPCompute, Text: rest}
-	}
-	if rest, ok := strings.CutPrefix(body, fallbackLead); ok {
-		if i := strings.Index(rest, ": "); i > 0 && database.ValidTypes[rest[:i]] {
-			return &SrcNode{Type: rest[:i], Text: rest[i+2:]}
-		}
-	}
-	return nil
-}
+// orderedListMarker matches a GFM ordered-list item lead ("1. ", "2) ", …).
+// Markdown has no ordered-list node type, so a matching line only needs to
+// stop the paragraph-join loop below; it then falls through to the default
+// prose case and round-trips verbatim as its own text node.
+var orderedListMarker = regexp.MustCompile(`^\d+[.)] `)
 
 func (markdownCodec) Parse(src string) ([]*SrcNode, error) {
 	lines := strings.Split(src, "\n")
@@ -91,12 +84,15 @@ func (markdownCodec) Parse(src string) ([]*SrcNode, error) {
 
 	for i := 0; i < len(lines); i++ {
 		line := strings.TrimRight(lines[i], " \t")
-		trimmed := strings.TrimLeft(line, " ")
-		indent := len(line) - len(trimmed)
+		indent, trimmed := indentWidth(line)
+		// guard list must mirror every case the switch below recognizes as its
+		// own block — anything it misses silently joins into the paragraph
+		// and the block's own line gets swallowed as prose text
 		if trimmed != "" && openPara != nil && headingLevel(trimmed) == 0 &&
 			!strings.HasPrefix(trimmed, "- ") && !strings.HasPrefix(trimmed, "* ") &&
 			!strings.HasPrefix(trimmed, "> ") && !strings.HasPrefix(trimmed, "```") &&
 			!strings.HasPrefix(trimmed, "<!-- ") && !strings.HasPrefix(trimmed, "| ") &&
+			!orderedListMarker.MatchString(trimmed) &&
 			trimmed != "---" && trimmed != "$$" {
 			openPara.Text += " " + trimmed
 			continue
@@ -149,7 +145,7 @@ func (markdownCodec) Parse(src string) ([]*SrcNode, error) {
 
 		case strings.HasPrefix(trimmed, "<!-- ") && strings.HasSuffix(trimmed, " -->"):
 			body := strings.TrimSuffix(strings.TrimPrefix(trimmed, "<!-- "), " -->")
-			if n := classifyMarker(body); n != nil {
+			if n := classifyMarkerBody(body, false); n != nil {
 				section().Kid(n)
 			} else {
 				section().Kid(&SrcNode{Type: database.TypeComment, Text: body})
@@ -299,6 +295,9 @@ func (markdownCodec) Render(doc []*SrcNode) (string, error) {
 		case database.TypeDivider:
 			blank()
 			out = append(out, "---", "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
 		case database.TypeCode:
 			blank()
 			out = append(out, "```"+n.Note)
@@ -306,12 +305,18 @@ func (markdownCodec) Render(doc []*SrcNode) (string, error) {
 				out = append(out, strings.Split(n.Text, "\n")...)
 			}
 			out = append(out, "```", "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
 		case database.TypeMath:
 			blank()
 			out = append(out, "$$", mathLinear(n), "$$", "")
 		case database.TypeComment:
 			blank()
 			out = append(out, "<!-- "+n.Text+" -->", "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
 		case database.TypeNLPCompute:
 			blank()
 			out = append(out, "<!-- nlp: "+n.Text+" -->")
@@ -321,6 +326,9 @@ func (markdownCodec) Render(doc []*SrcNode) (string, error) {
 				out = append(out, "```")
 			}
 			out = append(out, "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
 		case database.TypeTable:
 			blank()
 			if n.Text != "" { // a table's title becomes the paragraph above it

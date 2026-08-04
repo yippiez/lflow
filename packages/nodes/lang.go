@@ -123,31 +123,48 @@ func renderCode(doc []*SrcNode, spec langSpec) (string, error) {
 	return ensureTrailingNewline(out), nil
 }
 
+// classifyMarkerBody maps a comment/marker body (lead already stripped) onto
+// the node it stands for: `nlp: …` → nlpcompute, `lflow <type>: …` → that
+// type restored, and — when todos is set — TODO/DONE → todo. A bare
+// `lflow <type>:` (no text, colon at end-of-string) restores with empty
+// text: the space after the colon is trimmed off a blank marker on read, so
+// the ": " form alone can never match it. Returns nil when body carries no
+// marker; callers fall back to a plain comment. Shared by every comment-based
+// codec (python/rust/toml) and, with todos=false, by markdown's HTML-comment
+// markers (markdown has no comment-based TODO of its own — `- [ ]` covers it).
+func classifyMarkerBody(body string, todos bool) *SrcNode {
+	if todos {
+		switch {
+		case strings.HasPrefix(body, "TODO "):
+			return &SrcNode{Type: database.TypeTodo, Text: body[len("TODO "):]}
+		case body == "TODO":
+			return &SrcNode{Type: database.TypeTodo}
+		case strings.HasPrefix(body, "DONE "):
+			return &SrcNode{Type: database.TypeTodo, Text: body[len("DONE "):], Completed: true}
+		}
+	}
+	if rest, ok := strings.CutPrefix(body, "nlp: "); ok {
+		return &SrcNode{Type: database.TypeNLPCompute, Text: rest}
+	}
+	if rest, ok := strings.CutPrefix(body, fallbackLead); ok {
+		if i := strings.Index(rest, ": "); i > 0 && database.ValidTypes[rest[:i]] {
+			return &SrcNode{Type: rest[:i], Text: rest[i+2:]}
+		}
+		if typ, ok := strings.CutSuffix(rest, ":"); ok && database.ValidTypes[typ] {
+			return &SrcNode{Type: typ}
+		}
+	}
+	return nil
+}
+
 // classifyComment maps a comment body (lead already stripped) onto the node
 // it stands for: TODO/DONE → todo, `nlp: …` → nlpcompute, `lflow <type>: …` →
 // that type restored, else a plain comment.
 func classifyComment(body string) *SrcNode {
-	switch {
-	case strings.HasPrefix(body, "TODO "):
-		return &SrcNode{Type: database.TypeTodo, Text: body[len("TODO "):]}
-	case body == "TODO":
-		return &SrcNode{Type: database.TypeTodo}
-	case strings.HasPrefix(body, "DONE "):
-		return &SrcNode{Type: database.TypeTodo, Text: body[len("DONE "):], Completed: true}
-	case strings.HasPrefix(body, "nlp: "):
-		return &SrcNode{Type: database.TypeNLPCompute, Text: body[len("nlp: "):]}
-	case strings.HasPrefix(body, fallbackLead):
-		rest := body[len(fallbackLead):]
-		if i := strings.Index(rest, ": "); i > 0 {
-			typ := rest[:i]
-			if database.ValidTypes[typ] {
-				return &SrcNode{Type: typ, Text: rest[i+2:]}
-			}
-		}
-		return &SrcNode{Type: database.TypeComment, Text: body}
-	default:
-		return &SrcNode{Type: database.TypeComment, Text: body}
+	if n := classifyMarkerBody(body, true); n != nil {
+		return n
 	}
+	return &SrcNode{Type: database.TypeComment, Text: body}
 }
 
 // indentWidth measures leading whitespace (tab = 4) and returns the trimmed line.
