@@ -456,9 +456,72 @@ func (m *Model) deleteChipID(id string) {
 	delete(m.chips, id)
 	delete(m.nodeData, id)
 	delete(agentLooks, id)
-	if m.ctx.DB != nil {
-		_ = database.DeleteChip(m.ctx.DB, id)
-		_ = database.DeleteNodeOutput(m.ctx.DB, id)
+	if db := m.chipDB(); db != nil {
+		_ = database.DeleteChip(db, id)
+		_ = database.DeleteNodeOutput(db, id)
+	}
+}
+
+// chipDB is the handle the chip store and its sidecars go through. The two
+// fields are the same database wherever the editor really runs; taking either
+// one keeps delete and undo writing to the SAME place, which is the whole point
+// — a sidecar dropped through one handle and restored through the other is a
+// session chip that comes back nameless.
+func (m *Model) chipDB() *database.DB {
+	if m.db != nil {
+		return m.db
+	}
+	return m.ctx.DB
+}
+
+// chipSidecars snapshots the local node_output row behind every current chip: a
+// cmd chip's run band, a session chip's session pointer. They are keyed by chip
+// id and deleted with the chip, so an undo that restores only the chip RECORD
+// brings back an agent chip that has forgotten its session, its name and its
+// color — and cannot be renamed back, because there is no session under it to
+// rename.
+func (m *Model) chipSidecars() map[string]string {
+	db := m.chipDB()
+	if db == nil || len(m.chips) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(m.chips))
+	for id := range m.chips {
+		ids = append(ids, id)
+	}
+	out, err := database.LoadNodeOutputs(db, ids)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// restoreChipSidecars puts the snapshotted sidecars back and drops the ones the
+// snapshot did not have, then forgets every cached copy so the next render reads
+// the restored rows rather than the state it deleted them from.
+func (m *Model) restoreChipSidecars(want map[string]string, touched map[string]bool) {
+	db := m.chipDB()
+	for id := range want {
+		touched[id] = true
+	}
+	for id := range touched {
+		delete(m.nodeData, id)
+		delete(agentLooks, id)
+		if db == nil {
+			continue
+		}
+		if raw, ok := want[id]; ok {
+			_ = database.SaveNodeOutput(db, id, raw)
+		} else {
+			_ = database.DeleteNodeOutput(db, id)
+		}
+	}
+	// the chip's rendered pill is built from the session under it, so it has to
+	// be rebuilt now that the session is back
+	for id, c := range m.chips {
+		if c.Kind == chipKindAgent {
+			m.refreshAgentChip(id)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -23,6 +24,34 @@ func LoadNodeOutput(db *DB, uuid string) (string, error) {
 		return "", nil
 	}
 	return out, errors.Wrapf(err, "loading node output %s", uuid)
+}
+
+// LoadNodeOutputs reads many at once, keyed by uuid, skipping the ones with no
+// row. One query rather than one per id: the editor snapshots every chip's
+// sidecar before a mutating keypress, and that must not cost a round trip each.
+func LoadNodeOutputs(db *DB, uuids []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(uuids) == 0 {
+		return out, nil
+	}
+	q := "SELECT uuid, output FROM node_output WHERE uuid IN (?" + strings.Repeat(",?", len(uuids)-1) + ")"
+	args := make([]interface{}, len(uuids))
+	for i, u := range uuids {
+		args[i] = u
+	}
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "loading node outputs")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uuid, output string
+		if err := rows.Scan(&uuid, &output); err != nil {
+			return nil, errors.Wrap(err, "scanning node output")
+		}
+		out[uuid] = output
+	}
+	return out, errors.Wrap(rows.Err(), "loading node outputs")
 }
 
 // SaveNodeOutput stores a node's run output JSON, overwriting any previous run.

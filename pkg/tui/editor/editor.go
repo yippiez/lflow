@@ -486,9 +486,13 @@ func (m *Model) reopenAt(rootUUID, focusUUID string) {
 
 // undoState is a snapshot of the editable tree and cursor taken before an action.
 type undoState struct {
-	root     *item
-	deleted  []string
-	chips    map[string]database.Chip
+	root    *item
+	deleted []string
+	chips   map[string]database.Chip
+	// sidecars is each chip's node_output row, raw JSON keyed by chip id. Chips
+	// and their sidecars are deleted together, so they have to be restored
+	// together: the record alone brings back a session chip with no session.
+	sidecars map[string]string
 	external []*item  // grafted subtree roots, cloned like root
 	view     []string // viewStack uuids
 	cursor   int
@@ -507,6 +511,7 @@ func (m *Model) pushUndo(mark string) {
 		root:     cloneItem(m.tree.root, nil),
 		deleted:  append([]string(nil), m.tree.deleted...),
 		chips:    make(map[string]database.Chip, len(m.chips)),
+		sidecars: m.chipSidecars(),
 		external: make([]*item, len(m.tree.external)),
 		view:     make([]string, len(m.viewStack)),
 		cursor:   m.cursor,
@@ -580,20 +585,24 @@ func (m *Model) undo() {
 	// without its record renders as @?. Reconcile both the in-memory cache and the
 	// chips table before the restored tree can render or save.
 	currentChips := m.chips
+	chipDB := m.chipDB()
+	touched := make(map[string]bool, len(currentChips))
 	m.chips = make(map[string]database.Chip, len(st.chips))
 	for id, c := range st.chips {
 		m.chips[id] = c
-		if m.db != nil {
-			_ = database.UpsertChip(m.db, c)
+		if chipDB != nil {
+			_ = database.UpsertChip(chipDB, c)
 		}
 	}
-	if m.db != nil {
-		for id := range currentChips {
-			if _, keep := st.chips[id]; !keep {
-				_ = database.DeleteChip(m.db, id)
-			}
+	for id := range currentChips {
+		touched[id] = true
+		if _, keep := st.chips[id]; !keep && chipDB != nil {
+			_ = database.DeleteChip(chipDB, id)
 		}
 	}
+	// and the local rows hanging off those chips — a restored session chip has to
+	// come back knowing which session it is, under the name and color it wore
+	m.restoreChipSidecars(st.sidecars, touched)
 
 	// Reconcile the restored tree with what's actually in the DB (the snapshots map)
 	// so the next save is correct AND safe — this is what makes undo robust:

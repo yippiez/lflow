@@ -1313,3 +1313,61 @@ func TestAgentPickerRowWearsTheSessionsColor(t *testing.T) {
 		t.Error("an uncolored session did not fall back to Claude Code's own fill")
 	}
 }
+
+// TestAgentChipSurvivesUndo: deleting a session chip takes its session pointer
+// with it — the sidecar row keyed by the chip id. Undo has to bring BOTH back:
+// a restored chip that lost its session id is a pill with nothing under it, and
+// nothing to rename or recolor.
+func TestAgentChipSurvivesUndo(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser)
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	chip := chipOn(t, m, "note", c, agentStoreSession{
+		variant: c.id, id: id, title: "fix the flaky sync test"})
+	cur := m.tree.byUUID["note"]
+
+	m.agentRename(chip.ID, "flush fix")
+	m.agentSetColor(chip.ID, "cyan")
+	before := m.agentLoad(chip.ID)
+	if before.SessionID != id || before.Name != "flush fix" || before.Color != "cyan" {
+		t.Fatalf("chip did not start named and colored: %+v", before)
+	}
+
+	// caret sits right after the chip, so ctrl+w takes exactly it
+	m.caret = len([]rune(cur.name))
+	m.press("ctrl+w")
+	if _, ok := m.chips[chip.ID]; ok {
+		t.Fatal("the chip was not deleted")
+	}
+
+	m.undo()
+	cur = m.tree.byUUID["note"] // undo rebuilds the tree from its snapshot
+
+	if _, ok := m.chips[chip.ID]; !ok {
+		t.Fatal("undo did not restore the chip record")
+	}
+	got := m.agentLoad(chip.ID)
+	if got.SessionID != id {
+		t.Errorf("restored session = %q, want %q — the chip forgot which session it is", got.SessionID, id)
+	}
+	if got.Name != "flush fix" {
+		t.Errorf("restored name = %q, want the local rename back", got.Name)
+	}
+	if got.Color != "cyan" {
+		t.Errorf("restored color = %q, want cyan", got.Color)
+	}
+	if disp := displayAnchors(cur.name, m.chips); !strings.Contains(disp, "✽ flush fix") {
+		t.Errorf("restored pill reads %q", disp)
+	}
+
+	// and it is a live chip again, not a husk: it takes a new name and color
+	m.agentRename(chip.ID, "renamed after undo")
+	m.agentSetColor(chip.ID, "red")
+	again := m.agentLoad(chip.ID)
+	if again.Name != "renamed after undo" || again.Color != "red" {
+		t.Errorf("restored chip refused a rename/recolor: %+v", again)
+	}
+	if disp := displayAnchors(cur.name, m.chips); !strings.Contains(disp, "✽ renamed after undo") {
+		t.Errorf("renamed pill reads %q", disp)
+	}
+}
