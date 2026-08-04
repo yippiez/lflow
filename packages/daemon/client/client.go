@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"database/sql"
 	"os"
 	"os/exec"
@@ -197,52 +196,6 @@ func (c *Client) Deps(bins []string) (map[string]bool, error) {
 		return nil, err
 	}
 	return resp.Bins, nil
-}
-
-// ComputePrompt runs one daemon-side NLPCompute turn. Cancelling ctx closes
-// the dedicated connection and stops the CLI process.
-func (c *Client) ComputePrompt(ctx context.Context, system, prompt, cwd, skillDir string) (<-chan wire.ComputeEv, error) {
-	return c.computeStream(ctx, wire.Req{Op: wire.OpCompute, System: system, Prompt: prompt, Cwd: cwd, SkillDir: skillDir})
-}
-
-func (c *Client) computeStream(ctx context.Context, req wire.Req) (<-chan wire.ComputeEv, error) {
-	nc, err := c.dialHealing()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := nc.call(req); err != nil {
-		nc.Close()
-		return nil, err
-	}
-
-	ch := make(chan wire.ComputeEv, 64)
-	readerDone := make(chan struct{})
-	go func() { // cancel → close the conn → the daemon's read loop cancels the CLI
-		select {
-		case <-ctx.Done():
-			nc.Close()
-		case <-readerDone:
-		}
-	}()
-	go func() {
-		defer close(ch)
-		defer close(readerDone)
-		defer nc.Close()
-		for {
-			var msg wire.Msg
-			if err := nc.dec.Decode(&msg); err != nil {
-				return
-			}
-			if msg.Compute == nil {
-				continue
-			}
-			if msg.Compute.Done {
-				return
-			}
-			ch <- *msg.Compute
-		}
-	}()
-	return ch, nil
 }
 
 // Subscribe opens the live change feed. The channel closes when the daemon

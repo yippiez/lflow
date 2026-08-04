@@ -26,7 +26,6 @@ const module = "github.com/lflow/lflow/"
 var layers = map[string]int{
 	"packages/utils":     0,
 	"packages/chips":     0,
-	"packages/agent":     0,
 	"packages/websearch": 0,
 	"packages/database":  1,
 	"packages/zotero":    1, // uses database.Open on a foreign sqlite file (debt: should be a leaf)

@@ -1,130 +1,44 @@
-// Package nlp runs the one-shot code-generation turn used by NLPCompute.
+// Package nlp is lflow's natural-language layer: each exported function maps a
+// natural-language intent to a concrete result — Match resolves a query to the
+// outline nodes it refers to, Compute turns an instruction into code. Nothing
+// here shells out to a provider yet; both functions are stubs until the
+// semantic engine lands.
 package nlp
 
 import (
 	"context"
-	"os"
-	"strings"
+	"errors"
 
-	"github.com/lflow/lflow/packages/agent"
+	"github.com/lflow/lflow/packages/database"
 )
 
-// Event is one streamed generation event.
+// ErrNotImplemented is returned by functions whose engine has not landed yet.
+var ErrNotImplemented = errors.New("nlp: not implemented yet")
+
+// Event is one live-progress frame streamed to Compute's callback (nil callback
+// = no live view).
 type Event struct {
-	Op   string
+	Op   string // "tool" | "thinking" | "message" | "error" | "done"
 	Text string
 	Tool string
 }
 
-var skillDir string
-
-// SetSkillDir records the materialized lflow skill path.
-func SetSkillDir(dir string) { skillDir = dir }
-
-// SkillDir returns the materialized lflow skill path.
-func SkillDir() string { return skillDir }
-
-// Run starts one fresh Pi generation turn. The supplied context cancels the
-// underlying CLI process; no provider session is persisted.
-func Run(ctx context.Context, system, prompt, cwd, skills string) (<-chan Event, error) {
-	provider := agent.AgentProviderPi
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	opts := agent.AgentRunOptions{
-		NoSession:    true,
-		SystemPrompt: system,
-		Cwd:          cwd,
-	}
-	if skills == "" {
-		skills = skillDir
-	}
-	if skills != "" {
-		opts.Skills = []string{skills}
-	}
-	opts.Model, opts.Thinking = agent.AgentProviderDefault(provider)
-
-	sess, err := agent.AgentRun(ctx, provider, prompt, opts)
-	if err != nil {
-		return nil, err
-	}
-	model := opts.Model.FlagValue()
-	out := make(chan Event, 16)
-	go func() {
-		defer close(out)
-		for attempt := 0; ; attempt++ {
-			errText, sawWork := pump(sess, out)
-			sess.Stop()
-			if errText == "" {
-				return
-			}
-			if ctx.Err() == nil && !sawWork && attempt == 0 {
-				out <- Event{Op: "tool", Tool: "retry", Text: firstNonEmpty(errText, "transient compute error")}
-				next, runErr := agent.AgentRun(ctx, provider, prompt, opts)
-				if runErr == nil {
-					sess = next
-					continue
-				}
-				errText = runErr.Error()
-			}
-			if model != "" && !strings.Contains(errText, model) {
-				errText = model + ": " + errText
-			}
-			out <- Event{Op: "error", Text: errText}
-			return
-		}
-	}()
-	return out, nil
+// MatchResult is one node the semantic query resolved to, best match first.
+type MatchResult struct {
+	UID   string  // node uuid
+	Text  string  // the matched node text, for display
+	Score float64 // 0..1; 1 = exact
 }
 
-func pump(sess agent.AgentSession, out chan<- Event) (errText string, sawWork bool) {
-	var reply strings.Builder
-	var interim string
-	for ev := range sess.Events() {
-		switch ev.Kind {
-		case agent.AgentEventToolStart, agent.AgentEventToolUpdate:
-			sawWork = true
-			if ev.Kind == agent.AgentEventToolStart && reply.Len() > 0 {
-				interim = reply.String()
-				reply.Reset()
-			}
-			out <- Event{Op: "tool", Tool: ev.Tool, Text: ev.Detail}
-		case agent.AgentEventText:
-			if text := strings.TrimSpace(ev.Text); text != "" {
-				sawWork = true
-				if reply.Len() > 0 {
-					reply.WriteByte('\n')
-				}
-				reply.WriteString(text)
-				out <- Event{Op: "thinking"}
-			}
-		case agent.AgentEventError:
-			return firstNonEmpty(ev.Text, "compute turn failed"), sawWork
-		case agent.AgentEventTurnEnd:
-			if ev.Status == "error" {
-				return firstNonEmpty(strings.TrimSpace(reply.String()), "compute turn failed"), sawWork
-			}
-			text := strings.TrimSpace(reply.String())
-			if text == "" {
-				text = strings.TrimSpace(interim)
-			}
-			if text != "" {
-				out <- Event{Op: "message", Text: text}
-			}
-			out <- Event{Op: "done"}
-			return "", sawWork
-		}
-	}
-	if err := sess.Err(); err != nil {
-		return err.Error(), sawWork
-	}
-	out <- Event{Op: "done"}
-	return "", sawWork
+// Match resolves a natural-language query against the outline DB and returns
+// the nodes it refers to (best match first). Cancelling ctx aborts the search.
+func Match(ctx context.Context, db *database.DB, query string) ([]MatchResult, error) {
+	return nil, ErrNotImplemented
 }
 
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
+// Compute runs one natural-language instruction turn and returns the code it
+// produced. onEvent receives live progress frames while the turn runs (may be
+// nil). Cancelling ctx stops the turn.
+func Compute(ctx context.Context, prompt string, onEvent func(Event)) (string, error) {
+	return "", ErrNotImplemented
 }

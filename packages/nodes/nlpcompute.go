@@ -10,25 +10,23 @@ import (
 
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/editor"
-	"github.com/lflow/lflow/packages/nlp"
 )
 
 // The nlpcompute node: natural language as code — a fully red → arrow AND red
 // prose ("Create a NN, train it on these inputs, return its weights and
-// metrics"), an ipynb cell whose source is prose. alt+r launches an agent pinned
-// to the node's CWD (recorded the first time it runs — the cell stays tied to
-// that repo); the agent reads the surrounding lflow nodes and the underlying repo
-// and generates the code snippet implementing the instruction. WHILE GENERATING
-// the prose SHINES (the ultraloop red slide, editor.ShineText) with no agent
-// trace, and the cell counts toward the status bar's "N thinking" tally like a
-// mention thread. Once a snippet exists the borderless gray code block (the same
-// one the Code node wears — line numbers, white rule) REPLACES the prose row
-// (ncBlockCode). The node has TWO faces: the code block and the red prose. alt+e
-// TOGGLES between them (never an editor); on the code face the cursor auto-focuses
-// the block for editing like the Code node (AutoFocus — thin red beam caret, type
-// directly, esc collapses back to prose). The natural language lives in the node
-// text; the code and its edits (the cell data {cwd, code, lang}) live in
-// node_output — local, decoupled from the node row.
+// metrics"), an ipynb cell whose source is prose. alt+r launches a code
+// generation turn for the instruction (nlp.Compute; the semantic engine is not
+// implemented yet); while generating the prose SHINES (the ultraloop red
+// slide, editor.ShineText) and the cell counts toward the status bar's "N
+// thinking" tally like a mention thread. Once a snippet exists the borderless
+// gray code block (the same one the Code node wears — line numbers, white
+// rule) REPLACES the prose row (ncBlockCode). The node has TWO faces: the code
+// block and the red prose. alt+e TOGGLES between them (never an editor); on
+// the code face the cursor auto-focuses the block for editing like the Code
+// node (AutoFocus — thin red beam caret, type directly, esc collapses back to
+// prose). The natural language lives in the node text; the code and its edits
+// (the cell data {cwd, code, lang}) live in node_output — local, decoupled
+// from the node row.
 
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
@@ -42,7 +40,6 @@ func init() {
 		Run:            runNLPCompute,
 		View:           ncView{},
 		BlockCode:      ncBlockCode,
-		CLIDeps:        []string{"pi"},
 		OnRemove: func(h editor.NodeHost, uuid string) {
 			delete(h.NodeStore(uuid), "animating")
 			if st := ncStateOf(h, uuid); st.cancel != nil {
@@ -101,87 +98,35 @@ func ncSave(h editor.NodeHost, uuid string, d ncData) {
 	}
 }
 
-// ncSystemPrompt frames the agent as a code generation engine — the output
-// contract is deliberately strict so the turn yields a code snippet, never a
-// natural-language answer.
-func ncSystemPrompt() string {
-	return "You are a code generation engine inside lflow, a terminal outline " +
-		"note app. The user wrote a natural-language compute instruction as an " +
-		"outline node. Read the instruction and its surrounding outline context; " +
-		"explore the repository in your working directory and, when the context " +
-		"references other notes, the outline itself via the lflow CLI " +
-		"(`lflow node grep <text>`, `lflow node list <node>`). Then write ONE " +
-		"self-contained code snippet that implements the instruction — runnable " +
-		"as-is, in the language the repository or the instruction implies " +
-		"(default python).\n\n" +
-		"OUTPUT CONTRACT — obey exactly:\n" +
-		"- Reply with NOTHING but a single fenced code block carrying a language " +
-		"tag (```python … ```).\n" +
-		"- No prose, preamble, explanation, or sign-off before, after, or between " +
-		"— not one sentence. Put any necessary notes as code comments INSIDE the " +
-		"block.\n" +
-		"- Emit code, never a prose description of code. If the instruction is " +
-		"ambiguous, still emit the best runnable snippet rather than asking a " +
-		"question."
-}
-
-// ncPrompt renders the instruction and its outline neighborhood.
-func ncPrompt(n editor.NodeRef) string {
-	var b strings.Builder
-	b.WriteString("<instruction>\n" + n.Text() + "\n</instruction>\n\n")
-	b.WriteString("<outline-context>\n")
-	if p, ok := n.Parent(); ok {
-		b.WriteString("parent: " + p.Text() + "\n")
-		for _, s := range n.Siblings() {
-			marker := "- "
-			if s.Is(n) {
-				marker = "- (the instruction) "
-			}
-			b.WriteString(marker + s.Text() + "\n")
-		}
-	}
-	for _, c := range n.Children() {
-		b.WriteString("  input: " + c.Text() + "\n")
-	}
-	b.WriteString("</outline-context>")
-	return b.String()
-}
-
-// ncEvMsg carries one generation-stream event back into the plugin.
-type ncEvMsg struct {
+// ncDoneMsg carries one generation result back into the plugin.
+type ncDoneMsg struct {
 	uuid string
-	ev   nlp.Event
-	ch   <-chan nlp.Event
+	code string
+	err  error
 }
 
-func waitNCCmd(uuid string, ch <-chan nlp.Event) tea.Cmd {
+func waitNCCmd(uuid string, fn func() (string, error)) tea.Cmd {
 	return func() tea.Msg {
-		ev, ok := <-ch
-		if !ok {
-			return ncEvMsg{uuid: uuid, ev: nlp.Event{Op: "done"}}
-		}
-		return ncEvMsg{uuid: uuid, ev: ev, ch: ch}
+		code, err := fn()
+		return ncDoneMsg{uuid: uuid, code: code, err: err}
 	}
 }
 
-// HandleNodePlugin lands one generation event (editor.NodePluginMsg).
-func (msg ncEvMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
+// HandleNodePlugin lands the generation result (editor.NodePluginMsg).
+func (msg ncDoneMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 	st := ncStateOf(h, msg.uuid)
-	switch msg.ev.Op {
-	case "tool", "thinking":
-		// narration between tool calls is discarded — only the shine shows progress
-		return waitNCCmd(msg.uuid, msg.ch)
-	case "message":
-		code, lang := peelCodeFence(msg.ev.Text)
+	if msg.err != nil {
+		h.NodeFlash("compute: " + msg.err.Error())
+	} else if msg.code == "" {
+		h.NodeFlash("compute returned nothing")
+	} else {
+		code, lang := peelCodeFence(msg.code)
 		data := ncLoad(h, msg.uuid)
 		data.Code, data.Lang = code, lang
 		ncSave(h, msg.uuid, data)
 		h.NodeFlash("code ready · alt+e edits it")
-		return waitNCCmd(msg.uuid, msg.ch)
-	case "error":
-		h.NodeFlash("compute: " + msg.ev.Text)
 	}
-	// done / error: park the cell
+	// park the cell
 	st.busy = false
 	delete(h.NodeStore(msg.uuid), "animating")
 	if st.cancel != nil {
@@ -191,7 +136,8 @@ func (msg ncEvMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 	return nil
 }
 
-// runNLPCompute (alt+r) launches the generator agent in the cell's cwd.
+// runNLPCompute (alt+r) launches the code-generation turn for the cell's
+// instruction.
 func runNLPCompute(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 	st := ncStateOf(h, n.UUID())
 	if st.busy {
@@ -212,21 +158,12 @@ func runNLPCompute(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
 		ncSave(h, n.UUID(), data)
 	}
 
-	if !h.NodeDepOK("pi") {
-		h.NodeFlash("Missing dependency: pi")
-		return nil
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := h.NodeComputeTurn(ctx, ncSystemPrompt(), ncPrompt(n), data.Cwd)
-	if err != nil {
-		cancel()
-		h.NodeFlash(err.Error())
-		return nil
-	}
 	st.busy, st.cancel = true, cancel
 	h.NodeStore(n.UUID())["animating"] = true // keep the shine tick alive while generating
-	return waitNCCmd(n.UUID(), ch)
+	return waitNCCmd(n.UUID(), func() (string, error) {
+		return h.NodeCompute(ctx, n.Text(), nil)
+	})
 }
 
 // peelCodeFence extracts the first fenced block ("```lang\n…\n```"); unfenced

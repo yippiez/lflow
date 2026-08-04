@@ -19,7 +19,7 @@ type fakeHost struct {
 	stores  map[string]map[string]any
 	flash   string
 	deps    map[string]bool
-	compute func() <-chan nlp.Event
+	compute func() (string, error)
 }
 
 func newFakeHost(t *testing.T) *fakeHost {
@@ -41,8 +41,11 @@ func (f *fakeHost) NodeDepOK(b string) bool {
 	ok, probed := f.deps[b]
 	return !probed || ok
 }
-func (f *fakeHost) NodeComputeTurn(context.Context, string, string, string) (<-chan nlp.Event, error) {
-	return f.compute(), nil
+func (f *fakeHost) NodeCompute(context.Context, string, func(nlp.Event)) (string, error) {
+	if f.compute == nil {
+		return "", nil
+	}
+	return f.compute()
 }
 
 // fakeNode implements editor.NodeRef.

@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/nlp"
 )
 
 func TestPeelCodeFence(t *testing.T) {
@@ -24,12 +23,8 @@ func TestPeelCodeFence(t *testing.T) {
 // the cwd pins, the state parks idle.
 func TestNLPComputeFlow(t *testing.T) {
 	h := newFakeHost(t)
-	h.compute = func() <-chan nlp.Event {
-		ch := make(chan nlp.Event, 4)
-		ch <- nlp.Event{Op: "message", Text: "```python\nb = sum(xs)\n```"}
-		ch <- nlp.Event{Op: "done"}
-		close(ch)
-		return ch
+	h.compute = func() (string, error) {
+		return "```python\nb = sum(xs)\n```", nil
 	}
 	n := &fakeNode{uuid: "cell1", typ: database.TypeNLPCompute, text: "sum inputs, store as b"}
 
@@ -37,18 +32,11 @@ func TestNLPComputeFlow(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("run must start: %s", h.flash)
 	}
-	msg := cmd()
-	for i := 0; i < 20; i++ {
-		ev, ok := msg.(ncEvMsg)
-		if !ok {
-			t.Fatalf("unexpected msg %T", msg)
-		}
-		next := ev.HandleNodePlugin(h)
-		if next == nil {
-			break
-		}
-		msg = next()
+	msg, ok := cmd().(ncDoneMsg)
+	if !ok {
+		t.Fatalf("unexpected msg %T", msg)
 	}
+	msg.HandleNodePlugin(h)
 
 	d := ncLoad(h, "cell1")
 	if d.Code != "b = sum(xs)" || d.Lang != "python" {
@@ -160,12 +148,8 @@ func TestNCProseFace(t *testing.T) {
 // idle it is plain red; completion drops the flag.
 func TestNCRenderShineAndFlag(t *testing.T) {
 	h := newFakeHost(t)
-	h.compute = func() <-chan nlp.Event {
-		ch := make(chan nlp.Event, 4)
-		ch <- nlp.Event{Op: "message", Text: "```python\nb = 1\n```"}
-		ch <- nlp.Event{Op: "done"}
-		close(ch)
-		return ch
+	h.compute = func() (string, error) {
+		return "```python\nb = 1\n```", nil
 	}
 	n := &fakeNode{uuid: "cell1", typ: database.TypeNLPCompute, text: "sum inputs"}
 
@@ -182,18 +166,11 @@ func TestNCRenderShineAndFlag(t *testing.T) {
 	}
 
 	// drain the turn to completion
-	msg := cmd()
-	for i := 0; i < 20; i++ {
-		ev, ok := msg.(ncEvMsg)
-		if !ok {
-			t.Fatalf("unexpected msg %T", msg)
-		}
-		next := ev.HandleNodePlugin(h)
-		if next == nil {
-			break
-		}
-		msg = next()
+	msg, ok := cmd().(ncDoneMsg)
+	if !ok {
+		t.Fatalf("unexpected msg %T", msg)
 	}
+	msg.HandleNodePlugin(h)
 	if a, _ := h.NodeStore("cell1")["animating"].(bool); a {
 		t.Fatal("completion must drop the animating flag")
 	}

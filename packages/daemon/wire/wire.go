@@ -25,7 +25,6 @@ const (
 	OpSubscribe = "subscribe" // switch this connection to event-push mode
 	OpShutdown  = "shutdown"  // ask the daemon to exit (version respawn)
 	OpDeps      = "deps"      // report which CLI binaries the daemon can exec
-	OpCompute   = "compute"   // run one NLPCompute turn; streams ComputeEv frames until done
 )
 
 // Req is a client request.
@@ -42,13 +41,6 @@ type Req struct {
 
 	// deps fields
 	Bins []string `json:"bins,omitempty"` // binaries to probe with LookPath
-
-	// NLPCompute fields: generation runs on the daemon, while Cwd/SkillDir carry
-	// the editor client's environment choices.
-	System   string `json:"system,omitempty"`
-	Prompt   string `json:"prompt,omitempty"`
-	Cwd      string `json:"cwd,omitempty"`
-	SkillDir string `json:"skillDir,omitempty"`
 }
 
 // Resp is the daemon's reply to a Req with the same ID.
@@ -61,14 +53,6 @@ type Resp struct {
 	LastID   int64           `json:"lastId,omitempty"`
 	Version  string          `json:"version,omitempty"` // hello reply
 	Bins     map[string]bool `json:"bins,omitempty"`    // deps reply
-}
-
-// ComputeEv is one streamed code-generation frame. Done marks the stream end.
-type ComputeEv struct {
-	Op   string `json:"op"`
-	Text string `json:"text,omitempty"`
-	Tool string `json:"tool,omitempty"`
-	Done bool   `json:"done,omitempty"`
 }
 
 // Event is one committed change, fanned out to every subscriber. Nodes carry
@@ -88,11 +72,10 @@ type Event struct {
 	Resync   bool            `json:"resync,omitempty"`
 }
 
-// Msg is the top-level frame: exactly one of Resp, Event or Compute.
+// Msg is the top-level frame: exactly one of Resp or Event.
 type Msg struct {
-	Resp    *Resp      `json:"resp,omitempty"`
-	Event   *Event     `json:"event,omitempty"`
-	Compute *ComputeEv `json:"compute,omitempty"`
+	Resp  *Resp  `json:"resp,omitempty"`
+	Event *Event `json:"event,omitempty"`
 }
 
 // AuxTables are the render-support tables whose changes flag Event.Aux.

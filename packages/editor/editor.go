@@ -10,21 +10,17 @@ package editor
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/packages/agent"
 	"github.com/lflow/lflow/packages/app"
 	"github.com/lflow/lflow/packages/daemon/client"
 	"github.com/lflow/lflow/packages/daemon/wire"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/style"
-	"github.com/lflow/lflow/packages/nlp"
 	"github.com/lflow/lflow/packages/nodes/wf"
-	"github.com/lflow/lflow/packages/utils/consts"
 	"github.com/lflow/lflow/packages/zotero"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
@@ -2263,10 +2259,6 @@ type FileSession struct {
 // RunFile is Run for a file-backed session.
 func RunFile(ctx app.Ctx, nodeUUID string, fs FileSession) error {
 	onSave, allowedTypes := fs.OnSave, fs.AllowedTypes
-	// Materialize the lflow CLI skill used by NLPCompute's code generator.
-	if dir, err := agent.AgentMaterializeSkills(filepath.Join(ctx.Paths.Data, consts.LflowDirName)); err == nil {
-		nlp.SetSkillDir(dir)
-	}
 
 	t, err := loadTree(ctx.DB, nodeUUID)
 	if err != nil {

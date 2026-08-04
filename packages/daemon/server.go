@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,7 +19,6 @@ import (
 
 // ErrAlreadyServing reports that a live daemon already owns the socket.
 var ErrAlreadyServing = errors.New("a daemon is already serving this database")
-
 // Options configures Serve.
 type Options struct {
 	Sock    string
@@ -155,6 +155,19 @@ func (sv *server) stop() {
 	sv.mu.Unlock()
 }
 
+// probeBins reports which CLI binaries this process can exec.
+func probeBins(bins []string) map[string]bool {
+	out := make(map[string]bool, len(bins))
+	for _, b := range bins {
+		if b == "" {
+			continue
+		}
+		_, err := exec.LookPath(b)
+		out[b] = err == nil
+	}
+	return out
+}
+
 // session serves one client connection until it disconnects.
 func (sv *server) session(conn net.Conn) {
 	sess := &session{id: sv.nextSess.Add(1)}
@@ -226,17 +239,6 @@ func (sv *server) session(conn net.Conn) {
 			// dependency truth lives on the daemon: the process that would exec
 			// a CLI is the one that says whether it can
 			resp.Bins = probeBins(req.Bins)
-
-		case wire.OpCompute:
-			if ok := probeBins([]string{"pi"})["pi"]; !ok {
-				setErr(&resp, errors.New("Missing dependency: pi"))
-				break
-			}
-			if err := enc.Encode(wire.Msg{Resp: &resp}); err != nil {
-				return
-			}
-			sv.computeTurn(conn, dec, enc, sess, req)
-			return
 
 		case wire.OpShutdown:
 			_ = enc.Encode(wire.Msg{Resp: &resp})

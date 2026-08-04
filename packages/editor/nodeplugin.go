@@ -106,9 +106,10 @@ type NodeHost interface {
 	// NodeDepOK reports a CLI binary's availability (NodeCLIDeps; judged by
 	// the daemon — the execution side).
 	NodeDepOK(bin string) bool
-	// NodeComputeTurn runs one raw code-generation turn (system+prompt as-is) —
-	// on the daemon when connected, locally otherwise. Cancel ctx to stop it.
-	NodeComputeTurn(ctx context.Context, system, prompt, cwd string) (<-chan nlp.Event, error)
+	// NodeCompute runs one raw code-generation turn: a natural-language
+	// instruction in, the produced code out. onEvent receives live progress
+	// frames (may be nil). Cancel ctx to stop it.
+	NodeCompute(ctx context.Context, prompt string, onEvent func(nlp.Event)) (string, error)
 }
 
 // NodePlugin declares one pluggable node type — the exported mirror of the
@@ -280,24 +281,9 @@ func (m *Model) NodeDB() *database.DB                 { return m.db }
 func (m *Model) NodeFlash(msg string)                 { m.flash = msg }
 func (m *Model) NodeDepOK(bin string) bool            { return m.depOK(bin) }
 
-// NodeComputeTurn runs a raw generation turn — daemon-side when connected and
-// local otherwise.
-func (m *Model) NodeComputeTurn(ctx context.Context, system, prompt, cwd string) (<-chan nlp.Event, error) {
-	if m.live != nil {
-		wch, err := m.live.ComputePrompt(ctx, system, prompt, cwd, nlp.SkillDir())
-		if err != nil {
-			return nil, err
-		}
-		out := make(chan nlp.Event, 16)
-		go func() {
-			defer close(out)
-			for ev := range wch {
-				out <- nlp.Event{Op: ev.Op, Text: ev.Text, Tool: ev.Tool}
-			}
-		}()
-		return out, nil
-	}
-	return nlp.Run(ctx, system, prompt, cwd, nlp.SkillDir())
+// NodeCompute runs one raw code-generation turn: the instruction in, code out.
+func (m *Model) NodeCompute(ctx context.Context, prompt string, onEvent func(nlp.Event)) (string, error) {
+	return nlp.Compute(ctx, prompt, onEvent)
 }
 
 // ── plugin-facing helpers (the render toolkit) ──────────────────────────────
