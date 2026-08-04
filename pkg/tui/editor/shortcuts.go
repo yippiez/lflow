@@ -73,7 +73,7 @@ var shortcutSections = []shortcutSection{
 }
 
 func shortcutLines(maxLine int) []string {
-	lines := []string{cAccent + cBold + "Keyboard shortcuts" + cReset, cDim + "All editor chords · /shortcuts" + cReset, ""}
+	var lines []string
 	for _, section := range shortcutSections {
 		lines = append(lines, cYellow+cBold+section.name+cReset)
 		for _, row := range section.rows {

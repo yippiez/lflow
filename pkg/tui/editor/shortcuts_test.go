@@ -14,8 +14,11 @@ func TestShortcutsCommandOpensSeparateScrollablePage(t *testing.T) {
 		t.Fatalf("/shortcuts mode=%v clear=%v", m.mode, m.clearOnFrame)
 	}
 	page := stripSGR(m.View())
-	if !strings.Contains(page, "Keyboard shortcuts") || !strings.Contains(page, "shift+↑") {
-		t.Fatalf("shortcut page missing reference rows: %q", page)
+	if !strings.HasPrefix(page, "Move and select\n") || !strings.Contains(page, "shift+↑") {
+		t.Fatalf("shortcut page should start directly with reference rows: %q", page)
+	}
+	if strings.Contains(page, "Keyboard shortcuts") || strings.Contains(page, "All editor chords") {
+		t.Fatalf("shortcut page kept the redundant heading: %q", page)
 	}
 	start := m.focusScroll
 	m.press("pgdown")
