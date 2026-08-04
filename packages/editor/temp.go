@@ -166,75 +166,19 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 	if tr != nil && viewRoot != nil {
 		rows := tr.visibleRows(viewRoot, m.hideCompleted, m.unroll)
 		for i, r := range rows {
-			it := r.it
 			below := i+1 < len(rows) && rows[i+1].depth > r.depth
 			rowStart := len(flat)
-			// a divider is a full-width rule, not a glyph+body node; render it as the
-			// rule here too so the read-only region keeps it (never the cursor color)
-			if it.typ == database.TypeDivider || it.typ == database.TypeEmpty {
-				var line string
-				if it.typ == database.TypeEmpty {
-					line = emptyLine(r, maxLine, false)
-				} else {
-					shown := m.renderItem(it)
-					name := tr.displayName(it)
-					body := renderBody(shown, name, -1, false, m.chips)
-					line = dividerLine(r, maxLine, body, false)
-				}
-				flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
-				if i == cursor {
-					cursorStart, cursorEnd = rowStart, len(flat)-1
-				}
-				flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
-				continue
-			}
-			glyph, glyphColor := glyphFor(it)
-			if dashed && !r.mirrored {
-				glyph = glyphDotted
-			}
-			// a proposal still marks its node here: the read-only region is the
-			// main outline while the temp panel is up, and a suggestion must not
-			// vanish just because you stepped into the scratch space
-			glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
-
-			// A block-faced node renders AS its block here too. The temp space is a
-			// SPACE, not a different renderer: a Code node that draws as a gray
-			// block in the outline and collapses to the word "code" the moment it
-			// is parked in temp reads as the node having been damaged by the move.
-			// Same for the stashed main outline, which this region also draws.
-			if bc := typeOf(it.typ).blockCode; bc != nil {
-				if code, _, ok := bc(m, it, false); ok {
-					inner := maxLine - visibleWidth(continuationPrefix(r, below))
-					content := codeBlockLines(code, -1, inner)
-					flat = append(flat, m.blockGroupLines(r, content, below, glyphColor+glyph+cReset)...)
-					if i == cursor {
-						cursorStart, cursorEnd = rowStart, len(flat)-1
-					}
-					flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
-					flat = append(flat, m.runBandLines(r, below, maxLine)...)
-					if b := typeOf(it.typ).bands; b != nil {
-						flat = append(flat, b(m, r, below, maxLine)...)
-					}
-					continue
-				}
-			}
-			name := tr.displayName(it)
-			body := renderBody(it, name, -1, false, m.chips)
-			if rm := typeOf(it.typ).renderM; rm != nil {
-				body = rm(m, it)
-			}
-			line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body +
-				m.typeSuffix(r) + m.suggestInline(it)
-			flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
+			// shares renderRow with the live outline and the quit dump: a
+			// proposal still marks its node here (the read-only region is the
+			// main outline while the temp panel is up), and a block-faced node
+			// (Code) draws AS its block — the temp space is a SPACE, not a
+			// different renderer.
+			group, bands := m.renderRow(tr, r, rowOpts{dashed: dashed, below: below, maxLine: maxLine})
+			flat = append(flat, group...)
 			if i == cursor {
 				cursorStart, cursorEnd = rowStart, len(flat)-1
 			}
-			flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
-			// a bash/query node's run output hangs beneath it in the read-only region too
-			flat = append(flat, m.runBandLines(r, below, maxLine)...)
-			if b := typeOf(it.typ).bands; b != nil {
-				flat = append(flat, b(m, r, below, maxLine)...)
-			}
+			flat = append(flat, bands...)
 		}
 	}
 

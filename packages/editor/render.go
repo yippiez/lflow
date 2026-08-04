@@ -300,6 +300,184 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 	return cDim + string(cells)
 }
 
+// rowOpts is the per-call context renderRow needs beyond the row itself. The
+// three row loops — viewRenderRows (interactive), finalView (the quit dump) and
+// readonlyRegionLines (the temp panel + the stashed main outline) — differ only
+// in how they compute these flags per row; the row-shape branching (empty /
+// divider / block code / normal) is identical across all three and lives once
+// in renderRow.
+type rowOpts struct {
+	selected bool // this row is the one caret/cursor row of its face — drives the inline caret and the note-edit caret
+	redGlyph bool // force the glyph/rule red — selected, OR (interactive only) part of the shift+↑/↓ multi-select range
+	dashed   bool // Temporary Domain space: a non-mirror row shows the dotted glyph in place of its own
+	// interactive gates the state that only means something in the live,
+	// currently-focused frame: flash-mode dimming, the flash row-action chips,
+	// the query-hit / readonly-breadcrumb tint, and the pending-review band.
+	// Neither the quit dump nor a read-only region has a "mode" of its own to
+	// dim for or a review surface to open, so these must not leak into them.
+	interactive bool
+	flashSuffix string // pre-rendered flash-mode action chips for this row (viewRenderRows only — needs the row's index into m.flashTargets, which only that loop has)
+	below       bool   // a visible child follows — the rail carries a │ down through the glyph column
+	maxLine     int
+}
+
+// renderRow renders one visible row to its group lines (the node's own line(s),
+// wrapped, with caret/selection baked in) and band lines (note, run output,
+// per-type bands, pending review) — the one row-shape switch shared by
+// viewRenderRows, finalView and readonlyRegionLines. tr is the row's OWN tree,
+// passed explicitly rather than read off m.tree: a read-only region must
+// resolve mirrors against the tree it was HANDED, even while m.tree points at a
+// different one (the stashed main outline while the Temporary Domain holds
+// focus) — reading m.tree there resolved against the wrong tree, or not at all.
+func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []string) {
+	it := r.it
+	maxLine := o.maxLine
+	noteCaret := -1
+	if o.selected && m.mode == modeNote {
+		noteCaret = m.caret
+	}
+
+	// an empty node is a blank spacer row: no glyph, no rule, no text — the
+	// cursor cue is a single red · (see emptyLine). It still hangs a note.
+	if it.typ == database.TypeEmpty {
+		group = []string{emptyLine(r, maxLine, o.selected && m.mode != modeFlash)}
+		bands = m.noteBandLines(r, maxLine, o.below, noteCaret)
+		if o.interactive {
+			bands = append(bands, m.suggestBlockLines(r, o.below, maxLine)...)
+		}
+		return group, bands
+	}
+
+	// a divider is a full-width rule hiding the glyph; its text (if any) sits on
+	// the midpoint of the rule and edits inline like any node — it still hangs a
+	// note. A text wider than the row wraps under the tree rail.
+	if it.typ == database.TypeDivider {
+		shown := tr.resolve(it)
+		name := tr.displayName(it)
+		caret := -1
+		// only a named divider carries a caret slot on the rule — an empty one
+		// stays a clean rule (the red rule is itself the selection cue)
+		if o.selected && name != "" && m.mode != modeNote && m.mode != modeFlash {
+			caret = m.caret
+		}
+		body := renderBody(shown, name, caret, o.selected, m.chips)
+		line := dividerLine(r, maxLine, body, o.selected && m.mode != modeFlash)
+		group = wrapLine(line, maxLine, continuationPrefix(r, o.below))
+		bands = m.noteBandLines(r, maxLine, o.below, noteCaret)
+		if o.interactive {
+			bands = append(bands, m.suggestBlockLines(r, o.below, maxLine)...)
+		}
+		return group, bands
+	}
+
+	// a code-block node renders AS the borderless block, standing in for its row
+	// (no glyph/body line): the line-number gutter + code hang at the node's
+	// indent. While focused the block carries the edit caret.
+	if bc := typeOf(it.typ).blockCode; bc != nil {
+		if code, caret, ok := bc(m, it, o.selected && m.focused); ok {
+			inner := maxLine - visibleWidth(continuationPrefix(r, o.below))
+			content := codeBlockLines(code, caret, inner)
+			shown := tr.resolve(it)
+			glyph, glyphColor := glyphFor(shown)
+			if o.dashed && !r.mirrored {
+				glyph = glyphDotted
+			}
+			glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
+			if o.redGlyph {
+				glyphColor = cRed
+			}
+			group = m.blockGroupLines(r, content, o.below, glyphColor+glyph+cReset)
+			bands = m.noteBandLines(r, maxLine, o.below, noteCaret)
+			// runnable nodes (bash/query) hang their ephemeral output beneath them,
+			// block-faced ones included
+			bands = append(bands, m.runBandLines(r, o.below, maxLine)...)
+			if b := typeOf(it.typ).bands; b != nil {
+				bands = append(bands, b(m, r, o.below, maxLine)...)
+			}
+			if o.interactive {
+				bands = append(bands, m.suggestBlockLines(r, o.below, maxLine)...)
+			}
+			return group, bands
+		}
+	}
+
+	// the ordinary row-shaped face: glyph, wysiwyg body, dim suffix.
+	shown := tr.resolve(it)
+	glyph, glyphColor := glyphFor(shown)
+	if o.dashed && !r.mirrored {
+		glyph = glyphDotted // every Temporary Domain node shows a dashed icon
+	}
+	glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
+	if o.redGlyph {
+		glyphColor = cRed
+	}
+	name := tr.displayName(it)
+
+	// The caret is drawn on EVERY selected row, including the ones that refuse
+	// to be edited. A row you can put the cursor on and cannot see the cursor on
+	// reads as a row the editor has lost track of; where the caret sits is how
+	// you know which character the next key is aimed at, and a fixed row still
+	// answers that question — with "nothing happens".
+	caret := -1
+	if o.selected && m.mode != modeNote && m.mode != modeFlash {
+		caret = m.caret
+	}
+	body := renderBody(shown, name, caret, o.selected, m.chips)
+	if rm := typeOf(shown.typ).renderM; rm != nil {
+		body = rm(m, shown) // Model-aware override (voice waveform)
+	}
+	if o.interactive && it.queryGenerated() {
+		if it.readonly {
+			// Breadcrumb scaffolding is a real nested tree, but deliberately gray
+			// and content-locked because it is context, not a result.
+			body = cDim + stripSGR(body) + cReset
+		} else {
+			body = m.highlightQueryHit(it, name, body)
+		}
+	}
+
+	suffix := m.typeSuffix(r) + m.suggestInline(it)
+	// flash mode grays the whole outline so the colored action chips are the only
+	// highlights: dim the glyph, the body and the type suffix down to plain gray.
+	flash := o.interactive && m.mode == modeFlash
+	if flash {
+		glyphColor = cDim
+		body = cDim + stripSGR(body) + cReset
+		suffix = cDim + stripSGR(suffix) + cReset
+	}
+	line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
+	// flash mode hangs each row's action labels off the end of the line
+	if flash {
+		line += o.flashSuffix
+	}
+	group = wrapLine(line, maxLine, continuationPrefix(r, o.below))
+
+	bands = m.noteBandLines(r, maxLine, o.below, noteCaret)
+	// runnable nodes (bash/query) hang their ephemeral output beneath them. the
+	// focused bash node shows its full scrollable viewer (the nodeView band
+	// below) instead of this capped inline band, so don't render both
+	focusedView := o.interactive && o.selected && m.focused && m.activeView(it) != nil
+	if !focusedView {
+		bands = append(bands, m.runBandLines(r, o.below, maxLine)...)
+		if b := typeOf(it.typ).bands; b != nil {
+			bands = append(bands, b(m, r, o.below, maxLine)...)
+		}
+	}
+	if o.interactive {
+		// a proposal pending on this node hangs beneath it, unapplied, until
+		// alt+v review settles it — a live-editing surface, not part of the quit
+		// dump or a read-only region
+		bands = append(bands, m.suggestBandLines(r, o.below, maxLine)...)
+	}
+	// flash grays the note / run-output bands too, so nothing competes with the chips
+	if flash {
+		for k := range bands {
+			bands[k] = cDim + stripSGR(bands[k]) + cReset
+		}
+	}
+	return group, bands
+}
+
 // styleOutLine renders one captured output line. If the program emitted its own
 // ANSI color (a SGR escape is present), it is passed through faithfully so the
 // command's colors survive; an uncolored line falls back to muted gray, stderr

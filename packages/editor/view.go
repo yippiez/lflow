@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/lflow/lflow/packages/database"
 )
 
 // View implements tea.Model.
@@ -107,41 +105,18 @@ func (m *Model) View() string {
 }
 
 // finalView renders the complete tree with glyphs and connectors but no
-// cursor, caret or bottom bar. Long rows wrap.
+// cursor, caret or bottom bar. Long rows wrap. It shares renderRow with the
+// live outline and the read-only regions — a code block, a run-output band
+// and a mirror's own glyph all render exactly as they do live, since this is
+// what the terminal scrollback keeps forever.
 func (m *Model) finalView(maxLine int) []string {
 	var lines []string
 	allRows := m.tree.allRows()
 	for i, r := range allRows {
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
-		if r.it.typ == database.TypeEmpty {
-			lines = append(lines, emptyLine(r, maxLine, false))
-			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
-			continue
-		}
-		if r.it.typ == database.TypeDivider {
-			shown := m.renderItem(r.it)
-			name := m.tree.displayName(r.it)
-			body := renderBody(shown, name, -1, false, m.chips)
-			line := dividerLine(r, maxLine, body, false)
-			lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
-			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
-			continue
-		}
-		shown := m.renderItem(r.it)
-		glyph, glyphColor := glyphFor(shown)
-		name := m.tree.displayName(r.it)
-		body := renderBody(shown, name, -1, false, m.chips)
-		if rm := typeOf(shown.typ).renderM; rm != nil {
-			body = rm(m, shown)
-		}
-		glyph, glyphColor = m.suggestGlyph(r.it, glyph, glyphColor)
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body +
-			m.typeSuffix(r) + m.suggestInline(r.it)
-		lines = append(lines, wrapLine(line, maxLine, continuationPrefix(r, below))...)
-		lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
-		if b := typeOf(r.it.typ).bands; b != nil {
-			lines = append(lines, b(m, r, below, maxLine)...)
-		}
+		group, bands := m.renderRow(m.tree, r, rowOpts{below: below, maxLine: maxLine})
+		lines = append(lines, group...)
+		lines = append(lines, bands...)
 	}
 	return lines
 }
@@ -176,171 +151,31 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 	groups = make([][]string, len(rows))
 	bands = make([][]string, len(rows))
 	for i, r := range rows {
-		it := r.it
 		selected := i == m.cursor
-
-		// an empty node is a blank spacer row: no glyph, no rule, no text — the
-		// cursor cue is a single red · (see emptyLine). It still hangs a note.
-		if it.typ == database.TypeEmpty {
-			below := i+1 < len(rows) && rows[i+1].depth > r.depth
-			line := emptyLine(r, maxLine, selected && m.mode != modeFlash)
-			if m.inSelection(i) {
-				line = selFill(line, maxLine)
-			}
-			groups[i] = []string{line}
-			noteCaret := -1
-			if selected && m.mode == modeNote {
-				noteCaret = m.caret
-			}
-			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-			bands[i] = append(bands[i], m.suggestBlockLines(r, below, maxLine)...)
-			continue
-		}
-
-		// a divider is a full-width rule hiding the glyph; its text (if any) sits
-		// on the midpoint of the rule and edits inline like any node — it still
-		// hangs a note. A text wider than the row wraps under the tree rail.
-		if it.typ == database.TypeDivider {
-			below := i+1 < len(rows) && rows[i+1].depth > r.depth
-			shown := m.renderItem(it)
-			name := m.tree.displayName(it)
-			caret := -1
-			// only a named divider carries a caret slot on the rule — an empty
-			// one stays a clean rule (the red rule is itself the selection cue)
-			if selected && name != "" && m.mode != modeNote && m.mode != modeFlash {
-				caret = m.caret
-			}
-			body := renderBody(shown, name, caret, selected, m.chips)
-			line := dividerLine(r, maxLine, body, selected && m.mode != modeFlash)
-			groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
-			if m.inSelection(i) {
-				for j, l := range groups[i] {
-					groups[i][j] = selFill(l, maxLine)
-				}
-			}
-			noteCaret := -1
-			if selected && m.mode == modeNote {
-				noteCaret = m.caret
-			}
-			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-			bands[i] = append(bands[i], m.suggestBlockLines(r, below, maxLine)...)
-			continue
-		}
-
-		// a code-block node renders AS the borderless block, standing in for its row
-		// (no glyph/body line): the line-number gutter + code hang at the node's
-		// indent. While focused the block carries the edit caret (viewFocusedBand
-		// then skips it — the group already shows it).
-		if bc := typeOf(it.typ).blockCode; bc != nil {
-			if code, caret, ok := bc(m, it, selected && m.focused); ok {
-				below := i+1 < len(rows) && rows[i+1].depth > r.depth
-				inner := maxLine - visibleWidth(continuationPrefix(r, below))
-				content := codeBlockLines(code, caret, inner)
-				glyph, glyphColor := glyphFor(it)
-				if m.tempActive && !r.mirrored {
-					glyph = glyphDotted
-				}
-				glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
-				if selected || m.inSelection(i) {
-					glyphColor = cRed
-				}
-				groups[i] = m.blockGroupLines(r, content, below, glyphColor+glyph+cReset)
-				if m.inSelection(i) {
-					for j := range groups[i] {
-						groups[i][j] = selFill(groups[i][j], maxLine)
-					}
-				}
-				noteCaret := -1
-				if selected && m.mode == modeNote {
-					noteCaret = m.caret
-				}
-				bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-				bands[i] = append(bands[i], m.suggestBlockLines(r, below, maxLine)...)
-				continue
-			}
-		}
-
-		shown := m.renderItem(it)
-		glyph, glyphColor := glyphFor(shown)
-		if m.tempActive && !r.mirrored {
-			glyph = glyphDotted // every Temporary Domain node shows a dashed icon
-		}
-		glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
-		if selected || m.inSelection(i) {
-			glyphColor = cRed
-		}
-		name := m.tree.displayName(it)
-
-		// The caret is drawn on EVERY selected row, including the ones that refuse
-		// to be edited. A row you can put the cursor on and cannot see the cursor
-		// on reads as a row the editor has lost track of; where the caret sits is
-		// how you know which character the next key is aimed at, and a fixed row
-		// still answers that question — with "nothing happens".
-		caret := -1
-		if selected && m.mode != modeNote && m.mode != modeFlash {
-			caret = m.caret
-		}
-		body := renderBody(shown, name, caret, selected, m.chips)
-		if rm := typeOf(shown.typ).renderM; rm != nil {
-			body = rm(m, shown) // Model-aware override (voice waveform)
-		}
-		if it.queryGenerated() {
-			if it.readonly {
-				// Breadcrumb scaffolding is a real nested tree, but deliberately
-				// gray and content-locked because it is context, not a result.
-				body = cDim + stripSGR(body) + cReset
-			} else {
-				body = m.highlightQueryHit(it, name, body)
-			}
-		}
-
-		suffix := m.typeSuffix(r) + m.suggestInline(it)
-		// flash mode grays the whole outline so the colored action chips are the only
-		// highlights: dim the glyph, the body and the type suffix down to plain gray.
-		if m.mode == modeFlash {
-			glyphColor = cDim
-			body = cDim + stripSGR(body) + cReset
-			suffix = cDim + stripSGR(suffix) + cReset
-		}
-		line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
-		// flash mode hangs each row's action labels off the end of the line
-		if m.mode == modeFlash {
-			line += m.flashRowSuffix(i)
-		}
-
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
-		groups[i] = wrapLine(line, maxLine, continuationPrefix(r, below))
+		flashSuffix := ""
+		if m.mode == modeFlash {
+			flashSuffix = m.flashRowSuffix(i)
+		}
+		o := rowOpts{
+			selected: selected,
+			// the shift+↑/↓ multi-select range turns the glyph/rule red the same
+			// way the single cursor row does — glyph-bearing rows only (an empty
+			// or divider row has no glyph to redden; its rule/cue reads off
+			// selected alone, see renderRow)
+			redGlyph:    selected || m.inSelection(i),
+			dashed:      m.tempActive,
+			interactive: true,
+			flashSuffix: flashSuffix,
+			below:       below,
+			maxLine:     maxLine,
+		}
+		groups[i], bands[i] = m.renderRow(m.tree, r, o)
 		// the shift+↑/↓ selection reads as one solid block: every selected row
 		// (wrapped continuations included) gets the full-width blue bar
 		if m.inSelection(i) {
 			for j, l := range groups[i] {
 				groups[i][j] = selFill(l, maxLine)
-			}
-		}
-		// the note hangs beneath the node as a tinted band; on the selected row in
-		// note mode that same band becomes the editing surface (block cursor)
-		noteCaret := -1
-		if selected && m.mode == modeNote {
-			noteCaret = m.caret
-		}
-		bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
-		// runnable nodes (bash/query) hang their ephemeral output beneath them.
-		// the focused bash node shows its full scrollable viewer (the nodeView band
-		// below) instead of this capped inline band, so don't render both
-		focusedView := m.focused && i == m.cursor && m.activeView(it) != nil
-		if !focusedView {
-			bands[i] = append(bands[i], m.runBandLines(r, below, maxLine)...)
-			if b := typeOf(it.typ).bands; b != nil {
-				bands[i] = append(bands[i], b(m, r, below, maxLine)...)
-			}
-		}
-		// a proposal pending on this node hangs beneath it, unapplied, until
-		// alt+v review settles it
-		bands[i] = append(bands[i], m.suggestBandLines(r, below, maxLine)...)
-		// flash grays the note / run-output bands too, so nothing competes with the chips
-		if m.mode == modeFlash {
-			for k := range bands[i] {
-				bands[i][k] = cDim + stripSGR(bands[i][k]) + cReset
 			}
 		}
 	}
@@ -765,9 +600,9 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	state := ""
 	if m.unsaved {
-		// with a daemon the edits auto-flush in ~1s: the moment is "syncing",
-		// not a warning about unsaved work
-		if m.live != nil {
+		// with a daemon — or a file session's onSave — the edits auto-flush in
+		// ~1s: the moment is "syncing", not a warning about unsaved work
+		if m.live != nil || m.onSave != nil {
 			state = " · syncing"
 		} else {
 			state = " · unsaved"
