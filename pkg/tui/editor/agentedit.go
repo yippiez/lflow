@@ -14,16 +14,16 @@ import (
 //	⌥c  recolor it  — the shared swatch picker, like a tag chip's
 //
 // Neither touches the row's text: a chip's name and color are its own, stored in
-// LOCAL node_output beside the session id. ⌥r opens the session; those three are
-// the whole vocabulary.
+// LOCAL node_output beside the session id and never written back into the CLI's
+// store. ⌥r opens the session; those three are the whole vocabulary.
 
 // openAgentRename focuses the chip and opens its name field straight away, so
 // ⌥n is one keystroke rather than ⌥e then n.
 func (m *Model) openAgentRename(c database.Chip) {
 	m.focusAgentChip(c)
 	s := m.agentLoad(c.ID)
-	// a session still wearing its CLI's name opens an EMPTY field: typing replaces
-	// rather than appends, and empty already means "follow the CLI"
+	// a session still wearing its imported name opens an EMPTY field: typing
+	// replaces rather than appends, and empty already means "the imported title"
 	f := &textField{value: s.Name}
 	f.caret = len([]rune(f.value))
 	m.nodeStore(c.ID)["agentRename"] = f
@@ -114,11 +114,9 @@ func (agentColorSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// agentSetColor records YOUR color for a chip ("" = back to whatever the CLI or
-// the variant says) and republishes its look. It is then pushed into the CLI's
-// own store for the one CLI that keeps a color of its own; for the others it
-// stays here, which recolors the chip exactly the same — the color is simply
-// lflow's alone.
+// agentSetColor records YOUR color for a chip ("" = back to the variant's own)
+// and republishes its look. It stays here: the chip's color is lflow's record of
+// the session, never written into the CLI's store.
 func (m *Model) agentSetColor(id, color string) {
 	s := m.agentLoad(id)
 	s.Color = color
@@ -136,5 +134,5 @@ func (m *Model) agentSetColor(id, color string) {
 		m.flash = "color · " + color
 		return
 	}
-	m.flash = color + " · " + m.agentPushIdent(v, s, agentIdent{color: color}, "recolored")
+	m.flash = color + " · recolored here"
 }

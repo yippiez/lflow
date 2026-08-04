@@ -29,9 +29,11 @@ import (
 // to. /agents lists every session in the outline, live ones first.
 //
 // WARNING (invariant): lflow never copies a conversation into the outline. A chip
-// or Agent node stores only {variant, cwd, session id} in LOCAL node_output — never
-// in the chip/node row, never synced. Expanded trace rows are virtual and read-only;
-// the session's name, color, state and messages come from the CLI's own store.
+// or Agent node stores only {variant, cwd, session id} plus the name and color it
+// imported, in LOCAL node_output — never in the chip/node row, never synced.
+// Expanded trace rows are virtual and read-only; the messages come from the CLI's
+// own store. Identity travels ONE WAY and ONCE: read at the moment a chip is
+// pointed at a session, never re-read, and never written back.
 
 // agentVariant declares one agentic coding CLI lflow can host a session for.
 // Adding a CLI is one entry in this table and nothing else.
@@ -70,17 +72,17 @@ type agentVariant struct {
 	// its name into the session record itself, where agentReadMeta finds it.
 	idents func() map[string]agentIdent
 
-	// hasColor declares that this CLI records a color OF ITS OWN for a session, so
-	// ⌥c can push one back into its store. For a CLI without one the chip's color
-	// is lflow's alone: still yours to set, just never written anywhere else.
+	// hasColor declares that this CLI records a color OF ITS OWN for a session,
+	// so the picker can offer a session in the color its CLI gives it and a chip
+	// can import that color when it is picked. A CLI without one simply starts
+	// its chips in the agent's default; ⌥c works the same either way.
 	hasColor bool
-
-	// writeIdent pushes a name and/or color back into the CLI's OWN store, so a
-	// session renamed or recolored here reads that way in the CLI too. An empty
-	// field is left alone; a nil hook means this CLI's identity is read-only to
-	// lflow and the change stays local to the chip. See agentPushIdent.
-	writeIdent func(sessionID, path string, want agentIdent) error
 }
+
+// WARNING (invariant): lflow READS the CLIs' stores and never writes to them.
+// Names and colors travel one way — imported once, at the moment a chip is
+// pointed at a session (see agentAttach). There is deliberately no hook here for
+// writing one back.
 
 // agentMono is the fill for an agent whose brand names no color — a black mark on
 // white. The pill is that mark: black fill, white ink, which contrastInk arrives
@@ -120,16 +122,14 @@ var agentVariants = []agentVariant{
 				registryIdents(homeStores(".claude/sessions")),
 			)
 		},
-		hasColor:   true,
-		writeIdent: claudeWriteIdent,
-		exts:       []string{".jsonl"},
+		hasColor: true,
+		exts:     []string{".jsonl"},
 	},
 	{
 		id: "pi", label: "Pi", bin: "pi",
 		glyph: "ᴘɪ", color: "purple",
 		args:         func(id string) []string { return []string{"--session-id", id} },
 		sessionRoots: func() []string { return homeStores(".pi/agent/sessions", ".pi/sessions", "<data>/pi/sessions") },
-		writeIdent:   piWriteIdent,
 		exts:         []string{".jsonl", ".json"},
 	},
 	{
@@ -140,7 +140,6 @@ var agentVariants = []agentVariant{
 		// layouts, one such pair per project), so discovery is pinned to the session
 		// side.
 		sessionRoots: func() []string { return homeStores("<data>/opencode/storage", "<data>/opencode/project") },
-		writeIdent:   opencodeWriteIdent,
 		exts:         []string{".json"},
 		sessionPath:  "/session/",
 	},
@@ -188,14 +187,22 @@ type agentSession struct {
 	Variant   string `json:"variant"`
 	Cwd       string `json:"cwd,omitempty"`
 	SessionID string `json:"session,omitempty"`
-	Title     string `json:"title,omitempty"` // last name read from the CLI's store
+	// Title is the name the CLI had for the session AT THE MOMENT it was picked —
+	// a snapshot, not a subscription. The CLI is free to rename it afterwards; the
+	// chip keeps reading what you filed.
+	Title string `json:"title,omitempty"`
 	// Name is the user's OWN name for this session, like a link chip's name: set
-	// it and the chip reads that instead of whatever the CLI calls the session.
-	// Empty = follow the CLI's live name.
+	// it and the chip reads that instead of the imported title.
 	Name string `json:"name,omitempty"`
-	// Color is the user's OWN color for this chip (⌥c), a /style swatch name.
-	// Empty = the variant's default. Local like the rest of this record.
+	// Color is the chip's color, a /style swatch name: imported from the CLI when
+	// the session was picked, replaced by whatever you choose with ⌥c. Empty = the
+	// variant's default.
 	Color string `json:"color,omitempty"`
+	// Snapshot records that the identity above was taken from the CLI already, so
+	// it is never taken again. It is what makes "imported once" different from
+	// "imported every frame": without it, a chip whose CLI records no color at all
+	// would go looking for one forever.
+	Snapshot bool `json:"snapshot,omitempty"`
 }
 
 // agentLoad reads a chip's session data, memory-cached in the node store: the
@@ -280,21 +287,19 @@ func (m *Model) agentIdentOf(v agentVariant, sessionID string) agentIdent {
 // agentTitle is the session's display name, in priority order:
 //
 //	the user's own name for it (like a link chip's name)
-//	→ the name the CLI gave the running session (its registry)
-//	→ the name in the CLI's store — so a session renamed inside the CLI reads
-//	  renamed here too
-//	→ the last name seen → "session <id>".
+//	→ the name imported when the session was picked
+//	→ "session <id>".
+//
+// Nothing here reads the CLI. A chip's identity is a SNAPSHOT taken the moment
+// you pointed it at a session, not a live view of one: renaming a session in pi
+// or Claude Code afterwards leaves this outline exactly as you left it, the same
+// way lflow never writes a name of yours back into their stores. Two tools that
+// each keep editing the other's labels is a fight, not a feature.
 //
 // Pure: it is called from the render path, which never writes.
 func (m *Model) agentTitle(id string, v agentVariant, s agentSession) string {
 	if s.Name != "" {
 		return s.Name
-	}
-	if reg, ok := m.agentRegOf(v, s.SessionID); ok && reg.name != "" {
-		return reg.name
-	}
-	if meta := m.agentMeta(id, v, s); meta.title != "" {
-		return meta.title
 	}
 	if s.Title != "" {
 		return s.Title
@@ -305,42 +310,18 @@ func (m *Model) agentTitle(id string, v agentVariant, s agentSession) string {
 	return "session " + agentShortID(s.SessionID)
 }
 
-// agentRegOf looks a session up in its CLI's live registry (cached briefly —
-// the registry is a handful of small files, but the render path asks per frame).
-func (m *Model) agentRegOf(v agentVariant, sessionID string) (agentReg, bool) {
-	if sessionID == "" || v.registryRoots == nil {
-		return agentReg{}, false
-	}
-	store := m.nodeStore("agent.registry." + v.id)
-	regs, _ := store["regs"].(map[string]agentReg)
-	at, _ := store["at"].(time.Time)
-	if regs == nil || time.Since(at) > 3*time.Second {
-		regs = agentRegistry(v.registryRoots())
-		store["regs"], store["at"] = regs, time.Now()
-	}
-	reg, ok := regs[sessionID]
-	return reg, ok
-}
-
 // agentColorFor is the color a chip is drawn in, in priority order:
 //
-//	the one YOU picked with ⌥c
-//	→ the one the CLI gave the session, for the one CLI that records one
-//	  (Claude Code, in its job store) — so a session recolored inside the CLI
-//	  reads recolored here too
+//	the chip's own color — the one imported when the session was picked, or the
+//	one YOU picked with ⌥c since
 //	→ the variant's own default.
 //
-// Pi and opencode record no color at all. That does not make ⌥c any less
-// effective on their chips: it simply means the color is lflow's alone and is
-// never written back anywhere. Pure — it is called from the render path.
+// Like the name, it is a snapshot: the CLI's color is read once, at the moment
+// you point a chip at a session, and never again. Pure — the render path calls
+// it, and the render path never writes.
 func (m *Model) agentColorFor(id string, v agentVariant, s agentSession) string {
 	if s.Color != "" {
 		if c := agentColorSGR(s.Color); c != "" {
-			return c
-		}
-	}
-	if meta := m.agentMeta(id, v, s); meta.color != "" {
-		if c := agentColorSGR(meta.color); c != "" {
 			return c
 		}
 	}
@@ -474,8 +455,17 @@ func (m *Model) handleAgentClosed(msg agentClosedMsg) {
 	}
 	s := m.agentLoad(msg.id)
 	s.Variant = v.id
-	if meta := agentReadMeta(v.id, agentSessionPath(v.sessionDirs(), v.exts, s.SessionID)); meta.title != "" {
-		s.Title = meta.title
+	// A session STARTED from lflow has no name until the CLI gives it one, so the
+	// first landing is where its identity is taken — the same snapshot attaching
+	// makes, just at the only moment this chip has one to take. Every landing
+	// after that leaves it alone: the CLI does not get to keep relabelling a node.
+	if !s.Snapshot {
+		if meta := agentReadMeta(v.id, agentSessionPath(v.sessionDirs(), v.exts, s.SessionID)); meta.title != "" {
+			s.Title, s.Snapshot = meta.title, true
+			if s.Color == "" {
+				s.Color = meta.color
+			}
+		}
 	}
 	m.agentSave(msg.id, s)
 	delete(m.nodeStore(msg.id), "agentMeta") // the session moved - re-read it
@@ -495,6 +485,11 @@ func (m *Model) handleAgentClosed(msg agentClosedMsg) {
 
 // agentAttach points a chip at an EXISTING session from the CLI's own store —
 // the "I already have this conversation, file it here" path.
+//
+// This is the one moment the CLI's idea of the session's identity crosses into
+// lflow: its name and color are COPIED here and the link is cut. A rename you
+// made in lflow belonged to whatever session used to be here, so it goes with
+// it — attaching is picking a session, not editing the one already attached.
 func (m *Model) agentAttach(id string, sess agentStoreSession) {
 	v, ok := agentVariantByID(sess.variant)
 	if !ok {
@@ -502,67 +497,48 @@ func (m *Model) agentAttach(id string, sess agentStoreSession) {
 	}
 	s := m.agentLoad(id)
 	s.Variant, s.SessionID, s.Title = v.id, sess.id, sess.title
+	s.Name, s.Color, s.Snapshot = "", sess.color, true
 	if sess.cwd != "" {
 		s.Cwd = sess.cwd
+	}
+	delete(m.nodeStore(id), "agentMeta")
+	// A picker row already carries what the store says, but a caller that knows
+	// only the session id must not end up with a nameless, default-colored chip:
+	// whatever the row did not bring, the store is asked for once, here, while
+	// this is still the moment the snapshot is being taken.
+	if s.SessionID != "" && (s.Title == "" || s.Color == "") {
+		meta := m.agentMeta(id, v, s)
+		if s.Title == "" {
+			s.Title = meta.title
+		}
+		if s.Color == "" {
+			s.Color = meta.color
+		}
 	}
 	if s.Cwd == "" {
 		s.Cwd = processCWD()
 	}
 	m.agentSave(id, s)
-	delete(m.nodeStore(id), "agentMeta")
 	m.refreshAgentChip(id)
 }
 
 // agentRename sets (or clears, with "") the user's own name for a session — the
-// chip's name, exactly like a link chip's. Clearing it hands the name back to
-// the CLI's live name.
+// chip's name, exactly like a link chip's. Clearing it falls back to the title
+// imported when the session was picked.
+//
+// The rename stays HERE. lflow does not write names or colors into pi's or
+// Claude Code's stores: their transcripts are their record of their own work,
+// and a note taker that edits them is a note taker you cannot trust with them.
 func (m *Model) agentRename(id, name string) {
 	s := m.agentLoad(id)
 	s.Name = strings.TrimSpace(name)
 	m.agentSave(id, s)
-	delete(m.nodeStore(id), "agentMeta")
 
-	v, ok := agentVariantByID(s.Variant)
-	if !ok {
-		m.refreshAgentChip(id)
-		return
-	}
-	// then push it down into the CLI's own store, so the two agree. A store lflow
-	// cannot write keeps the name here and nowhere else, which is the whole reason
-	// the local name exists and wins.
-	m.flash = m.agentPushIdent(v, s, agentIdent{name: s.Name}, "renamed")
+	m.flash = "renamed here"
 	m.refreshAgentChip(id)
-	m.publishAgentLook(id, v)
-}
-
-// agentPushIdent writes a name and/or color back into the CLI's own store and
-// returns the line to flash: what happened, and where it happened. A change is
-// always kept HERE first and only then offered to the CLI, so a store that
-// refuses one still leaves the chip reading the way you set it.
-//
-// verb names the change ("renamed", "recolored") so one function answers for
-// both without the caller assembling prose.
-func (m *Model) agentPushIdent(v agentVariant, s agentSession, want agentIdent, verb string) string {
-	here := verb + " here"
-	if v.writeIdent == nil || s.SessionID == "" {
-		return here
+	if v, ok := agentVariantByID(s.Variant); ok {
+		m.publishAgentLook(id, v)
 	}
-	if want.name == "" && want.color == "" {
-		return here // cleared back to the CLI's own; nothing to push
-	}
-	// a color goes only to a CLI that keeps one. Pushing lflow's color into a
-	// store with no field for it would either be dropped or invent one.
-	if !v.hasColor {
-		want.color = ""
-		if want.name == "" {
-			return here + " · " + v.label + " records no color"
-		}
-	}
-	path := agentSessionPath(v.sessionDirs(), v.exts, s.SessionID)
-	if err := v.writeIdent(s.SessionID, path, want); err != nil {
-		return here + " · " + v.label + ": " + err.Error()
-	}
-	return here + " and in " + v.label
 }
 
 // ── the chip ───────────────────────────────────────────────────────────────
@@ -659,8 +635,8 @@ func (m *Model) runAgentChip(c database.Chip) tea.Cmd {
 }
 
 // refreshAgentChip refreshes a chip's inline label — the name the pill shows:
-// the user's own name for the session when it has one, else the session's live
-// name, so a session renamed inside its CLI reads renamed here too. A hosted
+// the user's own name for the session when it has one, else the title imported
+// when the session was picked. A hosted
 // session's label carries the cloud mark. Like the cmd chip's run preview the
 // label is mutated IN MEMORY only and never written to the chips table: the
 // variant persists, the session's chrome does not (it is local to this machine).
@@ -699,10 +675,33 @@ func (m *Model) hydrateAgentChips() {
 			continue
 		}
 		if v, ok := agentVariantByID(c.Value); ok {
+			m.importAgentIdent(id, v)
 			m.publishAgentLook(id, v)
 		}
 		m.refreshAgentChip(id)
 	}
+}
+
+// importAgentIdent takes a chip's identity snapshot if it never had one — the
+// chips filed before identity was a snapshot, which read the CLI's color live
+// on every frame. Without this they would all revert to their agent's default
+// color at once, which is a chip changing appearance for no reason the user did.
+// It runs a single time per chip: Snapshot is set whether or not the store had
+// anything to give.
+func (m *Model) importAgentIdent(id string, v agentVariant) {
+	s := m.agentLoad(id)
+	if s.Snapshot || s.SessionID == "" {
+		return
+	}
+	meta := m.agentMeta(id, v, s)
+	if s.Title == "" {
+		s.Title = meta.title
+	}
+	if s.Color == "" {
+		s.Color = meta.color
+	}
+	s.Snapshot = true
+	m.agentSave(id, s)
 }
 
 // agentChipDisplay is the chip's compact form — what every surface OUTSIDE the

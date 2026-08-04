@@ -2,8 +2,6 @@ package editor
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,20 +17,20 @@ import (
 
 // Reading the CLI agents' OWN session stores. lflow never keeps a copy of a
 // conversation: a session chip stores only which CLI and which session id it
-// points at, and what it shows about that session — its name, whether it is
-// running, the color the CLI gave it — is read back out of the CLI's store on
-// demand (see agent.go for the chip side). The conversation itself is never read:
-// it belongs to the CLI.
+// points at. What this file reads — a session's name, its color, whether it is
+// running — fills the "attach an existing session" picker and is COPIED into a
+// chip at the moment one is picked (see agent.go for the chip side). After that
+// the chip is on its own; nothing here is consulted for it again.
 //
 // Every reader here is deliberately TOLERANT. Each CLI writes its own record
 // shape, and those shapes move between releases; a record we cannot read is
 // skipped, a store we cannot find degrades to "no session found", and nothing
 // here ever fails a render.
 //
-// One writer lives here and only one: opencodeRename, which edits the "title" of
-// an opencode session record because that store is a single small JSON object and
-// that field is exactly what its own UI edits. Nothing else writes into a CLI's
-// store, and no writer ever touches a conversation.
+// Nothing here writes. lflow reads the CLIs' stores and leaves them exactly as
+// it found them: a name or color you set on a chip is lflow's own record of the
+// session, kept in node_output beside the chip, and it never travels back down
+// into pi's, Claude Code's or opencode's files.
 
 const (
 	agentScanCap   = 400                 // most session files one discovery scan reads
@@ -829,226 +827,4 @@ func parseHexColor(v string) (int, int, int, bool) {
 		rgb[i] = n
 	}
 	return rgb[0], rgb[1], rgb[2], true
-}
-
-// ── writing back ───────────────────────────────────────────────────────────
-//
-// Renaming or recoloring a chip pushes the change down into the CLI's own store,
-// so the two agree rather than lflow keeping a private label. Each CLI takes it
-// where its own format allows, and no writer here ever touches a conversation:
-//
-//	claude    the job record's "name" and "color" — the only CLI of the three
-//	          that keeps a color. Refused while the session is RUNNING, because
-//	          that file belongs to the process writing it.
-//	pi        an appended session_info record, which is exactly what pi writes
-//	          when you rename in it. Names only; pi records no color.
-//	opencode  the session record's "title". Names only.
-//
-// Every rewrite round-trips the whole object and replaces it atomically, so a
-// field lflow does not know about survives untouched.
-
-// opencodeWriteIdent writes a new title into an opencode session record: a
-// single small JSON object whose "title" is exactly what its own UI edits.
-func opencodeWriteIdent(_, path string, want agentIdent) error {
-	if want.name == "" {
-		return nil // opencode records no color, so there is nothing else to write
-	}
-	return rewriteJSON(path, func(rec map[string]any) error {
-		if _, ok := rec["title"]; !ok {
-			return fmt.Errorf("no title to rename")
-		}
-		rec["title"] = want.name
-		return nil
-	})
-}
-
-// piWriteIdent appends a session_info record naming the session — the same
-// record pi itself appends on a rename, and the last one written is the name
-// that counts. Appending is why this is safe: nothing already in the transcript
-// is rewritten, and a session pi has open sees the record the way it sees its
-// own.
-func piWriteIdent(_, path string, want agentIdent) error {
-	if want.name == "" {
-		return nil // pi records no color
-	}
-	rec := map[string]any{
-		"type":      "session_info",
-		"id":        randomHex(8),
-		"parentId":  nil,
-		"timestamp": time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
-		"name":      want.name,
-	}
-	line, err := json.Marshal(rec)
-	if err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := f.Write(append(line, '\n')); err != nil {
-		return err
-	}
-	return f.Close()
-}
-
-// claudeWriteIdent writes a name and/or color into Claude Code's job record —
-// the place its own UI reads both from.
-//
-// It REFUSES while the session is running. That file is live state belonging to
-// the process writing it (its status, its in-flight counts, its clock all move
-// during a run), and replacing it under that process could drop an update it
-// made a moment ago. A finished session's record is nobody's to lose.
-func claudeWriteIdent(sessionID, path string, want agentIdent) error {
-	if want.name == "" && want.color == "" {
-		return nil
-	}
-	wrote := false
-
-	// The transcript first, because that is where an INTERACTIVE session's name
-	// and color live and most sessions are that. Appending is what Claude Code
-	// itself does on every rename, and these records carry no parent link, so one
-	// more of them changes nothing about the conversation's shape.
-	if path != "" {
-		if err := claudeAppendIdent(path, sessionID, want); err != nil {
-			return err
-		}
-		wrote = true
-	}
-
-	// then the job record, for a session that was DISPATCHED as one — that is
-	// where Claude Code's own agent list reads from, so the two must agree.
-	if job := claudeJobPath(homeStores(".claude/jobs"), sessionID); job != "" {
-		// the registry is read here rather than passed in: a write-back is
-		// something you do by hand, not something a frame does
-		if reg, ok := agentRegistry(homeStores(".claude/sessions"))[sessionID]; ok && reg.live {
-			if !wrote {
-				return fmt.Errorf("the session is running — Claude Code owns its job record while it does")
-			}
-			return nil // the transcript took it; the job record is the running one's
-		}
-		if err := rewriteJSON(job, func(rec map[string]any) error {
-			if want.name != "" {
-				rec["name"] = want.name
-				rec["nameSource"] = "user" // what Claude Code stamps on a name you chose
-			}
-			if want.color != "" {
-				rec["color"] = want.color
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
-		wrote = true
-	}
-
-	if !wrote {
-		return fmt.Errorf("no record found for this session")
-	}
-	return nil
-}
-
-// claudeAppendIdent appends the records Claude Code writes when you rename or
-// recolor a session: a name goes in as both custom-title and agent-name, which
-// is the pair it writes together, and a color as agent-color. Each is written
-// afresh on every change and the last in the file wins, so appending IS the
-// edit — nothing already in the transcript is touched.
-func claudeAppendIdent(path, sessionID string, want agentIdent) error {
-	var recs []map[string]any
-	if want.name != "" {
-		recs = append(recs,
-			map[string]any{"type": "custom-title", "customTitle": want.name, "sessionId": sessionID},
-			map[string]any{"type": "agent-name", "agentName": want.name, "sessionId": sessionID},
-		)
-	}
-	if want.color != "" {
-		recs = append(recs,
-			map[string]any{"type": "agent-color", "agentColor": want.color, "sessionId": sessionID},
-		)
-	}
-	if len(recs) == 0 {
-		return nil
-	}
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	for _, rec := range recs {
-		line, err := json.Marshal(rec)
-		if err != nil {
-			return err
-		}
-		if _, err := f.Write(append(line, '\n')); err != nil {
-			return err
-		}
-	}
-	return f.Close()
-}
-
-// claudeJobPath finds the job record for a session id. The directory is named
-// for a short form of the id, but that is read as a hint rather than a rule: the
-// sessionId inside each record is what actually answers.
-func claudeJobPath(roots []string, sessionID string) string {
-	if sessionID == "" {
-		return ""
-	}
-	for _, root := range roots {
-		entries, err := os.ReadDir(root)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			p := filepath.Join(root, e.Name(), "state.json")
-			for _, rec := range agentReadRecords(p, agentMetaCap) {
-				if agentString(rec, "sessionId") == sessionID || agentString(rec, "resumeSessionId") == sessionID {
-					return p
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// rewriteJSON applies edit to a JSON object file and replaces it atomically,
-// keeping every key the edit did not touch.
-func rewriteJSON(path string, edit func(map[string]any) error) error {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	var rec map[string]any
-	if err := json.Unmarshal(b, &rec); err != nil {
-		return fmt.Errorf("unreadable session record")
-	}
-	if err := edit(rec); err != nil {
-		return err
-	}
-	out, err := json.Marshal(rec)
-	if err != nil {
-		return err
-	}
-	tmp := path + ".lflow.tmp"
-	if err := os.WriteFile(tmp, out, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-// randomHex is the id shape pi stamps on a record it appends.
-func randomHex(n int) string {
-	b := make([]byte, (n+1)/2)
-	if _, err := rand.Read(b); err != nil {
-		return strconv.FormatInt(time.Now().UnixNano(), 16)[:n]
-	}
-	return hex.EncodeToString(b)[:n]
 }

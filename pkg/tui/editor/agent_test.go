@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -285,14 +284,20 @@ func TestAgentChipPill(t *testing.T) {
 }
 
 // TestAgentChipCustomName: like a link chip, a session can be given the user's
-// own name — and the name reaches the CLI's own store, so clearing the local one
-// finds the CLI already calling the session that.
+// own name. It stays HERE — the CLI's own store is never written to — and
+// clearing it falls back to the title imported when the session was picked.
 func TestAgentChipCustomName(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser)
 	c := variant(t, "claude")
 	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, title: "fix the flaky sync test"})
 	cur := m.tree.byUUID["note"]
+
+	path := agentSessionPath(c.sessionDirs(), c.exts, id)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	m.agentRename(chip.ID, "flush fix")
 	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ flush fix") {
@@ -301,16 +306,22 @@ func TestAgentChipCustomName(t *testing.T) {
 	if s := m.agentLoad(chip.ID); s.Name != "flush fix" {
 		t.Errorf("stored name = %q", s.Name)
 	}
-	// the rename went DOWN into Claude Code's own store, so the session is
-	// called that there too
-	path := agentSessionPath(c.sessionDirs(), c.exts, id)
-	if meta := agentReadMeta(c.id, path); meta.title != "flush fix" {
-		t.Errorf("the CLI's store reads %q, want the rename to have reached it", meta.title)
+	m.agentSetColor(chip.ID, "green")
+
+	// neither the rename nor the recolor touched Claude Code's transcript
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// clearing the local name hands the name back to the CLI — which now agrees
+	if string(after) != string(before) {
+		t.Errorf("lflow wrote into the CLI's own store:\n%s", string(after))
+	}
+
+	// clearing the local name falls back to the imported title, not to a fresh
+	// reading of the CLI
 	m.agentRename(chip.ID, "")
-	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ flush fix") {
-		t.Errorf("cleared name reads %q, want the CLI's own name", got)
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ fix the flaky sync test") {
+		t.Errorf("cleared name reads %q, want the imported title", got)
 	}
 
 	// the label is session chrome, never a stored chip field
@@ -323,24 +334,32 @@ func TestAgentChipCustomName(t *testing.T) {
 	}
 }
 
-// TestAgentChipTracksSessionName: the chip's text IS the session's live name, so
-// a session renamed inside its CLI reads renamed in the outline too.
-func TestAgentChipTracksSessionName(t *testing.T) {
+// TestAgentChipKeepsTheNameItImported: the chip's name is a SNAPSHOT of what
+// the CLI called the session when you picked it. Renaming that session in the
+// CLI afterwards leaves the outline alone — a note keeps saying what you filed
+// it as, and a coding agent does not get to relabel your notes behind you.
+func TestAgentChipKeepsTheNameItImported(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser)
 	c := variant(t, "claude")
 	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, title: "fix the flaky sync test"})
 	cur := m.tree.byUUID["note"]
 
+	// the CLI renames the session out from under us
 	path := agentSessionPath(c.sessionDirs(), c.exts, id)
 	body := `{"type":"summary","summary":"land the retry fix"}` + "\n" + recUser + "\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	delete(m.nodeStore(chip.ID), "agentMeta")
+	m.hydrateAgentChips()
 	m.refreshAgentChip(chip.ID)
-	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ land the retry fix") {
-		t.Errorf("renamed session reads %q", got)
+
+	if got := displayAnchors(cur.name, m.chips); !strings.Contains(got, "✽ fix the flaky sync test") {
+		t.Errorf("chip reads %q, want the name it was filed under", got)
+	}
+	if s := m.agentLoad(chip.ID); s.Title != "fix the flaky sync test" {
+		t.Errorf("stored title = %q — the CLI's rename leaked in", s.Title)
 	}
 }
 
@@ -1100,159 +1119,6 @@ func TestAgentReadMetaTakesTheRecordsColor(t *testing.T) {
 	}
 }
 
-// TestPiWriteIdentAppends: pi is renamed the way pi renames — by APPENDING a
-// session_info record, never by rewriting the transcript. Nothing already in the
-// file may move, because that file is a conversation.
-func TestPiWriteIdentAppends(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sess.jsonl")
-	before := `{"type":"session","id":"019f75e8-fd60-7b18-b809-7b4f363be885","cwd":"/x"}` + "\n" +
-		`{"type":"message","role":"user","content":"the first thing asked"}` + "\n"
-	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := piWriteIdent("019f75e8", path, agentIdent{name: "picker streaming"}); err != nil {
-		t.Fatal(err)
-	}
-	after, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(after), before) {
-		t.Error("the existing transcript was rewritten — a rename must only append")
-	}
-	if s := agentReadMeta("pi", path); s.title != "picker streaming" || !s.named {
-		t.Errorf("after the append the session reads %q (named=%v)", s.title, s.named)
-	}
-
-	// the appended record is the shape pi writes, and a color is not part of it
-	var rec map[string]any
-	last := strings.TrimSpace(string(after))
-	last = last[strings.LastIndex(last, "\n")+1:]
-	if err := json.Unmarshal([]byte(last), &rec); err != nil {
-		t.Fatalf("appended line is not JSON: %v", err)
-	}
-	if rec["type"] != "session_info" || rec["name"] != "picker streaming" {
-		t.Errorf("appended record = %v", rec)
-	}
-	// pi records no color, so a color-only push writes nothing at all
-	size := len(after)
-	if err := piWriteIdent("019f75e8", path, agentIdent{color: "red"}); err != nil {
-		t.Fatal(err)
-	}
-	if now, _ := os.ReadFile(path); len(now) != size {
-		t.Error("a color was written into a store that records none")
-	}
-}
-
-// TestOpencodeWriteIdentKeepsEveryOtherField: the rewrite round-trips the
-// object, so a field lflow does not know about survives.
-func TestOpencodeWriteIdentKeepsEveryOtherField(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "ses_3c7a52a98ffeAAtYekvCBNy5Tx.json")
-	orig := `{"id":"ses_3c7a52a98ffeAAtYekvCBNy5Tx","slug":"happy-wizard","title":"Evosax usage in TUI","projectID":"abc","aFieldLflowHasNeverHeardOf":{"deep":[1,2,3]}}`
-	if err := os.WriteFile(path, []byte(orig), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := opencodeWriteIdent("ses_3c7a52a98ffeAAtYekvCBNy5Tx", path, agentIdent{name: "rank math"}); err != nil {
-		t.Fatal(err)
-	}
-	var rec map[string]any
-	b, _ := os.ReadFile(path)
-	if err := json.Unmarshal(b, &rec); err != nil {
-		t.Fatal(err)
-	}
-	if rec["title"] != "rank math" {
-		t.Errorf("title = %v, want the new name", rec["title"])
-	}
-	for _, k := range []string{"id", "slug", "projectID", "aFieldLflowHasNeverHeardOf"} {
-		if rec[k] == nil {
-			t.Errorf("the rewrite dropped %q", k)
-		}
-	}
-	// and it reads back as the session's name
-	if s := agentReadMeta("opencode", path); s.title != "rank math" || !s.named {
-		t.Errorf("reads back as %q (named=%v)", s.title, s.named)
-	}
-}
-
-// TestClaudeWriteIdentRefusesALiveSession is the guard that matters: the job
-// record is live state belonging to the process writing it.
-func TestClaudeWriteIdentNeedsAJobRecord(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // no transcript and no job store
-	err := claudeWriteIdent("40803d6c-1ece-4ad8-be9b-5d84f7d169b9", "", agentIdent{name: "x"})
-	if err == nil {
-		t.Fatal("writing with nowhere to write should say so")
-	}
-	if !strings.Contains(err.Error(), "no record found") {
-		t.Errorf("err = %v", err)
-	}
-	// nothing to write is not an error
-	if err := claudeWriteIdent("abc", "", agentIdent{}); err != nil {
-		t.Errorf("an empty push errored: %v", err)
-	}
-}
-
-// TestClaudeWriteIdentRoundTrips: name, nameSource and color land in the job
-// record and everything else survives.
-func TestClaudeWriteIdentRoundTrips(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	jobs := filepath.Join(home, ".claude", "jobs", "f343c35a")
-	if err := os.MkdirAll(jobs, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	state := filepath.Join(jobs, "state.json")
-	orig := `{"sessionId":"f343c35a-a84f-464e-9cda-a4465ec1bd11","name":"auto name","nameSource":"auto","color":"red","state":"done","children":[{"id":"15"}]}`
-	if err := os.WriteFile(state, []byte(orig), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := claudeWriteIdent("f343c35a-a84f-464e-9cda-a4465ec1bd11", "", agentIdent{name: "picker streaming", color: "cyan"}); err != nil {
-		t.Fatal(err)
-	}
-	var rec map[string]any
-	b, _ := os.ReadFile(state)
-	if err := json.Unmarshal(b, &rec); err != nil {
-		t.Fatal(err)
-	}
-	if rec["name"] != "picker streaming" || rec["color"] != "cyan" {
-		t.Errorf("name = %v color = %v", rec["name"], rec["color"])
-	}
-	if rec["nameSource"] != "user" {
-		t.Errorf("nameSource = %v, want the mark Claude Code puts on a name you chose", rec["nameSource"])
-	}
-	if rec["state"] != "done" || rec["children"] == nil {
-		t.Error("the rewrite dropped a field it does not own")
-	}
-
-	// and the index reads back what was written
-	idx := claudeIdents([]string{filepath.Join(home, ".claude", "jobs")})
-	if got := idx["f343c35a-a84f-464e-9cda-a4465ec1bd11"]; got.name != "picker streaming" || got.color != "cyan" {
-		t.Errorf("index reads %+v", got)
-	}
-}
-
-// TestAgentPushIdentWithoutAColorStore: ⌥c on a pi or opencode chip recolors it
-// exactly the same — the color is simply lflow's alone and goes nowhere else.
-func TestAgentPushIdentWithoutAColorStore(t *testing.T) {
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
-	v, _ := agentVariantByID("pi")
-	s := agentSession{Variant: "pi", SessionID: "019f75e8-fd60-7b18-b809-7b4f363be885"}
-
-	got := m.agentPushIdent(v, s, agentIdent{color: "cyan"}, "recolored")
-	if !strings.Contains(got, "records no color") {
-		t.Errorf("flash = %q, want it to say pi keeps no color", got)
-	}
-	// a variant with no writer at all keeps the change local and says only that
-	none := agentVariant{id: "x", label: "X"}
-	if got := m.agentPushIdent(none, s, agentIdent{name: "n"}, "renamed"); got != "renamed here" {
-		t.Errorf("flash = %q, want the local-only line", got)
-	}
-}
-
 // TestClaudeInteractiveIdentityLivesInTheTranscript: Claude Code renames and
 // recolors an INTERACTIVE session by appending records to the transcript. The
 // job store only ever knew DISPATCHED ones, so a named, colored session still
@@ -1303,52 +1169,6 @@ func TestAgentColorRecordCarriesNoName(t *testing.T) {
 	meta := agentReadMeta(c.id, agentSessionPath(c.sessionDirs(), c.exts, id))
 	if meta.title != "compute reset fix" || meta.color != "red" {
 		t.Errorf("title = %q color = %q, want both kept", meta.title, meta.color)
-	}
-}
-
-// TestClaudeAppendIdentIsWhatTheCLIWrites: a rename appends the pair Claude Code
-// appends, and never rewrites what is already there — that file is a conversation.
-func TestClaudeAppendIdentAppendsOnly(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sess.jsonl")
-	before := recUser + "\n"
-	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := claudeAppendIdent(path, "sid-1", agentIdent{name: "flush fix", color: "green"}); err != nil {
-		t.Fatal(err)
-	}
-	after, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(after), before) {
-		t.Error("the transcript was rewritten — a rename must only append")
-	}
-
-	types := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(string(after)), "\n") {
-		var rec map[string]any
-		if json.Unmarshal([]byte(line), &rec) != nil {
-			continue
-		}
-		if s, _ := rec["type"].(string); s != "" {
-			types[s] = line
-		}
-	}
-	for _, want := range []string{"custom-title", "agent-name", "agent-color"} {
-		if types[want] == "" {
-			t.Errorf("no %s record was appended", want)
-		}
-	}
-	if !strings.Contains(types["custom-title"], `"sessionId":"sid-1"`) {
-		t.Errorf("the appended record does not name its session: %s", types["custom-title"])
-	}
-
-	// and it reads back as the session's name and color
-	if s := agentReadMeta("claude", path); s.title != "flush fix" || s.color != "green" {
-		t.Errorf("reads back as %q / %q", s.title, s.color)
 	}
 }
 
@@ -1431,5 +1251,42 @@ func TestAgentChipSurvivesUndo(t *testing.T) {
 	}
 	if disp := displayAnchors(cur.name, m.chips); !strings.Contains(disp, "✽ renamed after undo") {
 		t.Errorf("renamed pill reads %q", disp)
+	}
+}
+
+// TestAgentChipImportsItsColorOnce: chips filed before identity was a snapshot
+// read the CLI's color live on every frame. Freezing them without importing
+// first would repaint every one of them in its agent's default at once — a
+// change the user never asked for — so the color is taken once, and then the
+// chip is on its own.
+func TestAgentChipImportsItsColorOnce(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser) // recSummary carries color #4ec9b0
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, title: "fix the flaky sync test"})
+
+	// an old chip: a session pointer with no imported identity behind it
+	m.agentSave(chip.ID, agentSession{Variant: c.id, SessionID: id, Title: "fix the flaky sync test"})
+	delete(m.nodeStore(chip.ID), "agentMeta")
+
+	m.hydrateAgentChips()
+	s := m.agentLoad(chip.ID)
+	if s.Color != "#4ec9b0" {
+		t.Errorf("color = %q, want the one the CLI had at import time", s.Color)
+	}
+	if !s.Snapshot {
+		t.Error("the import did not mark the identity as taken")
+	}
+
+	// the CLI recolors the session; the chip does not follow
+	path := agentSessionPath(c.sessionDirs(), c.exts, id)
+	body := `{"type":"summary","summary":"fix the flaky sync test","color":"#ff0000"}` + "\n" + recUser + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	delete(m.nodeStore(chip.ID), "agentMeta")
+	m.hydrateAgentChips()
+	if got := m.agentLoad(chip.ID); got.Color != "#4ec9b0" {
+		t.Errorf("color = %q — a later recolor in the CLI leaked in", got.Color)
 	}
 }
