@@ -1,0 +1,29 @@
+id: no-status-emoji
+snapshots:
+  ? |
+    func f() {
+      fmt.Println("✓ saved")
+    }
+  : labels:
+    - source: '"✓ saved"'
+      style: primary
+      start: 25
+      end: 36
+  ? |
+    func f() {
+      fmt.Println("✗ no match")
+    }
+  : labels:
+    - source: '"✗ no match"'
+      style: primary
+      start: 25
+      end: 39
+  ? |
+    func f() {
+      msg := "• item"
+    }
+  : labels:
+    - source: '"• item"'
+      style: primary
+      start: 20
+      end: 30

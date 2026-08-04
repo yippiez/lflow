@@ -133,7 +133,7 @@ func ExpandAnchors(name string, chips map[string]Chip) string {
 }
 
 // Chip is an inline structured token referenced by an anchor in a node's name
-// (see the chip-kind registry in pkg/tui/editor). The name text holds an opaque
+// (see the chip-kind registry in packages/editor). The name text holds an opaque
 // anchor carrying the chip id; the chip's real data lives here.
 type Chip struct {
 	ID    string `json:"id"`

@@ -35,7 +35,7 @@ func (d dateMatch) canonical() string {
 // detectDateSpans returns the rune ranges [start,end) of every canonical date in
 // the name — a valid YYYY-MM-DD optionally followed by HH:MM, standing on its
 // own word boundary. The renderer chips these regardless of the node's color.
-// The detection lives in pkg/tui/chiptext, shared with the CLI's chipify.
+// The detection lives in packages/chips, shared with the CLI's chipify.
 func detectDateSpans(name string) [][2]int { return chips.DateSpans(name) }
 
 var monthsByName = map[string]time.Month{
@@ -67,7 +67,7 @@ func monthLookup(s string) (time.Month, bool) {
 // optional clock suffix: "saat 15:20", "at 15:20", "15.20"
 const clockSuffix = `(?:\s+(?:saat\s+|at\s+)?(\d{1,2})[:.](\d{2}))?`
 
-// reISO lives in pkg/tui/chiptext (shared with chipify); the relative and named
+// reISO lives in packages/chips (shared with chipify); the relative and named
 // formats stay here since only the editor's ctrl+t resolves natural language.
 var reISO = chips.ReISO
 
@@ -77,7 +77,7 @@ var (
 	reNumeric  = regexp.MustCompile(`(\d{1,2})[./](\d{1,2})[./](\d{4})` + clockSuffix)
 )
 
-// wordBound, atoi and buildDate live in pkg/tui/chiptext; these aliases keep the
+// wordBound, atoi and buildDate live in packages/chips; these aliases keep the
 // editor's date engine readable.
 func wordBound(s string, start, end int) bool { return chips.WordBound(s, start, end) }
 func atoi(s string) int                       { return chips.Atoi(s) }

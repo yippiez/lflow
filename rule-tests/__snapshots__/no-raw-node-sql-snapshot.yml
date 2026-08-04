@@ -1,0 +1,20 @@
+id: no-raw-node-sql
+snapshots:
+  db.Exec("INSERT INTO nodes (uuid, name) VALUES (?, ?)", uuid, name):
+    labels:
+    - source: db.Exec("INSERT INTO nodes (uuid, name) VALUES (?, ?)", uuid, name)
+      style: primary
+      start: 0
+      end: 67
+  db.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", name, uuid):
+    labels:
+    - source: db.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", name, uuid)
+      style: primary
+      start: 0
+      end: 63
+  tx.Exec("DELETE FROM nodes WHERE uuid = ?", uuid):
+    labels:
+    - source: tx.Exec("DELETE FROM nodes WHERE uuid = ?", uuid)
+      style: primary
+      start: 0
+      end: 49

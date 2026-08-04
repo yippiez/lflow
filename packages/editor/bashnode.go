@@ -11,10 +11,10 @@ import (
 // Math node, applied to shell: a "$" row whose CHILDREN are its parts, so a long
 // pipeline is written as a readable tree instead of one wide line.
 //
-//	$ rg                     →  rg --hidden -n "func .*Msg" pkg/tui | wc -l
+//	$ rg                     →  rg --hidden -n "func .*Msg" packages/editor | wc -l
 //	  ├─ --hidden -n
 //	  ├─ "func .*Msg"
-//	  ├─ pkg/tui
+//	  ├─ packages/editor
 //	  ╰─ $ |
 //	       ╰─ wc -l
 //

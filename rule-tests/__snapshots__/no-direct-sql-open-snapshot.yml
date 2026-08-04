@@ -1,0 +1,14 @@
+id: no-direct-sql-open
+snapshots:
+  db, err := sql.Open("sqlite3", "file:test.db"):
+    labels:
+    - source: sql.Open("sqlite3", "file:test.db")
+      style: primary
+      start: 11
+      end: 46
+  dbConn, err := sql.Open("sqlite3", dsn):
+    labels:
+    - source: sql.Open("sqlite3", dsn)
+      style: primary
+      start: 15
+      end: 39

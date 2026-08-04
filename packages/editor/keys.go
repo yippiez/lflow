@@ -1026,8 +1026,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if prev.mirrorOf != "" {
 				return m, nil // can't merge into a mirror reference
 			}
-			if prev.typ == database.TypeDivider {
-				return m, nil // never merge text into a divider rule
+			if prev.typ == database.TypeDivider || prev.typ == database.TypeEmpty {
+				return m, nil // never merge text into a divider rule or an empty spacer
 			}
 			// merging up into a blank placeholder line: the absorbed node is really
 			// the content, so carry its style/type/collapsed across — otherwise

@@ -1,4 +1,4 @@
-// Package chiptext is the text-pattern vocabulary for chips: it recognizes the
+// Package chips is the text-pattern vocabulary for chips: it recognizes the
 // inline forms — #tags, canonical dates, and [label](target) links — in a plain
 // node name, and Chipify rewrites them into chip anchors. It is the single source
 // of truth shared by the editor (which detects the same spans to render and

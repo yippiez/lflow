@@ -12,7 +12,7 @@ import (
 
 // A chip is an inline structured token. The node's stored name carries an opaque
 // ANCHOR — a sentinel-delimited chip id, "￼<id>￼" — and the chip's real
-// data lives in the chips table (see pkg/tui/database/chip.go). The editor treats
+// data lives in the chips table (see packages/database/chip.go). The editor treats
 // each anchor as one atomic unit (the caret jumps it, backspace deletes it whole)
 // and renders it as the chip kind's compact display.
 //

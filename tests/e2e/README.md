@@ -73,5 +73,5 @@ Run a single test (reuses a prebuilt binary if `LFLOW_BIN` is set or
 `/tmp/lflow-e2e-bin/lflow` exists; otherwise builds it):
 
 ```bash
-bash pkg/e2e/test-empty-node-in-a-b-c.sh
+bash tests/e2e/test-empty-node-in-a-b-c.sh
 ```

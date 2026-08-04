@@ -1,0 +1,20 @@
+id: no-panic-in-tui
+snapshots:
+  panic("unreachable"):
+    labels:
+    - source: panic("unreachable")
+      style: primary
+      start: 0
+      end: 20
+  panic(err):
+    labels:
+    - source: panic(err)
+      style: primary
+      start: 0
+      end: 10
+  panic(errors.Wrap(err, "initializing context")):
+    labels:
+    - source: panic(errors.Wrap(err, "initializing context"))
+      style: primary
+      start: 0
+      end: 47

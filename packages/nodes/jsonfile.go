@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"encoding/json"
+	"io"
 	"strings"
 
 	"github.com/lflow/lflow/packages/database"
@@ -37,6 +38,19 @@ func (jsonCodec) Parse(src string) ([]*SrcNode, error) {
 	v, err := decodeOrdered(dec)
 	if err != nil {
 		return nil, errors.Wrap(err, "parsing json")
+	}
+	// exactly one document: trailing content (a second concatenated value,
+	// JSONL) would be silently deleted on save if the open succeeded.
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errors.New("trailing content after the JSON document")
+	}
+	// only containers have a node-tree reading; a legal top-level scalar
+	// (`42`, `"s"`, `true`) would parse to an EMPTY doc and the next save
+	// would replace the file with {} — refuse the open instead.
+	switch v.(type) {
+	case jobj, jarr:
+	default:
+		return nil, errors.New("only a top-level object or array can open as an outline")
 	}
 	root := &SrcNode{}
 	jsonValueKids(root, v)

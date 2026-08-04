@@ -24,7 +24,7 @@ import (
 // the instance answers 403.
 //
 // WARNING (invariant): credentials.json is local-only config — it is never
-// written into the outline DB and never synced (see pkg/tui/wf/credentials.go).
+// written into the outline DB and never synced (see packages/nodes/wf/credentials.go).
 
 // credentials mirrors the searxng block of the consolidated credentials.json.
 // The file is shared with other services (workflowy has its own block), so

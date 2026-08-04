@@ -49,12 +49,19 @@ func (n nodeRef) UUID() string { return n.it.uuid }
 func (n nodeRef) Type() string { return n.it.typ }
 
 func (n nodeRef) Text() string {
+	// a structure-only ref (BodyTail's render path) carries no Model: fall back
+	// to the raw name instead of panicking — anchors stay unexpanded there.
+	if n.m == nil {
+		return n.it.name
+	}
 	return expandAnchors(n.m.tree.displayName(n.it), n.m.chips)
 }
 
 func (n nodeRef) SetText(s string) {
 	n.it.name = s
-	n.m.unsaved = true
+	if n.m != nil {
+		n.m.unsaved = true
+	}
 }
 
 func (n nodeRef) Parent() (NodeRef, bool) {

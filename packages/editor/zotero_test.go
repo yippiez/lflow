@@ -12,7 +12,7 @@ import (
 
 // fakeLibrary is a Zotero library with no Zotero: the picker and the chip only
 // ever see a *zotero.Library, so a hand-built one exercises everything short of
-// the SQLite read (which pkg/tui/zotero tests against a real fixture).
+// the SQLite read (which packages/zotero tests against a real fixture).
 func fakeLibrary() *zotero.Library {
 	return &zotero.Library{
 		Path:     "/nonexistent/zotero.sqlite", // Stale() keeps serving this on a missing file

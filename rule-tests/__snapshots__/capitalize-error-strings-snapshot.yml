@@ -1,0 +1,29 @@
+id: capitalize-error-strings
+snapshots:
+  ? |
+    func f() error {
+      return fmt.Errorf("mod %s failed: %v", key, err)
+    }
+  : labels:
+    - source: 'fmt.Errorf("mod %s failed: %v", key, err)'
+      style: primary
+      start: 26
+      end: 67
+  ? |
+    func f() error {
+      return fmt.Errorf("no key or mods dir")
+    }
+  : labels:
+    - source: fmt.Errorf("no key or mods dir")
+      style: primary
+      start: 26
+      end: 58
+  ? |
+    func f() error {
+      return fmt.Errorf("unknown agent @%s", name)
+    }
+  : labels:
+    - source: fmt.Errorf("unknown agent @%s", name)
+      style: primary
+      start: 26
+      end: 63

@@ -9,7 +9,7 @@ import (
 
 // Service links are the same link chip, marked for the target it points at. A
 // link to a known service — the Google suite today (registry:
-// pkg/tui/chiptext/service.go) — carries that service's unicode mark beside its
+// packages/chips/service.go) — carries that service's unicode mark beside its
 // name: "→▦ Q3 budget" instead of "→Q3 budget". Nothing else changes. Same
 // arrow, same link color and underline, same ⌥e rename, same ⌥g/⌥r open.
 //

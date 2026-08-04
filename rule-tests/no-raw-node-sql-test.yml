@@ -1,0 +1,8 @@
+id: no-raw-node-sql
+valid:
+  - db.Exec("UPDATE settings SET value = ? WHERE key = ?", v, k)
+  - db.Exec("DELETE FROM chips WHERE node_uuid = ?", uuid)
+invalid:
+  - db.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", name, uuid)
+  - tx.Exec("DELETE FROM nodes WHERE uuid = ?", uuid)
+  - db.Exec("INSERT INTO nodes (uuid, name) VALUES (?, ?)", uuid, name)

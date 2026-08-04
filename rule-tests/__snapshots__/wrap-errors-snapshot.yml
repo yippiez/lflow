@@ -1,0 +1,14 @@
+id: wrap-errors
+snapshots:
+  err := errors.New(fmt.Sprintf("bad node %s", uuid)):
+    labels:
+    - source: errors.New(fmt.Sprintf("bad node %s", uuid))
+      style: primary
+      start: 7
+      end: 51
+  return errors.New(fmt.Sprintf("rank %d out of range", rank)):
+    labels:
+    - source: errors.New(fmt.Sprintf("rank %d out of range", rank))
+      style: primary
+      start: 7
+      end: 60

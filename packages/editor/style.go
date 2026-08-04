@@ -4,7 +4,7 @@ import "github.com/lflow/lflow/packages/database/style"
 
 // A node's visual styling — set by /color, /bold, /italic and /underline — is
 // stored as a comma-separated token list in item.style, e.g. "bold,color:blue".
-// The token vocabulary (attributes + color names) lives in pkg/tui/style, the
+// The token vocabulary (attributes + color names) lives in packages/style, the
 // single source shared with the CLI's --style/--color flags; this file owns only
 // what the editor adds on top: the SGR escape codes and render-time helpers.
 
@@ -29,7 +29,7 @@ var styleColorCode = map[string]string{
 	"gray":        "\x1b[38;2;122;122;122m", // #7a7a7a
 }
 
-// The token-list helpers live in pkg/tui/style; these thin aliases keep the
+// The token-list helpers live in packages/style; these thin aliases keep the
 // editor's existing call sites readable.
 func styleHas(s, tok string) bool      { return style.Has(s, tok) }
 func styleToggle(s, tok string) string { return style.Toggle(s, tok) }

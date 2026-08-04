@@ -95,11 +95,30 @@ func allowed(types ...string) map[string]bool {
 // ── DB glue ─────────────────────────────────────────────────────────────────
 
 // ParseIntoDB parses src and inserts the document forest under rootUUID.
+// Line endings normalize to \n first (a CRLF file would otherwise smuggle \r
+// into every node and break the codecs' line classification), and the whole
+// forest inserts in ONE transaction — per-row autocommit costs an fsync per
+// node, hundreds of times slower on a large file.
 func ParseIntoDB(db *database.DB, rootUUID string, c FileCodec, src string) error {
+	src = strings.ReplaceAll(src, "\r\n", "\n")
+	src = strings.ReplaceAll(src, "\r", "\n")
 	doc, err := c.Parse(src)
 	if err != nil {
 		return err
 	}
+	tx, err := db.Begin()
+	if err != nil {
+		return errors.Wrap(err, "beginning parse transaction")
+	}
+	if err := insertForest(tx, rootUUID, doc); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return errors.Wrap(tx.Commit(), "committing parse transaction")
+}
+
+// insertForest inserts a document forest under parent, depth-first.
+func insertForest(db *database.DB, rootUUID string, doc []*SrcNode) error {
 	var insert func(parent string, kids []*SrcNode) error
 	insert = func(parent string, kids []*SrcNode) error {
 		for rank, k := range kids {

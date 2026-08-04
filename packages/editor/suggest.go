@@ -8,7 +8,7 @@ import (
 	"github.com/lflow/lflow/packages/database"
 )
 
-// The editor's review surface for edit suggestions (see pkg/tui/cmd/suggest and
+// The editor's review surface for edit suggestions (see packages/cli/suggest and
 // database/suggestion.go). A pending suggestion is a proposal somebody — a
 // teammate, an agent, another terminal — parked against a node: it has changed
 // nothing, and the outline reads exactly as it did before it arrived.

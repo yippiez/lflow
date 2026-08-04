@@ -13,7 +13,7 @@ import (
 // ignored. Tags carry no stored markup: the literal "#word" lives in the node
 // name. They render in a fixed muted gray (a /color never bleeds into them) and
 // drive STRICT tag search — "#log" matches the tag "#log" only, never the word
-// "log" nor the tag "#logic". The pattern itself lives in pkg/tui/chiptext,
+// "log" nor the tag "#logic". The pattern itself lives in packages/chips,
 // shared with the CLI's chipify.
 var reTag = chips.ReTag
 

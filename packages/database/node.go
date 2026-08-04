@@ -27,14 +27,14 @@ const (
 	// the composed subtree. See editor/bashnode.go.
 	TypeBash    = "bash"
 	TypeQuery   = "query"
-	TypeWeb     = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see pkg/tui/websearch)
+	TypeWeb     = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see packages/websearch)
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
 	// TypeEmpty is a divider stripped of its rule: a deliberately blank row,
 	// pure vertical breathing room in the outline. It carries no text.
 	TypeEmpty = "empty"
-	TypeWF      = "wf" // a Workflowy mirror root: alt+r pulls its subtree (see nodes/wf)
+	TypeWF    = "wf" // a Workflowy mirror root: alt+r pulls its subtree (see nodes/wf)
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
@@ -103,12 +103,12 @@ const (
 	// TypeWebResult is one web-search hit: a generated link row a web node hangs
 	// under it (title + URL link chip). It is generated, so it never appears in
 	// the /type picker; a re-run replaces the rows by type. See editor/webnode.go
-	// and pkg/tui/websearch.
+	// and packages/websearch.
 	TypeWebResult = "webresult"
 
 	// TypeZotero is a mirrored Zotero entry: one node per library item, its
 	// attachments, annotations and notes pulled in beneath it as a locked
-	// subtree (see editor/zoteroitem.go and pkg/tui/zotero).
+	// subtree (see editor/zoteroitem.go and packages/zotero).
 	TypeZotero = "zotero"
 )
 

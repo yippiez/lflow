@@ -30,7 +30,7 @@ func TestBashComposeShapes(t *testing.T) {
 		want string
 	}{
 		{"leaf", bnode("echo hi"), "echo hi"},
-		{"head", bnode("rg", bnode("-n"), bnode("TODO"), bnode("pkg/tui")), "rg -n TODO pkg/tui"},
+		{"head", bnode("rg", bnode("-n"), bnode("TODO"), bnode("packages/editor")), "rg -n TODO packages/editor"},
 		{"pipe", bnode("|", bnode("ls -la"), bnode("wc -l")), "ls -la | wc -l"},
 		{"and", bnode("&&", bnode("go build ./..."), bnode("go test ./...")), "go build ./... && go test ./..."},
 		{"semi", bnode(";", bnode("date"), bnode("uptime")), "date ; uptime"},
@@ -47,9 +47,9 @@ func TestBashComposeShapes(t *testing.T) {
 		{
 			"tree of trees",
 			bnode("|",
-				bnode("rg", bnode("--hidden -n"), bnode(`"func .*Msg"`), bnode("pkg/tui")),
+				bnode("rg", bnode("--hidden -n"), bnode(`"func .*Msg"`), bnode("packages/editor")),
 				bnode("wc -l")),
-			`rg --hidden -n "func .*Msg" pkg/tui | wc -l`,
+			`rg --hidden -n "func .*Msg" packages/editor | wc -l`,
 		},
 		{"blank text and no kids", bnode("   "), ""},
 	}

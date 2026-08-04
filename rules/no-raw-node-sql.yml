@@ -1,0 +1,23 @@
+id: no-raw-node-sql
+language: go
+severity: warning
+message: Write to the nodes table through database helpers, not inline SQL.
+note: |
+  Hand-rolled INSERT/UPDATE/DELETE against the nodes table outside
+  packages/database duplicates the struct→column mapping that Node.Insert /
+  Upsert / SetCollapsed / SetStarred / SetPriority / MarkSubtreeDeleted
+  already own — the copies have already drifted once (saveAll's UPDATE list
+  vs Node.Update). New code must call a database.* helper; add one if the
+  shape you need is missing. Existing hits are tracked debt: shrink them,
+  never add to them.
+rule:
+  pattern: $DB.Exec($SQL, $$$ARGS)
+constraints:
+  SQL:
+    regex: "(?i)(insert into|update|delete from) +nodes"
+files:
+  - "packages/**"
+  - "cmd/**"
+ignores:
+  - packages/database/**
+  - packages/daemon/**

@@ -406,6 +406,18 @@ func init() {
 	}
 }
 
+// RegisteredTypeKeys returns every registered node-type key (built-ins plus
+// plugins, internal types included), in registry order. It exists for the
+// registry-parity check: database.TypeOrder and this list must agree, and a
+// test in packages/nodes (the one package that links both sides) enforces it.
+func RegisteredTypeKeys() []string {
+	keys := make([]string, 0, len(nodeTypes))
+	for _, nt := range nodeTypes {
+		keys = append(keys, nt.key)
+	}
+	return keys
+}
+
 // typeOf returns the descriptor for a type key; unknown keys fall back to
 // bullets, which is what keeps a node of a retired type (e.g. the removed
 // NodeMod system's) rendering instead of crashing.

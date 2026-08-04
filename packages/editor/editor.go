@@ -108,7 +108,7 @@ type stylePickerItem struct {
 }
 
 // The picker is BUILT from the shared vocabulary rather than repeating it, so a
-// color added in pkg/tui/style appears here — and in the tag, agent and line
+// color added in packages/style appears here — and in the tag, agent and line
 // color pickers, which all read the same list — without a second edit that can
 // be forgotten.
 var stylePickerItems = buildStylePickerItems()
@@ -306,14 +306,14 @@ type Model struct {
 	// available and failures surface at run time.
 	deps map[string]bool
 
-	// Workflowy mirror (see wf.go and pkg/tui/wf): node uuid → workflowy id for
+	// Workflowy mirror (see wf.go and packages/nodes/wf): node uuid → workflowy id for
 	// every pulled node, busy flags per pull root, and the API client (lazy;
 	// tests inject one pointed at a mock server)
 	wfMap    map[string]string
 	wfBusy   map[string]bool
 	wfClient *wf.Client
 
-	// Zotero library (see zotero.go and pkg/tui/zotero): the local library read
+	// Zotero library (see zotero.go and packages/zotero): the local library read
 	// once, lazily, on first cite; zoteroErr remembers why a read failed so the
 	// picker can say so instead of retrying a missing install on every keystroke.
 	zoteroLib *zotero.Library

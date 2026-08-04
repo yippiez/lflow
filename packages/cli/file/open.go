@@ -57,7 +57,18 @@ func runOpen(ctx context.DnoteCtx, path string) error {
 	if err != nil {
 		return errors.Wrap(err, "creating scratch dir")
 	}
-	defer os.RemoveAll(scratchDir)
+	// the scratch DB is discarded only after a clean exit: if the session ends
+	// on an error (say the file changed on disk and the final save refused to
+	// overwrite), the DB is the ONLY surviving copy of the edits — keep it and
+	// say where it is instead of deleting the user's work with the error.
+	keepScratch := false
+	defer func() {
+		if keepScratch {
+			log.Plainf("→ session edits kept in %s\n", scratchDir)
+			return
+		}
+		os.RemoveAll(scratchDir)
+	}()
 
 	db, err := database.Open(filepath.Join(scratchDir, "doc.db"))
 	if err != nil {
@@ -105,6 +116,7 @@ func runOpen(ctx context.DnoteCtx, path string) error {
 		AllowedTypes: codec.Allowed(),
 		DefaultType:  codec.DefaultType(),
 	}); err != nil {
+		keepScratch = true
 		return err
 	}
 	log.Plainf("→ wrote %s\n", path)
@@ -133,14 +145,23 @@ func readSource(path string) (string, time.Time, error) {
 // file since we read or last wrote it, refuse instead of clobbering — the
 // edits stay in the editor and save again after the conflict is resolved.
 func writeSource(path, content string, lastMtime time.Time) (time.Time, error) {
+	mode := os.FileMode(0o644) // fresh file default; an existing file keeps its bits
 	if fi, err := os.Stat(path); err == nil {
 		if !lastMtime.IsZero() && !fi.ModTime().Equal(lastMtime) {
 			return time.Time{}, errors.Errorf("%s changed on disk — not overwriting", filepath.Base(path))
 		}
+		mode = fi.Mode().Perm()
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".lflow-*")
 	if err != nil {
 		return time.Time{}, errors.Wrap(err, "creating temp file")
+	}
+	// CreateTemp makes 0600 — restore the target's own permissions (exec bits,
+	// group readability) so saving never strips them.
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return time.Time{}, errors.Wrap(err, "restoring file mode")
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.WriteString(content); err != nil {

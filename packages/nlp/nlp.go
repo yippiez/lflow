@@ -1,4 +1,4 @@
-// Package compute runs the one-shot code-generation turn used by NLPCompute.
+// Package nlp runs the one-shot code-generation turn used by NLPCompute.
 package nlp
 
 import (

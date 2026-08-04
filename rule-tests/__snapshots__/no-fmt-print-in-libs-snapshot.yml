@@ -1,0 +1,29 @@
+id: no-fmt-print-in-libs
+snapshots:
+  ? |
+    func f() {
+        fmt.Print("status")
+    }
+  : labels:
+    - source: fmt.Print("status")
+      style: primary
+      start: 15
+      end: 34
+  ? |
+    func f() {
+        fmt.Println("debug")
+    }
+  : labels:
+    - source: fmt.Println("debug")
+      style: primary
+      start: 15
+      end: 35
+  ? |
+    func f(n int) {
+        fmt.Printf("written %d\n", n)
+    }
+  : labels:
+    - source: fmt.Printf("written %d\n", n)
+      style: primary
+      start: 20
+      end: 49
