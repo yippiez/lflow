@@ -143,6 +143,37 @@ func TestLinkToChippedNode(t *testing.T) {
 	}
 }
 
+func TestMirrorCreateViaDoubleParen(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "edit", Name: ""},
+		database.Node{UUID: "target", Name: "Target node"},
+	)
+	cursorOn(m, "edit")
+	m.press("(")
+	m.press("(")
+	if m.mode != modeFinder || m.finder.act != actMirrorHere {
+		t.Fatalf("(( did not open mirror finder: mode=%v act=%v", m.mode, m.finder.act)
+	}
+	if got := m.tree.byUUID["edit"].name; got != "" {
+		t.Fatalf("trigger leaked into node text: %q", got)
+	}
+	m.press("Target")
+	m.press("enter")
+	if got := m.tree.byUUID["edit"].mirrorOf; got != "target" {
+		t.Fatalf("mirror target = %q", got)
+	}
+}
+
+func TestDoubleParenStaysLiteralInSyntaxNodes(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "query", Name: "", Type: database.TypeQuery})
+	cursorOn(m, "query")
+	m.press("(")
+	m.press("(")
+	if m.mode == modeFinder || m.tree.byUUID["query"].name != "((" {
+		t.Fatalf("query parentheses must stay literal: mode=%v name=%q", m.mode, m.tree.byUUID["query"].name)
+	}
+}
+
 // TestLinkCreateURLViaBrackets: "[[" then a typed URL makes a URL link chip whose
 // name defaults to the host.
 func TestLinkCreateURLViaBrackets(t *testing.T) {

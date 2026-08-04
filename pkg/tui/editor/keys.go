@@ -1067,6 +1067,20 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// "((" opens the mirror finder: the second "(" drops the first, mirroring
+		// the [[ gesture but creating a structural mirror rather than an inline link.
+		// Keep it off rows where parentheses are syntax (bash/code/query/math/json).
+		if string(k.Runes) == "(" && !k.Paste && cur.mirrorOf == "" && !cur.readonly &&
+			linkChipTrigger(cur.typ) && runeBeforeCaretIs(cur, m.caret, '(') {
+			runes := []rune(cur.name)
+			m.boundCaret(len(runes))
+			cur.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
+			m.caret--
+			m.unsaved = true
+			m.openFinder(actMirrorHere)
+			return m, nil
+		}
+
 		// "$$" lands an empty cmd chip: the second "$" drops the first and splices
 		// a blank $ chip to fill in (alt+i edits its command). A single "$" is
 		// always literal — "$i", "$(seq …)" and "$HOME" are shell syntax that type
