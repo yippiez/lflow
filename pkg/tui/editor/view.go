@@ -36,7 +36,9 @@ func (m *Model) View() string {
 
 	var lines []string
 
-	if m.mode == modeFinder {
+	if m.mode == modeShortcuts {
+		lines = m.viewShortcuts(maxLine)
+	} else if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
 	} else if m.mode == modeLinkEdit {
 		lines = m.viewLinkEdit(maxLine)

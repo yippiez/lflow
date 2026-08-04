@@ -78,6 +78,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsKey(k)
 	case modeFlash:
 		return m.handleFlashKey(k)
+	case modeShortcuts:
+		return m.handleShortcutsKey(k)
 	}
 
 	// alt+e on a block-faced node (nlpcompute) flips its code ⇄ prose face rather

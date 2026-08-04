@@ -51,6 +51,7 @@ const (
 	modeCharacterColor // the character picker's recolor key: assign a pill color to a character
 	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
 	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
+	modeShortcuts      // /shortcuts: full-page, scrollable shortcut reference
 )
 
 type finderAction int
@@ -90,6 +91,7 @@ var slashCommands = []slashCommand{
 	{"/priority:up", "Incoming nodes land on top"},
 	{"/reborn", "Reset this node's creation date to now"},
 	{"/settings", "Editor preferences: theme, image preview, Zotero"},
+	{"/shortcuts", "Open the full keyboard shortcut reference"},
 	{"/star", "Star this node — ranks first in pickers and search hits"},
 	{"/style", "Style this node — or just the text selected with shift+←/→"},
 	{"/suggestions", "Go to the next node with a pending suggestion (alt+v reviews)"},
@@ -1808,6 +1810,10 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/suggestions":
 		// walk to the next node carrying a proposal and open review on it
 		m.gotoSuggestion()
+	case "/shortcuts":
+		m.mode = modeShortcuts
+		m.focusScroll = 0
+		m.clearOnFrame = true
 	case "/priority:up", "/priority:down":
 		// where incoming and moved-in nodes land among this node's children:
 		// top (up) or bottom (down). A mirror sets its original.
