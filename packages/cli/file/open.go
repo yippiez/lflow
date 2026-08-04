@@ -123,31 +123,62 @@ func runOpen(ctx context.DnoteCtx, path string) error {
 	return nil
 }
 
+// readSourceMaxAttempts bounds the stat-read-stat retry in readSource.
+const readSourceMaxAttempts = 3
+
 // readSource loads the file, tolerating a missing one (a fresh document that
-// materializes on first save).
+// materializes on first save). It stats both before and after the read: a
+// write landing between the two (some other process saving mid-ReadFile)
+// would otherwise be silently adopted as our baseline mtime and then
+// clobbered by our own first save. A changed mtime retries the whole
+// read a bounded number of times before giving up.
 func readSource(path string) (string, time.Time, error) {
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return "", time.Time{}, nil
+	for attempt := 0; attempt < readSourceMaxAttempts; attempt++ {
+		before, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return "", time.Time{}, nil
+		}
+		if err != nil {
+			return "", time.Time{}, errors.Wrap(err, "stating file")
+		}
+		b, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			return "", time.Time{}, nil
+		}
+		if err != nil {
+			return "", time.Time{}, errors.Wrap(err, "reading file")
+		}
+		after, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return "", time.Time{}, nil
+		}
+		if err != nil {
+			return "", time.Time{}, errors.Wrap(err, "stating file")
+		}
+		if before.ModTime().Equal(after.ModTime()) {
+			return string(b), after.ModTime(), nil
+		}
+		// the file changed while we were reading it — retry against the new state
 	}
-	if err != nil {
-		return "", time.Time{}, errors.Wrap(err, "reading file")
-	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		return "", time.Time{}, errors.Wrap(err, "stating file")
-	}
-	return string(b), fi.ModTime(), nil
+	return "", time.Time{}, errors.Errorf("%s kept changing while opening — try again", filepath.Base(path))
 }
 
 // writeSource writes the rendered document atomically (temp file + rename in
 // the same directory) with a last-writer guard: if someone else touched the
 // file since we read or last wrote it, refuse instead of clobbering — the
 // edits stay in the editor and save again after the conflict is resolved.
+// lastMtime.IsZero() means the file did not exist when the session opened
+// (readSource's missing-file case) — that is its own state, distinct from
+// "existed and we've saved since": if the file now exists, someone created
+// it while we were editing, and the first save must refuse rather than
+// silently overwrite their work.
 func writeSource(path, content string, lastMtime time.Time) (time.Time, error) {
 	mode := os.FileMode(0o644) // fresh file default; an existing file keeps its bits
 	if fi, err := os.Stat(path); err == nil {
-		if !lastMtime.IsZero() && !fi.ModTime().Equal(lastMtime) {
+		if lastMtime.IsZero() {
+			return time.Time{}, errors.Errorf("%s created on disk — not overwriting", filepath.Base(path))
+		}
+		if !fi.ModTime().Equal(lastMtime) {
 			return time.Time{}, errors.Errorf("%s changed on disk — not overwriting", filepath.Base(path))
 		}
 		mode = fi.Mode().Perm()

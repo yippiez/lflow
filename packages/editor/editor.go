@@ -2264,8 +2264,11 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 
 // FileSession configures a file-backed editor run.
 type FileSession struct {
-	// OnSave fires after every successful saveAll (ctrl+s, auto-flush, quit):
-	// the tree persists to the scratch DB first, then serializes to disk.
+	// OnSave fires after every successful saveAll: ctrl+s, quit, and the
+	// debounced auto-flush (~1s after typing pauses — scheduleSync arms it
+	// whenever OnSave is set, live daemon or not; see livesync.go). The tree
+	// persists to the scratch DB first, then serializes to disk, so a crash
+	// loses at most the last second of typing, never the whole session.
 	OnSave func() error
 	// AllowedTypes restricts the /type picker to what the file format
 	// accepts (nil = unrestricted).

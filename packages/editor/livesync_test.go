@@ -172,6 +172,43 @@ func TestLiveEventsDeferWhileModalOpen(t *testing.T) {
 	}
 }
 
+// TestFileSessionSchedulesAutoFlush: a file session (m.live == nil, onSave
+// set) must still arm the debounced auto-flush after an edit — the file-open
+// path has no daemon to gate on, but its OnSave hook needs the same ~1s
+// flush or a crash loses everything since the last explicit ctrl+s.
+func TestFileSessionSchedulesAutoFlush(t *testing.T) {
+	m := liveTestModel("a")
+	saved := 0
+	m.onSave = func() error { saved++; return nil }
+	m.unsaved = true
+
+	if m.live != nil {
+		t.Fatal("test setup: expected no live connection")
+	}
+	if cmd := m.scheduleSync(); cmd == nil {
+		t.Fatal("scheduleSync returned nil for a file session with pending edits")
+	}
+	if !m.syncPending {
+		t.Fatal("syncPending not armed for a file session")
+	}
+
+	// a second edit before the tick fires must not double-schedule
+	if cmd := m.scheduleSync(); cmd != nil {
+		t.Fatal("scheduleSync re-armed while already pending")
+	}
+
+	m.flushSync()
+	if saved != 1 {
+		t.Fatalf("onSave called %d times, want 1", saved)
+	}
+	if m.unsaved {
+		t.Fatal("flushSync left m.unsaved set")
+	}
+	if m.syncPending {
+		t.Fatal("flushSync left syncPending set")
+	}
+}
+
 func TestLiveUndoDropsOnExternalChange(t *testing.T) {
 	m := liveTestModel("a", "b")
 	m.pushUndo("")

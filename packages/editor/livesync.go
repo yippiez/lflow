@@ -63,10 +63,14 @@ func (m *Model) startFeed() bool {
 	return true
 }
 
-// scheduleSync arms the debounced auto-flush after an edit. With no daemon
-// (tests, LFLOW_NO_DAEMON) editing keeps the classic save-on-ctrl+s model.
+// scheduleSync arms the debounced auto-flush after an edit — for a daemon
+// session (m.live != nil) that ships ops to other clients, and equally for a
+// file session (m.live == nil, m.onSave != nil) where the same flush persists
+// to the scratch DB and then serializes to the source file. With neither (a
+// direct, file-less run — tests, LFLOW_NO_DAEMON) editing keeps the classic
+// save-on-ctrl+s model with no auto-flush.
 func (m *Model) scheduleSync() tea.Cmd {
-	if m.live == nil || !m.unsaved || m.syncPending {
+	if (m.live == nil && m.onSave == nil) || !m.unsaved || m.syncPending {
 		return nil
 	}
 	m.syncPending = true

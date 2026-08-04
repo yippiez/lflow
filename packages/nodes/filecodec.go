@@ -149,7 +149,15 @@ func insertForest(db *database.DB, rootUUID string, doc []*SrcNode) error {
 
 // RenderFromDB loads rootUUID's subtree as SrcNodes (nlpcompute cells carry
 // their generated code from node_output) and renders it through the codec.
+// Names pass through database.ExpandAnchors — a file session can mint chip
+// anchors (typing "#tag " or pasting a URL) same as the editor does, and the
+// U+FFFC sentinel must never reach a saved source file (mirrors
+// packages/nodes/outline.go's resolveName).
 func RenderFromDB(db *database.DB, rootUUID string, c FileCodec) (string, error) {
+	chips, err := database.LoadChips(db)
+	if err != nil {
+		return "", err
+	}
 	var load func(uuid string) ([]*SrcNode, error)
 	load = func(uuid string) ([]*SrcNode, error) {
 		children, err := database.GetChildren(db, uuid)
@@ -161,8 +169,12 @@ func RenderFromDB(db *database.DB, rootUUID string, c FileCodec) (string, error)
 			if ch.Deleted {
 				continue
 			}
+			name := ch.Name
+			if database.HasAnchor(name) {
+				name = database.ExpandAnchors(name, chips)
+			}
 			s := &SrcNode{
-				Type: ch.Type, Text: ch.Name, Note: ch.Note,
+				Type: ch.Type, Text: name, Note: ch.Note,
 				Completed: ch.CompletedAt > 0,
 			}
 			if ch.Type == database.TypeNLPCompute {
