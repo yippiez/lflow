@@ -8,19 +8,20 @@ import (
 )
 
 // The session picker (a Group-A list, see picker_list.go): /insert → agent
-// searches every session the three CLIs already have and files the one you pick
-// as a chip at the caret. It is the only agent surface — there is no /agent and
-// no /agents, because a chip belongs to the row it sits in and the outline is
-// already the index of them.
+// files a session as a chip at the caret, while /type → Agent binds the whole
+// node. Both surfaces point to the CLI's local store; neither copies a transcript
+// into the outline.
 
-// openAgentPicker opens the start/attach picker. It opens EMPTY and fills as
-// the stores are read — a session is one transcript file, and naming it means
-// opening that file and parsing the head of it, so a machine with a few hundred
-// conversations spent most of a second on this before the list appeared. Now the
-// rows arrive in batches, newest first, while the picker is already on screen
-// and already taking what you type.
+// openAgentPicker opens the picker for an inline chip.
 func (m *Model) openAgentPicker() tea.Cmd {
+	return m.openAgentPickerForNode("")
+}
+
+// openAgentPickerForNode opens the start/attach picker. It opens EMPTY and fills
+// as the stores are read. nodeUUID is empty for a chip or the Agent node to bind.
+func (m *Model) openAgentPickerForNode(nodeUUID string) tea.Cmd {
 	m.mode = modeAgentPick
+	m.agentPickNode = nodeUUID
 	m.agentStore = nil
 	m.agentSeen = map[string]bool{}
 	m.agentFill.begin()
@@ -184,8 +185,10 @@ func (agentStartSource) initialSel(*Model) int { return 0 }
 
 func (agentStartSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	m.mode = modeOutline
+	target := m.agentPickNode
+	m.agentPickNode = ""
 	cur := m.cursorItem()
-	if it.value == "" || cur == nil {
+	if it.value == "" || (cur == nil && target == "") {
 		return m, nil
 	}
 	parts := strings.SplitN(it.value, "/", 3)
@@ -202,6 +205,10 @@ func (agentStartSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 			attach = s
 			break
 		}
+	}
+	if target != "" {
+		m.bindAgentNode(target, v, attach)
+		return m, nil
 	}
 	m.insertAgentChip(cur, v, attach)
 	return m, nil

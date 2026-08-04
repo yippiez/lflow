@@ -13,9 +13,10 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// The agentic coding SESSION: an inline CHIP — and only a chip, so a session can
-// be dropped into whatever note it belongs to instead of owning a row of its own.
-// It reads as one token: the agent's glyph and the session's name on the agent's
+// The agentic coding SESSION has two handles: an inline chip that can be dropped
+// into a sentence, and an Agent node whose expanded face gives the transcript a
+// full row. Both read the same local pointer; neither owns conversation records.
+// The chip reads as one token: the agent's glyph and the session's name on the agent's
 // color, in whatever ink contrasts with that fill, plus a cloud mark when the
 // session is a hosted one.
 //
@@ -23,15 +24,14 @@ import (
 // the session's pinned working directory, and closing it drops straight back into
 // the outline with the session's id adopted. The first run CREATES the session and
 // every later one RESUMES it, so a chip is a durable handle on one conversation.
-// ⌥e opens a small panel beneath the row — the session's name, where it runs, what
-// it is doing — and nothing else; the conversation itself belongs to the CLI. ⌥o
-// opens a hosted session in the browser, since there is no local process to attach
+// ⌥e opens a panel beneath the row with a read-only virtual trace loaded from the
+// CLI's store. ⌥o opens a hosted session in the browser, since there is no local process to attach
 // to. /agents lists every session in the outline, live ones first.
 //
 // WARNING (invariant): lflow never copies a conversation into the outline. A chip
-// stores only {variant, cwd, session id} in LOCAL node_output — never in the chip
-// row, never synced — and the session's name, color and state are always read back
-// out of the CLI's own store (agentstore.go) on demand.
+// or Agent node stores only {variant, cwd, session id} in LOCAL node_output — never
+// in the chip/node row, never synced. Expanded trace rows are virtual and read-only;
+// the session's name, color, state and messages come from the CLI's own store.
 
 // agentVariant declares one agentic coding CLI lflow can host a session for.
 // Adding a CLI is one entry in this table and nothing else.
@@ -479,7 +479,12 @@ func (m *Model) handleAgentClosed(msg agentClosedMsg) {
 	}
 	m.agentSave(msg.id, s)
 	delete(m.nodeStore(msg.id), "agentMeta") // the session moved - re-read it
+	delete(m.nodeStore(msg.id), "agentTrace")
 	m.refreshAgentChip(msg.id)
+	if it := m.tree.byUUID[msg.id]; it != nil && it.typ == database.TypeAgent {
+		it.name = m.agentTitle(msg.id, v, s)
+		m.unsaved = true
+	}
 
 	if msg.err != nil {
 		m.errorFlash(v.label + ": " + msg.err.Error())
@@ -677,10 +682,18 @@ func (m *Model) refreshAgentChip(id string) {
 	m.chips[id] = c
 }
 
-// hydrateAgentChips refreshes every session chip's label from the CLI stores.
-// Called wherever hydrateCmdPreviews is — on open and after an aux reload — so a
-// reopened editor shows current session names without touching the chip rows.
+// hydrateAgentChips refreshes session chips and publishes Agent node colors from
+// the CLI stores. It never writes the local session identity into synced rows.
 func (m *Model) hydrateAgentChips() {
+	for _, r := range m.rows {
+		if r.it == nil || r.it.typ != database.TypeAgent {
+			continue
+		}
+		s := m.agentLoad(r.it.uuid)
+		if v, ok := agentVariantByID(s.Variant); ok {
+			m.publishAgentLook(r.it.uuid, v)
+		}
+	}
 	for id, c := range m.chips {
 		if c.Kind != chipKindAgent {
 			continue

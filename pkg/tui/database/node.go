@@ -53,8 +53,11 @@ const (
 	TypeThinking = "thinking"
 	// TypeMol is a molecule composed AS an outline: one atom per node, children
 	// are the atoms bonded to it; alt+e draws the structure. See editor/molecule.go.
-	TypeMol = "molecule"
+	TypeMol  = "molecule"
 	TypeLine = "line"
+	// TypeAgent is a local handle on an agentic coding session. Its transcript is
+	// rendered as virtual, read-only rows and is never copied into the outline.
+	TypeAgent = "agent"
 	// TypeWebResult is one web-search hit: a generated link row a web node hangs
 	// under it (title + URL link chip). It is generated, so it never appears in
 	// the /type picker; a re-run replaces the rows by type. See editor/webnode.go
@@ -102,6 +105,7 @@ var TypeOrder = []string{
 	TypeWF,
 	TypeThinking,
 	TypeLine,
+	TypeAgent,
 	TypeWebResult,
 	TypeZotero,
 }

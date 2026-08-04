@@ -212,7 +212,10 @@ type Model struct {
 	agentScanCh chan tea.Msg
 	agentSeen   map[string]bool
 	agentFill   pickerFill
-	// agentColorChip is the chip ⌥c is picking a color for.
+	// agentPickNode is the agent node being bound by the shared session picker.
+	// Empty means /insert requested an inline chip instead.
+	agentPickNode string
+	// agentColorChip is the chip or agent node ⌥c is picking a color for.
 	agentColorChip string
 
 	// flash mode (modeFlash): each visible row's actions carry a typed label;

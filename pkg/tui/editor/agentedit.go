@@ -8,8 +8,7 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// The two edits you can make to a session chip from the outline, both on the
-// chip under the caret:
+// The two edits you can make to a session chip or Agent node:
 //
 //	⌥n  rename it   — the panel's own name field, opened without the panel
 //	⌥c  recolor it  — the shared swatch picker, like a tag chip's
@@ -30,14 +29,22 @@ func (m *Model) openAgentRename(c database.Chip) {
 	m.nodeStore(c.ID)["agentRename"] = f
 }
 
-// --- ⌥c: the chip's color ---------------------------------------------------
+// --- ⌥c: the session's color -----------------------------------------------
 
 // openAgentColor opens the swatch picker for the chip under the caret.
 func (m *Model) openAgentColor(c database.Chip) {
-	if c.Kind != chipKindAgent {
+	if c.Kind == chipKindAgent {
+		m.openAgentColorID(c.ID)
+	}
+}
+
+// openAgentColorID serves both a chip id and an Agent node uuid; both store the
+// same local agentSession record in node_output.
+func (m *Model) openAgentColorID(id string) {
+	if _, ok := agentVariantByID(m.agentLoad(id).Variant); !ok {
 		return
 	}
-	m.agentColorChip = c.ID
+	m.agentColorChip = id
 	m.mode = modeAgentColor
 	m.list.open(m, agentColorSource{}, true)
 	m.list.sel = agentColorSource{}.initialSel(m)
@@ -54,7 +61,7 @@ func agentColorOptions() []string {
 // items are the same swatch rows /style draws — a dot in the color and its
 // name — so picking a color reads the same everywhere in the editor.
 func (agentColorSource) items(m *Model, q string) []pickerItem {
-	v, _ := agentVariantByID(m.chips[m.agentColorChip].Value)
+	v, _ := agentVariantByID(m.agentLoad(m.agentColorChip).Variant)
 	var out []pickerItem
 	for _, name := range agentColorOptions() {
 		name := name

@@ -1,6 +1,9 @@
 package editor
 
 import (
+	"encoding/json"
+	"os"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,26 +12,25 @@ import (
 	"github.com/lflow/lflow/pkg/tui/database"
 )
 
-// ⌥e on a session chip: a SMALL panel beneath the row — the session's name, the
-// directory it runs in, what it is doing, and the keys that act on it. Nothing
-// more. The conversation belongs to the CLI: lflow points at a session, it does
-// not mirror it, so there is no transcript, no token count, no tool log here.
-//
-// The one thing the panel edits is the session's NAME (n), the way a link chip's
-// name is edited — the rest is read-only.
+// alt+e on a session chip or Agent node opens the same local panel. Its header
+// identifies the session; beneath it, the CLI transcript is rendered as fixed,
+// read-only virtual rows. The records are read on demand and never copied into
+// the outline or sync state.
 
-// agentChipView is the focused chip's inline view, reached through m.activeView
-// like the cmd chip's output band.
 type agentChipView struct{}
 
-// agentHandle is the session being viewed: its storage id, its variant, its data.
 type agentHandle struct {
 	id   string
 	v    agentVariant
 	sess agentSession
+	node bool
 }
 
-// agentChipHandle resolves the focused chip's handle.
+type agentTrace struct {
+	kind string
+	text string
+}
+
 func agentChipHandle(m *Model) (agentHandle, bool) {
 	c, ok := m.chips[m.focusChip]
 	if !ok || c.Kind != chipKindAgent {
@@ -41,16 +43,17 @@ func agentChipHandle(m *Model) (agentHandle, bool) {
 	return agentHandle{id: c.ID, v: v, sess: m.agentLoad(c.ID)}, true
 }
 
-// focusAgentChip opens the panel (⌥e on the chip).
 func (m *Model) focusAgentChip(c database.Chip) {
 	m.focusChip = c.ID
 	m.focused = true
 	m.focusScroll = 0
+	if h, ok := agentChipHandle(m); ok {
+		m.refreshAgentTrace(h)
+	}
 }
 
 func (agentChipView) Enter(m *Model, it *item) bool { return m.focusChip != "" }
 
-// Leave closes the panel, dropping any half-typed rename with it.
 func (agentChipView) Leave(m *Model, it *item) {
 	if m.focusChip != "" {
 		delete(m.nodeStore(m.focusChip), "agentRename")
@@ -82,17 +85,13 @@ func (agentChipView) Bands(m *Model, it *item, rail string, width, scroll, winH 
 	return NodeWindowBands(m.agentBandContent(h, rail, width), scroll, winH)
 }
 
-// agentRenameState returns the open rename field for a handle, or nil. The name
-// is edited IN the panel — the session's own line becomes the field — so
-// renaming never leaves the outline.
 func (m *Model) agentRenameState(id string) *textField {
 	f, _ := m.nodeStore(id)["agentRename"].(*textField)
 	return f
 }
 
-// agentViewKey drives the panel: n renames the session, ⌥r opens it, ⌥o opens a
-// hosted one in the browser. esc falls through to the central defocus — unless a
-// rename is open, which takes esc for itself.
+// agentViewKey drives both session surfaces. Plain navigation explores the
+// trace; r re-reads records that moved while the panel was open.
 func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 	if f := m.agentRenameState(h.id); f != nil {
 		switch k.String() {
@@ -105,14 +104,33 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 			delete(m.nodeStore(h.id), "agentRename")
 			return nil, true
 		}
-		f.handleKey(k) // the shared field vocabulary: runes, backspace, caret moves
+		f.handleKey(k)
 		return nil, true
 	}
 	switch k.String() {
+	case "down", "j":
+		m.focusScroll++
+		return nil, true
+	case "up", "k":
+		m.focusScroll = max(0, m.focusScroll-1)
+		return nil, true
+	case "pgdown":
+		m.focusScroll += 10
+		return nil, true
+	case "pgup":
+		m.focusScroll = max(0, m.focusScroll-10)
+		return nil, true
+	case "home", "g":
+		m.focusScroll = 0
+		return nil, true
+	case "end", "G":
+		m.focusScroll = 1 << 30
+		return nil, true
+	case "r":
+		m.refreshAgentTrace(h)
+		m.flash = "session trace refreshed"
+		return nil, true
 	case "n", "alt+n":
-		// a session still wearing the CLI's own name opens an EMPTY field: typing
-		// replaces rather than appends, and an empty field already means "follow
-		// the CLI". A session you named before opens with that name to edit.
 		f := &textField{value: h.sess.Name}
 		f.caret = len([]rune(f.value))
 		m.nodeStore(h.id)["agentRename"] = f
@@ -124,16 +142,12 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return m.agentOpen(h.v, h.id, cwd), true
 	case "alt+c":
-		m.openAgentColor(m.chips[h.id])
+		m.openAgentColorID(h.id)
 		return nil, true
 	}
 	return nil, false
 }
 
-// agentBandContent renders the panel: the session's full name, wrapped, and the
-// directory it is pinned to. Nothing else — every other thing lflow could say
-// about a session it would be GUESSING at (see agent.go on what the three stores
-// actually expose), and a panel that guesses is worse than a short one.
 func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string {
 	if width <= 0 {
 		width = 1 << 20
@@ -141,17 +155,14 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 	color := m.agentColorFor(h.id, h.v, h.sess)
 	line := func(s string) string { return clip(rail+cReset+s, width) }
 
-	// the rename field takes the session's line while it is open
 	if f := m.agentRenameState(h.id); f != nil {
-		hint := " · ⏎ save ⎋ cancel"
+		hint := " · enter save · esc cancel"
 		head := "  " + cDim + "name  " + cReset + withCaret(f.value, f.caret) + cDim + hint + cReset
 		return []string{line(head), line(cDim + "  " + tildePath(h.sess.Cwd) + cReset), line(cDim + agentPanelKeys + cReset)}
 	}
 
-	// the name in full: a session named by its first prompt is a sentence, and
-	// clipping it to the pill's width is what makes two sessions look alike
 	ink := bgOf(color) + contrastInk(color)
-	body := width - 6 // the rail, the indent, and the pill's own two spaces
+	body := width - 6
 	if body < 8 {
 		body = 8
 	}
@@ -166,8 +177,179 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 	if h.sess.Cwd != "" {
 		content = append(content, line(cDim+"  "+tildePath(h.sess.Cwd)+cReset))
 	}
+
+	traces := m.agentTraces(h)
+	if len(traces) == 0 {
+		content = append(content, line(cDim+"  traces · no readable records"+cReset))
+	} else {
+		content = append(content, line(cDim+"  traces · "+strconv.Itoa(len(traces))+" events · fixed local view"+cReset))
+		for i, tr := range traces {
+			branch := "├─"
+			if i == len(traces)-1 {
+				branch = "└─"
+			}
+			mark, label, style := agentTraceLook(tr.kind)
+			prefix := "  " + branch + " " + style + mark + " " + label + cReset + " "
+			continuation := "     " + strings.Repeat(" ", runewidth.StringWidth(mark+" "+label+" "))
+			traceWidth := max(8, width-runewidth.StringWidth(stripSGR(rail+prefix)))
+			chunks := wrapPlain(tr.text, traceWidth)
+			if len(chunks) == 0 {
+				chunks = []string{"·"}
+			}
+			for j, chunk := range chunks {
+				p := prefix
+				if j > 0 {
+					p = continuation
+				}
+				content = append(content, line(p+chunk+cReset))
+			}
+		}
+	}
 	return append(content, line(cDim+agentPanelKeys+cReset))
 }
 
-// agentPanelKeys is the panel's last line: everything you can do to a session.
-const agentPanelKeys = "  ⌥r open · ⌥n rename · ⌥c color · ⎋ close"
+const agentPanelKeys = "  ↑↓ trace · r refresh · alt+r open · alt+n rename · alt+c color · esc close"
+const agentTraceCap = 4 << 20
+
+func agentTraceLook(kind string) (mark, label, style string) {
+	switch kind {
+	case "user":
+		return "◆", "you", cYellow
+	case "assistant":
+		return "→", "agent", cFG
+	case "tool":
+		return "$", "tool", cMagenta
+	case "result":
+		return "·", "result", cDim
+	case "thinking":
+		return "·", "thinking", cDim
+	default:
+		return "·", kind, cDim
+	}
+}
+
+func (m *Model) refreshAgentTrace(h agentHandle) {
+	m.nodeStore(h.id)["agentTrace"] = readAgentTrace(h.v, h.sess)
+}
+
+func (m *Model) agentTraces(h agentHandle) []agentTrace {
+	if traces, ok := m.nodeStore(h.id)["agentTrace"].([]agentTrace); ok {
+		return traces
+	}
+	m.refreshAgentTrace(h)
+	traces, _ := m.nodeStore(h.id)["agentTrace"].([]agentTrace)
+	return traces
+}
+
+func readAgentTrace(v agentVariant, s agentSession) []agentTrace {
+	path := agentSessionPath(v.sessionDirs(), v.exts, s.SessionID)
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return nil
+	}
+	var records []map[string]any
+	if st.Size() <= agentTraceCap {
+		records = agentReadRecords(path, 0)
+	} else {
+		records = agentReadTail(path, agentTraceCap)
+	}
+	var out []agentTrace
+	for _, rec := range records {
+		out = append(out, agentRecordTrace(rec)...)
+	}
+	return out
+}
+
+func agentRecordTrace(rec map[string]any) []agentTrace {
+	role := strings.ToLower(agentString(rec, "role", "type"))
+	content := rec["content"]
+	if msg, ok := rec["message"].(map[string]any); ok {
+		if r := strings.ToLower(agentString(msg, "role")); r != "" {
+			role = r
+		}
+		content = msg["content"]
+	}
+	if content == nil {
+		content = rec["parts"]
+	}
+	kind := role
+	switch role {
+	case "human":
+		kind = "user"
+	case "message":
+		kind = strings.ToLower(agentString(rec, "role"))
+	case "summary", "session", "session_info", "custom-title", "agent-name", "agent-color":
+		return nil
+	}
+	if kind != "user" && kind != "assistant" {
+		if strings.Contains(role, "tool") {
+			text := agentString(rec, "name", "tool", "toolName", "command", "output", "result")
+			if text != "" {
+				return []agentTrace{{kind: "tool", text: oneLine(text)}}
+			}
+		}
+		return nil
+	}
+	return agentContentTrace(kind, content)
+}
+
+func agentContentTrace(role string, content any) []agentTrace {
+	switch value := content.(type) {
+	case string:
+		text := strings.TrimSpace(value)
+		if role == "user" {
+			text = agentPromptText(text)
+		}
+		if text == "" {
+			return nil
+		}
+		return []agentTrace{{kind: role, text: oneLine(text)}}
+	case []any:
+		var out []agentTrace
+		for _, raw := range value {
+			part, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			typ := strings.ToLower(agentString(part, "type"))
+			switch typ {
+			case "text", "input_text", "output_text":
+				out = append(out, agentContentTrace(role, agentString(part, "text"))...)
+			case "thinking", "reasoning":
+				if text := oneLine(agentString(part, "thinking", "text")); text != "" {
+					out = append(out, agentTrace{kind: "thinking", text: text})
+				}
+			case "tool_use", "tool_call", "function_call":
+				text := agentString(part, "name", "tool")
+				if args := part["input"]; args != nil {
+					text = strings.TrimSpace(text + " " + compactAgentValue(args))
+				} else if args := part["arguments"]; args != nil {
+					text = strings.TrimSpace(text + " " + compactAgentValue(args))
+				}
+				out = append(out, agentTrace{kind: "tool", text: text})
+			case "tool_result", "function_result":
+				result := part["content"]
+				if result == nil {
+					result = part["result"]
+				}
+				text := compactAgentValue(result)
+				if text != "" {
+					out = append(out, agentTrace{kind: "result", text: text})
+				}
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func compactAgentValue(v any) string {
+	if s, ok := v.(string); ok {
+		return clipStr(oneLine(s), 400)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return clipStr(string(b), 400)
+}

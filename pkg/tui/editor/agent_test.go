@@ -94,11 +94,10 @@ func TestAgentVariantsRegistered(t *testing.T) {
 			t.Errorf("%s is under-declared: %+v", id, v)
 		}
 	}
-	// a session is a CHIP, never a node type — nothing may register one
-	for _, nt := range nodeTypes {
-		if strings.HasPrefix(nt.key, "agent") {
-			t.Errorf("%q is a node type; sessions are chips only", nt.key)
-		}
+	// Sessions have exactly two surfaces: the inline chip and one whole-row Agent
+	// node whose trace is virtual rather than persisted as children.
+	if nt := typeOf(database.TypeAgent); nt.key != database.TypeAgent || nt.view == nil || nt.run == nil {
+		t.Errorf("Agent node is under-declared: %+v", nt)
 	}
 	// every agent wears its own MARK — that is what tells two chips apart. Color
 	// can collide (the palette is smaller than the registry) but must never be the
@@ -379,13 +378,9 @@ func TestAgentOpenRefusesGoneCwd(t *testing.T) {
 	}
 }
 
-// TestAgentPanelIsSmall: ⌥e shows the session's name IN FULL and the directory
-// it is pinned to. Nothing else. Everything lflow could add — a state word, a
-// "last opened" — it would be guessing at, and the panel does not guess: two of
-// the three CLIs keep no live registry, so "idle" would only ever mean "we do not
-// know", and the timestamp that was there read a store's mtime and called it an
-// open.
-func TestAgentPanelIsSmall(t *testing.T) {
+// TestAgentPanelShowsTrace: alt+e shows the identity plus virtual transcript
+// rows read from the CLI store. Nothing from those rows is copied into nodes.
+func TestAgentPanelShowsTrace(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser)
 	claudeRegistry(t, id, "flush-resume", "cli")
 	c := variant(t, "claude")
@@ -394,20 +389,61 @@ func TestAgentPanelIsSmall(t *testing.T) {
 	m.focusAgentChip(chip)
 
 	bands := (agentChipView{}).Bands(m, m.tree.byUUID["note"], "", 200, 0, 20, true)
-	if len(bands) != 3 {
-		t.Fatalf("the panel is %d lines, want 3:\n%s", len(bands), strings.Join(bands, "\n"))
-	}
 	joined := stripSGR(strings.Join(bands, "\n"))
-	for _, want := range []string{"✽ flush-resume", "/home/dev/repo", "⌥r open", "⌥n rename", "⌥c color"} {
+	for _, want := range []string{"✽ flush-resume", "/home/dev/repo", "traces · 1 events", "◆ you", "the sync test is flaky", "alt+r open", "alt+n rename", "alt+c color"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("panel is missing %q:\n%s", want, joined)
 		}
 	}
-	// nothing invented, and nothing borrowed from the conversation
-	for _, unwanted := range []string{"idle", "opened", "live", "tokens", "Bash", "turns", "branch", "model"} {
+	// Nothing is invented from incomplete cross-CLI metadata.
+	for _, unwanted := range []string{"idle", "opened", "live", "tokens", "turns", "branch", "model"} {
 		if strings.Contains(joined, unwanted) {
 			t.Errorf("panel says %q — it does not know that:\n%s", unwanted, joined)
 		}
+	}
+}
+
+func TestAgentTraceReadsAssistantTools(t *testing.T) {
+	rec := map[string]any{
+		"type": "assistant",
+		"message": map[string]any{"role": "assistant", "content": []any{
+			map[string]any{"type": "text", "text": "I will inspect it."},
+			map[string]any{"type": "tool_use", "name": "read", "input": map[string]any{"path": "main.go"}},
+		}},
+	}
+	got := agentRecordTrace(rec)
+	if len(got) != 2 || got[0].kind != "assistant" || got[1].kind != "tool" ||
+		!strings.Contains(got[1].text, "main.go") {
+		t.Fatalf("assistant trace = %#v", got)
+	}
+}
+
+func TestAgentNodeBindsLocalVirtualTrace(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser)
+	c := variant(t, "claude")
+	m, db := dbModel(t, database.Node{UUID: "session", Name: "file this"})
+	m.bindAgentNode("session", c, agentStoreSession{variant: c.id, id: id, title: "fix the flaky sync test", cwd: "/home/dev/repo"})
+
+	it := m.tree.byUUID["session"]
+	if it.typ != database.TypeAgent || it.name != "fix the flaky sync test" {
+		t.Fatalf("bound node = type %q name %q", it.typ, it.name)
+	}
+	if acceptsChildren(it) {
+		t.Fatal("an Agent node accepted real children; its trace must stay virtual")
+	}
+	if !(agentNodeView{}).Enter(m, it) {
+		t.Fatal("bound Agent node refused its trace view")
+	}
+	joined := stripSGR(strings.Join((agentNodeView{}).Bands(m, it, "", 120, 0, 20, true), "\n"))
+	if !strings.Contains(joined, "the sync test is flaky") {
+		t.Fatalf("Agent node trace missing local transcript:\n%s", joined)
+	}
+	raw, err := database.LoadNodeOutput(db, "session")
+	if err != nil || !strings.Contains(raw, id) {
+		t.Fatalf("local session pointer = %q (%v)", raw, err)
+	}
+	if len(it.children) != 0 {
+		t.Fatalf("trace leaked into %d outline children", len(it.children))
 	}
 }
 
