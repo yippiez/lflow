@@ -207,7 +207,6 @@ func TestCmdChipNotInBashNode(t *testing.T) {
 	}
 }
 
-
 // TestCmdChipAltEFocusesInlineBand: alt+e on a cmd chip focuses its inline
 // output band (the bash-node surface) instead of a separate page — the editor
 // stays in modeOutline — and alt+e (or esc) defocuses it again.

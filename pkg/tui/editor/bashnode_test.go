@@ -341,4 +341,3 @@ func TestBashRunningCountInToolbar(t *testing.T) {
 		t.Errorf("bar = %q, want a 2 bash running tally", bar)
 	}
 }
-

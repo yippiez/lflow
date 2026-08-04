@@ -422,14 +422,14 @@ func TestMirrorPickerCreatesTheNode(t *testing.T) {
 
 func TestZoteroNearestColor(t *testing.T) {
 	cases := map[string]string{
-		"#ffd400":  "yellow",
-		"#ff6666":  "red",
-		"#5fb236":  "green",
-		"#2ea8e5":  "blue",
+		"#ffd400": "yellow",
+		"#ff6666": "red",
+		"#5fb236": "green",
+		"#2ea8e5": "blue",
 		// zotero's purple label is a pale violet: it lands on lightpurple, which
 		// is the swatch that was simply called "purple" before the dark one
 		// joined the palette, so the pill still renders the color it always did
-		"#a28ae5": "lightpurple",
+		"#a28ae5":  "lightpurple",
 		"":         "",
 		"nonsense": "",
 	}

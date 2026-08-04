@@ -44,7 +44,7 @@ var themes = []theme{
 		red: fg(244, 71, 71), orange: fg(206, 145, 120), yellow: fg(255, 215, 95),
 		green: fg(106, 153, 85), cyan: fg(78, 201, 176), purple: fg(197, 134, 192),
 		greenLight: fg(92, 255, 138), purpleDark: fg(168, 85, 199),
-		bgCode:     bg(31, 31, 31), bgPill: bg(38, 79, 120), bgHit: bg(92, 72, 12),
+		bgCode: bg(31, 31, 31), bgPill: bg(38, 79, 120), bgHit: bg(92, 72, 12),
 	},
 	{
 		// "gray" is system with a gray page behind the main region instead of
@@ -54,8 +54,8 @@ var themes = []theme{
 		red: fg(244, 71, 71), orange: fg(206, 145, 120), yellow: fg(255, 215, 95),
 		green: fg(106, 153, 85), cyan: fg(78, 201, 176), purple: fg(197, 134, 192),
 		greenLight: fg(92, 255, 138), purpleDark: fg(168, 85, 199),
-		bgCode:     bg(31, 31, 31), bgPill: bg(38, 79, 120), bgHit: bg(92, 72, 12),
-		bgPage:     bg(38, 38, 38),
+		bgCode: bg(31, 31, 31), bgPill: bg(38, 79, 120), bgHit: bg(92, 72, 12),
+		bgPage: bg(38, 38, 38),
 	},
 	{
 		name: "nord",
@@ -63,7 +63,7 @@ var themes = []theme{
 		red: fg(191, 97, 106), orange: fg(208, 135, 112), yellow: fg(235, 203, 139),
 		green: fg(163, 190, 140), cyan: fg(136, 192, 208), purple: fg(180, 142, 173),
 		greenLight: fg(166, 245, 148), purpleDark: fg(157, 107, 161),
-		bgCode:     bg(46, 52, 64), bgPill: bg(67, 76, 94), bgHit: bg(92, 78, 34),
+		bgCode: bg(46, 52, 64), bgPill: bg(67, 76, 94), bgHit: bg(92, 78, 34),
 	},
 	{
 		name: "gruvbox",
@@ -71,7 +71,7 @@ var themes = []theme{
 		red: fg(251, 73, 52), orange: fg(254, 128, 25), yellow: fg(250, 189, 47),
 		green: fg(184, 187, 38), cyan: fg(142, 192, 124), purple: fg(211, 134, 155),
 		greenLight: fg(196, 255, 20), purpleDark: fg(177, 98, 134),
-		bgCode:     bg(60, 56, 54), bgPill: bg(80, 73, 69), bgHit: bg(104, 78, 12),
+		bgCode: bg(60, 56, 54), bgPill: bg(80, 73, 69), bgHit: bg(104, 78, 12),
 	},
 }
 
