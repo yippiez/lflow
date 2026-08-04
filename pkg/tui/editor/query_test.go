@@ -229,6 +229,53 @@ func TestQueryStreamsPersistedCandidates(t *testing.T) {
 	}
 }
 
+func finishPersistedQuery(t *testing.T, m *Model, q *item) {
+	t.Helper()
+	cmd := runQuery(m, q)
+	for steps := 0; m.queryLoad != nil && steps < 100; steps++ {
+		if cmd == nil {
+			t.Fatal("query stopped before its stream finished")
+		}
+		switch msg := cmd().(type) {
+		case queryLoadMsg:
+			cmd = m.handleQueryLoad(msg)
+		case queryReadyMsg:
+			cmd = m.handleQueryReady(msg)
+		default:
+			t.Fatalf("stream command returned %T", msg)
+		}
+	}
+	if m.queryLoad != nil {
+		t.Fatal("query stream did not finish")
+	}
+}
+
+// TestPersistedTagAndStateQueries is the reported project-column regression:
+// adjacent tags intersect, and is(open) must read completion state from rows
+// streamed out of SQLite rather than treating every persisted node as open.
+func TestPersistedTagAndStateQueries(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "tags-query", Name: "#node #chip", Type: database.TypeQuery},
+		database.Node{UUID: "tag-hit", Name: "agent traces #node #chip"},
+		database.Node{UUID: "tag-miss", Name: "another #node"},
+		database.Node{UUID: "state-query", Name: "#qol is(open)", Type: database.TypeQuery},
+		database.Node{UUID: "open", Name: "open task #qol"},
+		database.Node{UUID: "done", Name: "done task #qol", CompletedAt: 99},
+	)
+
+	tags := m.tree.byUUID["tags-query"]
+	finishPersistedQuery(t, m, tags)
+	if got := mirrorSources(tags); len(got) != 1 || got[0] != "tag-hit" {
+		t.Fatalf("#node #chip = %v, want tag-hit", got)
+	}
+
+	state := m.tree.byUUID["state-query"]
+	finishPersistedQuery(t, m, state)
+	if got := mirrorSources(state); len(got) != 1 || got[0] != "open" {
+		t.Fatalf("#qol is(open) = %v, want only open", got)
+	}
+}
+
 func TestQueryMirrorsUseSourceStyle(t *testing.T) {
 	m, q := newQueryTree()
 	source := &item{uuid: "source", name: "colored", style: "color:red", parent: m.tree.root}
