@@ -463,6 +463,7 @@ func (m *Model) reopenAt(rootUUID, focusUUID string) {
 type undoState struct {
 	root     *item
 	deleted  []string
+	chips    map[string]database.Chip
 	external []*item  // grafted subtree roots, cloned like root
 	view     []string // viewStack uuids
 	cursor   int
@@ -480,10 +481,14 @@ func (m *Model) pushUndo(mark string) {
 	st := undoState{
 		root:     cloneItem(m.tree.root, nil),
 		deleted:  append([]string(nil), m.tree.deleted...),
+		chips:    make(map[string]database.Chip, len(m.chips)),
 		external: make([]*item, len(m.tree.external)),
 		view:     make([]string, len(m.viewStack)),
 		cursor:   m.cursor,
 		caret:    m.caret,
+	}
+	for id, c := range m.chips {
+		st.chips[id] = c
 	}
 	for i, ex := range m.tree.external {
 		st.external[i] = cloneItem(ex, nil)
@@ -545,6 +550,25 @@ func (m *Model) undo() {
 		m.tree.external[i] = cloneItem(ex, nil)
 	}
 	m.tree.rebuildByUUID()
+
+	// Chip records are part of the editable text snapshot: restoring an anchor
+	// without its record renders as @?. Reconcile both the in-memory cache and the
+	// chips table before the restored tree can render or save.
+	currentChips := m.chips
+	m.chips = make(map[string]database.Chip, len(st.chips))
+	for id, c := range st.chips {
+		m.chips[id] = c
+		if m.db != nil {
+			_ = database.UpsertChip(m.db, c)
+		}
+	}
+	if m.db != nil {
+		for id := range currentChips {
+			if _, keep := st.chips[id]; !keep {
+				_ = database.DeleteChip(m.db, id)
+			}
+		}
+	}
 
 	// Reconcile the restored tree with what's actually in the DB (the snapshots map)
 	// so the next save is correct AND safe — this is what makes undo robust:

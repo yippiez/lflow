@@ -104,6 +104,38 @@ func TestVisualRowsWideRuneNarrowLineTerminates(t *testing.T) {
 // not fit on the current visual line it moves down whole instead of splitting
 // at the space inside its own name, which is what the caret model (chipVisualRows,
 // which walks anchors as one cluster) already assumes.
+func TestUndoRestoresDeletedChipRecord(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "n", Name: ""})
+	c := database.Chip{ID: "undo-chip", Kind: chipKindTag, Value: "bug"}
+	if err := database.UpsertChip(m.db, c); err != nil {
+		t.Fatal(err)
+	}
+	m.chips[c.ID] = c
+	n := m.tree.byUUID["n"]
+	n.name = database.ChipAnchor(c.ID)
+	cursorOn(m, "n")
+	clipCapture(t)
+
+	m.caret = 0
+	m.press("shift+right") // chip anchors are atomic: selects the whole chip
+	m.press("x")
+	if got := displayAnchors(n.name, m.chips); got != "" {
+		t.Fatalf("cut left %q", got)
+	}
+	if _, err := database.GetChip(m.db, c.ID); err == nil {
+		t.Fatal("cut left the chip record in the database")
+	}
+
+	m.undo()
+	n = m.tree.byUUID["n"]
+	if got := displayAnchors(n.name, m.chips); got != "#bug" {
+		t.Fatalf("undo restored %q, want #bug rather than @?", got)
+	}
+	if got, err := database.GetChip(m.db, c.ID); err != nil || got.Value != "bug" {
+		t.Fatalf("undo did not restore persisted chip: %+v err=%v", got, err)
+	}
+}
+
 func TestChipMovesWholeAcrossAWrap(t *testing.T) {
 	chips := map[string]database.Chip{
 		"c1": {ID: "c1", Kind: chipKindLink, Value: "https://example.com/x", Label: "Q3 planning notes"},
