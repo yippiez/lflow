@@ -35,6 +35,14 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
+	// TypeSVG and TypeHTML are markup composed AS an outline, the way TypeMath is
+	// an expression composed as one: a node's text is a tag with its attributes
+	// and its children are its child elements, so the outline structure IS the
+	// document tree. alt+r serializes the subtree — an SVG node rasterizes it and
+	// keeps the picture as its blob, an HTML node writes the markup to its run
+	// band. See editor/markup.go.
+	TypeSVG  = "svg"
+	TypeHTML = "html"
 	// TypePir is the home of the magic keywords: "ultracode" and "ultraloop"
 	// animate on a Pir row and nowhere else, so the shine marks a deliberate
 	// instruction rather than lighting up any note that happens to say the word.
@@ -104,6 +112,8 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
+	TypeSVG,
+	TypeHTML,
 	TypePir,
 	TypeMath,
 	TypeTable,

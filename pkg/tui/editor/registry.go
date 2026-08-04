@@ -259,6 +259,33 @@ var nodeTypes = []nodeType{
 	// an operator (colored yellow) with operands as children, or an atom leaf.
 	// Stays inline-editable; the operator row carries a dim linear preview of its
 	// whole subtree, and children fan out as the AST beneath it.
+	// markup composed as an outline (see markup.go): the node's text is a tag
+	// with its attributes and its children are its child elements. Both stay
+	// inline-editable; a known tag tints accent, attribute names dim, and an
+	// element row carries a dim linear preview of the document beneath it.
+	{
+		key: database.TypeSVG, label: "SVG", inlineEditable: true,
+		spanColor:    markupSpanColor,
+		bodyTail:     markupBodyTail,
+		run:          runSVGRender, // alt+r: rasterize the subtree into the node's picture
+		view:         imageView{},  // alt+e: the rendered picture, scrollable
+		flashActions: svgFlashActions,
+		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.svgBandLines(r, below, maxLine) },
+		toContext:    markupToContext("svg"),
+		// deliberately no cliDeps: there is no ONE binary this needs. It tries
+		// several rasterizers in turn (see svgRasterizers), so declaring the
+		// preferred one would warn "missing dependency" on a machine where the
+		// node works perfectly through the next one down.
+	},
+	{
+		key: database.TypeHTML, label: "HTML", inlineEditable: true,
+		spanColor:    markupSpanColor,
+		bodyTail:     markupBodyTail,
+		run:          runHTMLOut, // alt+r: the serialized markup into the run band
+		flashActions: htmlFlashActions,
+		toContext:    markupToContext("html"),
+		runInTail:    true,
+	},
 	// Pir: the magic keywords' one home. "ultracode" and "ultraloop" shine on
 	// this row and on no other, so the animation reads as a marked instruction
 	// rather than as any note that happens to contain the word. Nothing else yet
