@@ -716,7 +716,9 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 
 	runes := []rune(name)
 	flags := inlineSpans(runes)
-	markKeywords(runes, flags, animFrame) // ultracode/ultraloop: render-time only
+	if magicKeywordRow(it) {
+		markKeywords(runes, flags, animFrame) // ultracode/ultraloop: render-time only
+	}
 	spanSGR := spanSGRFor(it.uuid, len(runes))
 	// the live horizontal selection (shift+←/→) draws as a bar over its runes
 	selLive := textSelUUID != "" && textSelUUID == it.uuid

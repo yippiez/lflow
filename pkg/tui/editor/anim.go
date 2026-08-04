@@ -7,6 +7,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/pkg/tui/database"
 )
 
 // animFrame is the render-time animation clock for the magic keywords (ultracode /
@@ -48,6 +50,14 @@ func shineColorAt(n, j, frame int, speed float64, base, peak [3]int) string {
 	}
 	r, g, b := lerpRGB3(base, peak, t)
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+}
+
+// magicKeywordRow reports whether a row is one the magic keywords animate on.
+// They live on the Pir node and nowhere else: a shine that fires wherever the
+// word "ultracode" appears turns every note ABOUT the keyword into a light show,
+// and the animation stops meaning "this row is an instruction".
+func magicKeywordRow(it *item) bool {
+	return it != nil && it.typ == database.TypePir
 }
 
 // markKeywords sets flags[i].kwColor for every rune that falls inside a magic keyword,
@@ -227,6 +237,9 @@ func (m *Model) computingNodeCount() int {
 // keyword. The animation tick runs only while one is on screen.
 func (m *Model) hasMagicKeyword() bool {
 	for _, r := range m.rows {
+		if !magicKeywordRow(r.it) {
+			continue
+		}
 		low := strings.ToLower(r.it.name)
 		for _, k := range magicKeywords {
 			if strings.Contains(low, k.word) {

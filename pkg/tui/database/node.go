@@ -35,6 +35,11 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
+	// TypePir is the home of the magic keywords: "ultracode" and "ultraloop"
+	// animate on a Pir row and nowhere else, so the shine marks a deliberate
+	// instruction rather than lighting up any note that happens to say the word.
+	// Empty otherwise — the node's own behaviour is still to be written.
+	TypePir = "pir"
 	// TypeMath is a mathematical expression composed AS an outline: a node's text
 	// is an operator (= ÷ ± √ Σ ∫ ^ …, colored yellow) with its operands as
 	// children, or a plain atom leaf. Simple expressions stay inline on one row;
@@ -99,6 +104,7 @@ var TypeOrder = []string{
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
+	TypePir,
 	TypeMath,
 	TypeTable,
 	TypeMol,

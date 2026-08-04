@@ -259,6 +259,15 @@ var nodeTypes = []nodeType{
 	// an operator (colored yellow) with operands as children, or an atom leaf.
 	// Stays inline-editable; the operator row carries a dim linear preview of its
 	// whole subtree, and children fan out as the AST beneath it.
+	// Pir: the magic keywords' one home. "ultracode" and "ultraloop" shine on
+	// this row and on no other, so the animation reads as a marked instruction
+	// rather than as any note that happens to contain the word. Nothing else yet
+	// — the node's own behaviour is still to be written, and an ordinary editable
+	// row is the right placeholder for one.
+	{
+		key: database.TypePir, label: "Pir", inlineEditable: true,
+		toContext: xmlTag("pir"),
+	},
 	{
 		key: database.TypeMath, label: "Math", inlineEditable: true,
 		spanColor:    mathSpanColor,
