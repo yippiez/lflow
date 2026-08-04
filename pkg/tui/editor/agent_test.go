@@ -418,6 +418,49 @@ func TestAgentTraceReadsAssistantTools(t *testing.T) {
 	}
 }
 
+// Pi writes camelCase toolCall/toolResult records; both belong in the trace.
+func TestAgentTraceReadsPiToolRecords(t *testing.T) {
+	call := map[string]any{"type": "message", "message": map[string]any{
+		"role": "assistant", "content": []any{map[string]any{
+			"type": "toolCall", "name": "bash", "arguments": map[string]any{"command": "go test ./..."},
+		}},
+	}}
+	got := agentRecordTrace(call)
+	if len(got) != 1 || got[0].kind != "tool" || !strings.Contains(got[0].text, "go test ./...") {
+		t.Fatalf("Pi tool call trace = %#v", got)
+	}
+	result := map[string]any{"type": "message", "message": map[string]any{
+		"role": "toolResult", "content": []any{map[string]any{"type": "text", "text": "ok"}},
+	}}
+	got = agentRecordTrace(result)
+	if len(got) != 1 || got[0].kind != "result" || got[0].text != "ok" {
+		t.Fatalf("Pi tool result trace = %#v", got)
+	}
+}
+
+// Pi's filename is timestamp_<session-id>.jsonl even though the pointer stored
+// on a chip/node is the session id from the first JSONL record.
+func TestAgentTraceFindsTimestampPrefixedPiTranscript(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	id := "019eb6ff-caef-78d0-8a2a-93e6ddd1f826"
+	dir := filepath.Join(home, ".pi", "agent", "sessions", "--home-dev-repo--")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"type":"session","id":"` + id + `","cwd":"/home/dev/repo"}` + "\n" +
+		`{"type":"message","message":{"role":"user","content":[{"type":"text","text":"show the trace"}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "2026-06-11T14-04-37-487Z_"+id+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v := variant(t, "pi")
+	got := readAgentTrace(v, agentSession{Variant: "pi", SessionID: id})
+	if len(got) != 1 || got[0].kind != "user" || got[0].text != "show the trace" {
+		t.Fatalf("Pi timestamp-prefixed trace = %#v", got)
+	}
+}
+
 func TestAgentNodeBindsLocalVirtualTrace(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser)
 	c := variant(t, "claude")

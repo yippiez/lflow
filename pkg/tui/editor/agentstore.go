@@ -643,7 +643,12 @@ func agentSessionPath(roots []string, exts []string, id string) string {
 				}
 				return nil
 			}
-			if agentIDFromPath(path) == id {
+			base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			// Pi prefixes transcript filenames with an ISO timestamp
+			// (timestamp_<session-id>.jsonl). The picker learns the real id from
+			// the session header, so later trace reads must recognize that suffix
+			// rather than looking only for <session-id>.jsonl.
+			if base == id || strings.HasSuffix(base, "_"+id) {
 				found = path
 			}
 			return nil

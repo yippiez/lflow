@@ -283,6 +283,10 @@ func agentRecordTrace(rec map[string]any) []agentTrace {
 	}
 	if kind != "user" && kind != "assistant" {
 		if strings.Contains(role, "tool") {
+			out := agentContentTrace("result", content)
+			if len(out) > 0 {
+				return out
+			}
 			text := agentString(rec, "name", "tool", "toolName", "command", "output", "result")
 			if text != "" {
 				return []agentTrace{{kind: "tool", text: oneLine(text)}}
@@ -319,7 +323,7 @@ func agentContentTrace(role string, content any) []agentTrace {
 				if text := oneLine(agentString(part, "thinking", "text")); text != "" {
 					out = append(out, agentTrace{kind: "thinking", text: text})
 				}
-			case "tool_use", "tool_call", "function_call":
+			case "tool_use", "tool_call", "toolcall", "function_call", "functioncall":
 				text := agentString(part, "name", "tool")
 				if args := part["input"]; args != nil {
 					text = strings.TrimSpace(text + " " + compactAgentValue(args))
@@ -327,7 +331,7 @@ func agentContentTrace(role string, content any) []agentTrace {
 					text = strings.TrimSpace(text + " " + compactAgentValue(args))
 				}
 				out = append(out, agentTrace{kind: "tool", text: text})
-			case "tool_result", "function_result":
+			case "tool_result", "toolresult", "function_result", "functionresult":
 				result := part["content"]
 				if result == nil {
 					result = part["result"]
