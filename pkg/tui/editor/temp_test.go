@@ -137,3 +137,31 @@ func TestScrollTempPanelHitTest(t *testing.T) {
 		t.Fatal("a focused temp panel scrolls via the body window, not tempScroll")
 	}
 }
+
+// TestTempSpaceRendersBlockNodesAsBlocks: the Temporary Domain is a SPACE, not a
+// second renderer. A Code node parked there must draw the same gray, gutter-
+// numbered block it draws in the outline — it used to collapse to the word
+// "code", which reads as the node having been damaged by the move.
+func TestTempSpaceRendersBlockNodesAsBlocks(t *testing.T) {
+	m := newTestModel(80, "main")
+	m.ensureTempTree()
+	for _, c := range m.tempTree.root.children {
+		delete(m.tempTree.byUUID, c.uuid)
+	}
+	code := &item{name: "print('hi')\nprint('there')", typ: database.TypeCode, parent: m.tempTree.root}
+	code.uuid = "code1"
+	m.tempTree.root.children = []*item{code}
+	m.tempTree.byUUID[code.uuid] = code
+
+	lines := m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, 8, 80, true, 0)
+	joined := stripSGR(strings.Join(lines, "\n"))
+
+	if strings.Contains(joined, "code · 2 lines") || strings.Contains(joined, "○ code") {
+		t.Errorf("the block collapsed to its compact label:\n%s", joined)
+	}
+	for _, want := range []string{"1 │ print('hi')", "2 │ print('there')"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("temp region is missing %q:\n%s", want, joined)
+		}
+	}
+}

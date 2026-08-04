@@ -191,6 +191,28 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			// main outline while the temp panel is up, and a suggestion must not
 			// vanish just because you stepped into the scratch space
 			glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
+
+			// A block-faced node renders AS its block here too. The temp space is a
+			// SPACE, not a different renderer: a Code node that draws as a gray
+			// block in the outline and collapses to the word "code" the moment it
+			// is parked in temp reads as the node having been damaged by the move.
+			// Same for the stashed main outline, which this region also draws.
+			if bc := typeOf(it.typ).blockCode; bc != nil {
+				if code, _, ok := bc(m, it, false); ok {
+					inner := maxLine - visibleWidth(continuationPrefix(r, below))
+					content := codeBlockLines(code, -1, inner)
+					flat = append(flat, m.blockGroupLines(r, content, below, glyphColor+glyph+cReset)...)
+					if i == cursor {
+						cursorStart, cursorEnd = rowStart, len(flat)-1
+					}
+					flat = append(flat, m.noteBandLines(r, maxLine, below, -1)...)
+					flat = append(flat, m.runBandLines(r, below, maxLine)...)
+					if b := typeOf(it.typ).bands; b != nil {
+						flat = append(flat, b(m, r, below, maxLine)...)
+					}
+					continue
+				}
+			}
 			name := tr.displayName(it)
 			body := renderBody(it, name, -1, false, m.chips)
 			if rm := typeOf(it.typ).renderM; rm != nil {
