@@ -31,6 +31,9 @@ const (
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
+	// TypeEmpty is a divider stripped of its rule: a deliberately blank row,
+	// pure vertical breathing room in the outline. It carries no text.
+	TypeEmpty = "empty"
 	TypeWF      = "wf" // a Workflowy mirror root: alt+r pulls its subtree (see nodes/wf)
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
@@ -125,6 +128,7 @@ var TypeOrder = []string{
 	TypeBullets,
 	TypeTodo,
 	TypeDivider,
+	TypeEmpty,
 	TypeH1,
 	TypeH2,
 	TypeH3,

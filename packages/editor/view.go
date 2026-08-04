@@ -113,6 +113,11 @@ func (m *Model) finalView(maxLine int) []string {
 	allRows := m.tree.allRows()
 	for i, r := range allRows {
 		below := i+1 < len(allRows) && allRows[i+1].depth > r.depth
+		if r.it.typ == database.TypeEmpty {
+			lines = append(lines, emptyLine(r, maxLine, false))
+			lines = append(lines, m.noteBandLines(r, maxLine, below, -1)...)
+			continue
+		}
 		if r.it.typ == database.TypeDivider {
 			shown := m.renderItem(r.it)
 			name := m.tree.displayName(r.it)
@@ -173,6 +178,24 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 	for i, r := range rows {
 		it := r.it
 		selected := i == m.cursor
+
+		// an empty node is a blank spacer row: no glyph, no rule, no text — the
+		// cursor cue is a single red · (see emptyLine). It still hangs a note.
+		if it.typ == database.TypeEmpty {
+			below := i+1 < len(rows) && rows[i+1].depth > r.depth
+			line := emptyLine(r, maxLine, selected && m.mode != modeFlash)
+			if m.inSelection(i) {
+				line = selFill(line, maxLine)
+			}
+			groups[i] = []string{line}
+			noteCaret := -1
+			if selected && m.mode == modeNote {
+				noteCaret = m.caret
+			}
+			bands[i] = m.noteBandLines(r, maxLine, below, noteCaret)
+			bands[i] = append(bands[i], m.suggestBlockLines(r, below, maxLine)...)
+			continue
+		}
 
 		// a divider is a full-width rule hiding the glyph; its text (if any) sits
 		// on the midpoint of the rule and edits inline like any node — it still

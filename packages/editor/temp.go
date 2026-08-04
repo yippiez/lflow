@@ -171,11 +171,16 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			rowStart := len(flat)
 			// a divider is a full-width rule, not a glyph+body node; render it as the
 			// rule here too so the read-only region keeps it (never the cursor color)
-			if it.typ == database.TypeDivider {
-				shown := m.renderItem(it)
-				name := tr.displayName(it)
-				body := renderBody(shown, name, -1, false, m.chips)
-				line := dividerLine(r, maxLine, body, false)
+			if it.typ == database.TypeDivider || it.typ == database.TypeEmpty {
+				var line string
+				if it.typ == database.TypeEmpty {
+					line = emptyLine(r, maxLine, false)
+				} else {
+					shown := m.renderItem(it)
+					name := tr.displayName(it)
+					body := renderBody(shown, name, -1, false, m.chips)
+					line = dividerLine(r, maxLine, body, false)
+				}
 				flat = append(flat, wrapLine(line, maxLine, continuationPrefix(r, below))...)
 				if i == cursor {
 					cursorStart, cursorEnd = rowStart, len(flat)-1

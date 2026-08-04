@@ -206,6 +206,22 @@ func connector(r row) string {
 	return b.String()
 }
 
+// emptyLine renders an empty node: a divider stripped of its rule — a blank
+// row of pure vertical breathing room. The connector rail is kept so the tree
+// stays continuous through the gap. There is no glyph or rule to turn red, so
+// under the cursor a single red · centered in the row marks the selection.
+func emptyLine(r row, maxLine int, selected bool) string {
+	prefix := " " + cDim + connector(r) + cReset + "  "
+	if !selected {
+		return prefix
+	}
+	lead := (maxLine - visibleWidth(prefix)) / 2
+	if lead < 0 {
+		lead = 0
+	}
+	return prefix + strings.Repeat(" ", lead) + cRed + "·" + cReset
+}
+
 // dividerLine renders a divider node as a single horizontal rule. The glyph
 // (circle) is hidden, but its SLOT is still reserved — a normal row is
 // " connector ○ body", so the rule starts where the body would, and the ~96%

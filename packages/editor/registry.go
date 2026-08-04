@@ -164,6 +164,10 @@ var nodeTypes = []nodeType{
 	// is otherwise a normal node: it nests, moves, takes a /note, and is removed
 	// with ctrl+d.
 	{key: database.TypeDivider, label: "Divider", inlineEditable: true, toContext: xmlTag("divider")},
+	// an empty node is a divider stripped of its rule: a deliberately blank row,
+	// pure vertical breathing room (see emptyLine). Not inline-editable — it has
+	// no text; under the cursor a single red · marks the otherwise blank line.
+	{key: database.TypeEmpty, label: "Empty", toContext: xmlTag("empty")},
 	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true, toContext: xmlTag("h1")},
 	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true, toContext: xmlTag("h2")},
 	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true, toContext: xmlTag("h3")},
