@@ -1622,10 +1622,10 @@ func TestDuplicateCopiesEverySelectedRoot(t *testing.T) {
 	*m = *mm.(*Model)
 
 	kids := m.tree.root.children
-	if got := namesOf(kids); !reflect.DeepEqual(got, []string{"A", "A", "B", "B"}) {
-		t.Fatalf("selected duplicate = %v", got)
+	if got := namesOf(kids); !reflect.DeepEqual(got, []string{"A", "B", "A", "B"}) {
+		t.Fatalf("selected duplicate should land as one block after the selection: %v", got)
 	}
-	if kids[1] == a || kids[3] == b || kids[3].uuid == b.uuid {
+	if kids[2] == a || kids[3] == b || kids[3].uuid == b.uuid {
 		t.Fatal("selected duplicates need fresh nodes")
 	}
 	if len(kids[3].children) != 1 || kids[3].children[0].name != "C" {

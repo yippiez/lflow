@@ -1884,14 +1884,39 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		}
 		m.pushUndo("")
 		ctx := m.cursorCtx()
+		type duplicateGroup struct {
+			parent *item
+			after  *item
+			clones []*item
+		}
+		var groups []*duplicateGroup
+		byParent := map[*item]*duplicateGroup{}
 		var last *item
 		for _, target := range targets {
-			clone, err := m.tree.duplicate(target)
+			clone, err := m.tree.cloneSubtree(target)
 			if err != nil {
 				m.errorFlash(err.Error())
 				return m, nil
 			}
+			clone.parent = target.parent
+			group := byParent[target.parent]
+			if group == nil {
+				group = &duplicateGroup{parent: target.parent}
+				byParent[target.parent] = group
+				groups = append(groups, group)
+			}
+			group.after = target
+			group.clones = append(group.clones, clone)
 			last = clone
+		}
+		// A selected block duplicates as another block after the selection — not
+		// as A,A′,B,B′. If selected roots span parents, each sibling group lands
+		// after the last selected root in that parent while retaining row order.
+		for _, group := range groups {
+			at := indexOf(group.after) + 1
+			group.parent.children = append(group.parent.children, make([]*item, len(group.clones))...)
+			copy(group.parent.children[at+len(group.clones):], group.parent.children[at:])
+			copy(group.parent.children[at:], group.clones)
 		}
 		m.clearSel()
 		m.unsaved = true
