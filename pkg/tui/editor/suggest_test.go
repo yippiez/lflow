@@ -118,6 +118,30 @@ func TestGotoSuggestionCommandAndChord(t *testing.T) {
 	}
 }
 
+// TestGotoChordWithAltHeld: nobody lets go of Alt between the two keys of a
+// chord pressed that fast, so the leader accepts the second key either way.
+func TestGotoChordWithAltHeld(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestComplete, TargetUUID: cur.uuid})
+	m.loadSuggests()
+
+	m.press("alt+g")
+	m.press("alt+s")
+	if m.mode != modeSuggest || m.suggestUUID != cur.uuid {
+		t.Fatalf("alt+g alt+s did not jump to review: mode=%v uuid=%q", m.mode, m.suggestUUID)
+	}
+	m.press("esc")
+	m.press("alt+g")
+	m.press("alt+g")
+	if m.mode != modeFinder || m.finder.act != actGoto {
+		t.Fatalf("alt+g alt+g did not open goto: mode=%v action=%v", m.mode, m.finder.act)
+	}
+	// the held-Alt second key must not leave the leader armed for a third
+	if m.gotoPending {
+		t.Fatal("the goto leader stayed armed after alt+g alt+g")
+	}
+}
+
 // TestSuggestShowsOnBlockFacedTypes: a Code node's row IS its block, so the
 // proposal hangs as a line under the block instead of a row suffix. Every other
 // type gets it through the shared row suffix.

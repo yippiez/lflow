@@ -61,14 +61,18 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Off a contextual link, alt+g is a small goto leader: g opens the ordinary
 	// node finder, s jumps to pending review. Consume the second key here before
 	// normal text editing can type it into the node.
+	//
+	// The second key is accepted with Alt still held (alt+g, alt+s) as well as
+	// plain: nobody lets go of a modifier between two keys pressed that fast, and
+	// a chord that only works if you do reads as a chord that does not work.
 	if m.gotoPending {
 		m.gotoPending = false
 		switch key {
-		case "g":
+		case "g", "alt+g":
 			if !m.tempActive {
 				m.openFinder(actGoto)
 			}
-		case "s":
+		case "s", "alt+s":
 			m.gotoSuggestion()
 		case "esc":
 			m.flash = "goto canceled"
