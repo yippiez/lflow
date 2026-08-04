@@ -93,6 +93,18 @@ func TestRenderBodyChipsBareDate(t *testing.T) {
 // TestRenderBodyDateChipUnaffectedByColor: a date chip is a structural token, so
 // the node's /color never bleeds into it — the chip keeps its pill background and
 // a neutral foreground even when the node is colored red.
+func TestNodeColorCoversUnicodeArrowsAndWholeTitle(t *testing.T) {
+	it := &item{uuid: "colored", typ: database.TypeBullets, style: "color:red"}
+	name := "lflow → big improvements → lflow editor"
+	body := renderBody(it, name, -1, false, nil)
+	if !strings.Contains(body, cRed+name) {
+		t.Fatalf("node color did not cover the uninterrupted Unicode title: %q", body)
+	}
+	if got := stripSGR(body); got != name {
+		t.Fatalf("rendered text = %q", got)
+	}
+}
+
 func TestRenderBodyDateChipUnaffectedByColor(t *testing.T) {
 	it := &item{typ: database.TypeBullets, style: "color:red"}
 
