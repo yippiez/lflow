@@ -389,3 +389,97 @@ func TestRunningQueryShimmerInBar(t *testing.T) {
 		t.Error("a running query must keep the animation tick alive")
 	}
 }
+
+// TestQueryInsideAnOpenedSubtree is the "queries don't work here" regression.
+//
+// Opening the outline at a subtree — which /goto and every zoom-to-node does —
+// gives that subtree's root an in-memory item with no parent item above it. The
+// candidate context marked it seen from that reading, so the parent link the
+// database was about to supply never landed, the walk up to the outline root
+// dead-ended there, and everything under it fell out of the default in:root
+// scope. A query sitting in that branch found nothing, including its own
+// siblings, which were sitting one row above it.
+func TestQueryInsideAnOpenedSubtree(t *testing.T) {
+	db := database.InitTestMemoryDB(t)
+	if err := database.EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []database.Node{
+		{UUID: "branch", ParentUUID: database.RootUUID, Rank: 0, Name: "a branch"},
+		{UUID: "q", ParentUUID: "branch", Rank: 0, Name: "#qol", Type: database.TypeQuery},
+		{UUID: "hit", ParentUUID: "branch", Rank: 1, Name: "fix the caret #qol"},
+		{UUID: "far", ParentUUID: database.RootUUID, Rank: 1, Name: "elsewhere #qol"},
+		{UUID: "miss", ParentUUID: "branch", Rank: 2, Name: "no tag here"},
+	} {
+		if n.Type == "" {
+			n.Type = database.TypeBullets
+		}
+		if err := n.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// the outline is opened AT the branch, not at the forest root
+	tr, err := loadTree(db, "branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Model{db: db, tree: tr, viewStack: []*item{tr.root}, width: 80, height: 24,
+		chips: map[string]database.Chip{}}
+	m.refreshRows()
+
+	got := m.queryMatches(m.tree.byUUID["q"])
+	found := map[string]bool{}
+	for _, n := range got {
+		found[n.UUID] = true
+	}
+	if !found["hit"] {
+		t.Errorf("the query missed its own sibling: %v", found)
+	}
+	if !found["far"] {
+		t.Errorf("the query missed a hit outside the opened subtree: %v", found)
+	}
+	if found["miss"] || found["q"] {
+		t.Errorf("the query matched something it should not: %v", found)
+	}
+	if len(got) != 2 {
+		t.Errorf("want 2 hits, got %d", len(got))
+	}
+}
+
+// TestQueryScopeStillHolds: the fix restores ancestry, it does not weaken
+// scoping — an in: scope still keeps hits to that subtree.
+func TestQueryScopeStillHolds(t *testing.T) {
+	db := database.InitTestMemoryDB(t)
+	if err := database.EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []database.Node{
+		{UUID: "branch", ParentUUID: database.RootUUID, Rank: 0, Name: "a branch"},
+		{UUID: "q", ParentUUID: "branch", Rank: 0, Name: "#qol in(branch)", Type: database.TypeQuery},
+		{UUID: "hit", ParentUUID: "branch", Rank: 1, Name: "fix the caret #qol"},
+		{UUID: "far", ParentUUID: database.RootUUID, Rank: 1, Name: "elsewhere #qol"},
+	} {
+		if n.Type == "" {
+			n.Type = database.TypeBullets
+		}
+		if err := n.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tr, err := loadTree(db, "branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Model{db: db, tree: tr, viewStack: []*item{tr.root}, width: 80, height: 24,
+		chips: map[string]database.Chip{}}
+	m.refreshRows()
+
+	got := m.queryMatches(m.tree.byUUID["q"])
+	if len(got) != 1 || got[0].UUID != "hit" {
+		names := []string{}
+		for _, n := range got {
+			names = append(names, n.UUID)
+		}
+		t.Fatalf("scoped query returned %v, want just the in-scope hit", names)
+	}
+}

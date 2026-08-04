@@ -470,20 +470,37 @@ func (m *Model) buildQueryCtxMemory(q *item, now time.Time) *qCtx {
 // add merges one candidate while preserving parent links for empty structural
 // nodes. That parent map is what makes scoped nested (`>`) searches work.
 func (ctx *qCtx) add(q *item, c qCand) {
-	if c.uuid == "" || (q != nil && c.uuid == q.uuid) || ctx.seen[c.uuid] {
+	if c.uuid == "" || (q != nil && c.uuid == q.uuid) {
+		return
+	}
+	// Ancestry is recorded from whichever source knows it, seen or not. The
+	// loaded tree is the LOADED tree: open the outline at a subtree — which every
+	// /goto and every zoom does — and that subtree's root has no parent item in
+	// memory, so it arrived here parentless and, marked seen, hid the parent the
+	// database was about to supply. The scope walk then dead-ended at it and
+	// every node under it fell out of `in:root`, which is to say out of every
+	// unscoped query: a whole branch of the outline silently stopped being
+	// searchable from inside itself.
+	if c.parent != "" && ctx.parent[c.uuid] == "" {
+		ctx.parent[c.uuid] = c.parent
+	}
+	if ctx.seen[c.uuid] {
+		return
+	}
+	// A source that cannot place the node has not really seen it — the next one
+	// may know where it sits — so it is not marked, and the node gets another
+	// chance to become a candidate with its ancestry intact.
+	if c.parent == "" {
 		return
 	}
 	ctx.seen[c.uuid] = true
 	c.searchName = database.ExpandAnchors(c.name, ctx.chips)
 	c.searchNote = database.ExpandAnchors(c.note, ctx.chips)
-	if c.parent != "" {
-		ctx.parent[c.uuid] = c.parent
-	}
 	// An empty structural node has no text to match. The forest root is chrome
 	// the same way it is chrome in a breadcrumb path: it is every node's
 	// ancestor, so returning it as a hit says nothing. Both still contributed
 	// their parent link above, which is what `>` and in: scoping actually need.
-	if c.name == "" || c.uuid == database.RootUUID || c.parent == "" {
+	if c.name == "" || c.uuid == database.RootUUID {
 		return
 	}
 	ctx.cands = append(ctx.cands, c)
