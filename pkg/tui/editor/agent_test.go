@@ -1014,6 +1014,68 @@ func TestAgentReadTailFindsALateRename(t *testing.T) {
 	}
 }
 
+// TestAgentFindsARenameBuriedMidTranscript is the real shape of a pi session:
+// its own auto-title lands right after the first prompt, YOUR rename lands
+// wherever you were when you typed it, and then the conversation keeps going for
+// megabytes. With only the head and the tail read, the picker showed the
+// auto-title — the first prompt, which is exactly what renaming was meant to
+// replace.
+func TestAgentFindsARenameBuriedMidTranscript(t *testing.T) {
+	dir := t.TempDir()
+	// pi names its transcripts <timestamp>_<session id>.jsonl
+	path := filepath.Join(dir, "2026-07-27T11-09-16-731Z_019fa343-ca3b-796e-bad1-71725bd29c64.jsonl")
+
+	var b strings.Builder
+	b.WriteString(`{"type":"session","version":3,"id":"019fa343-ca3b-796e-bad1-71725bd29c64",` +
+		`"timestamp":"2026-07-27T11:09:16.731Z","cwd":"/home/eren"}` + "\n")
+	b.WriteString(`{"type":"message","id":"b2e8472d","timestamp":"2026-07-27T11:09:20.000Z",` +
+		`"message":{"role":"user","content":[{"type":"text","text":"is there remnants of codex cli on my system?"}]}}` + "\n")
+	// pi's own title for the session, written from that first prompt
+	b.WriteString(`{"type":"session_info","id":"c764f667","timestamp":"2026-07-27T11:09:35.993Z",` +
+		`"name":"is there remnants of codex cli on my system?"}` + "\n")
+
+	filler := `{"type":"message","role":"assistant","content":"` + strings.Repeat("x", 4000) + `"}` + "\n"
+	for b.Len() < agentMetaCap+8000 {
+		b.WriteString(filler)
+	}
+	b.WriteString(`{"type":"session_info","id":"d81aa0f2","timestamp":"2026-07-27T12:40:02.100Z",` +
+		`"name":"codex cleanup"}` + "\n")
+	// ...and the session runs on well past the rename, so the tail never sees it
+	for b.Len() < 3*agentMetaCap {
+		b.WriteString(filler)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := agentReadMeta("pi", path)
+	if s.title != "codex cleanup" {
+		t.Errorf("title = %q, want the rename buried in the middle", s.title)
+	}
+	if !s.named {
+		t.Error("the session did not read as named")
+	}
+	if s.id != "019fa343-ca3b-796e-bad1-71725bd29c64" {
+		t.Errorf("id = %q", s.id)
+	}
+	if s.cwd != "/home/eren" {
+		t.Errorf("cwd = %q", s.cwd)
+	}
+}
+
+// TestAgentIdentScanSkipsShortFiles: the middle scan exists for transcripts the
+// head and tail cannot cover between them. A file they already cover whole must
+// not be read a third time.
+func TestAgentIdentScanSkipsShortFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "short.jsonl")
+	if err := os.WriteFile(path, []byte(`{"type":"session_info","name":"n"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if recs := agentScanIdents(path); recs != nil {
+		t.Errorf("a short file was scanned for idents: %d records", len(recs))
+	}
+}
+
 // TestAgentReadMetaTakesTheRecordsColor: a store that names a session in its own
 // records is also where it would record a color for one, and both come through
 // the same gate.

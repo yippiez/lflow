@@ -38,6 +38,7 @@ const (
 	agentScanCap   = 400                 // most session files one discovery scan reads
 	agentScanDepth = 7                   // how deep a store walk goes below its root
 	agentMetaCap   = 64 << 10            // bytes read from a record file: its head names the session
+	agentIdentCap  = 1 << 20             // bytes scanned for a rename stranded past that head
 	agentScanAge   = 90 * 24 * time.Hour // sessions older than this are not offered
 	agentTitleCap  = 200                 // sanity bound on a session name, not a display width
 )
@@ -241,9 +242,10 @@ func hasExt(path string, exts []string) bool {
 }
 
 // agentReadMeta reads one session record file's identity: id, title, cwd and any
-// color the CLI stamped on it. Only the head of the file is read — a transcript
-// carries its identity in its first records, and a multi-megabyte conversation
-// must not be paged in to fill a picker row.
+// color the CLI stamped on it. The head and the tail of the file are read — a
+// transcript carries its identity in its first records and its renames in its
+// last ones — plus a cheap scan for identity records stranded between the two;
+// a multi-megabyte conversation is never paged in whole to fill a picker row.
 func agentReadMeta(variant, path string) agentStoreSession {
 	s := agentStoreSession{variant: variant, path: path, id: agentIDFromPath(path)}
 	if st, err := os.Stat(path); err == nil {
@@ -253,7 +255,12 @@ func agentReadMeta(variant, path string) agentStoreSession {
 	// each message — so the session's id is taken once and never overwritten,
 	// and an explicit session-id key always beats a bare "id".
 	named, anyID := false, false
-	for _, rec := range append(agentReadRecords(path, agentMetaCap), agentReadTail(path, agentMetaCap)...) {
+	// head, then anything stranded in the middle, then tail: file order, so the
+	// LAST name written is the one that survives the walk
+	records := agentReadRecords(path, agentMetaCap)
+	records = append(records, agentScanIdents(path)...)
+	records = append(records, agentReadTail(path, agentMetaCap)...)
+	for _, rec := range records {
 		// a store that keeps its own clock (opencode's session index) is more
 		// truthful than the file's mtime, which a copy or a sync would reset
 		if t := agentTime(rec); !t.IsZero() {
@@ -295,6 +302,60 @@ func agentReadMeta(variant, path string) agentStoreSession {
 		}
 	}
 	return s
+}
+
+// agentIdentMarks are the substrings that make a transcript line WORTH parsing
+// when hunting for a rename. They are the record TYPES agentDeclaredIdent
+// accepts, matched as raw bytes so a scan can skip a megabyte of tool output
+// without handing any of it to the JSON parser.
+var agentIdentMarks = []string{"session_info", "custom-title", "agent-name", "agent-color", `"summary"`}
+
+// agentScanIdents finds the identity records stranded in the MIDDLE of a long
+// transcript — past the head window, and buried by everything written after
+// them.
+//
+// This is what a rename really looks like in the wild. pi appends its
+// {"type":"session_info","name":…} record the moment you rename, and then the
+// session keeps going: in a real store the current name can sit three megabytes
+// from either end, and reading only the head and the tail showed the session's
+// FIRST prompt as its name — the very thing renaming it was meant to fix.
+//
+// The scan is bounded (agentIdentCap) and pre-filtered on raw bytes, so the
+// common case — a name in the head, or no rename at all — costs a sequential
+// read and no parsing. A name written past the cap is not found; a picker row is
+// not worth paging in a whole conversation for.
+func agentScanIdents(path string) []map[string]any {
+	st, err := os.Stat(path)
+	if err != nil || st.Size() <= 2*agentMetaCap {
+		return nil // head and tail already cover the whole file
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(io.LimitReader(f, agentIdentCap))
+	sc.Buffer(make([]byte, 64<<10), 8<<20)
+	var out []map[string]any
+	for sc.Scan() {
+		line := sc.Text()
+		marked := false
+		for _, mark := range agentIdentMarks {
+			if strings.Contains(line, mark) {
+				marked = true
+				break
+			}
+		}
+		if !marked {
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err == nil && rec != nil {
+			out = append(out, rec)
+		}
+	}
+	return out
 }
 
 // agentDeclaredName returns the name a record gives THE SESSION, or "" when the
