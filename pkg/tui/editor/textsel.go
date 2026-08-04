@@ -2,11 +2,10 @@ package editor
 
 import "fmt"
 
-// Horizontal selection: shift+←/→ grows a run of the cursor node's own TEXT —
-// the horizontal twin of multi-select's shift+↑/↓. The unit mirrors the vertical
-// one: shift+↑/↓ takes a whole row, so shift+←/→ takes a whole WORD;
-// ctrl/alt+shift+←/→ adjust the edge by a single rune. esc (or any plain
-// movement/typing) drops it.
+// Horizontal selection: shift+←/→ grows the cursor node's own text one rune at
+// a time; ctrl/alt+shift+←/→ grows it by a word. This follows the selection
+// vocabulary used by ordinary text editors. Esc (or any plain movement/typing)
+// drops it.
 //
 // This is what /style then acts on: with a selection live, picking a style
 // paints exactly that run instead of the whole node (see spans.go). It replaces
@@ -46,8 +45,8 @@ func (m *Model) textSelection() (*item, int, int, bool) {
 	return cur, lo, hi, true
 }
 
-// extendTextSel moves the caret one step (a word, or one rune when byWord is
-// false) and grows the selection to it. The first press anchors at the caret;
+// extendTextSel moves the caret one step (a word when byWord, otherwise one
+// rune) and grows the selection to it. The first press anchors at the caret;
 // the selection never leaves the node it started on.
 func (m *Model) extendTextSel(dir int, byWord bool) {
 	cur := m.cursorItem()

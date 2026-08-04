@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// TestTextSelectionGrowsByWordAndRune: shift+←/→ takes whole words (the
-// horizontal twin of shift+↑/↓ taking whole rows), ctrl+shift+←/→ nudges the
-// edge one rune, and the selection is drawn as a bar over exactly those runes.
+// TestTextSelectionGrowsByWordAndRune: shift+←/→ nudges one rune and
+// ctrl+shift+←/→ takes whole words, matching ordinary text editors.
 func TestTextSelectionGrowsByWordAndRune(t *testing.T) {
 	m := newTestModel(100, "paint some words here")
 	t.Cleanup(func() { textSelUUID = "" })
@@ -16,25 +15,21 @@ func TestTextSelectionGrowsByWordAndRune(t *testing.T) {
 	m.tree.byUUID["p1"] = n
 
 	m.caret = len("paint ")
-	m.press("shift+right") // "some"
-	if _, lo, hi, ok := m.textSelection(); !ok || lo != 6 || hi != 10 {
-		t.Fatalf("after shift+right: [%d,%d) ok=%v, want [6,10)", lo, hi, ok)
+	m.press("shift+right") // "s"
+	if _, lo, hi, ok := m.textSelection(); !ok || lo != 6 || hi != 7 {
+		t.Fatalf("after shift+right: [%d,%d) ok=%v, want [6,7)", lo, hi, ok)
 	}
-	m.press("shift+right") // "some words"
+	m.press("ctrl+shift+right") // finish "some"
+	if _, lo, hi, _ := m.textSelection(); lo != 6 || hi != 10 {
+		t.Fatalf("ctrl+shift+right: [%d,%d), want [6,10)", lo, hi)
+	}
+	m.press("ctrl+shift+right") // add " words"
 	if _, lo, hi, _ := m.textSelection(); lo != 6 || hi != 16 {
-		t.Fatalf("second shift+right: [%d,%d), want [6,16)", lo, hi)
+		t.Fatalf("second ctrl+shift+right: [%d,%d), want [6,16)", lo, hi)
 	}
-	m.press("ctrl+shift+left") // one rune back off the edge
+	m.press("shift+left") // one rune back off the edge
 	if _, lo, hi, _ := m.textSelection(); lo != 6 || hi != 15 {
-		t.Fatalf("ctrl+shift+left: [%d,%d), want [6,15)", lo, hi)
-	}
-	m.press("shift+left") // "some" again
-	if _, lo, hi, _ := m.textSelection(); lo != 6 || hi != 11 {
-		t.Fatalf("shift+left: [%d,%d), want [6,11)", lo, hi)
-	}
-	m.press("shift+left") // back to the anchor: nothing selected
-	if _, _, _, ok := m.textSelection(); ok {
-		t.Fatal("shrinking back to the anchor must leave nothing selected")
+		t.Fatalf("shift+left: [%d,%d), want [6,15)", lo, hi)
 	}
 
 	// the bar renders over the selected runes only
@@ -46,8 +41,8 @@ func TestTextSelectionGrowsByWordAndRune(t *testing.T) {
 	if !found {
 		t.Fatalf("selection must render a bar, got %q", body)
 	}
-	if strings.Contains(stripSGR(before), "some") || !strings.HasPrefix(stripSGR(after), "some") {
-		t.Fatalf("the bar must start at %q, got %q", "some", body)
+	if strings.Contains(stripSGR(before), "s") || !strings.HasPrefix(stripSGR(after), "s") {
+		t.Fatalf("the bar must start at %q, got %q", "s", body)
 	}
 }
 

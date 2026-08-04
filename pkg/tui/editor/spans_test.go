@@ -42,7 +42,7 @@ func TestSelectionStylesRunOnly(t *testing.T) {
 	m, n := spanModel(t)
 
 	m.caret = len("paint ") // on "some"
-	m.press("shift+right")
+	m.press("ctrl+shift+right")
 	if textSelLo != 6 || textSelHi != 10 {
 		t.Fatalf("selection = [%d,%d), want [6,10) over \"some\"", textSelLo, textSelHi)
 	}
@@ -74,7 +74,7 @@ func TestSelectionStylesRunOnly(t *testing.T) {
 
 	// re-picking red over the same run clears it — the unstyle
 	m.caret = 6
-	m.press("shift+right")
+	m.press("ctrl+shift+right")
 	styleSel(t, m, "red")
 	if len(nodeSpans["p1"]) != 0 {
 		t.Fatalf("re-picking the same color must clear the run: %+v", nodeSpans["p1"])

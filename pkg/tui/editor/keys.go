@@ -179,16 +179,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "shift+left":
-			m.extendTextSel(-1, true)
-			return m, nil
-		case "shift+right":
-			m.extendTextSel(1, true)
-			return m, nil
-		case "ctrl+shift+left", "alt+shift+left":
 			m.extendTextSel(-1, false)
 			return m, nil
-		case "ctrl+shift+right", "alt+shift+right":
+		case "shift+right":
 			m.extendTextSel(1, false)
+			return m, nil
+		case "ctrl+shift+left", "alt+shift+left":
+			m.extendTextSel(-1, true)
+			return m, nil
+		case "ctrl+shift+right", "alt+shift+right":
+			m.extendTextSel(1, true)
 			return m, nil
 		}
 		if m.textSelOn {

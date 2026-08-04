@@ -40,7 +40,7 @@ func TestCopyCutTextSelection(t *testing.T) {
 	m, n := spanModel(t) // "paint some words here"
 
 	m.caret = len("paint ")
-	m.press("shift+right") // "some"
+	m.press("ctrl+shift+right") // "some"
 	m.press("alt+y")
 	if got := clip(); got != "some" {
 		t.Fatalf("copied %q, want %q", got, "some")
@@ -68,7 +68,7 @@ func TestCopyCutTextSelection(t *testing.T) {
 
 	// ctrl+x is the cut twin, for terminals that swallow the alt chord
 	m.caret = 0
-	m.press("shift+right")
+	m.press("ctrl+shift+right")
 	m.press("ctrl+x")
 	if n.name != "  words here" { // "paint" gone; both cuts left their separators
 		t.Fatalf("ctrl+x must cut like alt+x, got %q", n.name)
@@ -83,7 +83,7 @@ func TestCutRunKeepsStyledRunsAligned(t *testing.T) {
 	m.setSpanStyle(n, 11, 16, "color:red") // "words"
 
 	m.caret = 6
-	m.press("shift+right") // "some"
+	m.press("ctrl+shift+right") // "some"
 	m.press("alt+x")
 	sp := nodeSpans["p1"]
 	if len(sp) != 1 || sp[0].Start != 7 || sp[0].End != 12 {
@@ -188,7 +188,7 @@ func TestCopyFallsBackWhenNoClipboard(t *testing.T) {
 	clipOut = failWriter{}
 	m, n := spanModel(t)
 	m.caret = 6
-	m.press("shift+right")
+	m.press("ctrl+shift+right")
 	m.press("alt+x")
 	if n.name != "paint some words here" {
 		t.Fatalf("a failed copy must not cut: %q", n.name)
