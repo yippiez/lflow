@@ -408,14 +408,6 @@ func (m *Model) markupPreview(it *item) string {
 	return "<" + el.tag + ">" + strings.Join(inner, " ") + "</" + el.tag + ">"
 }
 
-// markupToContext gives the node its own element carrying the serialized
-// document, so structured context reads the markup rather than a bare tag name.
-func markupToContext(tag string) func(*Model, *item) contextXML {
-	return func(m *Model, it *item) contextXML {
-		return contextXML{tag: tag, body: m.markupSerialize(it, 0)}
-	}
-}
-
 // ── alt+r ──────────────────────────────────────────────────────────────────
 
 // runHTMLOut writes the serialized document into the node's ephemeral run band,

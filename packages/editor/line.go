@@ -80,16 +80,6 @@ func linePrefix(it *item) string {
 	return characterColorSGR(name) + "[" + name + "]" + cReset + " "
 }
 
-// lineToContext carries the speaking character, the one thing a Line's text
-// alone cannot express.
-func lineToContext(it *item) contextXML {
-	x := contextXML{tag: "line"}
-	if name := lineCharacterOf(it); name != "" {
-		x.attrs = `character="` + name + `"`
-	}
-	return x
-}
-
 // setLineCharacter assigns (or clears, for "") a Line node's character,
 // persists it immediately — like /star or /priority, not the debounced text
 // flush — and updates the in-memory map the render path reads.

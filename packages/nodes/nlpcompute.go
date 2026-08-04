@@ -43,14 +43,6 @@ func init() {
 		View:           ncView{},
 		BlockCode:      ncBlockCode,
 		CLIDeps:        []string{"pi"},
-		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
-			d := ncLoad(h, n.UUID())
-			attrs := ""
-			if d.Lang != "" {
-				attrs = `lang="` + d.Lang + `"`
-			}
-			return "nlpcompute", attrs, d.Code
-		},
 		OnRemove: func(h editor.NodeHost, uuid string) {
 			delete(h.NodeStore(uuid), "animating")
 			if st := ncStateOf(h, uuid); st.cancel != nil {

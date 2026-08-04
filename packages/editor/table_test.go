@@ -254,26 +254,6 @@ func TestTableSeedsAnEmptyTable(t *testing.T) {
 	}
 }
 
-// TestTableContextIsAPipeTable: the shape is the meaning, so structured context
-// ships rows, not a bullet list.
-func TestTableContextIsAPipeTable(t *testing.T) {
-	m, tbl := newTableModel(80,
-		[]string{"task", "ship it"},
-		[]string{"owner", "ada"},
-	)
-	ctx := tableToContext(m, tbl)
-	if ctx.tag != "table" {
-		t.Errorf("tag = %q, want table", ctx.tag)
-	}
-	if !strings.Contains(ctx.attrs, `cols="2"`) || !strings.Contains(ctx.attrs, `rows="1"`) {
-		t.Errorf("attrs = %q, want the grid shape", ctx.attrs)
-	}
-	want := "| task | owner |\n| --- | --- |\n| ship it | ada |"
-	if ctx.body != want {
-		t.Errorf("body =\n%s\nwant\n%s", ctx.body, want)
-	}
-}
-
 // TestTableRefusesChipCellsInline: a chip renders collapsed, so a caret index in
 // the grid is not an index into the stored text — those cells are edited in the
 // nodes face instead of being silently mangled.

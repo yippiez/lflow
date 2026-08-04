@@ -17,8 +17,5 @@ func init() {
 		InlineEditable: true,
 		Glyph:          func() (string, string) { return "ƒ", editor.NodeTheme().Yellow },
 		BodyTail:       codeBodyTail,
-		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
-			return "fn", "", n.Text()
-		},
 	})
 }

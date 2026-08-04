@@ -95,28 +95,6 @@ type nodeType struct {
 	// Bash type sets it to read exactly like the cmd chip it is the tree form of:
 	// the row streams, alt+e opens the terminal, nothing hangs in between.
 	runInTail bool
-
-	// toContext reserves a structured XML representation for consumers that
-	// need typed outline context. nil means the generic node representation.
-	toContext func(it *item) contextXML
-	// toContextM is the Model-aware sibling (mirrors render/renderM) for types
-	// whose context body lives outside the item — e.g. a document loaded from
-	// a node blob. When set it wins over toContext.
-	toContextM func(m *Model, it *item) contextXML
-}
-
-// contextXML is what a toContext hook returns — the pieces of the node's XML
-// element in structured context. Zero values keep the defaults.
-type contextXML struct {
-	tag   string // element name; "" keeps "node"
-	attrs string // inside the opening tag, e.g. `done="true"`
-	body  string // multi-line element content replacing the name line
-}
-
-// xmlTag is the trivial toContext hook — the element name alone carries the
-// type (<code>…</code>, <quote>…</quote>).
-func xmlTag(name string) func(*item) contextXML {
-	return func(*item) contextXML { return contextXML{tag: name} }
 }
 
 // nodeView is a node type's INLINE expanded view: alt+e focuses it, its lines
@@ -157,20 +135,19 @@ func nodeViewOf(it *item) nodeView {
 // is free text and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{
 	{key: database.TypeBullets, label: "Bullet", inlineEditable: true},
-	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true, continueOnEnter: true,
-		toContext: todoToContext},
+	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true, continueOnEnter: true},
 	// a divider renders as a full-width rule (see dividerLine), hiding the glyph;
 	// an optional text runs on the midpoint of the rule, edited like any node. It
 	// is otherwise a normal node: it nests, moves, takes a /note, and is removed
 	// with ctrl+d.
-	{key: database.TypeDivider, label: "Divider", inlineEditable: true, toContext: xmlTag("divider")},
+	{key: database.TypeDivider, label: "Divider", inlineEditable: true},
 	// an empty node is a divider stripped of its rule: a deliberately blank row,
 	// pure vertical breathing room (see emptyLine). Not inline-editable — it has
 	// no text; under the cursor a single red · marks the otherwise blank line.
-	{key: database.TypeEmpty, label: "Empty", toContext: xmlTag("empty")},
-	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true, toContext: xmlTag("h1")},
-	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true, toContext: xmlTag("h2")},
-	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true, toContext: xmlTag("h3")},
+	{key: database.TypeEmpty, label: "Empty"},
+	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true},
+	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true},
+	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},
 	// the Code node is a multi-line block; resting the cursor on it auto-focuses
 	// its block editor (autoFocus — a thin caret shows, type directly, no alt+e),
 	// so it is not inlineEditable. The borderless gray block REPLACES the node's
@@ -180,9 +157,8 @@ var nodeTypes = []nodeType{
 		render:    codeInlineRender, // compact fallback (the temp panel, unknown surfaces)
 		view:      codeView{},
 		blockCode: codeBlockCode,
-		toContext: codeToContext,
 	},
-	{key: database.TypeQuote, label: "Quote", inlineEditable: true, toContext: xmlTag("quote")},
+	{key: database.TypeQuote, label: "Quote", inlineEditable: true},
 	// a timestamped journal line (see log.go); was the log.js NodeMod before
 	// the extension system was removed — nodes typed under the mod light up
 	// unchanged, the key is the same free string.
@@ -192,13 +168,11 @@ var nodeTypes = []nodeType{
 		prefix:    logPrefix,
 		baseColor: func(it *item) string { return cDim }, // /color overrides (render.go)
 		muteFrom:  logMuteFrom,
-		toContext: logToContext,
 	},
 	{
 		key: database.TypeJSON, label: "JSON", inlineEditable: false,
-		render:    func(it *item, name string) string { return renderJSONPreview(name) },
-		view:      jsonView{},
-		toContext: jsonToContext,
+		render: func(it *item, name string) string { return renderJSONPreview(name) },
+		view:   jsonView{},
 	},
 	// a shell command composed AS an outline (see bashnode.go): a "$" row whose
 	// children are its parts — a join operator (| && || ;) or a wrapper ($() ())
@@ -221,7 +195,6 @@ var nodeTypes = []nodeType{
 		prefix:    queryPrefix,
 		spanColor: querySpanColor, // "semantic phrase" marks tint yellow
 		run:       runQuery,
-		toContext: xmlTag("query"),
 	},
 	// a web-search node (see webnode.go): the query node's shape — name is the
 	// search, alt+r runs it, hits hang under it as real child rows — but the
@@ -229,16 +202,14 @@ var nodeTypes = []nodeType{
 	// language: there are no operators to tint, so no spanColor.
 	{
 		key: database.TypeWeb, label: "Web Search", inlineEditable: true, disableChips: true,
-		prefix:    webPrefix,
-		run:       runWebNode,
-		toContext: xmlTag("web"),
+		prefix: webPrefix,
+		run:    runWebNode,
 	},
 	// a Workflowy mirror root (see wf.go): paste a workflowy link, alt+r pulls
 	// the subtree in as readonly children, each one refreshable itself.
 	{
 		key: database.TypeWF, label: "Workflowy", glyph: wfGlyph, inlineEditable: true,
-		run:       runWF,
-		toContext: xmlTag("workflowy"),
+		run: runWF,
 	},
 	{
 		key: database.TypeVoice, label: "Voice", inlineEditable: false,
@@ -247,7 +218,6 @@ var nodeTypes = []nodeType{
 		expand:       playVoice,
 		flashActions: voiceFlashActions, // name them: "record" (toggle) and "play"
 		cliDeps:      []string{"ffmpeg"},
-		toContext:    xmlTag("voice"),
 	},
 	{
 		// an image: alt+r pastes from the host clipboard, alt+e opens the half-block
@@ -261,7 +231,6 @@ var nodeTypes = []nodeType{
 		openHost:     imageOpenHost, // alt+o: the host's image viewer
 		flashActions: imageFlashActions,
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
-		toContext:    xmlTag("image"), // pixels never travel — the caption is the context
 	},
 	// a math expression composed as an outline (see math.go): the node's text is
 	// an operator (colored yellow) with operands as children, or an atom leaf.
@@ -278,7 +247,6 @@ var nodeTypes = []nodeType{
 		view:         markupView{}, // alt+e: the picture once rendered, else the document
 		flashActions: svgFlashActions,
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.svgBandLines(r, below, maxLine) },
-		toContextM:   markupToContext("svg"),
 		// deliberately no cliDeps: there is no ONE binary this needs. It tries
 		// several rasterizers in turn (see svgRasterizers), so declaring the
 		// preferred one would warn "missing dependency" on a machine where the
@@ -290,7 +258,6 @@ var nodeTypes = []nodeType{
 		run:          runHTMLOut,   // alt+r: the serialized markup into the run band
 		view:         markupView{}, // alt+e: the whole document the row shows the head of
 		flashActions: htmlFlashActions,
-		toContextM:   markupToContext("html"),
 		runInTail:    true,
 	},
 	// Pir: the magic keywords' one home. "ultracode" and "ultraloop" shine on
@@ -298,17 +265,13 @@ var nodeTypes = []nodeType{
 	// rather than as any note that happens to contain the word. Nothing else yet
 	// — the node's own behaviour is still to be written, and an ordinary editable
 	// row is the right placeholder for one.
-	{
-		key: database.TypePir, label: "Pir", inlineEditable: true,
-		toContext: xmlTag("pir"),
-	},
+	{key: database.TypePir, label: "Pir", inlineEditable: true},
 	{
 		key: database.TypeMath, label: "Math", inlineEditable: true,
 		spanColor:    mathSpanColor,
 		bodyTail:     mathBodyTail,
 		run:          runMathLatex, // alt+r: export this subtree's LaTeX to the run band
 		flashActions: mathFlashActions,
-		toContext:    mathToContext,
 	},
 	// a table is an ordinary subtree READ as a grid (see table.go): columns are
 	// the children, rows are their children, and a cell's children are the
@@ -322,7 +285,6 @@ var nodeTypes = []nodeType{
 		view:         tableView{},
 		flashActions: tableFlashActions,
 		onType:       tableOnType,
-		toContextM:   tableToContext,
 	},
 	// a molecule is an ordinary subtree READ as a structure: one atom per node,
 	// the bond to the parent as a prefix (=O), children the atoms bonded to it —
@@ -347,9 +309,8 @@ var nodeTypes = []nodeType{
 	// every Line node that names it.
 	{
 		key: database.TypeLine, label: "Line", inlineEditable: true,
-		prefix:    linePrefix,
-		expand:    func(m *Model, it *item) tea.Cmd { m.openCharacterPicker(it); return nil },
-		toContext: lineToContext,
+		prefix: linePrefix,
+		expand: func(m *Model, it *item) tea.Cmd { m.openCharacterPicker(it); return nil },
 	},
 	// The Agent node is RETIRED (2026-08-04): a session had two surfaces and the
 	// whole-row one was the worse of them, so the inline chip is the only one
@@ -376,7 +337,6 @@ var nodeTypes = []nodeType{
 		key: database.TypeZotero, label: "Zotero", inlineEditable: false,
 		glyph:        zoteroGlyph,
 		run:          runZoteroPull, // alt+r: re-read the entry, or pick one on an unbound node
-		toContextM:   zoteroToContext,
 		flashActions: zoteroFlashActions,
 		bodyTail: func(it *item, chips map[string]database.Chip) string {
 			// an unbound zotero node (edge case) reads as a prompt, not a blank row
@@ -451,16 +411,6 @@ func todoGlyph(it *item) (string, string) {
 		return glyphTodoDone, cDim
 	}
 	return glyphTodo, cDim
-}
-
-// todoToContext carries the checkbox state — the one thing a todo's text
-// alone cannot express.
-func todoToContext(it *item) contextXML {
-	done := "false"
-	if it.completedAt > 0 {
-		done = "true"
-	}
-	return contextXML{tag: "todo", attrs: `done="` + done + `"`}
 }
 
 func headingGlyph(digit string) func(it *item) (string, string) {

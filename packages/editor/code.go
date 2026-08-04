@@ -384,10 +384,3 @@ func codeInlineRender(it *item, name string) string {
 	}
 	return cDim + fmt.Sprintf("code · %d lines", n+1) + cReset
 }
-
-// codeToContext ships the code as the element's multi-line body — a code node's
-// name IS its source, and flattening the newlines to one <code> line would
-// mangle it in structured context.
-func codeToContext(it *item) contextXML {
-	return contextXML{tag: "code", body: strings.TrimRight(it.name, "\n")}
-}

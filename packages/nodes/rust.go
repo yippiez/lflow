@@ -93,9 +93,6 @@ func init() {
 		SpanColor:      keywordSpanColor(rustKeywords, "//"),
 		BodyTail:       codeBodyTail,
 		Run:            runCodeExport(rustSpec),
-		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
-			return "rust", "", n.Text()
-		},
 	})
 }
 

@@ -440,18 +440,6 @@ func TestZoteroNearestColor(t *testing.T) {
 	}
 }
 
-func TestMirrorContextIsTyped(t *testing.T) {
-	m := mirrorModel(t)
-	root := pullMirror(m, fakeDetails())
-	if got := zoteroToContext(m, root); got.tag != "zotero-item" || !strings.Contains(got.attrs, "AAAA1111") {
-		t.Errorf("item context = %+v", got)
-	}
-	annotation := root.children[0]
-	if got := zoteroToContext(m, annotation); got.tag != "zotero-annotation" {
-		t.Errorf("annotation context = %+v", got)
-	}
-}
-
 func TestOrdinaryNodesAreUnaffectedByTheGuards(t *testing.T) {
 	// the locks are new shared machinery — an outline with no mirror in it must
 	// behave exactly as before
@@ -678,9 +666,6 @@ func TestMirrorCommentIsAnOrdinaryNode(t *testing.T) {
 	}
 	if !comment.readonly || !comment.structureLocked {
 		t.Error("the comment is not locked")
-	}
-	if got := zoteroToContext(m, comment); got.tag != "zotero-comment" {
-		t.Errorf("comment context = %+v", got)
 	}
 	// and it still reconciles in place, matched by its position under the mark
 	uuid := comment.uuid

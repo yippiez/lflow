@@ -411,13 +411,6 @@ func mathBodyTail(it *item, _ map[string]database.Chip) string {
 	return cDim + p + cReset
 }
 
-// mathToContext gives the node its own <math> element carrying the flattened
-// expression, so structured context reads "x = (-b ± √(b²-4ac))/2a" instead of a bare
-// operator glyph; the AST children still nest inside.
-func mathToContext(it *item) contextXML {
-	return contextXML{tag: "math", body: mathPreview(it)}
-}
-
 // runMathLatex (alt+r) exports the node's subtree as LaTeX into its ephemeral run
 // band. Because it serializes THIS node down, running it on any sub-node yields
 // the LaTeX for just that part of the expression.

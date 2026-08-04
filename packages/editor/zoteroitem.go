@@ -692,21 +692,7 @@ func zoteroNearestColor(hex string) string {
 	return best
 }
 
-// ── context + flash ────────────────────────────────────────────────────────
-
-// zoteroToContext gives a mirrored node a typed element, so an outline handed
-// to a generator reads as a citation tree rather than anonymous bullets.
-func zoteroToContext(m *Model, it *item) contextXML {
-	b, ok := zoteroBindingFor(it)
-	if !ok {
-		return contextXML{tag: "zotero"}
-	}
-	attrs := ""
-	if b.Key != "" {
-		attrs = `key="` + b.Key + `"`
-	}
-	return contextXML{tag: "zotero-" + b.Kind, attrs: attrs}
-}
+// ── flash ────────────────────────────────────────────────────────────────
 
 // zoteroFlashActions names the mirror's verbs in the flash menu.
 func zoteroFlashActions(m *Model, it *item) []flashAction {

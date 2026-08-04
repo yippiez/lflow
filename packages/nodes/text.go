@@ -15,8 +15,5 @@ func init() {
 		Label:          "Text",
 		InlineEditable: true,
 		Glyph:          func() (string, string) { return "¶", editor.NodeTheme().Dim },
-		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
-			return "text", "", n.Text()
-		},
 	})
 }

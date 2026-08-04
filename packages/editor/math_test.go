@@ -223,13 +223,3 @@ func TestMathNonsensical(t *testing.T) {
 		t.Errorf("empty operator fabricated a fraction: %q", got)
 	}
 }
-
-func TestMathToContext(t *testing.T) {
-	cx := mathToContext(mop("=", mleaf("E"), mop("×", mleaf("m"), mleaf("c²"))))
-	if cx.tag != "math" {
-		t.Errorf("tag = %q, want math", cx.tag)
-	}
-	if cx.body != "E = m × c²" {
-		t.Errorf("body = %q, want %q", cx.body, "E = m × c²")
-	}
-}

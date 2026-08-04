@@ -139,9 +139,6 @@ func init() {
 		SpanColor:      keywordSpanColor(pythonKeywords, "#"),
 		BodyTail:       codeBodyTail,
 		Run:            runCodeExport(pythonSpec),
-		ToContext: func(h editor.NodeHost, n editor.NodeRef) (string, string, string) {
-			return "python", "", n.Text()
-		},
 	})
 }
 

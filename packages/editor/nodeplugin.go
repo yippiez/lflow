@@ -149,8 +149,7 @@ type NodePlugin struct {
 	BlockCode func(h NodeHost, n NodeRef, focused bool) (code string, caret int, ok bool)
 	// Preview renders always-on band lines beneath the unfocused node (the
 	// image-thumbnail slot); focused reports the expanded view being open.
-	Preview   func(h NodeHost, n NodeRef, rail string, maxLine int, focused bool) []string
-	ToContext func(h NodeHost, n NodeRef) (tag, attrs, body string)
+	Preview func(h NodeHost, n NodeRef, rail string, maxLine int, focused bool) []string
 	// OnRemove fires when a node of this type leaves the tree — cancel any
 	// in-flight work keyed on it.
 	OnRemove func(h NodeHost, uuid string)
@@ -194,8 +193,8 @@ func (m *Model) removeNodeStateUnder(it *item) {
 }
 
 // RegisterNodePlugin adds a plugin type to the registry — the plugin package
-// calls this from init(); the /type picker, dep gating, alt+r/alt+e and structured
-// context all pick it up like a built-in.
+// calls this from init(); the /type picker, dep gating and alt+r/alt+e all pick
+// it up like a built-in.
 func RegisterNodePlugin(p NodePlugin) {
 	nt := nodeType{
 		key:            p.Key,
@@ -244,13 +243,6 @@ func RegisterNodePlugin(p NodePlugin) {
 		nt.bands = func(m *Model, r row, below bool, maxLine int) []string {
 			focused := m.focused && m.cursorItem() == r.it
 			return pv(m, nodeRef{m: m, it: r.it}, continuationPrefix(r, below), maxLine, focused)
-		}
-	}
-	if p.ToContext != nil {
-		tc := p.ToContext
-		nt.toContextM = func(m *Model, it *item) contextXML {
-			t, a, b := tc(m, nodeRef{m: m, it: it})
-			return contextXML{tag: t, attrs: a, body: b}
 		}
 	}
 	if p.OnRemove != nil {
