@@ -167,7 +167,7 @@ func TestSemanticModelMemoizedPerContext(t *testing.T) {
 // terminal repaint.
 func TestSemanticRunsInsideOneFrame(t *testing.T) {
 	docs := map[string]string{}
-	for i := 0; i < 500; i++ { // StreamLiveNodes caps a scan at 500 candidates
+	for i := 0; i < 500; i++ { // representative medium outline
 		docs[fmt.Sprintf("n%03d", i)] = fmt.Sprintf(
 			"node %d about deploying the release pipeline and its auth service", i)
 	}

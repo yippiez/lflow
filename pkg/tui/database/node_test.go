@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +15,32 @@ func mustInsert(t *testing.T, db *DB, n Node) {
 	}
 	if err := n.Insert(db); err != nil {
 		t.Fatalf("inserting node %s: %v", n.UUID, err)
+	}
+}
+
+// TestStreamLiveNodesDoesNotDropOlderCandidates: live queries search the whole
+// outline. The 50-hit display cap belongs after matching; limiting the candidate
+// SQL to the 500 newest rows made ordinary #tag queries silently miss old work.
+func TestStreamLiveNodesDoesNotDropOlderCandidates(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	defer db.Close()
+
+	for i := 0; i < 600; i++ {
+		mustInsert(t, db, Node{UUID: fmt.Sprintf("candidate-%03d", i), ParentUUID: RootUUID,
+			Name: fmt.Sprintf("candidate %03d", i), AddedOn: int64(i)})
+	}
+	seen := map[string]bool{}
+	if err := StreamLiveNodes(db, 24, func(batch []Node) bool {
+		for _, n := range batch {
+			seen[n.UUID] = true
+		}
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) < 600 || !seen["candidate-000"] || !seen["candidate-599"] {
+		t.Fatalf("stream saw %d candidates (oldest=%v newest=%v), want all 600", len(seen),
+			seen["candidate-000"], seen["candidate-599"])
 	}
 }
 

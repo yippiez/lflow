@@ -674,7 +674,7 @@ func StreamLiveNodes(db *DB, batchSize int, yield func([]Node) bool) error {
 	if err != nil {
 		return err
 	}
-	rows, err := db.Query("SELECT " + nodeColumns + " FROM nodes WHERE deleted = 0 ORDER BY added_on DESC LIMIT 500")
+	rows, err := db.Query("SELECT " + nodeColumns + " FROM nodes WHERE deleted = 0 ORDER BY added_on DESC")
 	if err != nil {
 		return errors.Wrap(err, "listing live nodes")
 	}
@@ -708,7 +708,8 @@ func StreamLiveNodes(db *DB, batchSize int, yield func([]Node) bool) error {
 
 // AllLiveNodes returns every non-deleted node outside the Temporary Domain — the
 // candidate set for a pure time-filtered query, which carries no text for the
-// FTS/LIKE passes to use. Bounded so a huge forest can't stall the editor.
+// FTS/LIKE passes to use. StreamLiveNodes batches the scan so a large forest does
+// not block the editor while it is being read.
 func AllLiveNodes(db *DB) ([]Node, error) {
 	var ret []Node
 	err := StreamLiveNodes(db, 500, func(batch []Node) bool {
