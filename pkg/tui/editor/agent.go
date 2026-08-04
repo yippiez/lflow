@@ -471,11 +471,6 @@ func (m *Model) handleAgentClosed(msg agentClosedMsg) {
 	delete(m.nodeStore(msg.id), "agentMeta") // the session moved - re-read it
 	delete(m.nodeStore(msg.id), "agentTrace")
 	m.refreshAgentChip(msg.id)
-	if it := m.tree.byUUID[msg.id]; it != nil && it.typ == database.TypeAgent {
-		it.name = m.agentTitle(msg.id, v, s)
-		m.unsaved = true
-	}
-
 	if msg.err != nil {
 		m.errorFlash(v.label + ": " + msg.err.Error())
 		return
@@ -661,15 +656,6 @@ func (m *Model) refreshAgentChip(id string) {
 // hydrateAgentChips refreshes session chips and publishes Agent node colors from
 // the CLI stores. It never writes the local session identity into synced rows.
 func (m *Model) hydrateAgentChips() {
-	for _, r := range m.rows {
-		if r.it == nil || r.it.typ != database.TypeAgent {
-			continue
-		}
-		s := m.agentLoad(r.it.uuid)
-		if v, ok := agentVariantByID(s.Variant); ok {
-			m.publishAgentLook(r.it.uuid, v)
-		}
-	}
 	for id, c := range m.chips {
 		if c.Kind != chipKindAgent {
 			continue

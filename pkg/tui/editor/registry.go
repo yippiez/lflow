@@ -344,30 +344,12 @@ var nodeTypes = []nodeType{
 		expand:    func(m *Model, it *item) tea.Cmd { m.openCharacterPicker(it); return nil },
 		toContext: lineToContext,
 	},
-	// An agent session can be a compact inline chip or a whole Agent node. The
-	// node's expanded view presents the CLI transcript as virtual fixed rows: the
-	// conversation stays local and is never persisted as outline children.
-	{
-		key: database.TypeAgent, label: "Agent", inlineEditable: false,
-		glyph:        agentNodeGlyph,
-		renderM:      func(m *Model, it *item) string { return m.agentNodeRender(it) },
-		run:          runAgentNode,
-		view:         agentNodeView{}, // ⌥e: the session panel (rename, recolor, refresh)
-		flashActions: agentNodeFlashActions,
-		toContextM:   agentNodeToContext,
-	},
-	// a Diff node is a file change an agent's write tool recorded (see
-	// agentdiff.go): the node's name IS the patch, the row says which file and
-	// how big the change is, and ⌥e reads it colored. Never editable — a diff is
-	// a record of something that already happened.
-	{
-		key: database.TypeDiff, label: "Diff", inlineEditable: false,
-		glyph:        diffGlyph,
-		render:       diffRender,
-		view:         diffView{},
-		flashActions: diffFlashActions,
-		toContext:    diffToContext,
-	},
+	// The Agent node is RETIRED (2026-08-04): a session had two surfaces and the
+	// whole-row one was the worse of them, so the inline chip is the only one
+	// left. The entry survives as internal — never offered by /type — so a node
+	// somebody still has typed this way keeps its own name and its own row
+	// instead of reading as an unknown type.
+	{key: database.TypeAgent, label: "Agent", internal: true, inlineEditable: true},
 	// Thinking is a plain marker node: always the muted-gray thinking glyph,
 	// no other behavior.
 	{key: database.TypeThinking, label: "Thinking", glyph: thinkingGlyph, inlineEditable: true},

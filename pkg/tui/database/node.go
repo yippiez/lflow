@@ -35,10 +35,6 @@ const (
 	// TypeNLPCompute is natural language as code: a red → instruction whose
 	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
-	// TypeDiff is a file change an agent's write tool recorded: the node's name
-	// IS the patch, ⌥e reads it colored, and it is locked — a diff is a record of
-	// something that already happened. See editor/agentdiff.go.
-	TypeDiff = "diff"
 	// TypeSVG and TypeHTML are markup composed AS an outline, the way TypeMath is
 	// an expression composed as one: a node's text is a tag with its attributes
 	// and its children are its child elements, so the outline structure IS the
@@ -72,8 +68,12 @@ const (
 	// are the atoms bonded to it; alt+e draws the structure. See editor/molecule.go.
 	TypeMol  = "molecule"
 	TypeLine = "line"
-	// TypeAgent is a local handle on an agentic coding session. Its transcript is
-	// rendered as virtual, read-only rows and is never copied into the outline.
+	// TypeAgent was a whole-row handle on an agentic coding session, beside the
+	// inline chip. The node was removed 2026-08-04 — one session had two surfaces
+	// and the row was the worse of them — but the key is kept VALID so a node
+	// somebody still has typed that way keeps its own name instead of reading as
+	// an unknown type. The editor no longer offers it, and the chip (chipKindAgent,
+	// see editor/agent.go) is the session's one surface.
 	TypeAgent = "agent"
 	// TypeWebResult is one web-search hit: a generated link row a web node hangs
 	// under it (title + URL link chip). It is generated, so it never appears in
@@ -126,7 +126,6 @@ var TypeOrder = []string{
 	TypeThinking,
 	TypeLine,
 	TypeAgent,
-	TypeDiff,
 	TypeWebResult,
 	TypeZotero,
 }

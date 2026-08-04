@@ -231,10 +231,7 @@ type Model struct {
 	agentScanCh chan tea.Msg
 	agentSeen   map[string]bool
 	agentFill   pickerFill
-	// agentPickNode is the agent node being bound by the shared session picker.
-	// Empty means /insert requested an inline chip instead.
-	agentPickNode string
-	// agentColorChip is the chip or agent node ⌥c is picking a color for.
+	// agentColorChip is the chip ⌥c is picking a color for.
 	agentColorChip string
 
 	// flash mode (modeFlash): each visible row's actions carry a typed label;
@@ -659,17 +656,7 @@ func (m *Model) refreshRows() {
 // repeated occurrences of the same mirror apart.
 func (m *Model) expandStep() {
 	cur := m.cursorItem()
-	if cur == nil || m.cursor >= len(m.rows) {
-		return
-	}
-	// An Agent node's children ARE its transcript, so opening one that has none
-	// yet writes it: expanding a session is asking to see what happened in it,
-	// and an empty fold would be the node refusing to answer. See agenttrace.go.
-	if cur.typ == database.TypeAgent && lockedTurnCount(cur) == 0 {
-		m.agentTranscribe(cur)
-		return
-	}
-	if len(m.tree.childItems(cur)) == 0 {
+	if cur == nil || len(m.tree.childItems(cur)) == 0 || m.cursor >= len(m.rows) {
 		return
 	}
 	r := m.rows[m.cursor]

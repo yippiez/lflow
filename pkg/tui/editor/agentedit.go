@@ -21,25 +21,12 @@ import (
 // ⌥n is one keystroke rather than ⌥e then n.
 func (m *Model) openAgentRename(c database.Chip) {
 	m.focusAgentChip(c)
-	m.openRenameFieldFor(c.ID)
-}
-
-// openAgentRenameID opens the same field for an Agent NODE, whose uuid is its
-// session key — the node and the chip are one session with two placements, so
-// ⌥n has to reach both.
-func (m *Model) openAgentRenameID(id string) {
-	m.openRenameFieldFor(id)
-	m.focused = true
-	m.focusScroll = 0
-}
-
-func (m *Model) openRenameFieldFor(id string) {
-	s := m.agentLoad(id)
+	s := m.agentLoad(c.ID)
 	// a session still wearing its imported name opens an EMPTY field: typing
 	// replaces rather than appends, and empty already means "the imported title"
 	f := &textField{value: s.Name}
 	f.caret = len([]rune(f.value))
-	m.nodeStore(id)["agentRename"] = f
+	m.nodeStore(c.ID)["agentRename"] = f
 }
 
 // --- ⌥c: the session's color -----------------------------------------------

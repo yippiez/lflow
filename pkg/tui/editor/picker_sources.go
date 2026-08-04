@@ -335,20 +335,6 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 		m.mode = modeOutline
 		return m.openCitePicker(citeMirror)
 	}
-	// Like Zotero, an Agent node is meaningful only after choosing what it points
-	// at. The shared session picker binds the current node instead of inserting a
-	// chip; its transcript remains local and virtual.
-	if it.value == database.TypeAgent {
-		cur := m.cursorItem()
-		if cur == nil || cur.readonly || cur.mirrorOf != "" {
-			m.mode = modeOutline
-			return m, nil
-		}
-		m.pushUndo("")
-		cur.typ = database.TypeAgent
-		m.unsaved = true
-		return m, m.openAgentPickerForNode(cur.uuid)
-	}
 	if it.value != "" {
 		targets := m.selectedItems() // multi-select: retype the whole range
 		if len(targets) == 0 {

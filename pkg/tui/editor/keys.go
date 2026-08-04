@@ -734,15 +734,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+n":
-		// rename the session at the caret, in place — the chip, or the Agent node
-		// itself, which is the same session wearing a whole row
+		// rename the session chip at the caret, in place
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.agentChipForKeys(cur); ok {
 				m.openAgentRename(c)
-				return m, nil
-			}
-			if cur.typ == database.TypeAgent {
-				m.openAgentRenameID(cur.uuid)
 				return m, nil
 			}
 		}
@@ -797,10 +792,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.agentChipForKeys(cur); ok {
 				m.openAgentColor(c)
-				return m, nil
-			}
-			if cur.typ == database.TypeAgent {
-				m.openAgentColorID(cur.uuid)
 				return m, nil
 			}
 		}

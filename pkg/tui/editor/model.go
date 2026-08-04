@@ -592,13 +592,11 @@ func lockedSlot(it *item) bool {
 // acceptsChildren reports whether a node can take a new child: not structure
 // locked itself, and not already holding locked children — the mirror root is
 // movable as a whole (so it is not locked), but its child list is Zotero's.
-// An Agent node is also movable as a unit, while the trace rows shown beneath it
-// are a fixed virtual projection of the local transcript, never real children.
 func acceptsChildren(parent *item) bool {
 	if parent == nil {
 		return true
 	}
-	if parent.typ == database.TypeAgent || parent.structureLocked {
+	if parent.structureLocked {
 		return false
 	}
 	for _, c := range parent.children {

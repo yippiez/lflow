@@ -93,15 +93,8 @@ func TestAgentVariantsRegistered(t *testing.T) {
 			t.Errorf("%s is under-declared: %+v", id, v)
 		}
 	}
-	// Sessions have exactly two surfaces: the inline chip and one whole-row Agent
-	// node, whose row wears the same pill and whose children ARE its transcript.
-	nt := typeOf(database.TypeAgent)
-	if nt.key != database.TypeAgent || nt.view == nil || nt.run == nil || nt.renderM == nil {
-		t.Errorf("Agent node is under-declared: %+v", nt)
-	}
-	if nt.inlineEditable {
-		t.Error("the Agent row is the session's name — it is renamed with ⌥n, never typed over")
-	}
+	// A session has exactly ONE surface: the inline chip (see
+	// TestAgentNodeTypeRetired).
 	// every agent wears its own MARK — that is what tells two chips apart. Color
 	// can collide (the palette is smaller than the registry) but must never be the
 	// gray a DONE session fills with.
@@ -484,32 +477,19 @@ func TestAgentTraceFindsTimestampPrefixedPiTranscript(t *testing.T) {
 	}
 }
 
-func TestAgentNodeBindsLocalVirtualTrace(t *testing.T) {
-	id := claudeStore(t, recSummary, recUser)
-	c := variant(t, "claude")
-	m, db := dbModel(t, database.Node{UUID: "session", Name: "file this"})
-	m.bindAgentNode("session", c, agentStoreSession{variant: c.id, id: id, title: "fix the flaky sync test", cwd: "/home/dev/repo"})
-
-	it := m.tree.byUUID["session"]
-	if it.typ != database.TypeAgent || it.name != "fix the flaky sync test" {
-		t.Fatalf("bound node = type %q name %q", it.typ, it.name)
+// TestAgentNodeTypeRetired: a session has ONE surface, the inline chip. The
+// whole-row Agent node was removed — its key stays valid so a node somebody
+// still has typed that way keeps its own name, but nothing offers it any more.
+func TestAgentNodeTypeRetired(t *testing.T) {
+	if !database.ValidTypes[database.TypeAgent] {
+		t.Error("an existing agent-typed node should still read as a known type")
 	}
-	if acceptsChildren(it) {
-		t.Fatal("an Agent node accepted real children; its trace must stay virtual")
+	nt := typeOf(database.TypeAgent)
+	if !nt.internal {
+		t.Error("/type still offers the Agent node")
 	}
-	if !(agentNodeView{}).Enter(m, it) {
-		t.Fatal("bound Agent node refused its trace view")
-	}
-	joined := stripSGR(strings.Join((agentNodeView{}).Bands(m, it, "", 120, 0, 20, true), "\n"))
-	if !strings.Contains(joined, "the sync test is flaky") {
-		t.Fatalf("Agent node trace missing local transcript:\n%s", joined)
-	}
-	raw, err := database.LoadNodeOutput(db, "session")
-	if err != nil || !strings.Contains(raw, id) {
-		t.Fatalf("local session pointer = %q (%v)", raw, err)
-	}
-	if len(it.children) != 0 {
-		t.Fatalf("trace leaked into %d outline children", len(it.children))
+	if nt.view != nil || nt.run != nil {
+		t.Errorf("the Agent node kept behaviour: %+v", nt)
 	}
 }
 
