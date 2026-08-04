@@ -76,6 +76,48 @@ func (m *Model) ensureRunOutLoaded(uuid string) {
 	if err != nil || raw == "" {
 		return // never run, or no persisted output
 	}
+	applyRunOutDisk(r, raw)
+}
+
+// hydrateRunTails loads the persisted band of every runnable node in the open
+// tree, so a row shows its "→ result" the moment the outline opens instead of
+// only after ⌥e went and fetched it. The output was always saved; the ROW was
+// what forgot it, which reads exactly like the result was thrown away.
+//
+// One query for the lot: ensureRunOutLoaded is per-node and lazy, which is right
+// for a band nobody has looked at, and wrong for the row itself.
+func (m *Model) hydrateRunTails() {
+	if m.ctx.DB == nil || m.tree == nil {
+		return
+	}
+	var ids []string
+	for uuid, it := range m.tree.byUUID {
+		if typeOf(it.typ).run != nil {
+			ids = append(ids, uuid)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	raws, err := database.LoadNodeOutputs(m.ctx.DB, ids)
+	if err != nil {
+		return
+	}
+	for _, uuid := range ids {
+		r := m.ensureRun(uuid)
+		if r.loaded {
+			continue
+		}
+		r.loaded = true
+		if raw := raws[uuid]; raw != "" {
+			applyRunOutDisk(r, raw)
+		}
+	}
+}
+
+// applyRunOutDisk parses one persisted band into a run state, tolerating the
+// legacy bare-array shape the field used to be written in.
+func applyRunOutDisk(r *runState, raw string) {
 	var row runOutDisk
 	if err := json.Unmarshal([]byte(raw), &row); err != nil {
 		var legacy []outLineDisk
@@ -94,9 +136,6 @@ func (m *Model) ensureRunOutLoaded(uuid string) {
 	r.out = out
 }
 
-// persistRunOut writes a node's accumulated run band to node_output (overwriting
-// any previous run). An empty band deletes the row, so a re-run that produced
-// nothing clears stale output. Best-effort: a write error never blocks the run.
 // dropRunOut clears a node's run band and forgets it on disk. A band belongs to
 // the type that produced it: a bash node's captured stdout is a bash node's, and
 // a node that stops being one carries an answer to a question nobody can see the
@@ -115,6 +154,9 @@ func (m *Model) dropRunOut(uuid string) {
 	m.setCmdPreview(uuid)
 }
 
+// persistRunOut writes a node's accumulated run band to node_output (overwriting
+// any previous run). An empty band deletes the row, so a re-run that produced
+// nothing clears stale output. Best-effort: a write error never blocks the run.
 func (m *Model) persistRunOut(uuid string) {
 	r := m.ensureRun(uuid)
 	r.loaded = true // memory is now the source of truth for this uuid

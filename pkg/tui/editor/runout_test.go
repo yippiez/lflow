@@ -273,3 +273,30 @@ func TestFocusedPaneNeverTallerThanItsContent(t *testing.T) {
 		t.Errorf("frame is %d lines, taller than the %d-row window", n+1, m.height)
 	}
 }
+
+// TestRunTailSurvivesAReopen: the output was always saved — the ROW was what
+// forgot it, so a reopened bash node showed a bare command until ⌥e went and
+// fetched the band. That reads exactly like the result was thrown away.
+func TestRunTailSurvivesAReopen(t *testing.T) {
+	m, db := dbModel(t, database.Node{UUID: "b", Name: "echo hi", Type: database.TypeBash})
+	r := m.ensureRun("b")
+	r.out = []outLine{{text: "hi"}}
+	m.persistRunOut("b")
+
+	// a fresh model over the same database, as a reopen gives you
+	tr, err := loadTree(db, database.RootUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2 := &Model{db: db, ctx: m.ctx, tree: tr, viewStack: []*item{tr.root},
+		width: 80, height: 24, chips: map[string]database.Chip{}}
+	m2.hydrateRunTails()
+	m2.refreshRows()
+	m2.syncRunTails()
+
+	it := m2.tree.byUUID["b"]
+	tail := stripSGR(bashBodyTail(it, m2.chips))
+	if !strings.Contains(tail, "→ hi") {
+		t.Errorf("the reopened row lost its result: %q", tail)
+	}
+}

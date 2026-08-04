@@ -2281,6 +2281,7 @@ func Run(ctx context.DnoteCtx, nodeUUID string) error {
 		live:      ctx.Live, // daemon connection: live sync (nil in direct runs)
 	}
 	m.hydrateCmdPreviews() // rebuild → chrome from local node_output (chip label is never stored)
+	m.hydrateRunTails()    // and the same for runnable NODES, whose rows hang a → tail
 	m.hydrateAgentChips()  // same for session chips: the label is the session's live title
 	m.startFeed()          // subscribe to external changes; Init retries if it failed
 	m.loadSettings()       // apply persisted preferences (theme, …) before the first render
