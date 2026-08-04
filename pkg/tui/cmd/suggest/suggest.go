@@ -38,6 +38,8 @@ func NewCmd(ctx context.DnoteCtx) *cobra.Command {
 
 	cmd.AddCommand(newAddCmd(ctx))
 	cmd.AddCommand(newEditCmd(ctx))
+	cmd.AddCommand(newStateCmd(ctx, true))
+	cmd.AddCommand(newStateCmd(ctx, false))
 	cmd.AddCommand(newListCmd(ctx))
 	cmd.AddCommand(newShowCmd(ctx))
 	cmd.AddCommand(newReviewCmd(ctx, database.SuggestApproved))

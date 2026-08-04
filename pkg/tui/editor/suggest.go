@@ -307,6 +307,12 @@ type suggestLine struct {
 // suggestDiff turns a proposal into the lines review shows: an add is the node
 // it would create, an edit is each proposed field before and after.
 func (m *Model) suggestDiff(s database.Suggestion) []suggestLine {
+	if s.Kind == database.SuggestComplete {
+		return []suggestLine{{text: "open", remove: true}, {text: "complete"}}
+	}
+	if s.Kind == database.SuggestUncomplete {
+		return []suggestLine{{text: "complete", remove: true}, {text: "open"}}
+	}
 	if s.Kind == database.SuggestAdd {
 		out := []suggestLine{{text: m.suggestText(s.Name)}}
 		if s.Note != "" {
@@ -353,6 +359,10 @@ func suggestGist(s database.Suggestion) string {
 	switch {
 	case s.Kind == database.SuggestAdd:
 		return "+ " + suggestBrief(s.Name)
+	case s.Kind == database.SuggestComplete:
+		return "mark complete"
+	case s.Kind == database.SuggestUncomplete:
+		return "reopen"
 	case s.Proposes(database.FieldName):
 		return suggestBrief(s.Name)
 	case s.Proposes(database.FieldNote):

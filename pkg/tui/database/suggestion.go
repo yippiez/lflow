@@ -15,6 +15,9 @@ const (
 	SuggestAdd = "add"
 	// SuggestEdit proposes new field values for the node at TargetUUID.
 	SuggestEdit = "edit"
+	// SuggestComplete and SuggestUncomplete propose changing the node's done state.
+	SuggestComplete   = "complete"
+	SuggestUncomplete = "uncomplete"
 )
 
 // Status values for a suggestion. A suggestion starts pending and settles
@@ -316,6 +319,8 @@ func ApplySuggestion(db *DB, s Suggestion) (Suggestion, error) {
 		resultUUID, err = applyAdd(tx, s)
 	case SuggestEdit:
 		err = applyEdit(tx, s)
+	case SuggestComplete, SuggestUncomplete:
+		err = applyCompletion(tx, s)
 	default:
 		err = errors.Errorf("unknown suggestion kind %q", s.Kind)
 	}
@@ -399,6 +404,27 @@ func applyAdd(tx *DB, s Suggestion) (string, error) {
 		return "", err
 	}
 	return uuid, nil
+}
+
+// applyCompletion writes the proposed done state onto the target node.
+func applyCompletion(tx *DB, s Suggestion) error {
+	n, err := GetNode(tx, s.TargetUUID)
+	if err != nil {
+		return errors.Wrapf(err, "loading node %s", ShortID(s.TargetUUID))
+	}
+	if n.Deleted {
+		return errors.Errorf("node %q was deleted", n.Name)
+	}
+	if n.LockValue().Has(LockReadWrite) {
+		return errors.New("node is locked")
+	}
+	completedAt := int64(0)
+	if s.Kind == SuggestComplete {
+		completedAt = time.Now().Unix()
+	}
+	_, err = tx.Exec("UPDATE nodes SET completed_at = ?, edited_on = ? WHERE uuid = ?",
+		completedAt, time.Now().UnixNano(), s.TargetUUID)
+	return errors.Wrap(err, "updating completion state")
 }
 
 // applyEdit writes the proposed fields onto the target node.

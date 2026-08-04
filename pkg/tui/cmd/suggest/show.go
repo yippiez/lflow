@@ -68,9 +68,14 @@ func newShowRun(ctx context.DnoteCtx, opts *showOptions) infra.RunEFunc {
 		}
 
 		fmt.Println()
-		if s.Kind == database.SuggestAdd {
+		switch s.Kind {
+		case database.SuggestAdd:
 			showAdd(db, s)
-		} else {
+		case database.SuggestComplete:
+			showState("open", "complete")
+		case database.SuggestUncomplete:
+			showState("complete", "open")
+		default:
 			showEdit(db, s)
 		}
 
@@ -96,6 +101,13 @@ func showAdd(db *database.DB, s database.Suggestion) {
 		trailer += " · " + s.Position
 	}
 	fmt.Println(dim.Sprint("    " + trailer))
+}
+
+// showState prints the proposed completion-state transition.
+func showState(current, proposed string) {
+	fmt.Println(dim.Sprint("  state"))
+	fmt.Printf("  %s %s\n", red.Sprint("-"), current)
+	fmt.Printf("  %s %s\n", green.Sprint("+"), proposed)
 }
 
 // showEdit prints each proposed field as a current/proposed pair, flagging a

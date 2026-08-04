@@ -54,6 +54,35 @@ func TestSuggestionIsInertUntilApproved(t *testing.T) {
 	}
 }
 
+func TestCompletionSuggestionsAreInertUntilApproved(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	target := seedNode(t, db, "n1", RootUUID, "task")
+
+	complete := Suggestion{Kind: SuggestComplete, TargetUUID: target.UUID}
+	mustSuggest(t, db, &complete)
+	if n, _ := GetNode(db, target.UUID); n.CompletedAt != 0 {
+		t.Fatal("pending completion changed the node")
+	}
+	if _, err := ApplySuggestion(db, complete); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := GetNode(db, target.UUID); n.CompletedAt == 0 {
+		t.Fatal("approved completion left the node open")
+	}
+
+	uncomplete := Suggestion{Kind: SuggestUncomplete, TargetUUID: target.UUID}
+	mustSuggest(t, db, &uncomplete)
+	if _, err := ApplySuggestion(db, uncomplete); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := GetNode(db, target.UUID); n.CompletedAt != 0 {
+		t.Fatal("approved uncompletion left the node complete")
+	}
+}
+
 func TestApplyAddSuggestionCreatesNode(t *testing.T) {
 	db := InitTestMemoryDB(t)
 	if err := EnsureRoot(db); err != nil {

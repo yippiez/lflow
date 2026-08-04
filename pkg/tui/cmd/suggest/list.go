@@ -34,7 +34,7 @@ func newListCmd(ctx context.DnoteCtx) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&opts.status, "status", database.SuggestPending, "pending, approved, rejected or all")
 	f.StringVar(&opts.node, "node", "", "only suggestions about this node (id, id prefix or text)")
-	f.StringVar(&opts.kind, "kind", "", "only add or edit suggestions")
+	f.StringVar(&opts.kind, "kind", "", "only add, edit, complete or uncomplete suggestions")
 	f.StringVar(&opts.format, "format", "text", "output format: text|json")
 	f.BoolVar(&opts.strict, "strict", false, "list matches instead of acting on the best match")
 
@@ -51,9 +51,9 @@ func newListRun(ctx context.DnoteCtx, opts *listOptions) infra.RunEFunc {
 			return errors.Errorf("unknown status %q: pending, approved, rejected or all", opts.status)
 		}
 		switch opts.kind {
-		case "", database.SuggestAdd, database.SuggestEdit:
+		case "", database.SuggestAdd, database.SuggestEdit, database.SuggestComplete, database.SuggestUncomplete:
 		default:
-			return errors.Errorf("unknown kind %q: add or edit", opts.kind)
+			return errors.Errorf("unknown kind %q: add, edit, complete or uncomplete", opts.kind)
 		}
 
 		filter := database.SuggestionFilter{Status: opts.status, Kind: opts.kind}
@@ -109,6 +109,12 @@ func newListRun(ctx context.DnoteCtx, opts *listOptions) infra.RunEFunc {
 func summary(s database.Suggestion) string {
 	if s.Kind == database.SuggestAdd {
 		return s.Name
+	}
+	if s.Kind == database.SuggestComplete {
+		return "mark complete"
+	}
+	if s.Kind == database.SuggestUncomplete {
+		return "reopen"
 	}
 	if s.Proposes(database.FieldName) {
 		return s.Name
