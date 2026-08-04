@@ -463,6 +463,11 @@ func (m *Model) agentOpen(v agentVariant, id, cwd string) tea.Cmd {
 // handleAgentClosed lands the CLI's exit: run bookkeeping, and the session's
 // current name re-read from the store the CLI may have just renamed it in.
 func (m *Model) handleAgentClosed(msg agentClosedMsg) {
+	// The external CLI owned the real terminal while Bubble Tea was suspended.
+	// Its prompt/argv (for example `claude --resume …`) is now outside the
+	// renderer's last-frame accounting, so repaint from a cleared screen and
+	// scrollback rather than leaving that handoff line above the outline.
+	m.clearOnFrame = true
 	v, ok := agentVariantByID(msg.variant)
 	if !ok {
 		return
