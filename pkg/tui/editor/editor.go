@@ -77,6 +77,7 @@ var slashCommands = []slashCommand{
 	{"/complete", "Toggle done (alt+enter)"},
 	{"/duplicate", "Duplicate this node and its subtree next to it"},
 	{"/goto", "Jump the editor to another node"},
+	{"/goto:suggestion", "Jump to the next node with a pending suggestion"},
 	{"/hide:complete", "Hide or show completed nodes"},
 	{"/insert", "Insert a chip — or a Zotero entry — at caret"},
 	{"/link", "Insert an inline [[ link to a node or URL"},
@@ -94,7 +95,6 @@ var slashCommands = []slashCommand{
 	{"/shortcuts", "Open the full keyboard shortcut reference"},
 	{"/star", "Star this node — ranks first in pickers and search hits"},
 	{"/style", "Style this node — or just the text selected with shift+←/→"},
-	{"/suggestions", "Go to the next node with a pending suggestion (alt+v reviews)"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
 }
@@ -157,6 +157,10 @@ type Model struct {
 	// already scrolled into the scrollback buffer don't linger above the new
 	// view. Ephemeral — never persisted or synced.
 	clearOnFrame bool
+	// alt+g is a two-key goto leader off links: g opens the node finder and s
+	// jumps to the next pending suggestion. Contextual link/Zotero opens still
+	// happen immediately on alt+g.
+	gotoPending bool
 
 	width  int
 	height int
@@ -1834,7 +1838,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// open the kind picker (chips + icon); searchable so "ic" reaches icon
 		m.mode = modeInsert
 		m.list.open(m, insertSource{}, true)
-	case "/suggestions":
+	case "/goto:suggestion":
 		// walk to the next node carrying a proposal and open review on it
 		m.gotoSuggestion()
 	case "/shortcuts":

@@ -90,7 +90,7 @@ func (m *Model) enterSuggestReview() {
 	}
 	if len(m.suggestsFor(cur.uuid)) == 0 {
 		if n := m.pendingSuggestCount(); n > 0 {
-			m.flash = fmt.Sprintf("no suggestions here · %s elsewhere · /suggestions", suggestNoun(n))
+			m.flash = fmt.Sprintf("no suggestions here · %s elsewhere · /goto:suggestion", suggestNoun(n))
 		} else {
 			m.flash = "no suggestions"
 		}
@@ -101,7 +101,7 @@ func (m *Model) enterSuggestReview() {
 	m.suggestSel = 0
 }
 
-// gotoSuggestion (/suggestions) moves the cursor to the next visible node
+// gotoSuggestion (/goto:suggestion or alt+g s) moves the cursor to the next visible node
 // carrying a proposal and opens review on it — the way to reach one that
 // arrived while you were reading somewhere else.
 func (m *Model) gotoSuggestion() {

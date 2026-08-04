@@ -88,6 +88,36 @@ func TestSuggestInlineCountsTheRest(t *testing.T) {
 	}
 }
 
+func TestGotoSuggestionCommandAndChord(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestComplete, TargetUUID: cur.uuid})
+	m.loadSuggests()
+
+	m.press("alt+g")
+	if !m.gotoPending {
+		t.Fatal("alt+g off a link should wait for the goto subkey")
+	}
+	m.press("s")
+	if m.mode != modeSuggest || m.suggestUUID != cur.uuid {
+		t.Fatalf("alt+g s did not jump to review: mode=%v uuid=%q", m.mode, m.suggestUUID)
+	}
+	m.press("esc")
+	m.press("alt+g")
+	m.press("g")
+	if m.mode != modeFinder || m.finder.act != actGoto {
+		t.Fatalf("alt+g g did not open goto: mode=%v action=%v", m.mode, m.finder.act)
+	}
+
+	hasNew, hasOld := false, false
+	for _, c := range slashCommands {
+		hasNew = hasNew || c.name == "/goto:suggestion"
+		hasOld = hasOld || c.name == "/suggestions"
+	}
+	if !hasNew || hasOld {
+		t.Fatalf("suggestion commands: new=%v old=%v", hasNew, hasOld)
+	}
+}
+
 // TestSuggestShowsOnBlockFacedTypes: a Code node's row IS its block, so the
 // proposal hangs as a line under the block instead of a row suffix. Every other
 // type gets it through the shared row suffix.
