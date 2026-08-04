@@ -136,6 +136,10 @@ const (
 	// resumes it, alt+e shows its transcript (see agent.go).
 	chipKindAgent = "agent"
 	chipKindMol   = "molecule"
+	// an element chip is the reserved head of an SVG/HTML row: the tag and its
+	// attributes, structured, so the rest of the row is free text. value = the
+	// spec ("div class=card"), label = its display form. See markup.go.
+	chipKindElement = "element"
 	// a citation; value=zotero:// select URI, label=author-year (see zotero.go)
 	chipKindZotero = "zotero"
 )
@@ -193,6 +197,18 @@ var chipKinds = map[string]chipKind{
 		color:   cFG,
 		display: func(v string) string { return v },
 		expand:  func(v string) string { return v },
+	},
+	// an element chip is a markup node's reserved head: <tag attrs> as ONE atomic
+	// token at the start of the row, so the words after it are unambiguously the
+	// element's text. Half of HTML's tag names are ordinary English words — "a
+	// headline", "code review", "time to ship" — so a row cannot be read as an
+	// element by looking at its first word. Reserving the slot is what removes
+	// the guess, the way a Line node reserves its character.
+	chipKindElement: {
+		key:     chipKindElement,
+		color:   cAccent,
+		display: elementChipLabel,
+		expand:  func(v string) string { return "<" + v + ">" },
 	},
 	// a molecule chip is a structure referenced inline in prose: value is the full
 	// SMILES/SELFIES notation, painted as a block — the benzene ring with the

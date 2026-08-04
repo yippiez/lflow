@@ -192,7 +192,7 @@ func stripSGR(s string) string {
 // chip's anchors make inline editing impossible, and delete would drop the whole
 // chip — the user has to be able to change what a "$" runs).
 func (m *Model) openCmdEdit(c database.Chip) {
-	if c.Kind != chipKindCmd {
+	if c.Kind != chipKindCmd && c.Kind != chipKindElement {
 		return
 	}
 	m.mode = modeCmdEdit
@@ -208,6 +208,9 @@ func (m *Model) saveCmdEdit() {
 		return
 	}
 	c.Value = strings.TrimSpace(m.cmdEditValue)
+	if c.Kind == chipKindElement {
+		c.Label = elementChipLabel(c.Value)
+	}
 	m.chips[c.ID] = c
 	if m.ctx.DB != nil {
 		_ = database.UpsertChip(m.ctx.DB, c)
@@ -241,9 +244,13 @@ func (m *Model) handleCmdEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) viewCmdEdit(maxLine int) []string {
+	title, mark := " edit command", " $ "
+	if c, ok := m.chips[m.cmdEditID]; ok && c.Kind == chipKindElement {
+		title, mark = " edit element · tag and attributes", " <> "
+	}
 	var lines []string
-	lines = append(lines, clip(cDim+" edit command"+cReset, maxLine))
-	lines = append(lines, clip(cAccent+" $ "+cReset+cFG+withCaret(m.cmdEditValue, m.cmdEditCaret)+cReset, maxLine))
+	lines = append(lines, clip(cDim+title+cReset, maxLine))
+	lines = append(lines, clip(cAccent+mark+cReset+cFG+withCaret(m.cmdEditValue, m.cmdEditCaret)+cReset, maxLine))
 	lines = append(lines, "")
 	lines = append(lines, clip(cDim+" enter save · esc cancel"+cReset, maxLine))
 	m.pageRows = len(lines) // no status bar here — the whole frame is main region

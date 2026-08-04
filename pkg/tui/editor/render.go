@@ -986,6 +986,14 @@ func (m *Model) typeSuffix(r row) string {
 			parts = append(parts, "updated "+relTime(ts))
 		}
 	}
+	// a markup row wears its language's mark and, after it, the document it
+	// composes — truncated, because the row is a glance and ⌥e is the reading
+	if mark := markupMark(it.typ); mark != "" {
+		parts = append(parts, mark)
+		if p := m.markupPreview(it); p != "" && len(markupKids(it)) > 0 {
+			parts = append(parts, "→ "+clipStr(p, markupTailCap))
+		}
+	}
 	// a cycled row folds its children like a collapsed one — same count hint
 	if kids := m.tree.childItems(it); len(kids) > 0 && (it.collapsed || r.cycled) {
 		noun := "children"

@@ -638,6 +638,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.openCmdEdit(c)
 				return m, nil
 			}
+			// on a markup row, ⌥i edits the RESERVED element — the same gesture,
+			// the same meaning: change the structured thing this row is built on
+			if c, ok := m.markupElementChip(cur); ok {
+				m.openCmdEdit(c)
+				return m, nil
+			}
 		}
 		return m, nil
 	case "alt+e":

@@ -265,13 +265,12 @@ var nodeTypes = []nodeType{
 	// element row carries a dim linear preview of the document beneath it.
 	{
 		key: database.TypeSVG, label: "SVG", inlineEditable: true,
-		spanColor:    markupSpanColor,
-		bodyTail:     markupBodyTail,
+		onType:       markupOnType,
 		run:          runSVGRender, // alt+r: rasterize the subtree into the node's picture
-		view:         imageView{},  // alt+e: the rendered picture, scrollable
+		view:         markupView{}, // alt+e: the picture once rendered, else the document
 		flashActions: svgFlashActions,
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.svgBandLines(r, below, maxLine) },
-		toContext:    markupToContext("svg"),
+		toContextM:   markupToContext("svg"),
 		// deliberately no cliDeps: there is no ONE binary this needs. It tries
 		// several rasterizers in turn (see svgRasterizers), so declaring the
 		// preferred one would warn "missing dependency" on a machine where the
@@ -279,11 +278,11 @@ var nodeTypes = []nodeType{
 	},
 	{
 		key: database.TypeHTML, label: "HTML", inlineEditable: true,
-		spanColor:    markupSpanColor,
-		bodyTail:     markupBodyTail,
-		run:          runHTMLOut, // alt+r: the serialized markup into the run band
+		onType:       markupOnType,
+		run:          runHTMLOut,   // alt+r: the serialized markup into the run band
+		view:         markupView{}, // alt+e: the whole document the row shows the head of
 		flashActions: htmlFlashActions,
-		toContext:    markupToContext("html"),
+		toContextM:   markupToContext("html"),
 		runInTail:    true,
 	},
 	// Pir: the magic keywords' one home. "ultracode" and "ultraloop" shine on

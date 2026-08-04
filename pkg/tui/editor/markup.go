@@ -123,19 +123,75 @@ type markupElement struct {
 
 type markupAttr struct{ name, value string }
 
-// markupParse reads a row. The first word decides: a tag the language knows opens
-// an element and everything after it is attributes; anything else is text.
-func markupParse(typ, name string) markupElement {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
+// elementChipLabel is how an element chip reads on the row: the spec inside
+// angle brackets, so the reserved head looks like the markup it becomes.
+func elementChipLabel(spec string) string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return "<>"
+	}
+	return "<" + spec + ">"
+}
+
+// markupElementChip returns the element chip reserving the head of a markup row,
+// if it has one.
+func (m *Model) markupElementChip(it *item) (database.Chip, bool) {
+	if it == nil || !markupType(it.typ) {
+		return database.Chip{}, false
+	}
+	for _, sp := range anchorSpans([]rune(it.name)) {
+		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindElement {
+			return c, true
+		}
+	}
+	return database.Chip{}, false
+}
+
+func markupType(typ string) bool {
+	return typ == database.TypeSVG || typ == database.TypeHTML
+}
+
+// markupTextOf is a row's own text: everything that is not the element chip.
+func (m *Model) markupTextOf(it *item) string {
+	if it == nil {
+		return ""
+	}
+	runes := []rune(it.name)
+	var b strings.Builder
+	i := 0
+	for _, sp := range anchorSpans(runes) {
+		c, ok := m.chips[sp.id]
+		if ok && c.Kind == chipKindElement {
+			b.WriteString(string(runes[i:sp.start]))
+			i = sp.end
+			continue
+		}
+	}
+	b.WriteString(string(runes[i:]))
+	return strings.TrimSpace(b.String())
+}
+
+// markupParse reads a row through its RESERVED element chip. Nothing is guessed
+// from the words: a row with an element chip is that element, and a row without
+// one is text. Half of HTML's tag names are ordinary English words — "a
+// headline", "code review", "time to ship" — so reading the first word as a tag
+// turned prose into markup at random. The reserved slot is what removes the
+// guess, the way a Line node reserves its character.
+func (m *Model) markupParse(it *item) markupElement {
+	if it == nil {
 		return markupElement{}
 	}
-	head, rest := splitFirstWord(trimmed)
-	info, ok := markupTagFor(typ, head)
+	text := m.markupTextOf(it)
+	c, ok := m.markupElementChip(it)
 	if !ok {
-		return markupElement{text: trimmed}
+		return markupElement{text: text}
 	}
-	return markupElement{tag: head, void: info.void, attrs: parseMarkupAttrs(rest)}
+	head, rest := splitFirstWord(strings.TrimSpace(c.Value))
+	if head == "" {
+		return markupElement{text: text}
+	}
+	info := markupTags[head]
+	return markupElement{tag: head, void: info.void && text == "", attrs: parseMarkupAttrs(rest), text: text}
 }
 
 func splitFirstWord(s string) (head, rest string) {
@@ -195,70 +251,25 @@ func parseMarkupAttrs(s string) []markupAttr {
 
 // ── coloring ───────────────────────────────────────────────────────────────
 
-// markupSpanColor tints a row the way mathSpanColor tints operators: the tag
-// name in the accent color when the language knows it, and each attribute NAME
-// dim so the values — the part you actually read — stay in the foreground. An
-// unknown first word gets no tint at all, which is the row telling you it will
-// serialize as text rather than as an element.
-func markupSpanColor(it *item, runes []rune) map[int]string {
-	if it == nil {
-		return nil
-	}
-	s := string(runes)
-	lead := 0
-	for lead < len(runes) && (runes[lead] == ' ' || runes[lead] == '\t') {
-		lead++
-	}
-	head, _ := splitFirstWord(strings.TrimSpace(s))
-	if _, ok := markupTagFor(it.typ, head); !ok {
-		return nil
-	}
-	out := make(map[int]string, len(runes))
-	for i := lead; i < lead+len([]rune(head)) && i < len(runes); i++ {
-		out[i] = cAccent
-	}
-	// attribute names: from the character after a space up to its "="
-	i := lead + len([]rune(head))
-	for i < len(runes) {
-		for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t') {
-			i++
+// markupOnType runs when /type makes a node SVG or HTML: it reserves the row's
+// element slot and opens it straight away, because a markup node with no element
+// is not yet anything. The same field reopens with ⌥i, which is already "edit the
+// structured thing inside this row" for a $ chip.
+func markupOnType(m *Model, it *item) {
+	c, ok := m.markupElementChip(it)
+	if !ok {
+		id := m.createLabeledChip(chipKindElement, "", elementChipLabel(""))
+		if id == "" {
+			return
 		}
-		start := i
-		for i < len(runes) && runes[i] != '=' && runes[i] != ' ' && runes[i] != '\t' {
-			i++
-		}
-		if i < len(runes) && runes[i] == '=' {
-			for j := start; j <= i; j++ {
-				out[j] = cDim
-			}
-			i++
-			i = skipMarkupValue(runes, i)
-			continue
-		}
-		for j := start; j < i; j++ {
-			out[j] = cDim // a valueless attribute is still an attribute
+		// the element is the row's HEAD: it goes in front of whatever was typed
+		it.name = id + strings.TrimSpace(it.name)
+		m.unsaved = true
+		if c, ok = m.markupElementChip(it); !ok {
+			return
 		}
 	}
-	return out
-}
-
-// skipMarkupValue advances past an attribute value, quoted or bare.
-func skipMarkupValue(runes []rune, i int) int {
-	if i < len(runes) && (runes[i] == '"' || runes[i] == '\'') {
-		quote := runes[i]
-		i++
-		for i < len(runes) && runes[i] != quote {
-			i++
-		}
-		if i < len(runes) {
-			i++
-		}
-		return i
-	}
-	for i < len(runes) && runes[i] != ' ' && runes[i] != '\t' {
-		i++
-	}
-	return i
+	m.openCmdEdit(c)
 }
 
 // ── serialization: subtree → markup ────────────────────────────────────────
@@ -266,18 +277,18 @@ func skipMarkupValue(runes []rune, i int) int {
 // markupSerialize renders a node's subtree as markup, indented. Pure and
 // recursive, so running it on any node yields exactly that node's document —
 // the same property that lets alt+r on a Math sub-node export its sub-expression.
-func markupSerialize(it *item, indent int) string {
+func (m *Model) markupSerialize(it *item, indent int) string {
 	var b strings.Builder
-	writeMarkup(&b, it, indent)
+	m.writeMarkup(&b, it, indent)
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func writeMarkup(b *strings.Builder, it *item, depth int) {
+func (m *Model) writeMarkup(b *strings.Builder, it *item, depth int) {
 	if it == nil {
 		return
 	}
 	pad := strings.Repeat("  ", depth)
-	el := markupParse(it.typ, it.name)
+	el := m.markupParse(it)
 	kids := markupKids(it)
 
 	if el.tag == "" {
@@ -287,7 +298,7 @@ func writeMarkup(b *strings.Builder, it *item, depth int) {
 			b.WriteString(pad + escapeMarkupText(el.text) + "\n")
 		}
 		for _, c := range kids {
-			writeMarkup(b, c, depth)
+			m.writeMarkup(b, c, depth)
 		}
 		return
 	}
@@ -300,7 +311,7 @@ func writeMarkup(b *strings.Builder, it *item, depth int) {
 		}
 		open += " " + a.name + `="` + escapeMarkupAttr(a.value) + `"`
 	}
-	if len(kids) == 0 {
+	if len(kids) == 0 && el.text == "" {
 		if el.void {
 			b.WriteString(pad + open + "/>\n")
 		} else {
@@ -309,8 +320,11 @@ func writeMarkup(b *strings.Builder, it *item, depth int) {
 		return
 	}
 	b.WriteString(pad + open + ">\n")
+	if el.text != "" {
+		b.WriteString(pad + "  " + escapeMarkupText(el.text) + "\n")
+	}
 	for _, c := range kids {
-		writeMarkup(b, c, depth+1)
+		m.writeMarkup(b, c, depth+1)
 	}
 	b.WriteString(pad + "</" + el.tag + ">\n")
 }
@@ -341,27 +355,35 @@ func escapeMarkupAttr(s string) string {
 
 // ── preview ────────────────────────────────────────────────────────────────
 
-// markupBodyTail is the dim linear preview of an element's subtree, shown after
-// the row's own text. A leaf is already the whole element inline, so it gets no
-// tail — "simple stays inline", as in Math.
-func markupBodyTail(it *item, _ map[string]database.Chip) string {
-	if it == nil || len(markupKids(it)) == 0 {
-		return ""
+// markupMark is the sign a markup row wears at its end so the type is legible
+// without reading the tag: HTML's own "</>", and the same brackets around a
+// shape for SVG. It sits AFTER the text rather than in front of it because the
+// row's first word is already the tag — the mark says which language that tag
+// belongs to, which is the question the row leaves open.
+func markupMark(typ string) string {
+	switch typ {
+	case database.TypeHTML:
+		return "</>"
+	case database.TypeSVG:
+		return "<◇>"
 	}
-	p := markupPreview(it)
-	if p == "" {
-		return ""
-	}
-	return cDim + " " + p + cReset
+	return ""
 }
 
+// markupTailCap is how much of the document a row shows before "…". A row is a
+// glance; ⌥e is the reading.
+const markupTailCap = 44
+
+// markupBodyTail is what a markup row carries after its own text: the type's
+// mark, then the document it composes, truncated — "→ result …", the same shape
+// a Bash row's output tail has. The whole thing is under ⌥e.
 // markupPreview flattens a subtree into one compact line: nested tags as
 // <tag>…</tag> with their text inline, so the document's shape reads at a glance.
-func markupPreview(it *item) string {
+func (m *Model) markupPreview(it *item) string {
 	if it == nil {
 		return ""
 	}
-	el := markupParse(it.typ, it.name)
+	el := m.markupParse(it)
 	kids := markupKids(it)
 	if el.tag == "" {
 		parts := make([]string, 0, len(kids)+1)
@@ -369,25 +391,28 @@ func markupPreview(it *item) string {
 			parts = append(parts, el.text)
 		}
 		for _, c := range kids {
-			parts = append(parts, markupPreview(c))
+			parts = append(parts, m.markupPreview(c))
 		}
 		return strings.Join(parts, " ")
 	}
-	if len(kids) == 0 {
+	if len(kids) == 0 && el.text == "" {
 		return "<" + el.tag + "/>"
 	}
-	inner := make([]string, 0, len(kids))
+	inner := make([]string, 0, len(kids)+1)
+	if el.text != "" {
+		inner = append(inner, el.text)
+	}
 	for _, c := range kids {
-		inner = append(inner, markupPreview(c))
+		inner = append(inner, m.markupPreview(c))
 	}
 	return "<" + el.tag + ">" + strings.Join(inner, " ") + "</" + el.tag + ">"
 }
 
 // markupToContext gives the node its own element carrying the serialized
 // document, so structured context reads the markup rather than a bare tag name.
-func markupToContext(tag string) func(*item) contextXML {
-	return func(it *item) contextXML {
-		return contextXML{tag: tag, body: markupSerialize(it, 0)}
+func markupToContext(tag string) func(*Model, *item) contextXML {
+	return func(m *Model, it *item) contextXML {
+		return contextXML{tag: tag, body: m.markupSerialize(it, 0)}
 	}
 }
 
@@ -396,7 +421,7 @@ func markupToContext(tag string) func(*item) contextXML {
 // runHTMLOut writes the serialized document into the node's ephemeral run band,
 // exactly as alt+r on a Math node writes its LaTeX.
 func runHTMLOut(m *Model, it *item) tea.Cmd {
-	doc := markupSerialize(it, 0)
+	doc := m.markupSerialize(it, 0)
 	r := m.ensureRun(it.uuid)
 	r.out = nil
 	for _, line := range strings.Split(doc, "\n") {
@@ -415,7 +440,7 @@ func runHTMLOut(m *Model, it *item) tea.Cmd {
 // whole every time: the picture is a VIEW of the outline, never a copy of it
 // that could drift.
 func runSVGRender(m *Model, it *item) tea.Cmd {
-	doc := svgDocument(it)
+	doc := m.svgDocument(it)
 	png, err := rasterizeSVG(doc)
 	if err != nil {
 		m.errorFlash("svg: " + err.Error())
@@ -438,9 +463,9 @@ func runSVGRender(m *Model, it *item) tea.Cmd {
 // svgDocument is the subtree as a standalone SVG document. A subtree whose own
 // root is not an <svg> is wrapped in one, so alt+r on an inner shape still
 // renders something rather than markup no renderer will accept.
-func svgDocument(it *item) string {
-	doc := markupSerialize(it, 0)
-	el := markupParse(database.TypeSVG, it.name)
+func (m *Model) svgDocument(it *item) string {
+	doc := m.markupSerialize(it, 0)
+	el := m.markupParse(it)
 	if el.tag == "svg" {
 		if !strings.Contains(doc, "xmlns=") {
 			doc = strings.Replace(doc, "<svg", `<svg xmlns="http://www.w3.org/2000/svg"`, 1)
@@ -517,6 +542,79 @@ func svgRasterizerNames() string {
 	return strings.Join(names, ", ")
 }
 
+// ── ⌥e: the whole document, or the picture it renders to ───────────────────
+
+// markupView is what ⌥e opens on a markup node: the picture, when an SVG has
+// been rendered, and otherwise the document itself — the full markup the row
+// could only show the head of. Read-only both ways: the document is composed in
+// the outline above, which is the whole point of the type, so there is nothing
+// to type into down here.
+type markupView struct{}
+
+// picture reports whether this node has a rendered image to show instead of its
+// source — only an SVG ever does, and only after ⌥r.
+func (markupView) picture(m *Model, it *item) bool {
+	if it == nil || it.typ != database.TypeSVG {
+		return false
+	}
+	_, ok := m.imageLoad(it.uuid)
+	return ok
+}
+
+func (v markupView) Enter(m *Model, it *item) bool {
+	if v.picture(m, it) {
+		return (imageView{}).Enter(m, it)
+	}
+	return it != nil
+}
+
+func (v markupView) Leave(m *Model, it *item) {}
+
+func (v markupView) Lines(m *Model, it *item, width int) int {
+	if v.picture(m, it) {
+		return (imageView{}).Lines(m, it, width)
+	}
+	return len(m.markupViewContent(it, "", width))
+}
+
+func (v markupView) Key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+	if v.picture(m, it) {
+		return (imageView{}).Key(m, it, k)
+	}
+	if k.Type == tea.KeyRunes {
+		return nil, true // the document is composed in the outline, not in here
+	}
+	return nil, false
+}
+
+func (v markupView) Bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+	if v.picture(m, it) {
+		return (imageView{}).Bands(m, it, rail, width, scroll, winH, focused)
+	}
+	return NodeWindowBands(m.markupViewContent(it, rail, width), scroll, winH)
+}
+
+// markupViewContent is the serialized document, one line per line, tinted the
+// same way the rows above are so the two readings match.
+func (m *Model) markupViewContent(it *item, rail string, width int) []string {
+	if it == nil {
+		return nil
+	}
+	doc := m.markupSerialize(it, 0)
+	if it.typ == database.TypeSVG {
+		doc = m.svgDocument(it)
+	}
+	var out []string
+	for _, line := range strings.Split(doc, "\n") {
+		out = append(out, clip(rail+"  "+cFG+line+cReset, width))
+	}
+	hint := "↑↓ read · esc close"
+	if it.typ == database.TypeSVG {
+		hint = "↑↓ read · ⌥r renders · esc close"
+	}
+	return append(out, clip(rail+"  "+cDim+hint+cReset, width))
+}
+
 // svgBandLines hangs the rendered picture under the SVG row, like a note band.
 // Unlike the Image node's thumbnail this is not behind a preview setting: the
 // markup on the row is already the "compact" reading of the node, so the picture
@@ -542,13 +640,23 @@ func (m *Model) svgBandLines(r row, subtreeBelow bool, maxLine int) []string {
 
 // svgFlashActions / htmlFlashActions name the alt+r action in the flash bar.
 func svgFlashActions(m *Model, it *item) []flashAction {
-	acts := []flashAction{{verb: "render", color: cGreen, do: runSVGRender}}
-	if _, ok := m.imageLoad(it.uuid); ok {
-		acts = append(acts, flashAction{verb: "view", color: cCyan, do: imageExpandDo})
+	return []flashAction{
+		{verb: "render", color: cGreen, do: runSVGRender},
+		{verb: "expand", color: cCyan, do: markupExpandDo},
 	}
-	return acts
+}
+
+func markupExpandDo(m *Model, it *item) tea.Cmd {
+	if (markupView{}).Enter(m, it) {
+		m.focused = true
+		m.focusScroll = 0
+	}
+	return nil
 }
 
 func htmlFlashActions(m *Model, it *item) []flashAction {
-	return []flashAction{{verb: "markup", color: cGreen, do: runHTMLOut}}
+	return []flashAction{
+		{verb: "markup", color: cGreen, do: runHTMLOut},
+		{verb: "expand", color: cCyan, do: markupExpandDo},
+	}
 }
