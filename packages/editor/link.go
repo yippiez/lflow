@@ -113,19 +113,7 @@ func nodeLinkUUID(value string) (string, bool) {
 // linkChipAtCaret returns the link chip the caret sits on (its anchor begins at
 // the caret, or ends exactly at it), or ok=false.
 func (m *Model) linkChipAtCaret(cur *item) (database.Chip, bool) {
-	if cur == nil {
-		return database.Chip{}, false
-	}
-	spans := anchorSpans([]rune(cur.name))
-	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
-		if sp == nil {
-			continue
-		}
-		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindLink {
-			return c, true
-		}
-	}
-	return database.Chip{}, false
+	return m.chipAtCaret(cur, chipKindLink)
 }
 
 // followLink acts on a link chip: a node target jumps the editor there, a URL

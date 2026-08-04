@@ -114,6 +114,35 @@ func spanEndingAt(spans []anchorSpan, i int) *anchorSpan {
 	return nil
 }
 
+// chipAtCaret returns the chip the caret sits on: its anchor begins at the
+// caret, or ends exactly at it. With no kinds it matches any chip; otherwise
+// it matches only chips whose Kind is one of kinds. This is the one caret
+// finder every *ChipAtCaret wrapper (cmd, agent, link, zotero, tag) calls.
+func (m *Model) chipAtCaret(cur *item, kinds ...string) (database.Chip, bool) {
+	if cur == nil {
+		return database.Chip{}, false
+	}
+	spans := anchorSpans([]rune(cur.name))
+	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
+		if sp == nil {
+			continue
+		}
+		c, ok := m.chips[sp.id]
+		if !ok {
+			continue
+		}
+		if len(kinds) == 0 {
+			return c, true
+		}
+		for _, k := range kinds {
+			if c.Kind == k {
+				return c, true
+			}
+		}
+	}
+	return database.Chip{}, false
+}
+
 // ── chip-kind registry ─────────────────────────────────────────────────────
 
 // chipKind declares how one kind of chip behaves: its color, its compact display

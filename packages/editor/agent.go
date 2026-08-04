@@ -541,19 +541,7 @@ func (m *Model) agentRename(id, name string) {
 // agentChipAtCaret returns the session chip the caret sits on (its anchor begins
 // at the caret or ends exactly at it), like cmdChipAtCaret.
 func (m *Model) agentChipAtCaret(cur *item) (database.Chip, bool) {
-	if cur == nil {
-		return database.Chip{}, false
-	}
-	spans := anchorSpans([]rune(cur.name))
-	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
-		if sp == nil {
-			continue
-		}
-		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindAgent {
-			return c, true
-		}
-	}
-	return database.Chip{}, false
+	return m.chipAtCaret(cur, chipKindAgent)
 }
 
 // insertAgentChip splices a chip pointed at an EXISTING session at the caret.

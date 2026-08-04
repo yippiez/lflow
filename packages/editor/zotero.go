@@ -135,19 +135,7 @@ func (m *Model) zoteroUsername() string {
 // begins at the caret, or ends exactly at it), or ok=false. It mirrors
 // linkChipAtCaret — the caret vocabulary for chips is the same everywhere.
 func (m *Model) zoteroChipAtCaret(cur *item) (database.Chip, bool) {
-	if cur == nil {
-		return database.Chip{}, false
-	}
-	spans := anchorSpans([]rune(cur.name))
-	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
-		if sp == nil {
-			continue
-		}
-		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindZotero {
-			return c, true
-		}
-	}
-	return database.Chip{}, false
+	return m.chipAtCaret(cur, chipKindZotero)
 }
 
 // insertZoteroCite splices a citation chip for one library entry in at the caret.

@@ -40,16 +40,10 @@ func (m *Model) tagWordAtCaret(cur *item) (string, bool) {
 	if cur == nil {
 		return "", false
 	}
-	runes := []rune(cur.name)
-	spans := anchorSpans(runes)
-	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
-		if sp == nil {
-			continue
-		}
-		if c, ok := m.chips[sp.id]; ok && c.Kind == chipKindTag {
-			return strings.ToLower(c.Value), true
-		}
+	if c, ok := m.chipAtCaret(cur, chipKindTag); ok {
+		return strings.ToLower(c.Value), true
 	}
+	runes := []rune(cur.name)
 	for _, sp := range detectTagSpans(cur.name) {
 		if m.caret >= sp[0] && m.caret <= sp[1] {
 			word := strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#")
