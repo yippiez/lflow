@@ -38,6 +38,26 @@ import (
 //
 // This file is both types: the tag table that drives coloring AND serialization,
 // the pure serializer/preview, and the two run hooks.
+//
+// The declarative shape (key, label, continueOnEnter, runInTail) lives in
+// packages/nodes/svg.go and packages/nodes/html.go; this file keeps the
+// Model-bound engine for both, attached here since none of it is pure over
+// Ref/Theme.
+func init() {
+	attachCoreHooks(database.TypeSVG, coreHooks{
+		onType:       markupOnType,
+		run:          runSVGRender, // alt+r: rasterize the subtree into the node's picture
+		view:         markupView{}, // alt+e: the picture once rendered, else the document
+		flashActions: svgFlashActions,
+		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.svgBandLines(r, below, maxLine) },
+	})
+	attachCoreHooks(database.TypeHTML, coreHooks{
+		onType:       markupOnType,
+		run:          runHTMLOut,   // alt+r: the serialized markup into the run band
+		view:         markupView{}, // alt+e: the whole document the row shows the head of
+		flashActions: htmlFlashActions,
+	})
+}
 
 // ── the tag table: one source for coloring AND serialization ───────────────
 

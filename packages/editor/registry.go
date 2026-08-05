@@ -134,55 +134,6 @@ func nodeViewOf(it *item) nodeView {
 // type is a new entry here (plus its descriptor), NOT a DB migration. nodes.type
 // is free text and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{
-	{
-		key: database.TypeVoice, label: "Voice", inlineEditable: false,
-		renderM:      func(m *Model, it *item) string { return m.voiceRender(it) },
-		run:          runVoice,
-		expand:       playVoice,
-		flashActions: voiceFlashActions, // name them: "record" (toggle) and "play"
-		cliDeps:      []string{"ffmpeg"},
-	},
-	{
-		// an image: alt+r pastes from the host clipboard, alt+e opens the half-block
-		// preview, alt+o hands the PNG to the desktop's own image viewer. The
-		// pixels are a PNG blob in node_blobs keyed by node uuid — so the outline
-		// stays one portable SQLite file; the name holds an optional caption.
-		key: database.TypeImage, label: "Image", inlineEditable: false,
-		renderM:      func(m *Model, it *item) string { return m.imageRender(it) },
-		run:          runImagePaste,
-		view:         imageView{},   // alt+e: scrollable half-block render
-		openHost:     imageOpenHost, // alt+o: the host's image viewer
-		flashActions: imageFlashActions,
-		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
-	},
-	// a math expression composed as an outline (see math.go): the node's text is
-	// an operator (colored yellow) with operands as children, or an atom leaf.
-	// Stays inline-editable; the operator row carries a dim linear preview of its
-	// whole subtree, and children fan out as the AST beneath it.
-	// markup composed as an outline (see markup.go): the node's text is a tag
-	// with its attributes and its children are its child elements. Both stay
-	// inline-editable; a known tag tints accent, attribute names dim, and an
-	// element row carries a dim linear preview of the document beneath it.
-	{
-		key: database.TypeSVG, label: "SVG", inlineEditable: true, continueOnEnter: true,
-		onType:       markupOnType,
-		run:          runSVGRender, // alt+r: rasterize the subtree into the node's picture
-		view:         markupView{}, // alt+e: the picture once rendered, else the document
-		flashActions: svgFlashActions,
-		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.svgBandLines(r, below, maxLine) },
-		// deliberately no cliDeps: there is no ONE binary this needs. It tries
-		// several rasterizers in turn (see svgRasterizers), so declaring the
-		// preferred one would warn "missing dependency" on a machine where the
-		// node works perfectly through the next one down.
-	},
-	{
-		key: database.TypeHTML, label: "HTML", inlineEditable: true, continueOnEnter: true,
-		onType:       markupOnType,
-		run:          runHTMLOut,   // alt+r: the serialized markup into the run band
-		view:         markupView{}, // alt+e: the whole document the row shows the head of
-		flashActions: htmlFlashActions,
-		runInTail:    true,
-	},
 	// a table is an ordinary subtree READ as a grid (see table.go): columns are
 	// the children, rows are their children, and a cell's children are the
 	// outline inside it. The face IS the fold state — a folded table draws its
