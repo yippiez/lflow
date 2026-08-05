@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/editor"
+	"github.com/lflow/lflow/packages/utils"
 )
 
 // The nlpcompute node: natural language as code — a fully red → arrow AND red
@@ -17,7 +17,7 @@ import (
 // metrics"), an ipynb cell whose source is prose. alt+r launches a code
 // generation turn for the instruction (nlp.Compute; the semantic engine is not
 // implemented yet); while generating the prose SHINES (the ultraloop red
-// slide, editor.ShineText) and the cell counts toward the status bar's "N
+// slide, ShineText) and the cell counts toward the status bar's "N
 // thinking" tally like a mention thread. Once a snippet exists the borderless
 // gray code block (the same one the Code node wears — line numbers, white
 // rule) REPLACES the prose row (ncBlockCode). The node has TWO faces: the code
@@ -29,18 +29,18 @@ import (
 // from the node row.
 
 func init() {
-	editor.RegisterNodePlugin(editor.NodePlugin{
+	Register(Plugin{
 		Key: database.TypeNLPCompute, Label: "NLPCompute",
 		InlineEditable: true, // the prose face: edit the instruction inline
 		AutoFocus:      true, // the code face: rest the cursor on it to edit, like Code
 		BlockFaces:     true, // alt+e toggles prose ⇄ code (never enters an editor)
-		Glyph:          func() (string, string) { return "→", editor.NodeTheme().Red },
-		BaseColor:      func() string { return editor.NodeTheme().Red },
+		Glyph:          func() (string, string) { return "→", Theme().Red },
+		BaseColor:      func() string { return Theme().Red },
 		Render:         ncRender,
 		Run:            runNLPCompute,
 		View:           ncView{},
 		BlockCode:      ncBlockCode,
-		OnRemove: func(h editor.NodeHost, uuid string) {
+		OnRemove: func(h Host, uuid string) {
 			delete(h.NodeStore(uuid), "animating")
 			if st := ncStateOf(h, uuid); st.cancel != nil {
 				st.cancel()
@@ -66,7 +66,7 @@ type ncState struct {
 	caret  int    // caret index into buf
 }
 
-func ncStateOf(h editor.NodeHost, uuid string) *ncState {
+func ncStateOf(h Host, uuid string) *ncState {
 	d := h.NodeStore(uuid)
 	st, _ := d["nlpcompute"].(*ncState)
 	if st == nil {
@@ -76,7 +76,7 @@ func ncStateOf(h editor.NodeHost, uuid string) *ncState {
 	return st
 }
 
-func ncLoad(h editor.NodeHost, uuid string) ncData {
+func ncLoad(h Host, uuid string) ncData {
 	var d ncData
 	db := h.NodeDB()
 	if db == nil {
@@ -88,7 +88,7 @@ func ncLoad(h editor.NodeHost, uuid string) ncData {
 	return d
 }
 
-func ncSave(h editor.NodeHost, uuid string, d ncData) {
+func ncSave(h Host, uuid string, d ncData) {
 	db := h.NodeDB()
 	if db == nil {
 		return
@@ -112,8 +112,8 @@ func waitNCCmd(uuid string, fn func() (string, error)) tea.Cmd {
 	}
 }
 
-// HandleNodePlugin lands the generation result (editor.NodePluginMsg).
-func (msg ncDoneMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
+// HandleNodePlugin lands the generation result (PluginMsg).
+func (msg ncDoneMsg) HandleNodePlugin(h Host) tea.Cmd {
 	st := ncStateOf(h, msg.uuid)
 	if msg.err != nil {
 		h.NodeFlash("compute: " + msg.err.Error())
@@ -138,7 +138,7 @@ func (msg ncDoneMsg) HandleNodePlugin(h editor.NodeHost) tea.Cmd {
 
 // runNLPCompute (alt+r) launches the code-generation turn for the cell's
 // instruction.
-func runNLPCompute(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
+func runNLPCompute(h Host, n Ref) tea.Cmd {
 	st := ncStateOf(h, n.UUID())
 	if st.busy {
 		h.NodeFlash("already computing")
@@ -191,12 +191,12 @@ func peelCodeFence(text string) (code, lang string) {
 // generating it SHINES (the ultraloop slide) with no agent trace; otherwise plain
 // red. When code exists the block replaces the row (ncBlockCode), so the trailing
 // {lang} chip is only ever seen off the main outline (the temp panel).
-func ncRender(h editor.NodeHost, n editor.NodeRef) string {
-	th := editor.NodeTheme()
+func ncRender(h Host, n Ref) string {
+	th := Theme()
 	st := ncStateOf(h, n.UUID())
 	name := n.Text()
 	if st.busy {
-		return editor.ShineText(name)
+		return ShineText(name)
 	}
 	if d := ncLoad(h, n.UUID()); d.Code != "" {
 		label := "{code}"
@@ -211,12 +211,12 @@ func ncRender(h editor.NodeHost, n editor.NodeRef) string {
 // ncBlockCode makes the node render AS the borderless code block once a snippet
 // exists (replacing the red prose row). While generating it yields to the shining
 // prose (ok=false); focused, the live edit buffer + caret drive the block.
-func ncBlockCode(h editor.NodeHost, n editor.NodeRef, focused bool) (string, int, bool) {
+func ncBlockCode(h Host, n Ref, focused bool) (string, int, bool) {
 	st := ncStateOf(h, n.UUID())
 	if st.busy {
 		return "", -1, false
 	}
-	if editor.NodeBlockFace(h, n.UUID()) == "nlp" {
+	if BlockFace(h, n.UUID()) == "nlp" {
 		return "", -1, false // alt+e flipped to the prose face — show ncRender
 	}
 	d := ncLoad(h, n.UUID())
@@ -232,16 +232,16 @@ func ncBlockCode(h editor.NodeHost, n editor.NodeRef, focused bool) (string, int
 // ── the code face (alt+e toggle) ────────────────────────────────────────────
 
 // ncView is the editable code face: the same gray block the Code node wears
-// (editor.CodeBlockBands), seeded from the generated snippet and flushed back
+// (CodeBlockBands), seeded from the generated snippet and flushed back
 // to node_output on leave. It is auto-focused when the cursor rests on the code
 // face (AutoFocus); esc collapses to the prose face, alt+e toggles either way,
 // alt+r regenerates. The live buffer lives in ncState (NodeStore).
 type ncView struct{}
 
-func (ncView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
+func (ncView) Enter(h Host, n Ref) bool {
 	// autoFocus calls this on every key — decline silently on the prose face or
 	// before any code exists so the cursor keeps editing the instruction inline.
-	if editor.NodeBlockFace(h, n.UUID()) == "nlp" {
+	if BlockFace(h, n.UUID()) == "nlp" {
 		return false
 	}
 	d := ncLoad(h, n.UUID())
@@ -254,7 +254,7 @@ func (ncView) Enter(h editor.NodeHost, n editor.NodeRef) bool {
 }
 
 // Leave flushes the edited buffer back to the cell (node_output).
-func (ncView) Leave(h editor.NodeHost, n editor.NodeRef) {
+func (ncView) Leave(h Host, n Ref) {
 	st := ncStateOf(h, n.UUID())
 	if d := ncLoad(h, n.UUID()); st.buf != d.Code {
 		d.Code = st.buf
@@ -263,14 +263,14 @@ func (ncView) Leave(h editor.NodeHost, n editor.NodeRef) {
 	st.buf, st.caret = "", 0
 }
 
-func (ncView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
+func (ncView) Lines(h Host, n Ref, width int) int {
 	return 2 + len(strings.Split(ncStateOf(h, n.UUID()).buf, "\n"))
 }
 
 // Key edits the code buffer; alt+r regenerates; esc falls through to the central
 // handler (which collapses to the prose face). alt+e never reaches here — it is
 // intercepted upstream as the face toggle.
-func (ncView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
+func (ncView) Key(h Host, n Ref, k tea.KeyMsg) (tea.Cmd, bool) {
 	if k.String() == "alt+r" {
 		return runNLPCompute(h, n), true
 	}
@@ -287,15 +287,15 @@ func (ncView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, b
 			caret++
 		}
 	case "up":
-		caret = editor.NodeCaretVMove(buf, caret, -1)
+		caret = utils.CaretVMove(buf, caret, -1)
 	case "down":
-		caret = editor.NodeCaretVMove(buf, caret, +1)
+		caret = utils.CaretVMove(buf, caret, +1)
 	case "home":
-		line, _ := editor.NodeCaretLineCol(buf, caret)
-		caret = editor.NodeCaretAt(buf, line, 0)
+		line, _ := utils.CaretLineCol(buf, caret)
+		caret = utils.CaretAt(buf, line, 0)
 	case "end":
-		line, _ := editor.NodeCaretLineCol(buf, caret)
-		caret = editor.NodeCaretAt(buf, line, 1<<30)
+		line, _ := utils.CaretLineCol(buf, caret)
+		caret = utils.CaretAt(buf, line, 1<<30)
 	case "enter":
 		buf = string(rl[:caret]) + "\n" + string(rl[caret:])
 		caret++
@@ -324,11 +324,11 @@ func (ncView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, b
 	return nil, true
 }
 
-func (ncView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
+func (ncView) Bands(h Host, n Ref, rail string, width, scroll, winH int, focused bool) []string {
 	st := ncStateOf(h, n.UUID())
 	caret := st.caret
 	if !focused {
 		caret = -1
 	}
-	return editor.CodeBlockBands(st.buf, caret, focused, rail, width, scroll, winH)
+	return CodeBlockBands(st.buf, caret, focused, rail, width, scroll, winH)
 }

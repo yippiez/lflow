@@ -2,46 +2,24 @@ package editor
 
 import (
 	"context"
-	"strconv"
+	"sort"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/nlp"
-	"github.com/lflow/lflow/packages/utils"
+	"github.com/lflow/lflow/packages/nodes"
 )
 
-// The node plugin host. The editor owns the GENERIC machinery — registry,
-// pickers, bands, dep gating, generation transport — and each pluggable node type
-// lives in its own file under editor/nodes, registered at init through
-// RegisterNodePlugin. Plugins see the editor only through NodeHost and a
-// NodeRef — no editor internals leak, so a node file reads standalone.
-//
-// Everything in this file wears the Node prefix: it is the node-facing API.
+// The node plugin host. The contract (nodes.Plugin, nodes.Host, nodes.Ref)
+// lives in packages/nodes next to the types written against it; this file is
+// the editor's half: nodeRef/Model implement the interfaces, the registered
+// plugins fold into the internal nodeType table, and the render bridges
+// (theme, shine, code blocks, run bands) are bound to the editor's own
+// machinery at init.
 
-// NodeRef is a plugin's handle on one outline node — an interface, so node
-// tests can fake it without an editor Model.
-type NodeRef interface {
-	// UUID returns the node's identity.
-	UUID() string
-	// Type returns the node's type key.
-	Type() string
-	// Text returns the display text with chips expanded; a mirror reads its
-	// source's name.
-	Text() string
-	// SetText replaces the node's plain text and marks it for the next flush.
-	SetText(s string)
-	// Parent returns the node's parent, when it has a real one.
-	Parent() (NodeRef, bool)
-	// Siblings returns the node's parent's children (the node included).
-	Siblings() []NodeRef
-	// Children returns the node's children.
-	Children() []NodeRef
-	// Is reports whether two refs name the same node.
-	Is(o NodeRef) bool
-}
-
-// nodeRef is the editor's NodeRef.
+// nodeRef is the editor's nodes.Ref.
 type nodeRef struct {
 	m  *Model
 	it *item
@@ -66,116 +44,36 @@ func (n nodeRef) SetText(s string) {
 	}
 }
 
-func (n nodeRef) Parent() (NodeRef, bool) {
+func (n nodeRef) Parent() (nodes.Ref, bool) {
 	if p := n.it.parent; p != nil && p.uuid != "" {
 		return nodeRef{m: n.m, it: p}, true
 	}
 	return nil, false
 }
 
-func (n nodeRef) Siblings() []NodeRef {
+func (n nodeRef) Siblings() []nodes.Ref {
 	if n.it.parent == nil {
 		return nil
 	}
-	out := make([]NodeRef, 0, len(n.it.parent.children))
+	out := make([]nodes.Ref, 0, len(n.it.parent.children))
 	for _, c := range n.it.parent.children {
 		out = append(out, nodeRef{m: n.m, it: c})
 	}
 	return out
 }
 
-func (n nodeRef) Children() []NodeRef {
-	out := make([]NodeRef, 0, len(n.it.children))
+func (n nodeRef) Children() []nodes.Ref {
+	out := make([]nodes.Ref, 0, len(n.it.children))
 	for _, c := range n.it.children {
 		out = append(out, nodeRef{m: n.m, it: c})
 	}
 	return out
 }
 
-func (n nodeRef) Is(o NodeRef) bool {
+func (n nodeRef) Is(o nodes.Ref) bool {
 	or, ok := o.(nodeRef)
 	return ok && n.it == or.it
 }
-
-// NodeHost is the editor surface a plugin may touch.
-type NodeHost interface {
-	// NodeStore is the ephemeral per-node state bag (never persisted).
-	NodeStore(uuid string) map[string]any
-	// NodeDB is the live database handle (nil in the ephemeral temp tree).
-	NodeDB() *database.DB
-	// NodeFlash shows a transient message in the bar.
-	NodeFlash(msg string)
-	// NodeDepOK reports a CLI binary's availability (NodeCLIDeps; judged by
-	// the daemon — the execution side).
-	NodeDepOK(bin string) bool
-	// NodeCompute runs one raw code-generation turn: a natural-language
-	// instruction in, the produced code out. onEvent receives live progress
-	// frames (may be nil). Cancel ctx to stop it.
-	NodeCompute(ctx context.Context, prompt string, onEvent func(nlp.Event)) (string, error)
-}
-
-// NodePlugin declares one pluggable node type — the exported mirror of the
-// registry's nodeType, hooks phrased in NodeHost/NodeRef.
-type NodePlugin struct {
-	Key, Label, Sign string
-	InlineEditable   bool
-	// AutoFocus makes resting the cursor on this node's block face auto-enter its
-	// view for editing (thin caret, type directly, no alt+e) — like the Code node
-	// (see reconcileAutoFocus). The View's Enter gates it (return false to stay
-	// inline), so a two-faced node focuses only on its code face.
-	AutoFocus bool
-	// BlockFaces makes alt+e TOGGLE this node between its Render (prose) face and
-	// its BlockCode (code) face instead of entering an editor — editing the code
-	// face is handled by AutoFocus. The face lives in the node store under the key
-	// NodeBlockFace reads. Pair with AutoFocus + BlockCode.
-	BlockFaces bool
-	CLIDeps    []string
-
-	Glyph     func() (string, string)             // static glyph + SGR (per-node glyphs stay core for now)
-	BaseColor func() string                       // body SGR; nil/"" default
-	Render    func(h NodeHost, n NodeRef) string  // inline body override
-	Run       func(h NodeHost, n NodeRef) tea.Cmd // alt+r
-	// SpanColor tints individual runes of the EDITABLE body (math-operator
-	// style) without taking over the whole render: rune index → SGR. Pure over
-	// the runes — it runs on the render path with no host.
-	SpanColor func(runes []rune) map[int]string
-	// BodyTail appends already-styled text after the body on the same row (the
-	// math subtree-preview slot). It runs on the Model-free render path: the
-	// ref carries STRUCTURE only — Children()/Type()/UUID() work, Text()/
-	// SetText() and anything needing the host do not.
-	BodyTail func(n NodeRef) string
-	View     NodePluginView // alt+e inline expanded view
-	// BlockCode makes the node render AS a borderless code block that REPLACES its
-	// row (no glyph/body line): it returns the code, the caret rune index when the
-	// node is the focused editing target (else -1), and ok=false to render the
-	// normal Render row instead. nil → always the normal row.
-	BlockCode func(h NodeHost, n NodeRef, focused bool) (code string, caret int, ok bool)
-	// Preview renders always-on band lines beneath the unfocused node (the
-	// image-thumbnail slot); focused reports the expanded view being open.
-	Preview func(h NodeHost, n NodeRef, rail string, maxLine int, focused bool) []string
-	// OnRemove fires when a node of this type leaves the tree — cancel any
-	// in-flight work keyed on it.
-	OnRemove func(h NodeHost, uuid string)
-}
-
-// NodePluginView is the plugin flavor of nodeView (see registry.go): the
-// alt+e inline expanded editor, stateless, per-node state in NodeStore.
-type NodePluginView interface {
-	Enter(h NodeHost, n NodeRef) bool
-	Lines(h NodeHost, n NodeRef, width int) int
-	Bands(h NodeHost, n NodeRef, rail string, width, scroll, winH int, focused bool) []string
-	Key(h NodeHost, n NodeRef, k tea.KeyMsg) (tea.Cmd, bool)
-	Leave(h NodeHost, n NodeRef)
-}
-
-// NodePluginMsg lets a plugin's async tea.Cmd flow back into it: the editor's
-// Update routes any message implementing it straight to the plugin.
-type NodePluginMsg interface {
-	HandleNodePlugin(h NodeHost) tea.Cmd
-}
-
-// nodePluginRemovals collects registered OnRemove hooks.
-var nodePluginRemovals []func(h NodeHost, uuid string)
 
 // removeNodeStateUnder lets plugins cancel in-flight work before a subtree
 // disappears locally or through live sync.
@@ -185,8 +83,10 @@ func (m *Model) removeNodeStateUnder(it *item) {
 	}
 	var walk func(*item)
 	walk = func(n *item) {
-		for _, onRemove := range nodePluginRemovals {
-			onRemove(m, n.uuid)
+		for _, p := range nodes.Registered() {
+			if p.OnRemove != nil {
+				p.OnRemove(m, n.uuid)
+			}
 		}
 		for _, child := range n.children {
 			walk(child)
@@ -195,10 +95,49 @@ func (m *Model) removeNodeStateUnder(it *item) {
 	walk(it)
 }
 
-// RegisterNodePlugin adds a plugin type to the registry — the plugin package
-// calls this from init(); the /type picker, dep gating and alt+r/alt+e all pick
-// it up like a built-in.
-func RegisterNodePlugin(p NodePlugin) {
+// ── the fold: nodes.Registered() → the internal nodeType table ──────────────
+
+// foldOnce runs the fold lazily on the first registry lookup: plugin packages
+// (nodes, fileeditor) register at their own init, and only cmd knows which of
+// them are linked in — so the editor waits until the registry is first read.
+var foldOnce sync.Once
+
+// ensurePlugins is a var bound in init: nodeTypes' own initializer reaches
+// typeOf through the flash-action hooks, so a direct func reference would be
+// an initialization cycle — the indirection defers the edge to runtime.
+var ensurePlugins = func() {}
+
+func init() { ensurePlugins = foldPlugins }
+
+// foldPlugins folds every registered plugin into nodeTypes/byType, then
+// re-sorts the table into database.TypeOrder so the /type picker order is the
+// canonical one no matter which package registered when.
+func foldPlugins() {
+	foldOnce.Do(func() {
+		for _, p := range nodes.Registered() {
+			nodeTypes = append(nodeTypes, pluginNodeType(p))
+		}
+		pos := make(map[string]int, len(database.TypeOrder))
+		for i, k := range database.TypeOrder {
+			pos[k] = i
+		}
+		sort.SliceStable(nodeTypes, func(i, j int) bool {
+			pi, iOK := pos[nodeTypes[i].key]
+			pj, jOK := pos[nodeTypes[j].key]
+			if iOK != jOK {
+				return iOK // keys outside TypeOrder sink to the end
+			}
+			return pi < pj
+		})
+		byType = make(map[string]nodeType, len(nodeTypes))
+		for _, nt := range nodeTypes {
+			byType[nt.key] = nt
+		}
+	})
+}
+
+// pluginNodeType adapts one nodes.Plugin onto the internal descriptor.
+func pluginNodeType(p nodes.Plugin) nodeType {
 	nt := nodeType{
 		key:            p.Key,
 		label:          p.Label,
@@ -248,17 +187,11 @@ func RegisterNodePlugin(p NodePlugin) {
 			return pv(m, nodeRef{m: m, it: r.it}, continuationPrefix(r, below), maxLine, focused)
 		}
 	}
-	if p.OnRemove != nil {
-		nodePluginRemovals = append(nodePluginRemovals, p.OnRemove)
-	}
-	nodeTypes = append(nodeTypes, nt)
-	if byType != nil { // registration after init(): keep the index live
-		byType[nt.key] = nt
-	}
+	return nt
 }
 
-// nodePluginViewAdapter bridges NodePluginView onto the internal nodeView.
-type nodePluginViewAdapter struct{ v NodePluginView }
+// nodePluginViewAdapter bridges nodes.PluginView onto the internal nodeView.
+type nodePluginViewAdapter struct{ v nodes.PluginView }
 
 func (a nodePluginViewAdapter) enter(m *Model, it *item) bool {
 	return a.v.Enter(m, nodeRef{m: m, it: it})
@@ -276,7 +209,7 @@ func (a nodePluginViewAdapter) leave(m *Model, it *item) {
 	a.v.Leave(m, nodeRef{m: m, it: it})
 }
 
-// ── NodeHost implementation on the Model ────────────────────────────────────
+// ── nodes.Host implementation on the Model ──────────────────────────────────
 
 func (m *Model) NodeStore(uuid string) map[string]any { return m.nodeStore(uuid) }
 func (m *Model) NodeDB() *database.DB                 { return m.db }
@@ -288,89 +221,29 @@ func (m *Model) NodeCompute(ctx context.Context, prompt string, onEvent func(nlp
 	return nlp.Compute(ctx, prompt, onEvent)
 }
 
-// ── plugin-facing helpers (the render toolkit) ──────────────────────────────
+// ── the render bridges: bind nodes' vars to the editor's machinery ──────────
 
-// NodeBlockFace reads the alt+e block/prose face toggle for a BlockFaces node
-// from the node store (core's alt+e handler writes it): "nlp" = show the Render
-// row, anything else ("" default, "code") = show the BlockCode block.
-func NodeBlockFace(h NodeHost, uuid string) string {
-	s, _ := h.NodeStore(uuid)["blockFace"].(string)
-	return s
-}
-
-// NodeRunOut replaces a node's run band with the given lines — the plugin
-// mirror of the math node's alt+r LaTeX export. No-op on a fake host.
-func NodeRunOut(h NodeHost, uuid string, lines []string) {
-	m, ok := h.(*Model)
-	if !ok {
-		return
+func init() {
+	nodes.Theme = func() nodes.Palette {
+		return nodes.Palette{
+			Reset: cReset, FG: cFG, Dim: cDim, Accent: cAccent,
+			Red: cRed, Green: cGreen, Yellow: cYellow, Cyan: cCyan,
+		}
 	}
-	r := m.ensureRun(uuid)
-	r.out = r.out[:0]
-	for _, l := range lines {
-		r.out = append(r.out, outLine{text: l})
-	}
-	r.dropped = 0
-	m.persistRunOut(uuid)
-	m.refreshRows()
-}
-
-// NodeCodeBodyTail shows a statement/container header's folded body size:
-// `· 12 lines`. Shared by the language-statement nodes (python, rust — see
-// packages/fileeditor) and the language-neutral constructs (fn, class — see
-// packages/nodes). Structure-only render path — Children() only, never Text().
-func NodeCodeBodyTail(n NodeRef) string {
-	if len(n.Children()) == 0 {
-		return ""
-	}
-	th := NodeTheme()
-	lines := nodeCodeLineCount(n) - 1
-	word := "lines"
-	if lines == 1 {
-		word = "line"
-	}
-	return th.Dim + " · " + strconv.Itoa(lines) + " " + word + th.Reset
-}
-
-// nodeCodeLineCount counts the lines a subtree renders to.
-func nodeCodeLineCount(n NodeRef) int {
-	total := 1
-	for _, c := range n.Children() {
-		total += nodeCodeLineCount(c)
-	}
-	return total
-}
-
-// NodeWindowBands clamps a band list to [scroll, scroll+winH).
-func NodeWindowBands(content []string, scroll, winH int) []string {
-	if scroll > len(content) {
-		scroll = len(content)
-	}
-	end := scroll + winH
-	if end > len(content) {
-		end = len(content)
-	}
-	return content[scroll:end]
-}
-
-// NodePalette is the live theme's SGR codes — read it per render, the values
-// change when the theme does.
-type NodePalette struct {
-	Reset, FG, Dim, Accent, Red, Green, Yellow, Cyan string
-}
-
-// NodeTheme returns the live palette.
-func NodeTheme() NodePalette {
-	return NodePalette{
-		Reset: cReset, FG: cFG, Dim: cDim, Accent: cAccent,
-		Red: cRed, Green: cGreen, Yellow: cYellow, Cyan: cCyan,
+	nodes.ShineText = ShineText
+	nodes.CodeBlockBands = CodeBlockBands
+	nodes.RunOut = func(h nodes.Host, uuid string, lines []string) {
+		m, ok := h.(*Model)
+		if !ok {
+			return
+		}
+		r := m.ensureRun(uuid)
+		r.out = r.out[:0]
+		for _, l := range lines {
+			r.out = append(r.out, outLine{text: l})
+		}
+		r.dropped = 0
+		m.persistRunOut(uuid)
+		m.refreshRows()
 	}
 }
-
-// The multi-line caret helpers behind a plugin's code face (see CodeBlockBands):
-// NodeCaretVMove walks the caret up/down a line keeping its column;
-// NodeCaretLineCol / NodeCaretAt convert between a caret index and line/column
-// (home = col 0, end = a huge col).
-func NodeCaretVMove(s string, caret, dir int) int     { return utils.CaretVMove(s, caret, dir) }
-func NodeCaretLineCol(s string, caret int) (int, int) { return utils.CaretLineCol(s, caret) }
-func NodeCaretAt(s string, line, col int) int         { return utils.CaretAt(s, line, col) }

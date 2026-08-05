@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/editor"
+	"github.com/lflow/lflow/packages/nodes"
 	"github.com/pkg/errors"
 )
 
@@ -95,12 +95,12 @@ type rustCodec struct{}
 
 func init() {
 	fileCodecs = append(fileCodecs, rustCodec{})
-	editor.RegisterNodePlugin(editor.NodePlugin{
+	nodes.Register(nodes.Plugin{
 		Key:            database.TypeRust,
 		Label:          "Rust",
 		InlineEditable: true,
 		SpanColor:      keywordSpanColor(rustKeywords, "//"),
-		BodyTail:       editor.NodeCodeBodyTail,
+		BodyTail:       nodes.CodeBodyTail,
 		Run:            runCodeExport(RustSpec),
 	})
 }

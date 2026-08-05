@@ -346,9 +346,9 @@ var nodeTypes = []nodeType{
 			return cDim + "pick a Zotero entry · alt+r" + cReset
 		},
 	},
-	// The pluggable node types — nlpcompute — live in editor/nodes (one Go file
-	// per node) and register themselves via RegisterNodePlugin at init; see
-	// nodeplugin.go.
+	// The pluggable node types (fn, class, comment, text, nlpcompute — see
+	// packages/nodes; python, rust — see packages/fileeditor) register through
+	// nodes.Register at init and fold in lazily; see ensurePlugins.
 }
 
 // thinkingPrefix marks a thinking row inside its body, leaving the glyph column
@@ -371,6 +371,7 @@ func init() {
 // registry-parity check: database.TypeOrder and this list must agree, and a
 // test in packages/nodes (the one package that links both sides) enforces it.
 func RegisteredTypeKeys() []string {
+	ensurePlugins()
 	keys := make([]string, 0, len(nodeTypes))
 	for _, nt := range nodeTypes {
 		keys = append(keys, nt.key)
@@ -382,6 +383,7 @@ func RegisteredTypeKeys() []string {
 // bullets, which is what keeps a node of a retired type (e.g. the removed
 // NodeMod system's) rendering instead of crashing.
 func typeOf(key string) nodeType {
+	ensurePlugins()
 	if nt, ok := byType[key]; ok {
 		return nt
 	}
@@ -391,6 +393,7 @@ func typeOf(key string) nodeType {
 // typeOrder drives the /type picker: the registry in its declared order, minus
 // the internal types another node generates rather than a user chooses.
 func typeOrder() []string {
+	ensurePlugins()
 	out := make([]string, 0, len(nodeTypes))
 	for _, nt := range nodeTypes {
 		if nt.internal {

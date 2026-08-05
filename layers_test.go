@@ -21,9 +21,10 @@ const module = "github.com/lflow/lflow/"
 //	0: leaf vocabularies and clients — no repo-internal imports at all
 //	   (mobile is one: the daemon serves it, it knows nothing of the daemon)
 //	1: database (the schema layer)
-//	2: daemon (owns the DB), nlp, tui (the process runtime), outline and
-//	   fileeditor (scriptable DB-subtree renderers/codecs, database only)
-//	3: editor, nodes (the editor's plugin registrations)
+//	2: daemon (owns the DB), nlp, tui (the process runtime), outline,
+//	   fileeditor (scriptable DB-subtree renderers/codecs) and nodes (the
+//	   plugin contract + pluggable types — never imports the editor)
+//	3: editor (imports nodes and folds its registry in)
 //	4: cli, cmd (the process shell)
 var layers = map[string]int{
 	"packages/utils":        0,
@@ -35,9 +36,9 @@ var layers = map[string]int{
 	"packages/nlp":          2,
 	"packages/tui":          2,
 	"packages/outline":      2,
-	"packages/fileeditor":   3,
+	"packages/fileeditor":   2,
 	"packages/editor":       3,
-	"packages/nodes":        3,
+	"packages/nodes":        2,
 	"packages/cli":          4,
 	"cmd":                   4,
 }

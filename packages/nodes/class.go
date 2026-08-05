@@ -2,7 +2,6 @@ package nodes
 
 import (
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/editor"
 )
 
 // The class node: a type container as a first-class citizen — a Python class,
@@ -10,11 +9,11 @@ import (
 // colon (Rust keeps its own container keyword: `struct Point`); members are
 // the children. Each codec restores the syntax on save.
 func init() {
-	editor.RegisterNodePlugin(editor.NodePlugin{
+	Register(Plugin{
 		Key:            database.TypeClass,
 		Label:          "Class",
 		InlineEditable: true,
-		Glyph:          func() (string, string) { return "◇", editor.NodeTheme().Cyan },
-		BodyTail:       editor.NodeCodeBodyTail,
+		Glyph:          func() (string, string) { return "◇", Theme().Cyan },
+		BodyTail:       CodeBodyTail,
 	})
 }

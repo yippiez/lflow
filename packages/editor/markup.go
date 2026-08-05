@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/nodes"
 )
 
 // The SVG and HTML nodes (database.TypeSVG / TypeHTML) are markup composed AS an
@@ -566,7 +567,7 @@ func (v markupView) bands(m *Model, it *item, rail string, width, scroll, winH i
 	if v.picture(m, it) {
 		return (imageView{}).bands(m, it, rail, width, scroll, winH, focused)
 	}
-	return NodeWindowBands(m.markupViewContent(it, rail, width), scroll, winH)
+	return nodes.WindowBands(m.markupViewContent(it, rail, width), scroll, winH)
 }
 
 // markupViewContent is the serialized document, one line per line, tinted the

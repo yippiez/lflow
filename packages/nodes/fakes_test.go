@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/editor"
 	"github.com/lflow/lflow/packages/nlp"
 )
 
@@ -13,7 +12,7 @@ import (
 // node file tests against fakes, no editor Model needed — so fakeHost/fakeNode
 // live here once and every per-node <type>_test.go file reuses them.
 
-// fakeHost implements editor.NodeHost for plugin tests.
+// fakeHost implements Host for plugin tests.
 type fakeHost struct {
 	db      *database.DB
 	stores  map[string]map[string]any
@@ -48,7 +47,7 @@ func (f *fakeHost) NodeCompute(context.Context, string, func(nlp.Event)) (string
 	return f.compute()
 }
 
-// fakeNode implements editor.NodeRef.
+// fakeNode implements Ref.
 type fakeNode struct {
 	uuid, typ, text string
 	parent          *fakeNode
@@ -59,30 +58,30 @@ func (n *fakeNode) UUID() string     { return n.uuid }
 func (n *fakeNode) Type() string     { return n.typ }
 func (n *fakeNode) Text() string     { return n.text }
 func (n *fakeNode) SetText(s string) { n.text = s }
-func (n *fakeNode) Parent() (editor.NodeRef, bool) {
+func (n *fakeNode) Parent() (Ref, bool) {
 	if n.parent == nil {
 		return nil, false
 	}
 	return n.parent, true
 }
-func (n *fakeNode) Siblings() []editor.NodeRef {
+func (n *fakeNode) Siblings() []Ref {
 	if n.parent == nil {
 		return nil
 	}
-	out := make([]editor.NodeRef, 0, len(n.parent.kids))
+	out := make([]Ref, 0, len(n.parent.kids))
 	for _, k := range n.parent.kids {
 		out = append(out, k)
 	}
 	return out
 }
-func (n *fakeNode) Children() []editor.NodeRef {
-	out := make([]editor.NodeRef, 0, len(n.kids))
+func (n *fakeNode) Children() []Ref {
+	out := make([]Ref, 0, len(n.kids))
 	for _, k := range n.kids {
 		out = append(out, k)
 	}
 	return out
 }
-func (n *fakeNode) Is(o editor.NodeRef) bool {
+func (n *fakeNode) Is(o Ref) bool {
 	fo, ok := o.(*fakeNode)
 	return ok && fo == n
 }

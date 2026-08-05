@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/lflow/lflow/packages/editor"
+	"github.com/lflow/lflow/packages/nodes"
 )
 
 // The editor-side plugin helpers shared by the language statement nodes: span
@@ -21,7 +21,7 @@ func isWordRune(r rune) bool {
 // python and rust statement nodes.
 func keywordSpanColor(keywords map[string]bool, commentMark string) func(runes []rune) map[int]string {
 	return func(runes []rune) map[int]string {
-		th := editor.NodeTheme()
+		th := nodes.Theme()
 		colors := map[int]string{}
 		if i := strings.Index(string(runes), commentMark); i >= 0 {
 			pre := []rune(string(runes)[:i])
@@ -51,7 +51,7 @@ func keywordSpanColor(keywords map[string]bool, commentMark string) func(runes [
 
 // refToSrc projects an editor subtree onto the neutral SrcNode form so alt+r
 // exports through the same renderer as the file codec.
-func refToSrc(n editor.NodeRef) *SrcNode {
+func refToSrc(n nodes.Ref) *SrcNode {
 	s := &SrcNode{Type: n.Type(), Text: n.Text()}
 	for _, c := range n.Children() {
 		s.Kids = append(s.Kids, refToSrc(c))
@@ -61,14 +61,14 @@ func refToSrc(n editor.NodeRef) *SrcNode {
 
 // runCodeExport is alt+r for a language statement node: export the subtree as
 // real source to the run band.
-func runCodeExport(spec LangSpec) func(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
-	return func(h editor.NodeHost, n editor.NodeRef) tea.Cmd {
+func runCodeExport(spec LangSpec) func(h nodes.Host, n nodes.Ref) tea.Cmd {
+	return func(h nodes.Host, n nodes.Ref) tea.Cmd {
 		src, err := RenderCode([]*SrcNode{refToSrc(n)}, spec)
 		if err != nil {
 			h.NodeFlash("export: " + err.Error())
 			return nil
 		}
-		editor.NodeRunOut(h, n.UUID(), strings.Split(strings.TrimRight(src, "\n"), "\n"))
+		nodes.RunOut(h, n.UUID(), strings.Split(strings.TrimRight(src, "\n"), "\n"))
 		h.NodeFlash(spec.Name + " → output")
 		return nil
 	}

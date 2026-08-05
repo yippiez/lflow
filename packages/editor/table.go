@@ -8,6 +8,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/nodes"
 )
 
 // The Table node is a GRID READING of an ordinary subtree — not a new storage
@@ -572,7 +573,7 @@ func (v tableView) bands(m *Model, it *item, rail string, width, scroll, winH in
 		}
 		m.focusScroll = scroll
 	}
-	return NodeWindowBands(content, scroll, winH)
+	return nodes.WindowBands(content, scroll, winH)
 }
 
 // tableHint is the editor's header line: the shape, then the keys that act on

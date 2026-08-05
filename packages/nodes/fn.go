@@ -2,7 +2,6 @@ package nodes
 
 import (
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/editor"
 )
 
 // The fn node: a function as a first-class, language-neutral citizen. Its
@@ -11,11 +10,11 @@ import (
 // (`def greet(name):` in .py, `fn greet(name) {` in .rs). The ƒ glyph names
 // it in the outline, the tail shows the folded body size.
 func init() {
-	editor.RegisterNodePlugin(editor.NodePlugin{
+	Register(Plugin{
 		Key:            database.TypeFn,
 		Label:          "Function",
 		InlineEditable: true,
-		Glyph:          func() (string, string) { return "ƒ", editor.NodeTheme().Yellow },
-		BodyTail:       editor.NodeCodeBodyTail,
+		Glyph:          func() (string, string) { return "ƒ", Theme().Yellow },
+		BodyTail:       CodeBodyTail,
 	})
 }

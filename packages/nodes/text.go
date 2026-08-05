@@ -2,7 +2,6 @@ package nodes
 
 import (
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/editor"
 )
 
 // The text node: a prose paragraph — markdown body text that is NOT a list
@@ -10,10 +9,10 @@ import (
 // Markdown files stop being forced into an outline because of it: a plain
 // line parses to text and renders back as a plain line, never as `- `.
 func init() {
-	editor.RegisterNodePlugin(editor.NodePlugin{
+	Register(Plugin{
 		Key:            database.TypeText,
 		Label:          "Text",
 		InlineEditable: true,
-		Glyph:          func() (string, string) { return "¶", editor.NodeTheme().Dim },
+		Glyph:          func() (string, string) { return "¶", Theme().Dim },
 	})
 }

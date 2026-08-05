@@ -1,0 +1,216 @@
+// Package nodes is the pluggable node types AND the contract they are written
+// against. One file per node type; this file is the contract: a type sees the
+// editor only through Host and Ref, registers itself through Register at
+// init, and the editor folds the registry in (see editor's nodeplugin.go).
+// The package never imports the editor — that direction is what lets the
+// editor's internal tests link every registered type without an import cycle.
+package nodes
+
+import (
+	"context"
+	"strconv"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/nlp"
+)
+
+// Ref is a plugin's handle on one outline node — an interface, so node tests
+// can fake it without an editor Model.
+type Ref interface {
+	// UUID returns the node's identity.
+	UUID() string
+	// Type returns the node's type key.
+	Type() string
+	// Text returns the display text with chips expanded; a mirror reads its
+	// source's name.
+	Text() string
+	// SetText replaces the node's plain text and marks it for the next flush.
+	SetText(s string)
+	// Parent returns the node's parent, when it has a real one.
+	Parent() (Ref, bool)
+	// Siblings returns the node's parent's children (the node included).
+	Siblings() []Ref
+	// Children returns the node's children.
+	Children() []Ref
+	// Is reports whether two refs name the same node.
+	Is(o Ref) bool
+}
+
+// Host is the editor surface a plugin may touch.
+type Host interface {
+	// NodeStore is the ephemeral per-node state bag (never persisted).
+	NodeStore(uuid string) map[string]any
+	// NodeDB is the live database handle (nil in the ephemeral temp tree).
+	NodeDB() *database.DB
+	// NodeFlash shows a transient message in the bar.
+	NodeFlash(msg string)
+	// NodeDepOK reports a CLI binary's availability (CLIDeps; judged by the
+	// daemon — the execution side).
+	NodeDepOK(bin string) bool
+	// NodeCompute runs one raw code-generation turn: a natural-language
+	// instruction in, the produced code out. onEvent receives live progress
+	// frames (may be nil). Cancel ctx to stop it.
+	NodeCompute(ctx context.Context, prompt string, onEvent func(nlp.Event)) (string, error)
+}
+
+// Plugin declares one pluggable node type, hooks phrased in Host/Ref.
+type Plugin struct {
+	Key, Label, Sign string
+	InlineEditable   bool
+	// AutoFocus makes resting the cursor on this node's block face auto-enter its
+	// view for editing (thin caret, type directly, no alt+e) — like the Code node.
+	// The View's Enter gates it (return false to stay inline), so a two-faced
+	// node focuses only on its code face.
+	AutoFocus bool
+	// BlockFaces makes alt+e TOGGLE this node between its Render (prose) face and
+	// its BlockCode (code) face instead of entering an editor — editing the code
+	// face is handled by AutoFocus. The face lives in the node store under the key
+	// BlockFace reads. Pair with AutoFocus + BlockCode.
+	BlockFaces bool
+	CLIDeps    []string
+
+	Glyph     func() (string, string)     // static glyph + SGR (per-node glyphs stay core for now)
+	BaseColor func() string               // body SGR; nil/"" default
+	Render    func(h Host, n Ref) string  // inline body override
+	Run       func(h Host, n Ref) tea.Cmd // alt+r
+	// SpanColor tints individual runes of the EDITABLE body (math-operator
+	// style) without taking over the whole render: rune index → SGR. Pure over
+	// the runes — it runs on the render path with no host.
+	SpanColor func(runes []rune) map[int]string
+	// BodyTail appends already-styled text after the body on the same row (the
+	// math subtree-preview slot). It runs on the Model-free render path: the
+	// ref carries STRUCTURE only — Children()/Type()/UUID() work, Text()/
+	// SetText() and anything needing the host do not.
+	BodyTail func(n Ref) string
+	View     PluginView // alt+e inline expanded view
+	// BlockCode makes the node render AS a borderless code block that REPLACES
+	// its row (no glyph/body line): it returns the code, the caret rune index
+	// when the node is the focused editing target (else -1), and ok=false to
+	// render the normal Render row instead. nil → always the normal row.
+	BlockCode func(h Host, n Ref, focused bool) (code string, caret int, ok bool)
+	// Preview renders always-on band lines beneath the unfocused node (the
+	// image-thumbnail slot); focused reports the expanded view being open.
+	Preview func(h Host, n Ref, rail string, maxLine int, focused bool) []string
+	// OnRemove fires when a node of this type leaves the tree — cancel any
+	// in-flight work keyed on it.
+	OnRemove func(h Host, uuid string)
+}
+
+// PluginView is a type's alt+e INLINE expanded view: stateless, per-node state
+// in NodeStore, its lines render as bands beneath the node (in the outline
+// flow — never a separate screen).
+type PluginView interface {
+	Enter(h Host, n Ref) bool
+	Lines(h Host, n Ref, width int) int
+	Bands(h Host, n Ref, rail string, width, scroll, winH int, focused bool) []string
+	Key(h Host, n Ref, k tea.KeyMsg) (tea.Cmd, bool)
+	Leave(h Host, n Ref)
+}
+
+// PluginMsg lets a plugin's async tea.Cmd flow back into it: the editor's
+// Update routes any message implementing it straight to the plugin.
+type PluginMsg interface {
+	HandleNodePlugin(h Host) tea.Cmd
+}
+
+// registered is the plugin registry, in registration order; the editor folds
+// it into its own type table lazily, re-sorted by database.TypeOrder.
+var registered []Plugin
+
+// Register adds a plugin type to the registry — a type's file calls this from
+// init(); the /type picker, dep gating and alt+r/alt+e all pick it up like a
+// built-in.
+func Register(p Plugin) { registered = append(registered, p) }
+
+// Registered returns the registry in registration order.
+func Registered() []Plugin { return registered }
+
+// ── bridges the editor fills in at init ─────────────────────────────────────
+//
+// A plugin file may call these; outside a running editor (plugin unit tests)
+// the defaults keep them inert. They are vars, not Host methods, because they
+// are render-path utilities — no per-call host state beyond what they take.
+
+// Palette is the live theme's SGR codes — read it per render through Theme,
+// the values change when the theme does.
+type Palette struct {
+	Reset, FG, Dim, Accent, Red, Green, Yellow, Cyan string
+}
+
+// Theme returns the live palette. The editor rebinds it to its theme-aware
+// values; the default is the plain 16-color ANSI palette, so a type renders
+// sensibly (and testably) outside a running editor too.
+var Theme = func() Palette {
+	return Palette{
+		Reset: "\x1b[0m", FG: "\x1b[39m", Dim: "\x1b[2m", Accent: "\x1b[35m",
+		Red: "\x1b[31m", Green: "\x1b[32m", Yellow: "\x1b[33m", Cyan: "\x1b[36m",
+	}
+}
+
+// ShineText applies the ultraloop sliding-shine across a string at the current
+// animation frame — a plugin's "generating…" indicator. Rebound by the editor;
+// the default returns the text unstyled.
+var ShineText = func(s string) string { return s }
+
+// CodeBlockBands renders code as the borderless gray block, windowed as a band
+// (the focused view path). caret is the block cursor's rune index (drawn only
+// when focused); rail is the tree hanging indent, width the render width. When
+// winH > 0 the block is windowed to [scroll, scroll+winH) with the caret line
+// kept in view; winH <= 0 returns the whole block. Rebound by the editor; the
+// default renders nothing.
+var CodeBlockBands = func(code string, caret int, focused bool, rail string, width, scroll, winH int) []string { return nil }
+
+// RunOut replaces a node's run band with the given lines — the plugin mirror
+// of the math node's alt+r LaTeX export. Rebound by the editor; the default is
+// a no-op (fake hosts have no run bands).
+var RunOut = func(h Host, uuid string, lines []string) {}
+
+// ── pure helpers ────────────────────────────────────────────────────────────
+
+// BlockFace reads the alt+e block/prose face toggle for a BlockFaces node from
+// the node store (the editor's alt+e handler writes it): "nlp" = show the
+// Render row, anything else ("" default, "code") = show the BlockCode block.
+func BlockFace(h Host, uuid string) string {
+	s, _ := h.NodeStore(uuid)["blockFace"].(string)
+	return s
+}
+
+// CodeBodyTail shows a statement/container header's folded body size:
+// `· 12 lines`. Shared by the language-statement nodes (python, rust — see
+// packages/fileeditor) and the language-neutral constructs (fn, class).
+// Structure-only render path — Children() only, never Text().
+func CodeBodyTail(n Ref) string {
+	if len(n.Children()) == 0 {
+		return ""
+	}
+	th := Theme()
+	lines := codeLineCount(n) - 1
+	word := "lines"
+	if lines == 1 {
+		word = "line"
+	}
+	return th.Dim + " · " + strconv.Itoa(lines) + " " + word + th.Reset
+}
+
+// codeLineCount counts the lines a subtree renders to.
+func codeLineCount(n Ref) int {
+	total := 1
+	for _, c := range n.Children() {
+		total += codeLineCount(c)
+	}
+	return total
+}
+
+// WindowBands clamps a band list to [scroll, scroll+winH).
+func WindowBands(content []string, scroll, winH int) []string {
+	if scroll > len(content) {
+		scroll = len(content)
+	}
+	end := scroll + winH
+	if end > len(content) {
+		end = len(content)
+	}
+	return content[scroll:end]
+}
