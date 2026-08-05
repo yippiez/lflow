@@ -12,7 +12,7 @@ cd "${ROOT}"
 fail=0
 
 echo "→ gofmt"
-unformatted="$(gofmt -l cmd packages tests)"
+unformatted="$(gofmt -l tui mobile)"
 if [[ -n "${unformatted}" ]]; then
     echo "gofmt needed:"; echo "${unformatted}"; fail=1
 fi
@@ -24,9 +24,9 @@ echo "→ ast-grep rules"
 ast-grep test || fail=1
 ast-grep scan || fail=1
 
-echo "→ stale-path guard (pre-restructure pkg/tui layout)"
-if grep -rn 'pkg/tui' --include='*.go' packages cmd tests; then
-    echo "stale pkg/tui references above"; fail=1
+echo "→ stale-path guard (no packages/ imports outside legacy)"
+if grep -rn 'github.com/lflow/lflow/packages|packages/' --include='*.go' tui mobile; then
+    echo "stale packages/ references above"; fail=1
 fi
 
 echo "→ package-doc guard (doc comment names a different package)"
@@ -36,13 +36,11 @@ while IFS= read -r f; do
     if [[ -n "${doc}" && -n "${pkg}" && "${doc}" != "${pkg}" ]]; then
         echo "$f: doc says 'Package ${doc}' but package is '${pkg}'"; fail=1
     fi
-done < <(find packages cmd -name '*.go' ! -name '*_test.go')
+done < <(find tui mobile -name '*.go' ! -name '*_test.go')
 
 echo "→ unit tests"
 go test --tags fts5 ./... || fail=1
 
-echo "→ architecture tests (layering)"
-go test . || fail=1
 
 if (( fail )); then
     echo "CHECK FAILED"

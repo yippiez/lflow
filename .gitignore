@@ -8,9 +8,6 @@ tmp
 *.db
 .venv/
 
-# stray binary from `go build ./pkg/tui` (build-check)
-/tui
-
 # pi agent session data (transient)
 /.pi/
 

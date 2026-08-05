@@ -14,7 +14,7 @@ trap 'rm -rf "${TMPDIR_BIN}"' EXIT
 
 BIN="${TMPDIR_BIN}/lflow"
 echo "building lflow binary..."
-go build --tags fts5 -o "${BIN}" ./cmd/lflow
+go build --tags fts5 -o "${BIN}" ./tui/cmd/lflow
 export LFLOW_BIN="${BIN}"
 
 passed=0
@@ -22,11 +22,11 @@ failed=0
 failures=()
 
 shopt -s nullglob
-tests=( "${ROOT}"/tests/test-*.sh )
+tests=( "${ROOT}"/tui/tests/test-*.sh )
 shopt -u nullglob
 
 if (( ${#tests[@]} == 0 )); then
-    echo "no tests found (tests/test-*.sh)"
+    echo "no tests found (tui/tests/test-*.sh)"
     exit 0
 fi
 

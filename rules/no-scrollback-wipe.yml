@@ -10,7 +10,7 @@ note: |
   tea.WithAltScreen, where the alternate buffer already isolates every frame
   from the user's real screen and history; there is no longer any legitimate
   reason to reach past it and wipe scrollback the app never owned. Forbidden
-  everywhere in packages/** and cmd/**.
+  everywhere in tui/** and tui/cmd/**.
 rule:
   any:
     - kind: interpreted_string_literal
@@ -18,14 +18,14 @@ rule:
     - kind: raw_string_literal
       regex: '\\x1b\[3J'
 files:
-  - packages/**
-  - cmd/**
+  - tui/**
+  - tui/cmd/**
 ignores:
   # this is the regression guard for the rule itself: it asserts the escape is
   # ABSENT from the editor's own frames, so it has to reference the literal
-  - packages/editor/render_flush_test.go
+  - tui/editor/render_flush_test.go
   # feeds a real `clear` command's byte stream through the editor's OWN VT
   # emulator (termScreen, used to render a subprocess's output inside a
   # read-only band) — decoding what a child process printed is not the editor
   # writing the escape to the real terminal it owns
-  - packages/editor/term_test.go
+  - tui/editor/term_test.go

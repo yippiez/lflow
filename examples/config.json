@@ -10,7 +10,7 @@
     "two-way"
   ],
   "build": {
-    "target": "cmd/lflow",
+    "target": "tui/cmd/lflow",
     "tags": [
       "fts5"
     ],
