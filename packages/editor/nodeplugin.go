@@ -75,6 +75,8 @@ func (n nodeRef) Is(o nodes.Ref) bool {
 	return ok && n.it == or.it
 }
 
+func (n nodeRef) CompletedAt() int64 { return n.it.completedAt }
+
 // removeNodeStateUnder lets plugins cancel in-flight work before a subtree
 // disappears locally or through live sync.
 func (m *Model) removeNodeStateUnder(it *item) {
@@ -139,13 +141,54 @@ func foldPlugins() {
 // pluginNodeType adapts one nodes.Plugin onto the internal descriptor.
 func pluginNodeType(p nodes.Plugin) nodeType {
 	nt := nodeType{
-		key:            p.Key,
-		label:          p.Label,
-		sign:           p.Sign,
-		inlineEditable: p.InlineEditable,
-		autoFocus:      p.AutoFocus,
-		blockFaces:     p.BlockFaces,
-		cliDeps:        p.CLIDeps,
+		key:             p.Key,
+		label:           p.Label,
+		sign:            p.Sign,
+		inlineEditable:  p.InlineEditable,
+		autoFocus:       p.AutoFocus,
+		blockFaces:      p.BlockFaces,
+		cliDeps:         p.CLIDeps,
+		internal:        p.Internal,
+		tempOnly:        p.TempOnly,
+		disableChips:    p.DisableChips,
+		continueOnEnter: p.ContinueOnEnter,
+		runInTail:       p.RunInTail,
+		fixedColor:      p.FixedColor,
+		muteFrom:        p.MuteFrom,
+	}
+	if p.GlyphRef != nil {
+		g := p.GlyphRef
+		nt.glyph = func(it *item) (string, string) { return g(nodeRef{it: it}) } // structure-only ref
+	}
+	if p.Prefix != nil {
+		pf := p.Prefix
+		nt.prefix = func(it *item) string { return pf(nodeRef{it: it}) } // structure-only ref
+	}
+	if p.OnType != nil {
+		ot := p.OnType
+		nt.onType = func(m *Model, it *item) { ot(m, nodeRef{m: m, it: it}) }
+	}
+	if p.Expand != nil {
+		ex := p.Expand
+		nt.expand = func(m *Model, it *item) tea.Cmd { return ex(m, nodeRef{m: m, it: it}) }
+	}
+	if p.OpenHost != nil {
+		oh := p.OpenHost
+		nt.openHost = func(m *Model, it *item) tea.Cmd { return oh(m, nodeRef{m: m, it: it}) }
+	}
+	if p.FlashActions != nil {
+		fa := p.FlashActions
+		nt.flashActions = func(m *Model, it *item) []flashAction {
+			acts := fa(m, nodeRef{m: m, it: it})
+			out := make([]flashAction, 0, len(acts))
+			for _, a := range acts {
+				do := a.Do
+				out = append(out, flashAction{verb: a.Verb, color: a.Color, do: func(m *Model, it *item) tea.Cmd {
+					return do(m, nodeRef{m: m, it: it})
+				}})
+			}
+			return out
+		}
 	}
 	if p.Glyph != nil {
 		g := p.Glyph
@@ -226,7 +269,7 @@ func (m *Model) NodeCompute(ctx context.Context, prompt string, onEvent func(nlp
 func init() {
 	nodes.Theme = func() nodes.Palette {
 		return nodes.Palette{
-			Reset: cReset, FG: cFG, Dim: cDim, Accent: cAccent,
+			Reset: cReset, Bold: cBold, FG: cFG, Dim: cDim, Accent: cAccent,
 			Red: cRed, Green: cGreen, Yellow: cYellow, Cyan: cCyan,
 		}
 	}

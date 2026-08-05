@@ -50,6 +50,7 @@ func (f *fakeHost) NodeCompute(context.Context, string, func(nlp.Event)) (string
 // fakeNode implements Ref.
 type fakeNode struct {
 	uuid, typ, text string
+	completedAt     int64
 	parent          *fakeNode
 	kids            []*fakeNode
 }
@@ -85,3 +86,5 @@ func (n *fakeNode) Is(o Ref) bool {
 	fo, ok := o.(*fakeNode)
 	return ok && fo == n
 }
+
+func (n *fakeNode) CompletedAt() int64 { return n.completedAt }
