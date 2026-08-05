@@ -71,6 +71,7 @@ var iconCatalog = []iconEntry{
 	{"🤚", "block", "none"},
 	{"👎", "no", "none"},
 	{"🚧", "warning", "none"},
+	{"🤗", "hug", "none"}, // the hugging face — HuggingFace's actual logo
 }
 
 // iconAliases maps canonical shortcodes to alternate search keywords. Typing an

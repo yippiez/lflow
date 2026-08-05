@@ -351,6 +351,25 @@ func TestCtrlTConvertsURLToLinkChip(t *testing.T) {
 	}
 }
 
+// TestURLChipLabelSmartNames: a known service whose path names a resource gets
+// "key/resource", a known service without one gets its name, everything else
+// falls back to the host.
+func TestURLChipLabelSmartNames(t *testing.T) {
+	cases := []struct{ url, want string }{
+		{"https://huggingface.co/datasets/alimetin/turkish-parliament-speech", "huggingface/turkish-parliament-speech"},
+		{"https://huggingface.co/stabilityai/stable-diffusion-3", "huggingface/stable-diffusion-3"},
+		{"https://huggingface.co/", "HuggingFace"},
+		{"https://github.com/torvalds/linux", "github/torvalds/linux"},
+		{"https://docs.google.com/spreadsheets/d/1abc/edit", "Sheets"},
+		{"https://example.com/docs", "example.com"},
+	}
+	for _, c := range cases {
+		if got := urlChipLabel(c.url); got != c.want {
+			t.Errorf("urlChipLabel(%q) = %q, want %q", c.url, got, c.want)
+		}
+	}
+}
+
 // TestLinkExpandForExport guards the machine-readable form used by export/grep.
 func TestLinkExpandForExport(t *testing.T) {
 	c := database.Chip{Kind: chipKindLink, Value: "https://x.com", Label: "X"}

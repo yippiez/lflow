@@ -25,6 +25,11 @@ type Service struct {
 
 	hosts []string // the target's host must equal one of these (or be a subdomain)
 	path  string   // path prefix the target must carry; "" matches any path
+	// title derives a compact resource name from the URL path ("turkish-parl…"
+	// for a HuggingFace dataset) — the "/<leaf>" that LinkName appends after the
+	// key. Only services whose paths follow a fixed shape set it; "" for the
+	// rest means the path carries nothing worth naming.
+	title func(path string) string
 }
 
 // services is the ordered registry: ServiceFor returns the first entry whose
@@ -52,6 +57,13 @@ var services = []Service{
 	{Key: "claude", Label: "Claude", Glyph: "✽", hosts: []string{"claude.ai", "claude.com"}},
 	{Key: "gemini", Label: "Gemini", Glyph: "✦", hosts: []string{"gemini.google.com"}},
 	{Key: "chatgpt", Label: "ChatGPT", Glyph: "✳", hosts: []string{"chatgpt.com", "chat.openai.com"}},
+	// code-and-data hosts name their resource from the path — the hugging face
+	// mark is the actual logo (there is no monochrome codepoint for it), and
+	// GitHub, having no mark at all, stays name-only (see ServiceDisplay's guard)
+	{Key: "huggingface", Label: "HuggingFace", Glyph: "🤗",
+		hosts: []string{"huggingface.co", "hf.co"}, title: hfTitle},
+	{Key: "github", Label: "GitHub", Glyph: "",
+		hosts: []string{"github.com"}, title: ghTitle},
 }
 
 // ServiceFor returns the service a link target belongs to, ok=false for any
@@ -78,6 +90,62 @@ func ServiceFor(target string) (Service, bool) {
 	return Service{}, false
 }
 
+// hfTitle is the HuggingFace path rule: /datasets/<owner>/<name> (and the
+// models/spaces twins) or a bare /<owner>/<name> page — the leaf is the part
+// worth keeping, so "alimetin/turkish-parliament-speech" names itself.
+func hfTitle(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	switch {
+	case len(parts) == 3 && (parts[0] == "datasets" || parts[0] == "models" || parts[0] == "spaces"):
+		return parts[2]
+	case len(parts) == 2:
+		return parts[1]
+	}
+	return ""
+}
+
+// ghTitle is the GitHub path rule: /<owner>/<repo>, optionally with a path
+// after it — the owner/repo pair is what identifies the resource.
+func ghTitle(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) >= 2 {
+		return parts[0] + "/" + parts[1]
+	}
+	return ""
+}
+
+// LinkName is a link's default display name, most specific first: a service
+// whose path names a resource gets "key/resource" ("huggingface/turkish-parlia-
+// ment-speech"), a known service gets its own name ("Sheets"), and an
+// unrecognized URL gets "" — the caller falls back to the host. Like
+// ServiceFor, a scheme is optional.
+func LinkName(target string) string {
+	svc, ok := ServiceFor(target)
+	if !ok {
+		return ""
+	}
+	if svc.title != nil {
+		if res := svc.title(pathOf(target)); res != "" {
+			return svc.Key + "/" + res
+		}
+	}
+	return svc.Label
+}
+
+// pathOf returns the parsed URL's path, "https://" added when the target has
+// no scheme — the same canonicalization ServiceFor does, so the two agree.
+func pathOf(target string) string {
+	t := strings.TrimSpace(target)
+	if !strings.Contains(t, "://") {
+		t = "https://" + t
+	}
+	u, err := url.Parse(t)
+	if err != nil {
+		return ""
+	}
+	return u.Path
+}
+
 // serviceIconAfterTitle places the service mark: false puts it in FRONT of the
 // title (right after the editor's "→"), true puts it after the title. One flag,
 // one line, so the placement is a decision and not a scattering of + operators.
@@ -85,10 +153,14 @@ const serviceIconAfterTitle = false
 
 // ServiceDisplay is a service link's display text: the chip's title, which falls
 // back to the service's own name so a fresh link is never blank, plus the
-// service's mark. Nothing else about the link changes — the editor still draws
-// its "→" and the ordinary link styling around this.
+// service's mark. A service with no mark (GitHub) simply omits it. Nothing else
+// about the link changes — the editor still draws its "→" and the ordinary link
+// styling around this.
 func ServiceDisplay(s Service, label string) string {
 	title := serviceTitle(s, label)
+	if s.Glyph == "" {
+		return title
+	}
 	if serviceIconAfterTitle {
 		return title + " " + s.Glyph
 	}

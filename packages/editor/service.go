@@ -41,6 +41,9 @@ var serviceColors = map[string]string{
 	"claude":  fg(198, 129, 103), // #c68167 clay
 	"gemini":  fg(181, 143, 196), // #b58fc4 orchid
 	"chatgpt": fg(111, 160, 140), // #6fa08c teal
+	// huggingface wears the muted saffron its own brand orange (and the yellow
+	// mark) suggest; GitHub has no hue and keeps the plain link gray
+	"huggingface": fg(206, 152, 72), // #ce9848 saffron
 }
 
 // serviceChipColor is the SGR a service link renders in: its muted hue, still
@@ -75,7 +78,7 @@ func (m *Model) pasteServiceLink(cur *item, text string) bool {
 		return false
 	}
 	target := strings.TrimSpace(text)
-	svc, ok := chips.ServiceFor(target)
+	_, ok := chips.ServiceFor(target)
 	if !ok {
 		return false
 	}
@@ -84,7 +87,8 @@ func (m *Model) pasteServiceLink(cur *item, text string) bool {
 	if !strings.Contains(target, "://") {
 		target = "https://" + target
 	}
-	m.insertLinkChip(target, svc.Label)
-	m.flash = svc.Label + " link · ⌥e rename · ⌥r open"
+	label := urlChipLabel(target)
+	m.insertLinkChip(target, label)
+	m.flash = clipStr(label, 20) + " link · ⌥e rename · ⌥r open"
 	return true
 }

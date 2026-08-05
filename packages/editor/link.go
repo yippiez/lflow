@@ -89,11 +89,13 @@ func detectURLNear(name string, caret int) *urlMatch {
 	return best
 }
 
-// urlChipLabel is a URL's default chip label: a known service names itself
-// ("Sheets"), everything else falls back to its host.
+// urlChipLabel is a URL's default chip label: a known service names its
+// resource when its path has one ("huggingface/turkish-parliament-speech"),
+// otherwise it names itself ("Sheets"), and everything else falls back to its
+// host.
 func urlChipLabel(url string) string {
-	if svc, ok := chips.ServiceFor(url); ok {
-		return svc.Label
+	if name := chips.LinkName(url); name != "" {
+		return name
 	}
 	return browser.Host(url)
 }

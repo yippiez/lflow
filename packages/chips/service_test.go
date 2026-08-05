@@ -19,6 +19,11 @@ func TestServiceForRecognizesTheSuite(t *testing.T) {
 		{"https://claude.com/share/1a2b", "claude"},
 		{"https://chatgpt.com/c/1a2b", "chatgpt"},
 		{"https://chat.openai.com/share/1a2b", "chatgpt"},
+		{"https://huggingface.co/datasets/alimetin/turkish-parliament-speech", "huggingface"},
+		{"https://huggingface.co/models/stabilityai/stable-diffusion-3", "huggingface"},
+		{"https://hf.co/spaces/black-forest-labs/FLUX.1-schnell", "huggingface"},
+		{"https://huggingface.co/alimetin/turkish-parliament-speech", "huggingface"},
+		{"https://github.com/torvalds/linux", "github"},
 		// a scheme is optional — a bare paste is recognized the same way
 		{"docs.google.com/spreadsheets/d/1abc", "sheets"},
 		// www. is stripped before matching
@@ -71,5 +76,46 @@ func TestServiceDisplayTitleFallback(t *testing.T) {
 	}
 	if got := ServiceDisplay(svc, ""); got != "▦ Sheets" {
 		t.Errorf("untitled display = %q, want ▦ Sheets", got)
+	}
+}
+
+// TestServiceDisplayOmitsMissingMark: a service without a glyph (GitHub) shows
+// its title bare — no stray leading space.
+func TestServiceDisplayOmitsMissingMark(t *testing.T) {
+	svc, ok := ServiceFor("https://github.com/torvalds/linux")
+	if !ok {
+		t.Fatal("github URL not recognized")
+	}
+	if got := ServiceDisplay(svc, "linux"); got != "linux" {
+		t.Errorf("display = %q, want linux", got)
+	}
+}
+
+// TestLinkName: a path-shaped service names its resource after the key, a
+// shapeless one names itself, and an unrecognized URL gets "".
+func TestLinkName(t *testing.T) {
+	cases := []struct{ url, want string }{
+		{"https://huggingface.co/datasets/alimetin/turkish-parliament-speech", "huggingface/turkish-parliament-speech"},
+		{"https://huggingface.co/models/stabilityai/stable-diffusion-3", "huggingface/stable-diffusion-3"},
+		{"https://hf.co/spaces/black-forest-labs/FLUX.1-schnell", "huggingface/FLUX.1-schnell"},
+		{"https://huggingface.co/alimetin/turkish-parliament-speech", "huggingface/turkish-parliament-speech"},
+		// a scheme is optional — LinkName canonicalizes like ServiceFor
+		{"huggingface.co/datasets/alimetin/turkish-parliament-speech", "huggingface/turkish-parliament-speech"},
+		// no path worth naming falls back to the service's own name
+		{"https://huggingface.co/", "HuggingFace"},
+		{"https://huggingface.co/datasets", "HuggingFace"},
+		{"https://github.com/torvalds/linux", "github/torvalds/linux"},
+		{"https://github.com/torvalds/linux/blob/master/README.md", "github/torvalds/linux"},
+		// shape-less services keep naming themselves
+		{"https://docs.google.com/spreadsheets/d/1abc/edit", "Sheets"},
+		{"https://claude.ai/chat/1a2b", "Claude"},
+		// unrecognized URLs name nothing — the caller falls back to the host
+		{"https://example.com/article/1", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := LinkName(c.url); got != c.want {
+			t.Errorf("LinkName(%q) = %q, want %q", c.url, got, c.want)
+		}
 	}
 }
