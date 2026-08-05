@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/lflow/lflow/packages/chips"
+	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/utils"
 )
 
@@ -36,8 +36,8 @@ func (d dateMatch) canonical() string {
 // detectDateSpans returns the rune ranges [start,end) of every canonical date in
 // the name — a valid YYYY-MM-DD optionally followed by HH:MM, standing on its
 // own word boundary. The renderer chips these regardless of the node's color.
-// The detection lives in packages/chips, shared with the CLI's chipify.
-func detectDateSpans(name string) [][2]int { return chips.DateSpans(name) }
+// The detection lives in packages/database, shared with the CLI's chipify.
+func detectDateSpans(name string) [][2]int { return database.DateSpans(name) }
 
 var monthsByName = map[string]time.Month{
 	"ocak": time.January, "şubat": time.February, "mart": time.March,
@@ -68,9 +68,9 @@ func monthLookup(s string) (time.Month, bool) {
 // optional clock suffix: "saat 15:20", "at 15:20", "15.20"
 const clockSuffix = `(?:\s+(?:saat\s+|at\s+)?(\d{1,2})[:.](\d{2}))?`
 
-// reISO lives in packages/chips (shared with chipify); the relative and named
+// reISO lives in packages/database (shared with chipify); the relative and named
 // formats stay here since only the editor's ctrl+t resolves natural language.
-var reISO = chips.ReISO
+var reISO = database.ReISO
 
 var (
 	reRelative = regexp.MustCompile(`(?i)(now|şimdi|today|bugün|tomorrow|yarın|yesterday|dün)`)
@@ -78,12 +78,12 @@ var (
 	reNumeric  = regexp.MustCompile(`(\d{1,2})[./](\d{1,2})[./](\d{4})` + clockSuffix)
 )
 
-// wordBound, atoi and buildDate live in packages/chips; these aliases keep the
+// wordBound, atoi and buildDate live in packages/database; these aliases keep the
 // editor's date engine readable.
 func wordBound(s string, start, end int) bool { return utils.WordBound(s, start, end) }
 func atoi(s string) int                       { return utils.Atoi(s) }
 func buildDate(year, month, day, hour, min int, loc *time.Location) (time.Time, bool) {
-	return chips.BuildDate(year, month, day, hour, min, loc)
+	return database.BuildDate(year, month, day, hour, min, loc)
 }
 
 // detectDate finds the convertible time phrase to act on: the one whose

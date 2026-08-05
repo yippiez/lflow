@@ -36,7 +36,7 @@ const (
 	TypeEmpty = "empty"
 	TypeWF    = "wf" // a Workflowy mirror root: alt+r pulls its subtree (see nodes/wf)
 	// TypeNLPCompute is natural language as code: a red → instruction whose
-	// alt+r generates the implementing snippet (see packages/nodes/nlpcompute.go).
+	// alt+r generates the implementing snippet (see packages/editor/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
 	// TypeSVG and TypeHTML are markup composed AS an outline, the way TypeMath is
 	// an expression composed as one: a node's text is a tag with its attributes
@@ -63,11 +63,11 @@ const (
 	// colored yellow) with its BODY as children, or a simple statement leaf.
 	// The subtree renders back to real indented source (alt+r → run band), and
 	// `lflow file open x.py` binds a whole file to such a tree. See
-	// packages/fileeditor/python.go.
+	// packages/editor/python.go.
 	TypePython = "python"
 	// TypeRust is the Rust sibling of TypePython: one logical line per node,
 	// a `{`-opening header holds its block as children (braces regenerate
-	// from structure on save). See packages/fileeditor/rust.go.
+	// from structure on save). See packages/editor/rust.go.
 	TypeRust = "rust"
 	// The language-neutral construct types — first-class citizens shared by
 	// every language codec, so a function is a function whether the file is
@@ -795,4 +795,129 @@ func buildFTSQuery(q string) string {
 		terms = append(terms, `"`+f+`"*`)
 	}
 	return strings.Join(terms, " ")
+}
+
+// A runnable node's captured output (bash/query stdout/stderr) is mirrored into
+// node_output — one JSON blob per node uuid — so it survives a restart. It is
+// decoupled from the node row (like node_mod_data / node_blobs) so it persists
+// the instant a run finishes, before the node itself is saved.
+//
+// WARNING (invariant): run output is local-only — never synced and never part of
+// the node payload. It is not notebook content.
+
+// LoadNodeOutput returns a node's persisted run output JSON, or "" if there is
+// none (never run).
+func LoadNodeOutput(db *DB, uuid string) (string, error) {
+	var out string
+	err := db.QueryRow("SELECT output FROM node_output WHERE uuid = ?", uuid).Scan(&out)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return out, errors.Wrapf(err, "loading node output %s", uuid)
+}
+
+// LoadNodeOutputs reads many at once, keyed by uuid, skipping the ones with no
+// row. One query rather than one per id: the editor snapshots every chip's
+// sidecar before a mutating keypress, and that must not cost a round trip each.
+func LoadNodeOutputs(db *DB, uuids []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(uuids) == 0 {
+		return out, nil
+	}
+	q := "SELECT uuid, output FROM node_output WHERE uuid IN (?" + strings.Repeat(",?", len(uuids)-1) + ")"
+	args := make([]interface{}, len(uuids))
+	for i, u := range uuids {
+		args[i] = u
+	}
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "loading node outputs")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uuid, output string
+		if err := rows.Scan(&uuid, &output); err != nil {
+			return nil, errors.Wrap(err, "scanning node output")
+		}
+		out[uuid] = output
+	}
+	return out, errors.Wrap(rows.Err(), "loading node outputs")
+}
+
+// SaveNodeOutput stores a node's run output JSON, overwriting any previous run.
+func SaveNodeOutput(db *DB, uuid, output string) error {
+	_, err := db.Exec(
+		"INSERT INTO node_output (uuid, output) VALUES (?, ?) ON CONFLICT(uuid) DO UPDATE SET output = excluded.output",
+		uuid, output)
+	return errors.Wrapf(err, "saving node output %s", uuid)
+}
+
+// DeleteNodeOutput drops a node's persisted run output.
+func DeleteNodeOutput(db *DB, uuid string) error {
+	_, err := db.Exec("DELETE FROM node_output WHERE uuid = ?", uuid)
+	return errors.Wrapf(err, "deleting node output %s", uuid)
+}
+
+// (node uuid -> character); character_colors holds one row per character name
+// (like tag_colors) so the same character reads in the same color everywhere it
+// speaks, even after every line naming it has been rewritten or removed.
+
+// SetLineCharacter assigns a character to a Line node; an empty character
+// clears the assignment.
+func SetLineCharacter(db *DB, nodeUUID, character string) error {
+	if character == "" {
+		_, err := db.Exec("DELETE FROM line_characters WHERE node_uuid = ?", nodeUUID)
+		return errors.Wrap(err, "clearing line character")
+	}
+	_, err := db.Exec(`INSERT INTO line_characters (node_uuid, character) VALUES (?, ?)
+		ON CONFLICT(node_uuid) DO UPDATE SET character = excluded.character`, nodeUUID, character)
+	return errors.Wrap(err, "setting line character")
+}
+
+// AllLineCharacters loads the full node uuid -> character map.
+func AllLineCharacters(db *DB) (map[string]string, error) {
+	rows, err := db.Query("SELECT node_uuid, character FROM line_characters")
+	if err != nil {
+		return nil, errors.Wrap(err, "querying line characters")
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var uuid, character string
+		if err := rows.Scan(&uuid, &character); err != nil {
+			return nil, errors.Wrap(err, "scanning line character")
+		}
+		out[uuid] = character
+	}
+	return out, rows.Err()
+}
+
+// SetCharacterColor assigns a color to a character name; an empty color
+// removes the assignment (back to the default muted gray).
+func SetCharacterColor(db *DB, character, color string) error {
+	if color == "" {
+		_, err := db.Exec("DELETE FROM character_colors WHERE character = ?", character)
+		return errors.Wrap(err, "clearing character color")
+	}
+	_, err := db.Exec(`INSERT INTO character_colors (character, color) VALUES (?, ?)
+		ON CONFLICT(character) DO UPDATE SET color = excluded.color`, character, color)
+	return errors.Wrap(err, "setting character color")
+}
+
+// AllCharacterColors loads the full character -> color map.
+func AllCharacterColors(db *DB) (map[string]string, error) {
+	rows, err := db.Query("SELECT character, color FROM character_colors")
+	if err != nil {
+		return nil, errors.Wrap(err, "querying character colors")
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var character, color string
+		if err := rows.Scan(&character, &color); err != nil {
+			return nil, errors.Wrap(err, "scanning character color")
+		}
+		out[character] = color
+	}
+	return out, rows.Err()
 }

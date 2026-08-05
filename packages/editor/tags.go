@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/lflow/lflow/packages/chips"
+	"github.com/lflow/lflow/packages/database"
 )
 
 // A tag is a #word token — '#' followed by a letter or underscore, then letters,
@@ -13,19 +13,19 @@ import (
 // ignored. Tags carry no stored markup: the literal "#word" lives in the node
 // name. They render in a fixed muted gray (a /color never bleeds into them) and
 // drive STRICT tag search — "#log" matches the tag "#log" only, never the word
-// "log" nor the tag "#logic". The pattern itself lives in packages/chips,
+// "log" nor the tag "#logic". The pattern itself lives in packages/database,
 // shared with the CLI's chipify.
-var reTag = chips.ReTag
+var reTag = database.ReTag
 
 // isTagLetter reports whether r may start a tag word — the first character after
 // '#' — matching the ReTag pattern's opening class.
 func isTagLetter(r rune) bool { return unicode.IsLetter(r) || r == '_' }
 
 // detectTagSpans returns the [start,end) rune ranges of each tag's "#word" run.
-func detectTagSpans(name string) [][2]int { return chips.TagSpans(name) }
+func detectTagSpans(name string) [][2]int { return database.TagSpans(name) }
 
 // tagsIn returns the lowercased tag words (without the leading '#') in text.
-func tagsIn(text string) []string { return chips.TagsIn(text) }
+func tagsIn(text string) []string { return database.TagsIn(text) }
 
 // tagQuery reports whether a search string is a bare tag (e.g. "#log") and, if
 // so, returns its lowercased word for a strict whole-tag match.

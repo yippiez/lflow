@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/lflow/lflow/packages/chips"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/utils"
 	"github.com/mattn/go-runewidth"
@@ -286,7 +285,7 @@ func chipDisplay(c database.Chip) string {
 		// a link to a known service (Google Sheets/Docs/Drive …) adds that
 		// service's mark to its name — same arrow, same styling; see service.go
 		if svc, ok := linkService(c); ok {
-			return "→" + chips.ServiceDisplay(svc, c.Label)
+			return "→" + database.ServiceDisplay(svc, c.Label)
 		}
 		return "→" + linkChipLabel(c)
 	}

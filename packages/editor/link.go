@@ -6,7 +6,6 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/packages/chips"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/utils/browser"
 )
@@ -94,7 +93,7 @@ func detectURLNear(name string, caret int) *urlMatch {
 // otherwise it names itself ("Sheets"), and everything else falls back to its
 // host.
 func urlChipLabel(url string) string {
-	if name := chips.LinkName(url); name != "" {
+	if name := database.LinkName(url); name != "" {
 		return name
 	}
 	return browser.Host(url)

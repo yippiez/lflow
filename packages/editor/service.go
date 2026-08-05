@@ -3,13 +3,12 @@ package editor
 import (
 	"strings"
 
-	"github.com/lflow/lflow/packages/chips"
 	"github.com/lflow/lflow/packages/database"
 )
 
 // Service links are the same link chip, marked for the target it points at. A
 // link to a known service — the Google suite today (registry:
-// packages/chips/service.go) — carries that service's unicode mark beside its
+// packages/database/chips.go) — carries that service's unicode mark beside its
 // name: "→▦ Q3 budget" instead of "→Q3 budget". Nothing else changes. Same
 // arrow, same link color and underline, same ⌥e rename, same ⌥g/⌥r open.
 //
@@ -50,7 +49,7 @@ var serviceColors = map[string]string{
 // underlined like every other link — the whole chip, arrow included, is one run
 // of colored text with no filled cell behind it. A service with no color yet
 // falls back to the ordinary link styling.
-func serviceChipColor(s chips.Service) string {
+func serviceChipColor(s database.Service) string {
 	if col, ok := serviceColors[s.Key]; ok {
 		return col + cUnderline
 	}
@@ -59,14 +58,14 @@ func serviceChipColor(s chips.Service) string {
 
 // linkService returns the service a link chip points at. A node link
 // (lflow://node/…) is never a service — it never leaves the outline.
-func linkService(c database.Chip) (chips.Service, bool) {
+func linkService(c database.Chip) (database.Service, bool) {
 	if c.Kind != chipKindLink {
-		return chips.Service{}, false
+		return database.Service{}, false
 	}
 	if _, isNode := nodeLinkUUID(c.Value); isNode {
-		return chips.Service{}, false
+		return database.Service{}, false
 	}
-	return chips.ServiceFor(c.Value)
+	return database.ServiceFor(c.Value)
 }
 
 // pasteServiceLink turns a pasted service URL into a marked link chip at the
@@ -78,7 +77,7 @@ func (m *Model) pasteServiceLink(cur *item, text string) bool {
 		return false
 	}
 	target := strings.TrimSpace(text)
-	_, ok := chips.ServiceFor(target)
+	_, ok := database.ServiceFor(target)
 	if !ok {
 		return false
 	}
