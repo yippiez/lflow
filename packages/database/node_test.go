@@ -334,13 +334,13 @@ func TestFirstRank(t *testing.T) {
 	seedTree(t, db)
 
 	// r1's children are ranked 0 and 1, so a top insert sorts before them
-	rank, err := firstRank(db, "r1")
+	rank, err := FirstRank(db, "r1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assert.Equal(t, rank, -1, "first rank mismatch")
 
-	rank, err = firstRank(db, "g1")
+	rank, err = FirstRank(db, "g1")
 	if err != nil {
 		t.Fatal(err)
 	}

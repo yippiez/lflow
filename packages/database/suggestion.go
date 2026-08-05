@@ -361,7 +361,7 @@ func applyAdd(tx *DB, s Suggestion) (string, error) {
 	var rank int
 	switch s.Position {
 	case PositionTop:
-		rank, err = firstRank(tx, parentUUID)
+		rank, err = FirstRank(tx, parentUUID)
 	case PositionBottom:
 		rank, err = NextRank(tx, parentUUID)
 	default:
