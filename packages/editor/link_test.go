@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/tui"
 )
 
 // dbModel builds an editor backed by an in-memory DB, with the given children

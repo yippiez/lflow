@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/tui"
 )
 
 // mirrorEditModel opens an outline holding a source node and, above it, an

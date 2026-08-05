@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/config"
 	"github.com/lflow/lflow/packages/daemon/client"
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/utils"
 	"github.com/lflow/lflow/packages/utils/consts"
 	"github.com/lflow/lflow/packages/utils/dirs"

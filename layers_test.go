@@ -35,7 +35,7 @@ var layers = map[string]int{
 	"packages/nlp":          2,
 	"packages/tui":          2,
 	"packages/outline":      2,
-	"packages/fileeditor":    3,
+	"packages/fileeditor":   3,
 	"packages/editor":       3,
 	"packages/nodes":        3,
 	"packages/cli":          4,

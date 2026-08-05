@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	tuictx "github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
+	tuictx "github.com/lflow/lflow/packages/tui"
 )
 
 // TestRunOutPersistsAcrossReload pins the fix: a bash node's run band is written

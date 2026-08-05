@@ -3,13 +3,13 @@
 package node
 
 import (
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/add"
 	"github.com/lflow/lflow/packages/cli/grep"
 	"github.com/lflow/lflow/packages/cli/list"
 	"github.com/lflow/lflow/packages/cli/mv"
 	"github.com/lflow/lflow/packages/cli/open"
 	"github.com/lflow/lflow/packages/cli/remove"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/spf13/cobra"
 )
 

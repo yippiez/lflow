@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/tui"
 )
 
 // suggestModel builds a db-backed model over one node, with the node also

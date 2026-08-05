@@ -3,8 +3,8 @@ package editor
 import (
 	"testing"
 
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/tui"
 )
 
 // graftDB seeds an outline where a mirror inside "zone" points at a source

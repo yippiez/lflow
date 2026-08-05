@@ -5,10 +5,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/utils/log"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"

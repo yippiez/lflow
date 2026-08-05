@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
 	"github.com/lflow/lflow/packages/editor"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/spf13/cobra"
 )
 

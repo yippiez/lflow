@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/daemon/wire"
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/tui"
 )
 
 // The /mirror:to and /mirror:from end-to-end tests: real keystrokes through

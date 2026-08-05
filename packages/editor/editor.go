@@ -15,12 +15,12 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/daemon/client"
 	"github.com/lflow/lflow/packages/daemon/wire"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/style"
 	"github.com/lflow/lflow/packages/integrations"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )

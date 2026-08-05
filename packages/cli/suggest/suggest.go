@@ -17,8 +17,8 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/spf13/cobra"
 )
 
