@@ -134,20 +134,6 @@ func nodeViewOf(it *item) nodeView {
 // type is a new entry here (plus its descriptor), NOT a DB migration. nodes.type
 // is free text and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{
-	{key: database.TypeBullets, label: "Bullet", inlineEditable: true},
-	{key: database.TypeTodo, label: "Todo", glyph: todoGlyph, inlineEditable: true, continueOnEnter: true},
-	// a divider renders as a full-width rule (see dividerLine), hiding the glyph;
-	// an optional text runs on the midpoint of the rule, edited like any node. It
-	// is otherwise a normal node: it nests, moves, takes a /note, and is removed
-	// with ctrl+d.
-	{key: database.TypeDivider, label: "Divider", inlineEditable: true},
-	// an empty node is a divider stripped of its rule: a deliberately blank row,
-	// pure vertical breathing room (see emptyLine). Not inline-editable — it has
-	// no text; under the cursor a single red · marks the otherwise blank line.
-	{key: database.TypeEmpty, label: "Empty"},
-	{key: database.TypeH1, label: "Heading 1", glyph: headingGlyph("1"), inlineEditable: true},
-	{key: database.TypeH2, label: "Heading 2", glyph: headingGlyph("2"), inlineEditable: true},
-	{key: database.TypeH3, label: "Heading 3", glyph: headingGlyph("3"), inlineEditable: true},
 	// the Code node is a multi-line block; resting the cursor on it auto-focuses
 	// its block editor (autoFocus — a thin caret shows, type directly, no alt+e),
 	// so it is not inlineEditable. The borderless gray block REPLACES the node's
@@ -158,7 +144,6 @@ var nodeTypes = []nodeType{
 		view:      codeView{},
 		blockCode: codeBlockCode,
 	},
-	{key: database.TypeQuote, label: "Quote", inlineEditable: true},
 	// a timestamped journal line (see log.go); was the log.js NodeMod before
 	// the extension system was removed — nodes typed under the mod light up
 	// unchanged, the key is the same free string.
@@ -260,12 +245,6 @@ var nodeTypes = []nodeType{
 		flashActions: htmlFlashActions,
 		runInTail:    true,
 	},
-	// Pir: the magic keywords' one home. "ultracode" and "ultraloop" shine on
-	// this row and on no other, so the animation reads as a marked instruction
-	// rather than as any note that happens to contain the word. Nothing else yet
-	// — the node's own behaviour is still to be written, and an ordinary editable
-	// row is the right placeholder for one.
-	{key: database.TypePir, label: "Pir", inlineEditable: true},
 	{
 		key: database.TypeMath, label: "Math", inlineEditable: true, continueOnEnter: true,
 		spanColor:    mathSpanColor,
@@ -312,22 +291,6 @@ var nodeTypes = []nodeType{
 		prefix: linePrefix,
 		expand: func(m *Model, it *item) tea.Cmd { m.openCharacterPicker(it); return nil },
 	},
-	// The Agent node is RETIRED (2026-08-04): a session had two surfaces and the
-	// whole-row one was the worse of them, so the inline chip is the only one
-	// left. The entry survives as internal — never offered by /type — so a node
-	// somebody still has typed this way keeps its own name and its own row
-	// instead of reading as an unknown type.
-	{key: database.TypeAgent, label: "Agent", internal: true, inlineEditable: true},
-	// Thinking is a plain marker node: always the muted-gray thinking glyph,
-	// no other behavior.
-	{key: database.TypeThinking, label: "Thinking", inlineEditable: true,
-		prefix:     thinkingPrefix, // the ※ rides in the body, never the glyph column
-		baseColor:  func(it *item) string { return cDim },
-		fixedColor: true},
-	// webresult is GENERATED — a web search hit row a web node hangs under it
-	// (title + URL link chip). Internal, so the /type picker never offers it; a
-	// re-run replaces the rows by type.
-	{key: database.TypeWebResult, label: "Web Result", internal: true, inlineEditable: false},
 	// a mirrored Zotero entry (see zoteroitem.go): the paper itself in the tree,
 	// its tags on the title row and its attachments, annotations and notes as
 	// locked children. Never inline-editable — the subtree is Zotero's, and
@@ -350,10 +313,6 @@ var nodeTypes = []nodeType{
 	// packages/nodes; python, rust — see packages/fileeditor) register through
 	// nodes.Register at init and fold in lazily; see ensurePlugins.
 }
-
-// thinkingPrefix marks a thinking row inside its body, leaving the glyph column
-// to the ordinary bullet so the tree rail stays straight (see glyphThinking).
-func thinkingPrefix(it *item) string { return cDim + glyphThinking + " " + cReset }
 
 // byType fills in init() — a var initializer would cycle: nodeTypes references
 // runQuery, which reaches typeOf/byType through the query type filter.
@@ -407,15 +366,4 @@ func typeOrder() []string {
 // typeLabel is the picker label for a type key.
 func typeLabel(key string) string {
 	return typeOf(key).label
-}
-
-func todoGlyph(it *item) (string, string) {
-	if it.completedAt > 0 {
-		return glyphTodoDone, cDim
-	}
-	return glyphTodo, cDim
-}
-
-func headingGlyph(digit string) func(it *item) (string, string) {
-	return func(it *item) (string, string) { return digit, cBold + cYellow }
 }

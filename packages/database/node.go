@@ -36,7 +36,7 @@ const (
 	TypeEmpty = "empty"
 	TypeWF    = "wf" // a Workflowy mirror root: alt+r pulls its subtree (see nodes/wf)
 	// TypeNLPCompute is natural language as code: a red → instruction whose
-	// alt+r generates the implementing snippet (see editor/nodes/nlpcompute.go).
+	// alt+r generates the implementing snippet (see packages/nodes/nlpcompute.go).
 	TypeNLPCompute = "nlpcompute"
 	// TypeSVG and TypeHTML are markup composed AS an outline, the way TypeMath is
 	// an expression composed as one: a node's text is a tag with its attributes
@@ -63,11 +63,11 @@ const (
 	// colored yellow) with its BODY as children, or a simple statement leaf.
 	// The subtree renders back to real indented source (alt+r → run band), and
 	// `lflow file open x.py` binds a whole file to such a tree. See
-	// nodes/python.go.
+	// packages/fileeditor/python.go.
 	TypePython = "python"
 	// TypeRust is the Rust sibling of TypePython: one logical line per node,
 	// a `{`-opening header holds its block as children (braces regenerate
-	// from structure on save). See nodes/rust.go.
+	// from structure on save). See packages/fileeditor/rust.go.
 	TypeRust = "rust"
 	// The language-neutral construct types — first-class citizens shared by
 	// every language codec, so a function is a function whether the file is
