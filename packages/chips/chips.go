@@ -7,16 +7,15 @@
 // Only the patterns that have an unambiguous inline form live here. Chip kinds
 // created through an explicit picker rather than typed text (e.g. icon chips)
 // are never auto-detected.
+//
+// One file per chip kind: tag.go, date.go, link.go — each holds that kind's
+// pattern and span detection — plus service.go (link targets that belong to a
+// known web service) and this general file (the Chipify machinery itself).
 package chips
 
 import (
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
-	"unicode"
-	"unicode/utf8"
 )
 
 // Chip kind keys. These are plain strings matching the editor's chip-kind
@@ -33,122 +32,6 @@ const (
 // — that is how `lflow add` writes a citation the editor lights up. Spelled out
 // here rather than imported so this vocabulary package stays a leaf.
 const zoteroScheme = "zotero://select/"
-
-// ReTag matches a #word tag at a left boundary (start of text or a non-word
-// char) so bare '#'s and mid-word hashes are ignored. The word must start with a
-// letter or underscore (#1, #42 mean literal "number one"), may contain inner
-// hyphens (#multi-word) but not a trailing one. Submatch 2 is the #word.
-var ReTag = regexp.MustCompile(`(^|[^\p{L}\p{N}_#])(#[\p{L}_][\p{L}\p{N}_]*(?:-[\p{L}\p{N}_]+)*)`)
-
-// ReISO matches a canonical date: YYYY-MM-DD optionally followed by HH:MM.
-var ReISO = regexp.MustCompile(`(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?`)
-
-// reLink matches a markdown-style link "[label](target)".
-var reLink = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
-
-// TagSpans returns the [start,end) rune ranges of each tag's "#word" run.
-func TagSpans(name string) [][2]int {
-	var spans [][2]int
-	for _, loc := range ReTag.FindAllStringSubmatchIndex(name, -1) {
-		s, e := loc[4], loc[5] // submatch 2 — the #word, minus any left boundary
-		if s < 0 {
-			continue
-		}
-		spans = append(spans, [2]int{utf8.RuneCountInString(name[:s]), utf8.RuneCountInString(name[:e])})
-	}
-	return spans
-}
-
-// TagsIn returns the lowercased tag words (without the leading '#') in text.
-func TagsIn(text string) []string {
-	var out []string
-	for _, m := range ReTag.FindAllStringSubmatch(text, -1) {
-		out = append(out, strings.ToLower(m[2][1:]))
-	}
-	return out
-}
-
-// DateSpans returns the rune ranges [start,end) of every canonical date in the
-// name — a valid YYYY-MM-DD optionally followed by HH:MM, on its own word
-// boundary. Natural-language phrases (e.g. "tomorrow") are not matched: only
-// already-canonical dates become chips.
-func DateSpans(name string) [][2]int {
-	var spans [][2]int
-	for _, loc := range ReISO.FindAllStringSubmatchIndex(name, -1) {
-		if !WordBound(name, loc[0], loc[1]) {
-			continue
-		}
-		group := func(i int) string {
-			if loc[2*i] >= 0 {
-				return name[loc[2*i]:loc[2*i+1]]
-			}
-			return ""
-		}
-		if _, ok := BuildDate(Atoi(group(1)), Atoi(group(2)), Atoi(group(3)), Atoi(group(4)), Atoi(group(5)), time.UTC); !ok {
-			continue
-		}
-		spans = append(spans, [2]int{utf8.RuneCountInString(name[:loc[0]]), utf8.RuneCountInString(name[:loc[1]])})
-	}
-	return spans
-}
-
-// linkSpan is one "[label](target)" match in rune offsets, with its parts.
-type linkSpan struct {
-	Start, End int
-	Label      string
-	Target     string
-}
-
-// linkSpans returns every "[label](target)" link in name, in order.
-func linkSpans(name string) []linkSpan {
-	var out []linkSpan
-	for _, loc := range reLink.FindAllStringSubmatchIndex(name, -1) {
-		out = append(out, linkSpan{
-			Start:  utf8.RuneCountInString(name[:loc[0]]),
-			End:    utf8.RuneCountInString(name[:loc[1]]),
-			Label:  name[loc[2]:loc[3]],
-			Target: name[loc[4]:loc[5]],
-		})
-	}
-	return out
-}
-
-// WordBound reports whether the byte range [start,end) sits on its own: not
-// glued to a letter or digit on either side.
-func WordBound(s string, start, end int) bool {
-	if start > 0 {
-		r, _ := utf8.DecodeLastRuneInString(s[:start])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return false
-		}
-	}
-	if end < len(s) {
-		r, _ := utf8.DecodeRuneInString(s[end:])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return false
-		}
-	}
-	return true
-}
-
-// Atoi parses an int, returning 0 on error.
-func Atoi(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
-}
-
-// BuildDate validates the parts and returns the time, or false on nonsense like
-// month 13 or february 30.
-func BuildDate(year, month, day, hour, min int, loc *time.Location) (time.Time, bool) {
-	if month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || min > 59 {
-		return time.Time{}, false
-	}
-	t := time.Date(year, time.Month(month), day, hour, min, 0, 0, loc)
-	if t.Day() != day || t.Month() != time.Month(month) {
-		return time.Time{}, false
-	}
-	return t, true
-}
 
 // span is one detected inline form to chipify.
 type span struct {
