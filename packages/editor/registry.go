@@ -134,43 +134,6 @@ func nodeViewOf(it *item) nodeView {
 // type is a new entry here (plus its descriptor), NOT a DB migration. nodes.type
 // is free text and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{
-	// a shell command composed AS an outline (see bashnode.go): a "$" row whose
-	// children are its parts — a join operator (| && || ;) or a wrapper ($() ())
-	// composes them, anything else heads them — so a long pipeline is written as
-	// a tree. alt+r runs THIS node's subtree, alt+e opens the output. The inline
-	// cmd chip ("$$", cmdchip.go) remains the one-liner surface.
-	{
-		key: database.TypeBash, label: "Bash", inlineEditable: true, continueOnEnter: true,
-		glyph:        bashGlyph,
-		spanColor:    bashSpanColor,
-		bodyTail:     bashBodyTail,
-		run:          runBashNode,
-		view:         runOutView{},
-		flashActions: bashFlashActions,
-		cliDeps:      []string{"bash"},
-		runInTail:    true,
-	},
-	{
-		key: database.TypeQuery, label: "Query", inlineEditable: true, disableChips: true,
-		prefix:    queryPrefix,
-		spanColor: querySpanColor, // "semantic phrase" marks tint yellow
-		run:       runQuery,
-	},
-	// a web-search node (see webnode.go): the query node's shape — name is the
-	// search, alt+r runs it, hits hang under it as real child rows — but the
-	// whole name is the term, handed to SearxNG instead of the outline. No query
-	// language: there are no operators to tint, so no spanColor.
-	{
-		key: database.TypeWeb, label: "Web Search", inlineEditable: true, disableChips: true,
-		prefix: webPrefix,
-		run:    runWebNode,
-	},
-	// a Workflowy mirror root (see wf.go): paste a workflowy link, alt+r pulls
-	// the subtree in as readonly children, each one refreshable itself.
-	{
-		key: database.TypeWF, label: "Workflowy", glyph: wfGlyph, inlineEditable: true,
-		run: runWF,
-	},
 	{
 		key: database.TypeVoice, label: "Voice", inlineEditable: false,
 		renderM:      func(m *Model, it *item) string { return m.voiceRender(it) },

@@ -33,6 +33,19 @@ import (
 // (runShell), so running a sub-node runs just that part of the command. The row
 // carries a dim preview of what would run; alt+e opens the output.
 
+// The declarative half (Key/Label/InlineEditable/ContinueOnEnter/RunInTail/
+// CLIDeps, plus the static glyph) has moved to packages/nodes/bash.go; the
+// Model-bound hooks below stay here and attach onto the folded plugin entry.
+func init() {
+	attachCoreHooks(database.TypeBash, coreHooks{
+		spanColor:    bashSpanColor,
+		bodyTail:     bashBodyTail,
+		run:          runBashNode,
+		view:         runOutView{},
+		flashActions: bashFlashActions,
+	})
+}
+
 // bashJoins are the node texts that JOIN their children instead of heading them.
 var bashJoins = map[string]bool{"|": true, "|&": true, "&&": true, "||": true, ";": true}
 

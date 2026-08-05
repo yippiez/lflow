@@ -24,6 +24,15 @@ import (
 // webResultLimit is how many web hits a run keeps — the first page's top ten.
 const webResultLimit = integrations.DefaultLimit
 
+// The declarative half (Key/Label/InlineEditable/DisableChips, plus the
+// static prefix) has moved to packages/nodes/web.go; the Model-bound run hook
+// stays here and attaches onto the folded plugin entry.
+func init() {
+	attachCoreHooks(database.TypeWeb, coreHooks{
+		run: runWebNode,
+	})
+}
+
 // webPrefix mirrors the query node's ⌕ but tinted cyan, so the two search nodes
 // read as siblings: the same shape, a different domain.
 func webPrefix(*item) string { return cCyan + "⌕" + cReset + " " }

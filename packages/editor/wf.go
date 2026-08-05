@@ -25,6 +25,15 @@ func wfGlyph(it *item) (string, string) {
 	return "◈", cAccent
 }
 
+// The declarative half (Key/Label/InlineEditable, plus the static glyph) has
+// moved to packages/nodes/wf.go; the Model-bound run hook stays here and
+// attaches onto the folded plugin entry.
+func init() {
+	attachCoreHooks(database.TypeWF, coreHooks{
+		run: runWF,
+	})
+}
+
 // wfDoneMsg lands a finished pull (or its error) back in the update loop.
 type wfDoneMsg struct {
 	uuid      string // the pull root's node uuid

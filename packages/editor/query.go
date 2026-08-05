@@ -21,6 +21,16 @@ import (
 
 const queryMaxHits = 50
 
+// The declarative half (Key/Label/InlineEditable/DisableChips, plus the
+// static prefix and the pure span-color) has moved to packages/nodes/query.go;
+// the Model-bound run hook stays here and attaches onto the folded plugin
+// entry.
+func init() {
+	attachCoreHooks(database.TypeQuery, coreHooks{
+		run: runQuery,
+	})
+}
+
 // queryLoad streams database candidates to the Bubble Tea event loop. The
 // worker owns only SQL iteration; all tree reconciliation remains on the UI
 // goroutine.
