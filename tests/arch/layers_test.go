@@ -21,7 +21,7 @@ const module = "github.com/lflow/lflow/"
 //	   (mobile is one: the daemon serves it, it knows nothing of the daemon)
 //	1: database (the schema layer)
 //	2: daemon (owns the DB), nlp, app (the process runtime), outline and
-//	   filecodec (scriptable DB-subtree renderers/codecs, database only)
+//	   fileeditor (scriptable DB-subtree renderers/codecs, database only)
 //	3: editor, nodes (the editor's plugin registrations)
 //	4: cli, cmd (the process shell)
 var layers = map[string]int{
@@ -34,7 +34,7 @@ var layers = map[string]int{
 	"packages/nlp":          2,
 	"packages/app":          2,
 	"packages/outline":      2,
-	"packages/filecodec":    2,
+	"packages/fileeditor":    3,
 	"packages/editor":       3,
 	"packages/nodes":        3,
 	"packages/cli":          4,

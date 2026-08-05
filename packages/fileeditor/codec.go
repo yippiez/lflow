@@ -1,4 +1,4 @@
-package filecodec
+package fileeditor
 
 import (
 	"encoding/json"
@@ -151,8 +151,8 @@ func insertForest(db *database.DB, rootUUID string, doc []*SrcNode) error {
 // their generated code from node_output) and renders it through the codec.
 // Names pass through database.ExpandAnchors — a file session can mint chip
 // anchors (typing "#tag " or pasting a URL) same as the editor does, and the
-// U+FFFC sentinel must never reach a saved source file (mirrors
-// packages/nodes/outline.go's resolveName).
+// U+FFFC sentinel must never reach a saved source file (mirrors the editor's
+// chip expansion).
 func RenderFromDB(db *database.DB, rootUUID string, c FileCodec) (string, error) {
 	chips, err := database.LoadChips(db)
 	if err != nil {

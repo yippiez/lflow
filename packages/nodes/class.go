@@ -15,6 +15,6 @@ func init() {
 		Label:          "Class",
 		InlineEditable: true,
 		Glyph:          func() (string, string) { return "◇", editor.NodeTheme().Cyan },
-		BodyTail:       codeBodyTail,
+		BodyTail:       editor.NodeCodeBodyTail,
 	})
 }

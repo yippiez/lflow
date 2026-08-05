@@ -16,6 +16,6 @@ func init() {
 		Label:          "Function",
 		InlineEditable: true,
 		Glyph:          func() (string, string) { return "ƒ", editor.NodeTheme().Yellow },
-		BodyTail:       codeBodyTail,
+		BodyTail:       editor.NodeCodeBodyTail,
 	})
 }

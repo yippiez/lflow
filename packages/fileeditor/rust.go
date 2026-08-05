@@ -1,10 +1,11 @@
-package filecodec
+package fileeditor
 
 import (
 	"regexp"
 	"strings"
 
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/editor"
 	"github.com/pkg/errors"
 )
 
@@ -16,11 +17,11 @@ import (
 // front), `struct Point {` / `impl Point {` / `enum Op {` are class nodes
 // whose text keeps Rust's own container keyword, `// c` a comment node.
 // Normalizations on save: 4-space indent, `} else {` splits onto two lines.
-// The plugin side (span coloring, alt+r export) lives in
-// packages/nodes/rust.go and reuses RustSpec through RenderCode.
-
-// RustSpec is exported so the nodes package's plugin side can render a
-// subtree through the same rules the codec saves with (alt+r export).
+// The plugin side (span coloring, alt+r export) registers the rust statement
+// node beside the codec in this same file.
+//
+// RustSpec is exported so the editor's plugin side can render a subtree
+// through the same rules the codec saves with (alt+r export).
 var RustSpec = LangSpec{
 	Name:        "rust",
 	stmtType:    database.TypeRust,
@@ -77,11 +78,32 @@ func rustFnLead(trimmed string) (string, bool) {
 	return strings.Join(append(append([]string{}, words[:i]...), words[i+1:]...), " "), true
 }
 
+var rustKeywords = map[string]bool{
+	"as": true, "async": true, "await": true, "break": true, "const": true,
+	"continue": true, "crate": true, "dyn": true, "else": true, "enum": true,
+	"extern": true, "false": true, "fn": true, "for": true, "if": true,
+	"impl": true, "in": true, "let": true, "loop": true, "match": true,
+	"mod": true, "move": true, "mut": true, "pub": true, "ref": true,
+	"return": true, "self": true, "Self": true, "static": true, "struct": true,
+	"super": true, "trait": true, "true": true, "type": true, "union": true,
+	"unsafe": true, "use": true, "where": true, "while": true,
+}
+
 // ── the .rs file codec ──────────────────────────────────────────────────────
 
 type rustCodec struct{}
 
-func init() { fileCodecs = append(fileCodecs, rustCodec{}) }
+func init() {
+	fileCodecs = append(fileCodecs, rustCodec{})
+	editor.RegisterNodePlugin(editor.NodePlugin{
+		Key:            database.TypeRust,
+		Label:          "Rust",
+		InlineEditable: true,
+		SpanColor:      keywordSpanColor(rustKeywords, "//"),
+		BodyTail:       editor.NodeCodeBodyTail,
+		Run:            runCodeExport(RustSpec),
+	})
+}
 
 func (rustCodec) Name() string             { return "rust" }
 func (rustCodec) Exts() []string           { return []string{".rs"} }

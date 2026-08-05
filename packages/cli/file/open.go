@@ -13,7 +13,7 @@ import (
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/editor"
-	"github.com/lflow/lflow/packages/filecodec"
+	"github.com/lflow/lflow/packages/fileeditor"
 	"github.com/lflow/lflow/packages/utils/log"
 )
 
@@ -39,10 +39,10 @@ func runOpen(ctx app.Ctx, path string) error {
 	if err != nil {
 		return errors.Wrap(err, "resolving path")
 	}
-	codec, ok := filecodec.CodecForPath(path)
+	codec, ok := fileeditor.CodecForPath(path)
 	if !ok {
 		return errors.Errorf("unsupported file type %q: supported are %s",
-			filepath.Ext(path), strings.Join(filecodec.CodecExts(), ", "))
+			filepath.Ext(path), strings.Join(fileeditor.CodecExts(), ", "))
 	}
 
 	src, mtime, err := readSource(path)
@@ -90,7 +90,7 @@ func runOpen(ctx app.Ctx, path string) error {
 		return errors.Wrap(err, "naming doc root")
 	}
 
-	if err := filecodec.ParseIntoDB(db, database.RootUUID, codec, src); err != nil {
+	if err := fileeditor.ParseIntoDB(db, database.RootUUID, codec, src); err != nil {
 		return errors.Wrapf(err, "parsing %s", filepath.Base(path))
 	}
 
@@ -99,7 +99,7 @@ func runOpen(ctx app.Ctx, path string) error {
 	fileCtx.Live = nil // direct scratch handle: no daemon, no live sync
 
 	onSave := func() error {
-		out, err := filecodec.RenderFromDB(db, database.RootUUID, codec)
+		out, err := fileeditor.RenderFromDB(db, database.RootUUID, codec)
 		if err != nil {
 			return errors.Wrap(err, "rendering "+codec.Name())
 		}

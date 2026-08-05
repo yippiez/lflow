@@ -4,7 +4,8 @@ import (
 	"os"
 
 	"github.com/lflow/lflow/packages/cli/infra"
-	_ "github.com/lflow/lflow/packages/nodes" // register the pluggable node types
+	_ "github.com/lflow/lflow/packages/fileeditor" // register the file codecs and statement nodes
+	_ "github.com/lflow/lflow/packages/nodes"      // register the pluggable node types
 	"github.com/lflow/lflow/packages/utils/log"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"

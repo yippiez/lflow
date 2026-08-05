@@ -2,6 +2,7 @@ package editor
 
 import (
 	"context"
+	"strconv"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -311,6 +312,32 @@ func NodeRunOut(h NodeHost, uuid string, lines []string) {
 	r.dropped = 0
 	m.persistRunOut(uuid)
 	m.refreshRows()
+}
+
+// NodeCodeBodyTail shows a statement/container header's folded body size:
+// `· 12 lines`. Shared by the language-statement nodes (python, rust — see
+// packages/fileeditor) and the language-neutral constructs (fn, class — see
+// packages/nodes). Structure-only render path — Children() only, never Text().
+func NodeCodeBodyTail(n NodeRef) string {
+	if len(n.Children()) == 0 {
+		return ""
+	}
+	th := NodeTheme()
+	lines := nodeCodeLineCount(n) - 1
+	word := "lines"
+	if lines == 1 {
+		word = "line"
+	}
+	return th.Dim + " · " + strconv.Itoa(lines) + " " + word + th.Reset
+}
+
+// nodeCodeLineCount counts the lines a subtree renders to.
+func nodeCodeLineCount(n NodeRef) int {
+	total := 1
+	for _, c := range n.Children() {
+		total += nodeCodeLineCount(c)
+	}
+	return total
 }
 
 // NodeWindowBands clamps a band list to [scroll, scroll+winH).

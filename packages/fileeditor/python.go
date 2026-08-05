@@ -1,10 +1,23 @@
-package filecodec
+package fileeditor
 
 import (
 	"strings"
 
+	"github.com/lflow/lflow/packages/editor"
+
 	"github.com/lflow/lflow/packages/database"
 )
+
+// pythonKeywords drives span coloring — one table, like mathSym.
+var pythonKeywords = map[string]bool{
+	"False": true, "None": true, "True": true, "and": true, "as": true,
+	"assert": true, "async": true, "await": true, "break": true, "class": true,
+	"continue": true, "def": true, "del": true, "elif": true, "else": true,
+	"except": true, "finally": true, "for": true, "from": true, "global": true,
+	"if": true, "import": true, "in": true, "is": true, "lambda": true,
+	"nonlocal": true, "not": true, "or": true, "pass": true, "raise": true,
+	"return": true, "try": true, "while": true, "with": true, "yield": true,
+}
 
 // The .py file codec: a statement composed AS an outline, the
 // programming-language sibling of the math node. A node's text is one
@@ -13,11 +26,11 @@ import (
 // is a fn node with text `greet()`, `class App:` a class node with text
 // `App`, `# c` a comment node — so a function is the same node in every
 // language, and each codec puts its own syntax back. The plugin side (span
-// coloring, alt+r export) lives in packages/nodes/python.go and reuses
-// PythonSpec through RenderCode.
-
-// PythonSpec is exported so the nodes package's plugin side can render a
-// subtree through the same rules the codec saves with (alt+r export).
+// coloring, alt+r export) registers the python statement node beside the
+// codec in this same file.
+//
+// PythonSpec is exported so the editor's plugin side can render a subtree
+// through the same rules the codec saves with (alt+r export).
 var PythonSpec = LangSpec{
 	Name:        "python",
 	stmtType:    database.TypePython,
@@ -40,7 +53,17 @@ var PythonSpec = LangSpec{
 // lines are empty spacer nodes under the previous line, so spacing survives.
 type pythonCodec struct{}
 
-func init() { fileCodecs = append(fileCodecs, pythonCodec{}) }
+func init() {
+	fileCodecs = append(fileCodecs, pythonCodec{})
+	editor.RegisterNodePlugin(editor.NodePlugin{
+		Key:            database.TypePython,
+		Label:          "Python",
+		InlineEditable: true,
+		SpanColor:      keywordSpanColor(pythonKeywords, "#"),
+		BodyTail:       editor.NodeCodeBodyTail,
+		Run:            runCodeExport(PythonSpec),
+	})
+}
 
 func (pythonCodec) Name() string             { return "python" }
 func (pythonCodec) Exts() []string           { return []string{".py"} }
