@@ -27,7 +27,7 @@ const (
 	// the composed subtree. See editor/bashnode.go.
 	TypeBash    = "bash"
 	TypeQuery   = "query"
-	TypeWeb     = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see packages/websearch)
+	TypeWeb     = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see packages/integrations)
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
@@ -103,12 +103,12 @@ const (
 	// TypeWebResult is one web-search hit: a generated link row a web node hangs
 	// under it (title + URL link chip). It is generated, so it never appears in
 	// the /type picker; a re-run replaces the rows by type. See editor/webnode.go
-	// and packages/websearch.
+	// and packages/integrations.
 	TypeWebResult = "webresult"
 
 	// TypeZotero is a mirrored Zotero entry: one node per library item, its
 	// attachments, annotations and notes pulled in beneath it as a locked
-	// subtree (see editor/zoteroitem.go and packages/zotero).
+	// subtree (see editor/zoteroitem.go and packages/integrations).
 	TypeZotero = "zotero"
 )
 
@@ -443,9 +443,10 @@ func NextRank(db *DB, parentUUID string) (int, error) {
 	return int(maxRank.Int64) + 1, nil
 }
 
-// firstRank returns a rank that sorts before all existing children of the parent,
-// so a node moved in lands at the top of the list rather than the bottom.
-func firstRank(db *DB, parentUUID string) (int, error) {
+// FirstRank returns a rank that sorts before all existing children of the parent,
+// so a node moved in lands at the top of the list rather than the bottom. It is
+// PlaceRank's "up" half, and what an explicit position: "top" asks for.
+func FirstRank(db *DB, parentUUID string) (int, error) {
 	var minRank sql.NullInt64
 	if err := db.QueryRow("SELECT MIN(rank) FROM nodes WHERE parent_uuid = ? AND deleted = 0", parentUUID).Scan(&minRank); err != nil {
 		return 0, errors.Wrap(err, "querying min rank")
@@ -466,7 +467,7 @@ func PlaceRank(db *DB, parentUUID string) (int, error) {
 		return 0, errors.Wrapf(err, "querying priority of %s", parentUUID)
 	}
 	if prio == PriorityUp {
-		return firstRank(db, parentUUID)
+		return FirstRank(db, parentUUID)
 	}
 	return NextRank(db, parentUUID)
 }
@@ -624,7 +625,7 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 		return nil, nil
 	}
 
-	tempUUIDs, err := tempSubtreeUUIDs(db)
+	tempUUIDs, err := TempSubtreeUUIDs(db)
 	if err != nil {
 		return nil, err
 	}
@@ -683,21 +684,31 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 	// and FTS passes, which see only the opaque anchor. Resolve anchors for the
 	// anchor-bearing nodes and match the display + full value. char(65532) is the
 	// anchor sentinel U+FFFC, so this stays off chipless nodes.
+	//
+	// The candidates are buffered before LoadChips runs: on a single-connection
+	// pool (the daemon's store) a second query while these rows are still open
+	// deadlocks, because the one connection is already busy streaming them.
 	if rows, err := db.Query("SELECT " + nodeColumns + " FROM nodes WHERE deleted = 0 AND instr(name, char(65532)) > 0 LIMIT 200"); err == nil {
-		chips, _ := LoadChips(db)
-		lq := strings.ToLower(q)
+		var anchored []Node
 		for rows.Next() {
 			n, scanErr := scanNode(rows)
 			if scanErr != nil {
 				rows.Close()
 				return nil, errors.Wrap(scanErr, "scanning node")
 			}
-			hay := strings.ToLower(DisplayAnchors(n.Name, chips) + " " + ExpandAnchors(n.Name, chips))
-			if strings.Contains(hay, lq) {
-				appendNode(n)
-			}
+			anchored = append(anchored, n)
 		}
 		rows.Close()
+		if len(anchored) > 0 {
+			chips, _ := LoadChips(db)
+			lq := strings.ToLower(q)
+			for _, n := range anchored {
+				hay := strings.ToLower(DisplayAnchors(n.Name, chips) + " " + ExpandAnchors(n.Name, chips))
+				if strings.Contains(hay, lq) {
+					appendNode(n)
+				}
+			}
+		}
 	}
 
 	// /star pins: starred hits float above the rest; SliceStable keeps the
@@ -716,7 +727,7 @@ func StreamLiveNodes(db *DB, batchSize int, yield func([]Node) bool) error {
 	if batchSize < 1 {
 		batchSize = 1
 	}
-	tempUUIDs, err := tempSubtreeUUIDs(db)
+	tempUUIDs, err := TempSubtreeUUIDs(db)
 	if err != nil {
 		return err
 	}

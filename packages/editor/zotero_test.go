@@ -7,17 +7,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/zotero"
+	"github.com/lflow/lflow/packages/integrations"
 )
 
 // fakeLibrary is a Zotero library with no Zotero: the picker and the chip only
-// ever see a *zotero.Library, so a hand-built one exercises everything short of
-// the SQLite read (which packages/zotero tests against a real fixture).
-func fakeLibrary() *zotero.Library {
-	return &zotero.Library{
+// ever see a *integrations.Library, so a hand-built one exercises everything short of
+// the SQLite read (which packages/integrations tests against a real fixture).
+func fakeLibrary() *integrations.Library {
+	return &integrations.Library{
 		Path:     "/nonexistent/zotero.sqlite", // Stale() keeps serving this on a missing file
 		Username: "erin",
-		Items: []zotero.Item{
+		Items: []integrations.Item{
 			{Key: "AAAA1111", Creators: []string{"Vaswani", "Shazeer"}, Year: "2017",
 				Title: "Attention is all you need", Journal: "NeurIPS", DOI: "10.1000/attn"},
 			{Key: "BBBB2222", GroupID: "5566", Creators: []string{"Smith"}, Year: "2020",
@@ -226,13 +226,13 @@ func TestZoteroWebURLFallsBackToTheDOI(t *testing.T) {
 	m := citeModel(t)
 	m.zoteroLib.Username = ""
 	m.ctx.Paths.Config = "" // and no credentials.json to read either
-	url, why := m.zoteroWebURL(zotero.Ref{Key: "AAAA1111"})
+	url, why := m.zoteroWebURL(integrations.Ref{Key: "AAAA1111"})
 	if url != "https://doi.org/10.1000/attn" {
 		t.Errorf("web URL = %q (%s), want the DOI fallback", url, why)
 	}
 	// an entry with neither an account name nor a DOI says what to do
 	m.zoteroLib.Items[0].DOI = ""
-	if url, why := m.zoteroWebURL(zotero.Ref{Key: "AAAA1111"}); url != "" || !strings.Contains(why, "credentials.json") {
+	if url, why := m.zoteroWebURL(integrations.Ref{Key: "AAAA1111"}); url != "" || !strings.Contains(why, "credentials.json") {
 		t.Errorf("web URL = %q / %q, want the credentials hint", url, why)
 	}
 }
@@ -319,9 +319,9 @@ func TestZoteroRefreshRemembersAMissingLibrary(t *testing.T) {
 	// and no Windows side either — a developer running this in WSL has a real
 	// Zotero over there, and discovery would rightly find it
 	empty := t.TempDir()
-	prevRoot := zotero.WindowsMountRoot
-	zotero.WindowsMountRoot = func() string { return empty }
-	t.Cleanup(func() { zotero.WindowsMountRoot = prevRoot })
+	prevRoot := integrations.WindowsMountRoot
+	integrations.WindowsMountRoot = func() string { return empty }
+	t.Cleanup(func() { integrations.WindowsMountRoot = prevRoot })
 
 	cmd := m.zoteroEnsure()
 	if cmd == nil {

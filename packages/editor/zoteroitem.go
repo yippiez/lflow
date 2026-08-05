@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/integrations"
 	"github.com/lflow/lflow/packages/utils/browser"
-	"github.com/lflow/lflow/packages/zotero"
 )
 
 // The zotero node type: one Zotero entry MIRRORED into the outline. Where the
@@ -131,14 +131,14 @@ func zoteroBaseColor(it *item) string {
 // zoteroPullMsg lands a finished read (or its error) back in the update loop.
 type zoteroPullMsg struct {
 	uuid    string // the mirror root's node uuid
-	details *zotero.Details
+	details *integrations.Details
 	err     error
 }
 
 // mirrorZoteroItem turns the cursor node into a mirror of one library entry and
 // starts the pull. The node keeps its place in the outline; everything under it
 // becomes Zotero's.
-func (m *Model) mirrorZoteroItem(it zotero.Item) tea.Cmd {
+func (m *Model) mirrorZoteroItem(it integrations.Item) tea.Cmd {
 	cur := m.cursorItem()
 	if cur == nil {
 		return nil
@@ -255,7 +255,7 @@ type zoteroChild struct {
 // The entry's FIELDS are not rows — they are properties on its note (see
 // zoteroProperties). What hangs beneath an entry is the things you made: the
 // marks in its documents, and its notes.
-func zoteroShape(d *zotero.Details) []zoteroChild {
+func zoteroShape(d *integrations.Details) []zoteroChild {
 	var out []zoteroChild
 	group := d.Item.GroupID
 
@@ -305,7 +305,7 @@ func zoteroDivider() zoteroChild {
 // zoteroProperties is the entry's fields, written onto its note as
 // ":: name value" pairs — the note is where a node's own particulars already
 // live, and a field is a particular, not a child.
-func zoteroProperties(d *zotero.Details) string {
+func zoteroProperties(d *integrations.Details) string {
 	var b strings.Builder
 	add := func(name, value string) {
 		if value == "" {
@@ -321,7 +321,7 @@ func zoteroProperties(d *zotero.Details) string {
 	add("type", d.Item.Type)
 	add("venue", d.Item.Journal)
 	add("date", firstNonEmptyStr(d.Date, d.Item.Year))
-	if url := zotero.DOIURL(d.Item.DOI); url != "" {
+	if url := integrations.DOIURL(d.Item.DOI); url != "" {
 		add("doi", url)
 	}
 	add("url", d.Item.URL)
@@ -332,7 +332,7 @@ func zoteroProperties(d *zotero.Details) string {
 // zoteroAnnotation maps one mark onto a node: the highlighted text as a quote
 // in the highlighter's color, with your comment as its child. A mark with no
 // text (an image or ink region) shows its comment, or says what it is.
-func zoteroAnnotation(an zotero.Annotation, groupID, attachmentKey string) zoteroChild {
+func zoteroAnnotation(an integrations.Annotation, groupID, attachmentKey string) zoteroChild {
 	name := an.Text
 	if name == "" {
 		name = an.Comment
@@ -367,7 +367,7 @@ func zoteroAnnotation(an zotero.Annotation, groupID, attachmentKey string) zoter
 // zoteroRootName is the mirror root's row: the compact citation, the title, and
 // nothing else — tags are spliced on as chips by reconcile, which owns the chip
 // store.
-func zoteroRootName(it zotero.Item) string {
+func zoteroRootName(it integrations.Item) string {
 	label := it.Label()
 	if it.Title == "" || it.Title == label {
 		return label
@@ -380,7 +380,7 @@ func zoteroRootName(it zotero.Item) string {
 // reconcileZotero applies a finished read to the mirror: nodes are matched by
 // their Zotero key, updated in place, created when new, and tombstoned when
 // they are gone from Zotero. Returns how many nodes the mirror now holds.
-func (m *Model) reconcileZotero(root *item, d *zotero.Details) int {
+func (m *Model) reconcileZotero(root *item, d *integrations.Details) int {
 	m.setZoteroRootName(root, d)
 	root.readonly = true
 	root.typ = database.TypeZotero
@@ -511,7 +511,7 @@ func (m *Model) loadZoteroImage(it *item, path string) bool {
 // setZoteroRootName writes the title row, with the entry's tags as chips after
 // it. The name is left alone when it already reads the same, so a refresh does
 // not churn the chip store on every pull.
-func (m *Model) setZoteroRootName(root *item, d *zotero.Details) {
+func (m *Model) setZoteroRootName(root *item, d *integrations.Details) {
 	title := zoteroRootName(d.Item)
 	var tags []string
 	for _, t := range d.Tags {
@@ -535,7 +535,7 @@ func (m *Model) setZoteroRootName(root *item, d *zotero.Details) {
 // applyZoteroTagColors carries Zotero's own tag colors into the outline's tag
 // pills, mapped to the nearest color in the live palette. A tag the user has
 // already colored here is left alone — their choice outranks the import.
-func (m *Model) applyZoteroTagColors(tags []zotero.Tag) {
+func (m *Model) applyZoteroTagColors(tags []integrations.Tag) {
 	for _, t := range tags {
 		if t.Color == "" {
 			continue
@@ -607,7 +607,7 @@ func (m *Model) zoteroOpenNode(it *item, other bool) (tea.Model, tea.Cmd) {
 		if other {
 			return m.zoteroOpenFile(it)
 		}
-		return m.zoteroOpenURI(zotero.Ref{Key: b.Key, GroupID: b.GroupID}.PDFURI(""), "the reader")
+		return m.zoteroOpenURI(integrations.Ref{Key: b.Key, GroupID: b.GroupID}.PDFURI(""), "the reader")
 	case database.ZoteroKindAnnotation:
 		if other {
 			return m.openZoteroEntry(item, true)
@@ -615,7 +615,7 @@ func (m *Model) zoteroOpenNode(it *item, other bool) (tea.Model, tea.Cmd) {
 		// the mark lives in a document: open that one, at this mark. The key is
 		// the mark's own — a lone attachment has no row to look up to.
 		if b.ParentKey != "" {
-			ref := zotero.Ref{Key: b.ParentKey, GroupID: b.GroupID}
+			ref := integrations.Ref{Key: b.ParentKey, GroupID: b.GroupID}
 			return m.zoteroOpenURI(ref.PDFURI(b.Key), "the highlight")
 		}
 	}
@@ -633,7 +633,7 @@ func (m *Model) openZoteroEntry(b database.ZoteroBinding, other bool) (tea.Model
 	if other {
 		local = !local
 	}
-	ref := zotero.Ref{Key: b.Key, GroupID: b.GroupID}
+	ref := integrations.Ref{Key: b.Key, GroupID: b.GroupID}
 	return m.openZoteroChip(database.Chip{
 		Kind: chipKindZotero, Value: ref.LocalURI(), Label: b.Key,
 	}, local)
@@ -733,7 +733,7 @@ func zoteroMarkActions(m *Model, it *item, open string) []flashAction {
 // zoteroAttachmentPaths records where each mirrored attachment's file lives on
 // this machine — session state, never persisted: a path is machine-specific and
 // the next pull recomputes it.
-func (m *Model) zoteroAttachmentPaths(root *item, d *zotero.Details) {
+func (m *Model) zoteroAttachmentPaths(root *item, d *integrations.Details) {
 	if m.zoteroPaths == nil {
 		m.zoteroPaths = map[string]string{}
 	}

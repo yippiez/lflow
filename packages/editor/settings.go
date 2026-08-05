@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/zotero"
+	"github.com/lflow/lflow/packages/integrations"
 )
 
 // Global editor preferences, edited via /settings and persisted in the DB
@@ -91,15 +91,15 @@ var settingDefs = []settingDef{
 	{
 		// where the local Zotero library was found — READ-ONLY: the path is
 		// detected (Zotero's prefs.js, ~/Zotero, the WSL /mnt side; see
-		// packages/zotero), never chosen here. alt+c copies it for scripts and
+		// packages/integrations), never chosen here. alt+c copies it for scripts and
 		// paths.
 		key: "zotero.dir", label: "Zotero library",
 		fixed: true,
-		def:   zotero.DataDir(),
+		def:   integrations.DataDir(),
 	},
 	{
 		// the websearch node's SearxNG instance — the in-app way to name one,
-		// ahead of credentials.json (see packages/websearch)
+		// ahead of credentials.json (see packages/integrations)
 		key: "searxng.url", label: "Searxng URL",
 		text: true,
 	},

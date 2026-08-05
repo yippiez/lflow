@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/nodes/wf"
+	"github.com/lflow/lflow/packages/integrations"
 )
 
 // The wf node type: a Workflowy mirror. The node's text holds a pasted
@@ -28,7 +28,7 @@ func wfGlyph(it *item) (string, string) {
 // wfDoneMsg lands a finished pull (or its error) back in the update loop.
 type wfDoneMsg struct {
 	uuid      string // the pull root's node uuid
-	root      *wf.TreeNode
+	root      *integrations.TreeNode
 	truncated bool
 	err       error
 }
@@ -39,19 +39,19 @@ func (m *Model) wfIDFor(it *item) (string, bool) {
 	if id, ok := m.wfMap[it.uuid]; ok && id != "" {
 		return id, true
 	}
-	return wf.ParseRef(database.ExpandAnchors(it.name, m.chips))
+	return integrations.ParseWorkflowyRef(database.ExpandAnchors(it.name, m.chips))
 }
 
 // wfEnsureClient builds the API client from credentials.json on first use.
 // Tests inject m.wfClient directly; LFLOW_WF_BASE_URL points the client at a
 // local mock service for demos and manual testing.
-func (m *Model) wfEnsureClient() *wf.Client {
+func (m *Model) wfEnsureClient() *integrations.WorkflowyClient {
 	if m.wfClient == nil {
 		key := ""
 		if m.ctx.Paths.Config != "" {
-			key = wf.LoadAPIKey(m.ctx.Paths.Config)
+			key = integrations.LoadAPIKey(m.ctx.Paths.Config)
 		}
-		m.wfClient = &wf.Client{APIKey: key, BaseURL: os.Getenv("LFLOW_WF_BASE_URL")}
+		m.wfClient = &integrations.WorkflowyClient{APIKey: key, BaseURL: os.Getenv("LFLOW_WF_BASE_URL")}
 	}
 	return m.wfClient
 }
@@ -103,7 +103,7 @@ func (m *Model) handleWFDone(msg wfDoneMsg) {
 	m.refreshRows()
 	m.flash = fmt.Sprintf("wf · pulled %d nodes", n)
 	if msg.truncated {
-		m.flash += fmt.Sprintf(" (truncated at %d)", wf.MaxFetch)
+		m.flash += fmt.Sprintf(" (truncated at %d)", integrations.MaxFetch)
 	}
 }
 
@@ -112,7 +112,7 @@ func (m *Model) handleWFDone(msg wfDoneMsg) {
 // place, new nodes are created readonly, stale mirrors tombstone, and the
 // user's own non-mirror children survive untouched after the mirrored run.
 // Returns how many Workflowy nodes were applied.
-func (m *Model) reconcileWF(root *item, wn *wf.TreeNode) int {
+func (m *Model) reconcileWF(root *item, wn *integrations.TreeNode) int {
 	m.applyWFNode(root, wn, root.typ == database.TypeWF)
 	count := 1
 
@@ -165,11 +165,11 @@ func (m *Model) reconcileWF(root *item, wn *wf.TreeNode) int {
 // keeps its wf type (it stays the refresh handle the user made); pulled
 // children wear the translated type so todos check and headings size, and are
 // readonly — this is a read-only mirror.
-func (m *Model) applyWFNode(it *item, wn *wf.TreeNode, keepType bool) {
-	it.name = wf.PlainName(wn.Name)
-	it.note = wf.PlainName(wn.Note)
+func (m *Model) applyWFNode(it *item, wn *integrations.TreeNode, keepType bool) {
+	it.name = integrations.PlainName(wn.Name)
+	it.note = integrations.PlainName(wn.Note)
 	if !keepType {
-		it.typ = wf.TypeFor(wn.Node)
+		it.typ = integrations.TypeFor(wn.Node)
 		it.readonly = true
 	}
 	if wn.CompletedAt != nil {

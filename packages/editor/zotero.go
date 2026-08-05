@@ -7,8 +7,8 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/lflow/lflow/packages/database"
+	"github.com/lflow/lflow/packages/integrations"
 	"github.com/lflow/lflow/packages/utils/browser"
-	"github.com/lflow/lflow/packages/zotero"
 )
 
 // A zotero chip is an inline CITATION backed by an entry in the local Zotero
@@ -52,13 +52,13 @@ var zoteroAccount = ""
 // the picker calls it on every keystroke, and a Zotero library is a file big
 // enough that re-reading it per keystroke is not a thing to do. zoteroRefresh
 // is what does the reading, at the moments a user asks for something.
-func (m *Model) zoteroLibrary() (*zotero.Library, bool) {
+func (m *Model) zoteroLibrary() (*integrations.Library, bool) {
 	return m.zoteroLib, m.zoteroLib != nil
 }
 
 // zoteroLoadedMsg lands a finished library read back on the update goroutine.
 type zoteroLoadedMsg struct {
-	lib *zotero.Library
+	lib *integrations.Library
 	err string
 }
 
@@ -78,7 +78,7 @@ func (m *Model) zoteroEnsure() tea.Cmd {
 	}
 	m.zoteroFill.begin()
 	return func() tea.Msg {
-		lib, err := zotero.Load("")
+		lib, err := integrations.Load("")
 		msg := zoteroLoadedMsg{lib: lib}
 		if err != nil {
 			msg.err = err.Error()
@@ -126,7 +126,7 @@ func (m *Model) zoteroUsername() string {
 	if m.ctx.Paths.Config == "" {
 		return ""
 	}
-	return zotero.LoadUsername(m.ctx.Paths.Config)
+	return integrations.LoadUsername(m.ctx.Paths.Config)
 }
 
 // ── the chip ───────────────────────────────────────────────────────────────
@@ -139,13 +139,13 @@ func (m *Model) zoteroChipAtCaret(cur *item) (database.Chip, bool) {
 }
 
 // insertZoteroCite splices a citation chip for one library entry in at the caret.
-func (m *Model) insertZoteroCite(it zotero.Item) {
+func (m *Model) insertZoteroCite(it integrations.Item) {
 	cur := m.cursorItem()
 	if cur == nil {
 		return
 	}
 	m.pushUndo("")
-	anchor := m.createLabeledChip(chipKindZotero, zotero.RefOf(it).LocalURI(), it.Label())
+	anchor := m.createLabeledChip(chipKindZotero, integrations.RefOf(it).LocalURI(), it.Label())
 	if anchor == "" {
 		return
 	}
@@ -162,7 +162,7 @@ func zoteroTargetLocal() bool { return zoteroOpenMode != "cloud" }
 // when the account is known, and otherwise the entry's DOI — a paper's other
 // public home, and the only thing a library with no signed-in account can
 // offer. Returns "" plus the reason when neither is available.
-func (m *Model) zoteroWebURL(ref zotero.Ref) (string, string) {
+func (m *Model) zoteroWebURL(ref integrations.Ref) (string, string) {
 	// whatever library is already in hand — following a citation must not wait on
 	// a database read, and the account name has a second home in credentials.json
 	// (see zoteroUsername) for the cold case where none is loaded yet
@@ -173,7 +173,7 @@ func (m *Model) zoteroWebURL(ref zotero.Ref) (string, string) {
 	// no username: fall back to the entry's own public identifier
 	if loaded {
 		if it, found := lib.ByKey(ref.Key); found {
-			if url := zotero.DOIURL(it.DOI); url != "" {
+			if url := integrations.DOIURL(it.DOI); url != "" {
 				return url, ""
 			}
 			if it.URL != "" {
@@ -189,7 +189,7 @@ func (m *Model) zoteroWebURL(ref zotero.Ref) (string, string) {
 // Windows, and from WSL onto the Windows-side Zotero); otherwise it opens the
 // cloud address in the browser.
 func (m *Model) openZoteroChip(c database.Chip, local bool) (tea.Model, tea.Cmd) {
-	ref, ok := zotero.ParseRef(c.Value)
+	ref, ok := integrations.ParseRef(c.Value)
 	if !ok {
 		m.flash = "zotero · this citation has no library reference"
 		return m, nil
@@ -222,7 +222,7 @@ func zoteroChipLabel(c database.Chip) string {
 	if c.Label != "" {
 		return c.Label
 	}
-	if ref, ok := zotero.ParseRef(c.Value); ok {
+	if ref, ok := integrations.ParseRef(c.Value); ok {
 		return ref.Key
 	}
 	return c.Value
@@ -234,7 +234,7 @@ func zoteroChipLabel(c database.Chip) string {
 // desktop resolves), the cloud target an ordinary https URL. "" = no
 // hyperlink — a cloud target with no account name known yet.
 func zoteroLinkTarget(c database.Chip) string {
-	ref, ok := zotero.ParseRef(c.Value)
+	ref, ok := integrations.ParseRef(c.Value)
 	if !ok {
 		return ""
 	}
@@ -312,8 +312,8 @@ func (zoteroSource) items(m *Model, q string) []pickerItem {
 
 // zoteroRowRender is one picker row: the brand mark, the author-year label the
 // chip will carry, then the title and venue in dim text.
-func zoteroRowRender(it zotero.Item) string {
-	label, detail := zotero.Format(it)
+func zoteroRowRender(it integrations.Item) string {
+	label, detail := integrations.Format(it)
 	brand := iconColorSGR(zoteroBrandColor())
 	pad := 22 - runewidth.StringWidth(label)
 	if pad < 1 {

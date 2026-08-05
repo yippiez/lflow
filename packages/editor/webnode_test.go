@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/websearch"
+	"github.com/lflow/lflow/packages/integrations"
 )
 
 // searxAnswer is a SearxNG format=json answer with twelve hits, so the tests
@@ -40,7 +40,7 @@ func serveWeb(t *testing.T, body string, status int) {
 	}))
 	t.Cleanup(srv.Close)
 	prev := wsClient
-	wsClient = websearch.Client{Instance: srv.URL}
+	wsClient = integrations.Client{Instance: srv.URL}
 	t.Cleanup(func() { wsClient = prev })
 }
 
@@ -125,7 +125,7 @@ func TestWebNodeRerunReplacesOnlyItsRows(t *testing.T) {
 // priority: a run points at it even with no credentials file.
 func TestWebNodeUsesTheSearxngURLSetting(t *testing.T) {
 	prev := wsClient
-	wsClient = websearch.Client{}
+	wsClient = integrations.Client{}
 	t.Cleanup(func() { wsClient = prev })
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +151,7 @@ func TestWebNodeUsesTheSearxngURLSetting(t *testing.T) {
 // last good run produced.
 func TestWebNodeWithoutAnInstanceErrors(t *testing.T) {
 	prev := wsClient
-	wsClient = websearch.Client{}
+	wsClient = integrations.Client{}
 	t.Cleanup(func() { wsClient = prev })
 
 	m, _ := dbModel(t,

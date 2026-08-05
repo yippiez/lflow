@@ -18,26 +18,27 @@ const module = "github.com/lflow/lflow/"
 // layer assigns each packages/ subtree a level. Lower may never import higher.
 //
 //	0: leaf vocabularies and clients — no repo-internal imports at all
+//	   (mobile is one: the daemon serves it, it knows nothing of the daemon)
 //	1: database (the schema layer)
 //	2: daemon (owns the DB), nlp, app (the process runtime), outline and
 //	   filecodec (scriptable DB-subtree renderers/codecs, database only)
 //	3: editor, nodes (the editor's plugin registrations)
 //	4: cli, cmd (the process shell)
 var layers = map[string]int{
-	"packages/utils":     0,
-	"packages/chips":     0,
-	"packages/websearch": 0,
-	"packages/database":  1,
-	"packages/zotero":    1, // uses database.Open on a foreign sqlite file (debt: should be a leaf)
-	"packages/daemon":    2,
-	"packages/nlp":       2,
-	"packages/app":       2,
-	"packages/outline":   2,
-	"packages/filecodec": 2,
-	"packages/editor":    3,
-	"packages/nodes":     3,
-	"packages/cli":       4,
-	"cmd":                4,
+	"packages/utils":        0,
+	"packages/chips":        0,
+	"packages/mobile":       0, // the embedded web client: assets and an http.Handler, no repo imports
+	"packages/database":     1,
+	"packages/integrations": 1, // zotero half uses database.Open on a foreign sqlite file (debt: should be a leaf)
+	"packages/daemon":       2,
+	"packages/nlp":          2,
+	"packages/app":          2,
+	"packages/outline":      2,
+	"packages/filecodec":    2,
+	"packages/editor":       3,
+	"packages/nodes":        3,
+	"packages/cli":          4,
+	"cmd":                   4,
 }
 
 // grandfathered lists the upward imports that exist today. Removing an entry

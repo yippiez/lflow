@@ -14,35 +14,35 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/zotero"
+	"github.com/lflow/lflow/packages/integrations"
 )
 
 // fakeDetails is one fully-furnished entry: two tags (one colored), a PDF with
 // two annotations (one of them commented), and a note.
-func fakeDetails() *zotero.Details {
-	return &zotero.Details{
-		Item: zotero.Item{
+func fakeDetails() *integrations.Details {
+	return &integrations.Details{
+		Item: integrations.Item{
 			Key: "AAAA1111", Type: "journalArticle",
 			Creators: []string{"Vaswani", "Shazeer"}, Year: "2017",
 			Title: "Attention is all you need", Journal: "NeurIPS", DOI: "10.1000/attn",
 		},
 		Date:     "June 12, 2017",
 		Abstract: "The dominant sequence transduction models are based on recurrent networks.",
-		Tags: []zotero.Tag{
+		Tags: []integrations.Tag{
 			{Name: "transformers", Color: "#ffd400"},
 			{Name: "nlp"},
 		},
-		Attachments: []zotero.Attachment{{
+		Attachments: []integrations.Attachment{{
 			Key: "PDF00001", Title: "paper.pdf", ContentType: "application/pdf",
 			Path: "/zot/storage/PDF00001/paper.pdf",
-			Annotations: []zotero.Annotation{
+			Annotations: []integrations.Annotation{
 				{Key: "ANN00001", Kind: "highlight", Text: "the encoder is composed of a stack of N = 6 layers",
 					Comment: "check against the diagram", Color: "#ffd400", Page: "3"},
 				{Key: "ANN00002", Kind: "highlight", Text: "we propose a new simple network architecture",
 					Color: "#ff6666"},
 			},
 		}},
-		Notes: []zotero.Note{{Key: "NOTE0001", Title: "reading notes", Text: "the residual stream framing"}},
+		Notes: []integrations.Note{{Key: "NOTE0001", Title: "reading notes", Text: "the residual stream framing"}},
 	}
 }
 
@@ -63,7 +63,7 @@ func mirrorModel(t *testing.T) *Model {
 }
 
 // pullMirror runs a reconcile the way handleZoteroPull does, without the async hop.
-func pullMirror(m *Model, d *zotero.Details) *item {
+func pullMirror(m *Model, d *integrations.Details) *item {
 	root := m.cursorItem()
 	m.reconcileZotero(root, d)
 	m.zoteroAttachmentPaths(root, d)
@@ -133,9 +133,9 @@ func TestMirrorPropertiesAreOnTheNote(t *testing.T) {
 func TestMirrorSeparatesTwoDocuments(t *testing.T) {
 	m := mirrorModel(t)
 	d := fakeDetails()
-	d.Attachments = append(d.Attachments, zotero.Attachment{
+	d.Attachments = append(d.Attachments, integrations.Attachment{
 		Key: "PDF00002", Title: "supplement.pdf",
-		Annotations: []zotero.Annotation{
+		Annotations: []integrations.Annotation{
 			{Key: "ANN00003", Kind: "highlight", Text: "the appendix result", Color: "#5fb236", Page: "12"},
 		},
 	})
@@ -351,7 +351,7 @@ func TestMirrorRefreshReconcilesInPlace(t *testing.T) {
 	// now Zotero loses an annotation and gains a note
 	d := fakeDetails()
 	d.Attachments[0].Annotations = d.Attachments[0].Annotations[:1]
-	d.Notes = append(d.Notes, zotero.Note{Key: "NOTE0002", Text: "a second note"})
+	d.Notes = append(d.Notes, integrations.Note{Key: "NOTE0002", Text: "a second note"})
 	pullMirror(m, d)
 
 	if root.children[0].uuid != annotationUUID {
@@ -498,9 +498,9 @@ func pngBytes(t *testing.T) []byte {
 
 // withImageMark returns the fixture with its second highlight replaced by an
 // area crop whose picture sits at path.
-func withImageMark(path string) *zotero.Details {
+func withImageMark(path string) *integrations.Details {
 	d := fakeDetails()
-	d.Attachments[0].Annotations[1] = zotero.Annotation{
+	d.Attachments[0].Annotations[1] = integrations.Annotation{
 		Key: "ANN00002", Kind: "image", Comment: "figure 1", Color: "#a28ae5",
 		Page: "4", ImagePath: path,
 	}
@@ -757,7 +757,7 @@ func TestMirrorAnnotationHoistedFromALoneDocumentStillOpensAtItsMark(t *testing.
 	if b.ParentKey != "PDF00001" {
 		t.Fatalf("the mark forgot its document: %+v", b)
 	}
-	ref := zotero.Ref{Key: b.ParentKey, GroupID: b.GroupID}
+	ref := integrations.Ref{Key: b.ParentKey, GroupID: b.GroupID}
 	if got := ref.PDFURI(b.Key); got != "zotero://open-pdf/library/items/PDF00001?annotation=ANN00001" {
 		t.Errorf("open target = %q", got)
 	}

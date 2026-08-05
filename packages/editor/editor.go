@@ -20,8 +20,7 @@ import (
 	"github.com/lflow/lflow/packages/daemon/wire"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/style"
-	"github.com/lflow/lflow/packages/nodes/wf"
-	"github.com/lflow/lflow/packages/zotero"
+	"github.com/lflow/lflow/packages/integrations"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
 )
@@ -298,17 +297,17 @@ type Model struct {
 	// available and failures surface at run time.
 	deps map[string]bool
 
-	// Workflowy mirror (see wf.go and packages/nodes/wf): node uuid → workflowy id for
+	// Workflowy mirror (see wf.go and packages/integrations): node uuid → workflowy id for
 	// every pulled node, busy flags per pull root, and the API client (lazy;
 	// tests inject one pointed at a mock server)
 	wfMap    map[string]string
 	wfBusy   map[string]bool
-	wfClient *wf.Client
+	wfClient *integrations.WorkflowyClient
 
-	// Zotero library (see zotero.go and packages/zotero): the local library read
+	// Zotero library (see zotero.go and packages/integrations): the local library read
 	// once, lazily, on first cite; zoteroErr remembers why a read failed so the
 	// picker can say so instead of retrying a missing install on every keystroke.
-	zoteroLib *zotero.Library
+	zoteroLib *integrations.Library
 	zoteroErr string
 	// zoteroFill tracks the read while it is in flight, so the picker can open
 	// ahead of it and show a spinner; zoteroWaiting is the mirrors that asked for

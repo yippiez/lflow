@@ -8,20 +8,20 @@ import (
 	"testing"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/nodes/wf"
+	"github.com/lflow/lflow/packages/integrations"
 )
 
 // wfMockServer speaks the Workflowy nodes API over a mutable forest so tests
 // can re-pull after changing the remote side.
 type wfMockServer struct {
 	mu    sync.Mutex
-	nodes map[string]wf.Node // by id
+	nodes map[string]integrations.Node // by id
 	srv   *httptest.Server
 }
 
-func newWFMock(t *testing.T, nodes []wf.Node) *wfMockServer {
+func newWFMock(t *testing.T, nodes []integrations.Node) *wfMockServer {
 	t.Helper()
-	s := &wfMockServer{nodes: map[string]wf.Node{}}
+	s := &wfMockServer{nodes: map[string]integrations.Node{}}
 	for _, n := range nodes {
 		s.nodes[n.ID] = n
 	}
@@ -30,7 +30,7 @@ func newWFMock(t *testing.T, nodes []wf.Node) *wfMockServer {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		pid := r.URL.Query().Get("parent_id")
-		var kids []wf.Node
+		var kids []integrations.Node
 		for _, n := range s.nodes {
 			if n.ParentID == pid {
 				kids = append(kids, n)
@@ -53,7 +53,7 @@ func newWFMock(t *testing.T, nodes []wf.Node) *wfMockServer {
 	return s
 }
 
-func (s *wfMockServer) set(n wf.Node) {
+func (s *wfMockServer) set(n integrations.Node) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nodes[n.ID] = n
@@ -65,13 +65,13 @@ func (s *wfMockServer) remove(id string) {
 	delete(s.nodes, id)
 }
 
-func wfForest() []wf.Node {
+func wfForest() []integrations.Node {
 	done := int64(1753120900)
-	return []wf.Node{
-		{ID: "wf-root", Name: "Weekly <b>plan</b>", Note: "the plan note", Priority: 1, Data: wf.NodeData{LayoutMode: "h1"}},
-		{ID: "wf-a", ParentID: "wf-root", Name: "ship the API", Priority: 2, Data: wf.NodeData{LayoutMode: "todo"}},
-		{ID: "wf-b", ParentID: "wf-root", Name: "write docs", Priority: 1, Data: wf.NodeData{LayoutMode: "todo"}, CompletedAt: &done},
-		{ID: "wf-a1", ParentID: "wf-a", Name: "swagger spec", Priority: 1, Data: wf.NodeData{LayoutMode: "bullets"}},
+	return []integrations.Node{
+		{ID: "wf-root", Name: "Weekly <b>plan</b>", Note: "the plan note", Priority: 1, Data: integrations.NodeData{LayoutMode: "h1"}},
+		{ID: "wf-a", ParentID: "wf-root", Name: "ship the API", Priority: 2, Data: integrations.NodeData{LayoutMode: "todo"}},
+		{ID: "wf-b", ParentID: "wf-root", Name: "write docs", Priority: 1, Data: integrations.NodeData{LayoutMode: "todo"}, CompletedAt: &done},
+		{ID: "wf-a1", ParentID: "wf-a", Name: "swagger spec", Priority: 1, Data: integrations.NodeData{LayoutMode: "bullets"}},
 	}
 }
 
@@ -95,7 +95,7 @@ func newWFTestModel(t *testing.T, srv *wfMockServer) (*Model, *item) {
 	}
 	m := &Model{
 		db: db, tree: tr, viewStack: []*item{root}, width: 100, height: 30,
-		wfClient: &wf.Client{APIKey: "test-key", BaseURL: srv.srv.URL, HTTP: srv.srv.Client()},
+		wfClient: &integrations.WorkflowyClient{APIKey: "test-key", BaseURL: srv.srv.URL, HTTP: srv.srv.Client()},
 		wfMap:    map[string]string{"n-wf": "wf-root"}, // bound as if the ref was parsed once
 	}
 	m.refreshRows()
@@ -173,9 +173,9 @@ func TestWFRepullReconcilesInPlace(t *testing.T) {
 	aUUID := wfIt.children[1].uuid // "ship the API"
 
 	// remote: rename a, delete b, add c
-	srv.set(wf.Node{ID: "wf-a", ParentID: "wf-root", Name: "ship the API v2", Priority: 2, Data: wf.NodeData{LayoutMode: "todo"}})
+	srv.set(integrations.Node{ID: "wf-a", ParentID: "wf-root", Name: "ship the API v2", Priority: 2, Data: integrations.NodeData{LayoutMode: "todo"}})
 	srv.remove("wf-b")
-	srv.set(wf.Node{ID: "wf-c", ParentID: "wf-root", Name: "new remote item", Priority: 3, Data: wf.NodeData{LayoutMode: "bullets"}})
+	srv.set(integrations.Node{ID: "wf-c", ParentID: "wf-root", Name: "new remote item", Priority: 3, Data: integrations.NodeData{LayoutMode: "bullets"}})
 
 	pull(t, m, wfIt)
 
@@ -209,7 +209,7 @@ func TestWFChildRefreshesOwnBranch(t *testing.T) {
 	pull(t, m, wfIt)
 
 	a := wfIt.children[1] // "ship the API"
-	srv.set(wf.Node{ID: "wf-a1", ParentID: "wf-a", Name: "openapi spec", Priority: 1, Data: wf.NodeData{LayoutMode: "bullets"}})
+	srv.set(integrations.Node{ID: "wf-a1", ParentID: "wf-a", Name: "openapi spec", Priority: 1, Data: integrations.NodeData{LayoutMode: "bullets"}})
 
 	// alt+r on the pulled child pulls just that branch (recursive mirror)
 	pull(t, m, a)
@@ -221,7 +221,7 @@ func TestWFChildRefreshesOwnBranch(t *testing.T) {
 func TestWFNoKeyFlashes(t *testing.T) {
 	srv := newWFMock(t, wfForest())
 	m, wfIt := newWFTestModel(t, srv)
-	m.wfClient = &wf.Client{APIKey: ""} // no key configured
+	m.wfClient = &integrations.WorkflowyClient{APIKey: ""} // no key configured
 	if cmd := runWF(m, wfIt); cmd != nil {
 		t.Fatal("runWF without a key must not fire")
 	}

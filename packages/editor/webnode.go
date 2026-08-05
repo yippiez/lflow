@@ -2,7 +2,7 @@
 // of the outline. The two share a shape — the name is the search, alt+r runs
 // it, the hits hang under it as REAL child nodes — but a web node has no query
 // language: the whole name is the term, handed to the user's SearxNG instance
-// (see packages/websearch). The first webResultLimit hits become TypeWebResult
+// (see packages/integrations). The first webResultLimit hits become TypeWebResult
 // rows — a link chip whose label is the title and whose target is the URL.
 // Re-running replaces the rows the last run made and touches nothing else, so a
 // note filed under the search, or a hit moved out from under it, survives.
@@ -18,11 +18,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/websearch"
+	"github.com/lflow/lflow/packages/integrations"
 )
 
 // webResultLimit is how many web hits a run keeps — the first page's top ten.
-const webResultLimit = websearch.DefaultLimit
+const webResultLimit = integrations.DefaultLimit
 
 // webPrefix mirrors the query node's ⌕ but tinted cyan, so the two search nodes
 // read as siblings: the same shape, a different domain.
@@ -32,7 +32,7 @@ func webPrefix(*item) string { return cCyan + "⌕" + cReset + " " }
 const webSearchTimeout = 25 * time.Second
 
 // wsClient is the shared web-search backend; tests point it at a local server.
-var wsClient websearch.Client
+var wsClient integrations.Client
 
 // webRow is one generated hit row: its display text and its link target.
 type webRow struct {
