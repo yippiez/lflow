@@ -437,6 +437,11 @@ func (m *Model) saveAll() (int, error) {
 	if m.tempActive {
 		main, temp = m.mainStash.tree, m.tree
 	}
+	// a save that tombstones nodes also settles the proposals about them, so the
+	// queue this Model is holding is stale afterwards — note it before save
+	// clears the pending deletions
+	tombstoned := (main != nil && len(main.deleted) > 0) || (temp != nil && len(temp.deleted) > 0)
+
 	w := 0
 	if main != nil {
 		n, err := main.save()
@@ -451,6 +456,9 @@ func (m *Model) saveAll() (int, error) {
 			return w, err
 		}
 		w += n
+	}
+	if tombstoned {
+		m.loadSuggests()
 	}
 	if m.onSave != nil {
 		if err := m.onSave(); err != nil {

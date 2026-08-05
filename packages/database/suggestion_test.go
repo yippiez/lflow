@@ -286,6 +286,76 @@ func TestSweepStaleSuggestions(t *testing.T) {
 	assert.Equal(t, n, 0, "second sweep should settle nothing")
 }
 
+// TestDeletingANodeSettlesItsSuggestions is the live-session half of the ghost
+// problem: the boot sweep only runs at boot, so the delete itself has to settle
+// the proposals it orphans — including the ones about descendants.
+func TestDeletingANodeSettlesItsSuggestions(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	parent := seedNode(t, db, "parent", RootUUID, "doomed")
+	child := seedNode(t, db, "child", parent.UUID, "doomed child")
+	bystander := seedNode(t, db, "bystander", RootUUID, "untouched")
+
+	mustSuggest(t, db, &Suggestion{UUID: "s-parent", Kind: SuggestEdit, TargetUUID: parent.UUID,
+		Name: "renamed", Fields: FieldName, CreatedOn: 1})
+	mustSuggest(t, db, &Suggestion{UUID: "s-child", Kind: SuggestComplete, TargetUUID: child.UUID, CreatedOn: 2})
+	mustSuggest(t, db, &Suggestion{UUID: "s-bystander", Kind: SuggestComplete, TargetUUID: bystander.UUID, CreatedOn: 3})
+
+	if _, err := MarkSubtreeDeleted(db, parent.UUID); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(uuid, want string) {
+		t.Helper()
+		var got string
+		MustScan(t, "getting status", db.QueryRow("SELECT status FROM suggestions WHERE uuid = ?", uuid), &got)
+		if got != want {
+			t.Fatalf("suggestion %s status = %q, want %q", uuid, got, want)
+		}
+	}
+	check("s-parent", SuggestRejected)
+	check("s-child", SuggestRejected)
+	check("s-bystander", SuggestPending)
+
+	// nothing is left for the boot sweep to find
+	n, err := SweepStaleSuggestions(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, n, 0, "delete left stale suggestions for the sweep")
+}
+
+// TestSettleSuggestionsForNodesIsNarrow guards the statement's edges: an empty
+// set is a no-op rather than a SQL error, and a settled suggestion is never
+// re-settled.
+func TestSettleSuggestionsForNodesIsNarrow(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	target := seedNode(t, db, "n1", RootUUID, "node")
+	mustSuggest(t, db, &Suggestion{UUID: "s-done", Kind: SuggestComplete, TargetUUID: target.UUID, CreatedOn: 1})
+
+	n, err := SettleSuggestionsForNodes(db, nil)
+	if err != nil {
+		t.Fatalf("empty node set: %v", err)
+	}
+	assert.Equal(t, n, 0, "empty set settled something")
+
+	if n, err = SettleSuggestionsForNodes(db, []string{target.UUID}); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, n, 1, "first settle count mismatch")
+
+	// already rejected: settling again must not touch it
+	if n, err = SettleSuggestionsForNodes(db, []string{target.UUID}); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, n, 0, "re-settled an already settled suggestion")
+}
+
 func TestTargetGone(t *testing.T) {
 	db := InitTestMemoryDB(t)
 	if err := EnsureRoot(db); err != nil {

@@ -514,16 +514,23 @@ func ShiftRanksAfter(db *DB, parentUUID string, afterRank, delta int) error {
 	return nil
 }
 
-// MarkSubtreeDeleted tombstones the node and all descendants.
+// MarkSubtreeDeleted tombstones the node and all descendants, and settles any
+// pending suggestion about them: a proposal against a deleted node can never be
+// approved, so leaving it pending would only park a ghost in the review queue.
 func MarkSubtreeDeleted(db *DB, rootUUID string) (int, error) {
 	subtree, err := GetSubtree(db, rootUUID)
 	if err != nil {
 		return 0, err
 	}
+	uuids := make([]string, 0, len(subtree))
 	for _, n := range subtree {
 		if _, err := db.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = ?", n.UUID); err != nil {
 			return 0, errors.Wrapf(err, "tombstoning node %s", n.UUID)
 		}
+		uuids = append(uuids, n.UUID)
+	}
+	if _, err := SettleSuggestionsForNodes(db, uuids); err != nil {
+		return 0, err
 	}
 	return len(subtree), nil
 }

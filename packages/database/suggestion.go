@@ -318,6 +318,53 @@ func SweepStaleSuggestions(db *DB) (int, error) {
 	return int(n), nil
 }
 
+// SettleSuggestionsStmt builds the statement that settles every pending
+// suggestion about one of the given nodes, for a caller that cannot use
+// SettleSuggestionsForNodes because it does not hold a *DB — the daemon's HTTP
+// handler runs its writes through the store so live clients see the change.
+//
+// Returns an empty query for an empty node set: "settle nothing" is not a
+// statement, and `IN ()` is a syntax error.
+func SettleSuggestionsStmt(uuids []string) (string, []any) {
+	if len(uuids) == 0 {
+		return "", nil
+	}
+	ph := make([]string, len(uuids))
+	args := make([]any, 0, len(uuids)+4)
+	args = append(args, SuggestRejected, time.Now().UnixNano(), "", SuggestPending)
+	for i, u := range uuids {
+		ph[i] = "?"
+		args = append(args, u)
+	}
+	return `UPDATE suggestions SET status = ?, resolved_on = ?, result_uuid = ?
+		WHERE status = ? AND target_uuid IN (` + strings.Join(ph, ",") + `)`, args
+}
+
+// SettleSuggestionsForNodes settles every pending suggestion about one of the
+// given nodes. Deleting a node makes its proposals unapprovable, so the delete
+// has to settle them as part of the same change: SweepStaleSuggestions only
+// runs at daemon boot, and a node deleted mid-session would otherwise leave the
+// review queue offering changes to a ghost for the rest of that session.
+//
+// It takes uuids rather than reading the subtree back, because each delete path
+// already knows exactly which nodes it tombstoned — and the editor's set is not
+// a DB subtree at all, only the rows its in-memory tree tracked.
+func SettleSuggestionsForNodes(db *DB, uuids []string) (int, error) {
+	q, args := SettleSuggestionsStmt(uuids)
+	if q == "" {
+		return 0, nil
+	}
+	res, err := db.Exec(q, args...)
+	if err != nil {
+		return 0, errors.Wrap(err, "settling suggestions for deleted nodes")
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, errors.Wrap(err, "counting settled suggestions")
+	}
+	return int(n), nil
+}
+
 // TargetGone reports whether the node a suggestion is about no longer exists
 // or was deleted. Approving such a suggestion is impossible, so a review batch
 // skips it rather than aborting on it.

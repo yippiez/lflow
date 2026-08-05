@@ -1057,6 +1057,12 @@ func (t *tree) save() (int, error) {
 		}
 		written++
 	}
+	// a proposal about a node that just died can never be approved, and the
+	// review queue would keep walking onto it until the next daemon boot swept
+	// it up — settle it inside the same transaction as the tombstone
+	if _, err := database.SettleSuggestionsForNodes(tx, t.deleted); err != nil {
+		return 0, err
+	}
 
 	if err := tx.Commit(); err != nil {
 		return 0, errors.Wrap(err, "committing transaction")

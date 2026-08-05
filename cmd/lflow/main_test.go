@@ -551,10 +551,12 @@ func TestSuggestApproveSkipsDriftedTarget(t *testing.T) {
 	assert.Equal(t, forced, "suggested text", "--force should rewrite the node")
 }
 
-// TestSuggestApproveSkipsZombieTargets: a proposal whose node was deleted can
-// never be applied — a batch approval skips it with a warning instead of
-// aborting the whole queue.
-func TestSuggestApproveSkipsZombieTargets(t *testing.T) {
+// TestRemoveSettlesSuggestionsAboutTheNode: deleting a node settles the
+// proposals about it there and then, so no zombie ever reaches the queue. This
+// is the fix for the ghost that kept coming back — the boot sweep and the
+// batch-approve skip below are backstops for ghosts already on disk, not the
+// first line of defence.
+func TestRemoveSettlesSuggestionsAboutTheNode(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "keeper")
@@ -563,17 +565,59 @@ func TestSuggestApproveSkipsZombieTargets(t *testing.T) {
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "keeper")
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "remove", "doomed", "--force")
 
+	db := database.OpenTestDB(t, testDir)
+	var status string
+	database.MustScan(t, "getting settled status",
+		db.QueryRow("SELECT status FROM suggestions WHERE target_uuid IN (SELECT uuid FROM nodes WHERE name = 'doomed')"), &status)
+	assert.Equal(t, status, database.SuggestRejected, "removing a node should settle its suggestions")
+	db.Close()
+
+	// the queue is now clean, so a batch approval has nothing to warn about
+	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", "--all")
+	if strings.Contains(out, "target was deleted") {
+		t.Fatalf("a settled suggestion still reached the queue: %q", out)
+	}
+
+	db = database.OpenTestDB(t, testDir)
+	defer db.Close()
+	database.MustScan(t, "getting keeper status",
+		db.QueryRow("SELECT status FROM suggestions WHERE target_uuid IN (SELECT uuid FROM nodes WHERE name = 'keeper')"), &status)
+	assert.Equal(t, status, database.SuggestApproved, "the live suggestion should approve")
+}
+
+// TestSuggestApproveSkipsZombieTargets: a proposal whose node was deleted can
+// never be applied — a batch approval skips it with a warning instead of
+// aborting the whole queue. The delete path settles its own suggestions now, so
+// the zombie here is tombstoned behind lflow's back: a ghost left on disk by an
+// older version, or by another writer touching the DB directly.
+func TestSuggestApproveSkipsZombieTargets(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "keeper")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "doomed")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "doomed")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "keeper")
+
+	db := database.OpenTestDB(t, testDir)
+	var doomed string
+	database.MustScan(t, "getting doomed uuid",
+		db.QueryRow("SELECT uuid FROM nodes WHERE name = ?", "doomed"), &doomed)
+	if err := (database.Node{UUID: doomed}).Expunge(db); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
 	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", "--all")
 	if !strings.Contains(out, "target was deleted") {
 		t.Fatalf("approve --all did not flag the zombie: %q", out)
 	}
 
-	db := database.OpenTestDB(t, testDir)
+	db = database.OpenTestDB(t, testDir)
 	defer db.Close()
 
 	var status string
 	database.MustScan(t, "getting zombie status",
-		db.QueryRow("SELECT status FROM suggestions WHERE kind = 'complete' AND target_uuid IN (SELECT uuid FROM nodes WHERE name = 'doomed')"), &status)
+		db.QueryRow("SELECT status FROM suggestions WHERE target_uuid = ?", doomed), &status)
 	assert.Equal(t, status, database.SuggestPending, "a zombie should stay pending, not approve")
 
 	database.MustScan(t, "getting keeper status",

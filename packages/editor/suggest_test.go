@@ -38,6 +38,49 @@ func fileSuggestion(t *testing.T, db *database.DB, s database.Suggestion) databa
 	return s
 }
 
+// TestDeletingANodeSettlesItsSuggestions: deleting the node a proposal is about
+// settles the proposal in the same save. Otherwise the queue counts a node that
+// is not on screen and cannot be reviewed, and alt+g s walks onto a ghost for
+// the rest of the session — the boot sweep is too late to help.
+func TestDeletingANodeSettlesItsSuggestions(t *testing.T) {
+	m, db, cur := suggestModel(t, "doomed")
+	// the helper wires the db onto the Model but not the tree, and leaves the
+	// item flagged new; a node loaded from the DB is neither, and only a tree
+	// with a db and a non-new item tombstones anything on save
+	m.tree.db = db
+	cur.isNew = false
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "renamed", Fields: database.FieldName, BaseName: "doomed"})
+	m.loadSuggests()
+	if got := m.pendingSuggestCount(); got != 1 {
+		t.Fatalf("queue size before delete = %d, want 1", got)
+	}
+
+	m.deleteNode(cur)
+	if _, err := m.saveAll(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := m.pendingSuggestCount(); got != 0 {
+		t.Fatalf("queue still holds %d proposal(s) about the deleted node", got)
+	}
+	var status string
+	database.MustScan(t, "getting status",
+		db.QueryRow("SELECT status FROM suggestions WHERE target_uuid = ?", cur.uuid), &status)
+	if status != database.SuggestRejected {
+		t.Fatalf("suggestion status = %q, want %q", status, database.SuggestRejected)
+	}
+
+	// and the walk has nowhere to get stuck
+	m.gotoSuggestion()
+	if m.mode == modeSuggest {
+		t.Fatal("review opened on a deleted node")
+	}
+	if !strings.Contains(m.flash, "no suggestions") {
+		t.Fatalf("flash = %q, want it to report an empty queue", m.flash)
+	}
+}
+
 // TestSuggestShowsInlineOnTheNode: an arriving proposal reads on the node's own
 // row — a yellow arrow and the text it proposes — and it has changed nothing.
 func TestSuggestShowsInlineOnTheNode(t *testing.T) {

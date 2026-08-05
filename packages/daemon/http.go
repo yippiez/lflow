@@ -446,6 +446,19 @@ func (hs *httpServer) delete(w http.ResponseWriter, r *http.Request, n database.
 		httpErr(w, 500, err.Error())
 		return
 	}
+	// the nodes are gone, so their pending proposals are unapprovable: settle
+	// them in the same breath, through the store so every live client drops the
+	// review band with the node
+	uuids := make([]string, len(subtree))
+	for i, s := range subtree {
+		uuids[i] = s.UUID
+	}
+	if q, sargs := database.SettleSuggestionsStmt(uuids); q != "" {
+		if _, _, err := hs.sv.store.Exec(sess, q, sargs); err != nil {
+			httpErr(w, 500, err.Error())
+			return
+		}
+	}
 	httpJSON(w, map[string]any{"deleted": len(subtree)})
 }
 
