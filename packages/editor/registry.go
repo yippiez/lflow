@@ -163,7 +163,7 @@ var nodeTypes = []nodeType{
 	// the extension system was removed — nodes typed under the mod light up
 	// unchanged, the key is the same free string.
 	{
-		key: database.TypeLog, label: "Log", inlineEditable: true,
+		key: database.TypeLog, label: "Log", inlineEditable: true, continueOnEnter: true,
 		glyph:     logGlyph,
 		prefix:    logPrefix,
 		baseColor: func(it *item) string { return cDim }, // /color overrides (render.go)
@@ -180,7 +180,7 @@ var nodeTypes = []nodeType{
 	// a tree. alt+r runs THIS node's subtree, alt+e opens the output. The inline
 	// cmd chip ("$$", cmdchip.go) remains the one-liner surface.
 	{
-		key: database.TypeBash, label: "Bash", inlineEditable: true,
+		key: database.TypeBash, label: "Bash", inlineEditable: true, continueOnEnter: true,
 		glyph:        bashGlyph,
 		spanColor:    bashSpanColor,
 		bodyTail:     bashBodyTail,
@@ -241,7 +241,7 @@ var nodeTypes = []nodeType{
 	// inline-editable; a known tag tints accent, attribute names dim, and an
 	// element row carries a dim linear preview of the document beneath it.
 	{
-		key: database.TypeSVG, label: "SVG", inlineEditable: true,
+		key: database.TypeSVG, label: "SVG", inlineEditable: true, continueOnEnter: true,
 		onType:       markupOnType,
 		run:          runSVGRender, // alt+r: rasterize the subtree into the node's picture
 		view:         markupView{}, // alt+e: the picture once rendered, else the document
@@ -253,7 +253,7 @@ var nodeTypes = []nodeType{
 		// node works perfectly through the next one down.
 	},
 	{
-		key: database.TypeHTML, label: "HTML", inlineEditable: true,
+		key: database.TypeHTML, label: "HTML", inlineEditable: true, continueOnEnter: true,
 		onType:       markupOnType,
 		run:          runHTMLOut,   // alt+r: the serialized markup into the run band
 		view:         markupView{}, // alt+e: the whole document the row shows the head of
@@ -267,7 +267,7 @@ var nodeTypes = []nodeType{
 	// row is the right placeholder for one.
 	{key: database.TypePir, label: "Pir", inlineEditable: true},
 	{
-		key: database.TypeMath, label: "Math", inlineEditable: true,
+		key: database.TypeMath, label: "Math", inlineEditable: true, continueOnEnter: true,
 		spanColor:    mathSpanColor,
 		bodyTail:     mathBodyTail,
 		run:          runMathLatex, // alt+r: export this subtree's LaTeX to the run band
@@ -308,7 +308,7 @@ var nodeTypes = []nodeType{
 	// there recolors the highlighted character, and that color follows it to
 	// every Line node that names it.
 	{
-		key: database.TypeLine, label: "Line", inlineEditable: true,
+		key: database.TypeLine, label: "Line", inlineEditable: true, continueOnEnter: true,
 		prefix: linePrefix,
 		expand: func(m *Model, it *item) tea.Cmd { m.openCharacterPicker(it); return nil },
 	},
