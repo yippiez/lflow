@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # scripts/test.sh — build the lflow binary once, then run the bash/tmux e2e
-# regression suite (every tests/e2e/test-*.sh). Prints PASS/FAIL per script and a
+# regression suite (every tests/test-*.sh). Prints PASS/FAIL per script and a
 # final summary; exits non-zero if any test failed.
 
 set -euo pipefail
@@ -22,11 +22,11 @@ failed=0
 failures=()
 
 shopt -s nullglob
-tests=( "${ROOT}"/tests/e2e/test-*.sh )
+tests=( "${ROOT}"/tests/test-*.sh )
 shopt -u nullglob
 
 if (( ${#tests[@]} == 0 )); then
-    echo "no tests found (tests/e2e/test-*.sh)"
+    echo "no tests found (tests/test-*.sh)"
     exit 0
 fi
 

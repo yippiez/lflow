@@ -9,6 +9,7 @@ package arch
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -48,9 +49,16 @@ var grandfathered = map[string]bool{}
 
 func layerOf(pkg string) (string, int, bool) {
 	rel := strings.TrimPrefix(pkg, module)
-	for prefix, l := range layers {
+	// Longest prefix wins: iterate sorted so a sub-prefix entry (say
+	// packages/editor/x) can never lose to its parent by map order.
+	prefixes := make([]string, 0, len(layers))
+	for prefix := range layers {
+		prefixes = append(prefixes, prefix)
+	}
+	sort.Slice(prefixes, func(i, j int) bool { return len(prefixes[i]) > len(prefixes[j]) })
+	for _, prefix := range prefixes {
 		if rel == prefix || strings.HasPrefix(rel, prefix+"/") {
-			return prefix, l, true
+			return prefix, layers[prefix], true
 		}
 	}
 	return "", 0, false
@@ -58,7 +66,7 @@ func layerOf(pkg string) (string, int, bool) {
 
 func TestLayering(t *testing.T) {
 	out, err := exec.Command("go", "list", "-f",
-		`{{.ImportPath}} {{join .Imports " "}}`, "../../...").CombinedOutput()
+		`{{.ImportPath}} {{join .Imports " "}}`, "./...").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, out)
 	}

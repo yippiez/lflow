@@ -42,7 +42,7 @@ echo "→ unit tests"
 go test --tags fts5 ./... || fail=1
 
 echo "→ architecture tests (layering)"
-( cd tests/arch && go test ./... ) || fail=1
+go test . || fail=1
 
 if (( fail )); then
     echo "CHECK FAILED"

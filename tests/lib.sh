@@ -11,6 +11,46 @@
 #
 # Sourced by every test-*.sh. The sourcing script is expected to have run
 # `set -euo pipefail` already, but we set it here too for safety.
+#
+# Writing a test:
+#
+#   #!/usr/bin/env bash
+#   set -euo pipefail
+#   DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
+#   setup; launch
+#   type "a"; send Enter; type "b"; send Tab; send Enter; type "c"
+#   wait_for "○ c"
+#   # ...drive the repro, assert the CORRECT (fixed) behavior...
+#   assert_no_crash
+#   pass
+#
+# Harness API:
+#   setup            isolated HOME + :memory: settings.json + unique session
+#                    name (set WIN_W / WIN_H before the call to resize).
+#   use_persist_db   (before launch) temp FILE db so reopen persists.
+#   launch           start the editor in a detached tmux session, settle 1.2s.
+#   reopen           kill + relaunch same session/HOME (needs use_persist_db).
+#   send <keys...>   named tmux keys (Enter, Tab, BSpace, Up, Down, Left,
+#                    Right, End, M-r, M-e, C-s, Escape, ...).
+#   type "<text>"    literal text.
+#   snapshot         echo the pane plain-text.
+#   wait_for "<sub>" [timeout_s]   poll until pane contains <sub> (5s default).
+#   assert_contains / assert_not_contains / assert_no_crash
+#   pass / fail "<msg>"
+#
+# Rendering cheatsheet:
+#   ○ name                   plain bullet
+#   ● name · N children      collapsed
+#   ◆ name · mirror          a mirror
+#   ├─ / ╰─                  child tree prefixes
+#   ◌                        a Temporary Domain node
+#   $ cmd                    bash node
+#   ⌕ q · N hits             query node
+#    <breadcrumb> · pos/total[ · state]   status bar (also the divider above ◌)
+#
+# Running: scripts/test.sh runs the whole suite (builds the binary once, sets
+# LFLOW_BIN). A single test runs directly — bash tests/test-<name>.sh — reusing
+# a prebuilt binary if LFLOW_BIN is set or /tmp/lflow-e2e-bin/lflow exists.
 
 set -euo pipefail
 
@@ -41,7 +81,7 @@ _resolve_bin() {
     BIN="/tmp/lflow-e2e-bin/lflow"
     if [[ ! -x "${BIN}" ]]; then
         local root
-        root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+        root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
         mkdir -p /tmp/lflow-e2e-bin
         ( cd "${root}" && go build --tags fts5 -o "${BIN}" ./cmd/lflow )
     fi

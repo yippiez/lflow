@@ -14,7 +14,7 @@ import (
 	"github.com/lflow/lflow/packages/utils"
 	"github.com/lflow/lflow/packages/utils/assert"
 	"github.com/lflow/lflow/packages/utils/consts"
-	"github.com/lflow/lflow/tests/cmdhelper"
+	"github.com/lflow/lflow/cmd/lflow/cmdhelper"
 	"github.com/pkg/errors"
 )
 
