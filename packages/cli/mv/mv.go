@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
@@ -21,7 +21,7 @@ type options struct {
 }
 
 // NewCmd returns a new mv command
-func NewCmd(ctx app.Ctx) *cobra.Command {
+func NewCmd(ctx tui.Ctx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
@@ -52,7 +52,7 @@ func isDescendant(db *database.DB, rootUUID, candidateUUID string) (bool, error)
 	return false, nil
 }
 
-func newRun(ctx app.Ctx, opts *options) infra.RunEFunc {
+func newRun(ctx tui.Ctx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) < 2 {
 			return errors.New("usage: lflow mv <node> <new-parent>")

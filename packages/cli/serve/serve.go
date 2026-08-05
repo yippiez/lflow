@@ -29,7 +29,7 @@ func plural(n int) string {
 	return "s"
 }
 
-// NewCmd builds the serve command. It does not take an app.Ctx: the daemon
+// NewCmd builds the serve command. It does not take a tui.Ctx: the daemon
 // must never route through a daemon, so it resolves the database itself.
 func NewCmd(versionTag string) *cobra.Command {
 	var (

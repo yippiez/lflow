@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	tuictx "github.com/lflow/lflow/packages/app"
+	tuictx "github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
 )
 

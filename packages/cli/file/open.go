@@ -9,7 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/editor"
@@ -18,7 +18,7 @@ import (
 )
 
 // newOpenCmd returns the file open command.
-func newOpenCmd(ctx app.Ctx) *cobra.Command {
+func newOpenCmd(ctx tui.Ctx) *cobra.Command {
 	return &cobra.Command{
 		Use:   "open <path>",
 		Short: "Edit a file as a node outline; saving writes the file back",
@@ -34,7 +34,7 @@ every save (ctrl+s, quit) serializes the tree back to the file.`,
 	}
 }
 
-func runOpen(ctx app.Ctx, path string) error {
+func runOpen(ctx tui.Ctx, path string) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return errors.Wrap(err, "resolving path")

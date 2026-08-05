@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/database"
 )
 
@@ -32,7 +32,7 @@ func dbModel(t *testing.T, children ...database.Node) (*Model, *database.DB) {
 	}
 	m := &Model{
 		db:        db,
-		ctx:       app.Ctx{DB: db},
+		ctx:       tui.Ctx{DB: db},
 		tree:      tr,
 		viewStack: []*item{tr.root},
 		width:     80,

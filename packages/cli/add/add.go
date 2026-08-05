@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/cli/ui"
 	"github.com/lflow/lflow/packages/database"
@@ -29,7 +29,7 @@ type options struct {
 }
 
 // NewCmd returns a new add command
-func NewCmd(ctx app.Ctx) *cobra.Command {
+func NewCmd(ctx tui.Ctx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
@@ -126,7 +126,7 @@ func insertChildren(db *database.DB, parentUUID string, lines []string, typ, not
 	return count, nil
 }
 
-func newRun(ctx app.Ctx, opts *options) infra.RunEFunc {
+func newRun(ctx tui.Ctx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
 		if err := database.EnsureRoot(db); err != nil {

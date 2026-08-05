@@ -1,5 +1,5 @@
 // Package app defines the lflow process-wide runtime
-package app
+package tui
 
 import (
 	"github.com/lflow/lflow/packages/daemon/client"

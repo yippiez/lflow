@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/config"
 	"github.com/lflow/lflow/packages/daemon/client"
 	"github.com/lflow/lflow/packages/database"
@@ -23,7 +23,7 @@ import (
 // RunEFunc is a function type of lflow commands
 type RunEFunc func(*cobra.Command, []string) error
 
-func getDBPath(paths app.Paths, customPath string) string {
+func getDBPath(paths tui.Paths, customPath string) string {
 	// If custom path is provided, use it
 	if customPath != "" {
 		return customPath
@@ -33,8 +33,8 @@ func getDBPath(paths app.Paths, customPath string) string {
 }
 
 // resolvePaths returns the standard lflow directories.
-func resolvePaths() app.Paths {
-	return app.Paths{
+func resolvePaths() tui.Paths {
+	return tui.Paths{
 		Home:   dirs.Home,
 		Config: dirs.ConfigHome,
 		Data:   dirs.DataHome,
@@ -49,7 +49,7 @@ func ResolveDBPath() (string, error) {
 	// the config file is the only way to relocate the database; on a first
 	// run the file does not exist yet and the standard location is used
 	customDBPath := ""
-	if cf, err := config.Read(app.Ctx{Paths: paths}); err == nil {
+	if cf, err := config.Read(tui.Ctx{Paths: paths}); err == nil {
 		customDBPath = cf.DBPath
 	}
 	return getDBPath(paths, customDBPath), nil
@@ -59,7 +59,7 @@ func ResolveDBPath() (string, error) {
 // startup as the database's single owner; a direct (LFLOW_NO_DAEMON) run does
 // it for itself.
 func PrepareDB(db *database.DB, versionTag string) error {
-	ctx := app.Ctx{Paths: resolvePaths(), Version: versionTag, DB: db}
+	ctx := tui.Ctx{Paths: resolvePaths(), Version: versionTag, DB: db}
 	if err := initDB(ctx); err != nil {
 		return errors.Wrap(err, "initializing database")
 	}
@@ -83,8 +83,8 @@ func clientName() string {
 // Normal runs connect to the daemon (spawning it when absent) — the daemon
 // is the only process that opens the SQLite file, so every client sees every
 // change live. LFLOW_NO_DAEMON=1 opens the file directly instead.
-func Init(versionTag string) (*app.Ctx, error) {
-	ctx := app.Ctx{Paths: resolvePaths(), Version: versionTag}
+func Init(versionTag string) (*tui.Ctx, error) {
+	ctx := tui.Ctx{Paths: resolvePaths(), Version: versionTag}
 
 	if err := initFiles(ctx); err != nil {
 		return nil, errors.Wrap(err, "initializing files")
@@ -125,13 +125,13 @@ func Init(versionTag string) (*app.Ctx, error) {
 
 // setupCtx enriches the base context with values from config file and database.
 // This is called after files and database have been initialized.
-func setupCtx(ctx app.Ctx) (app.Ctx, error) {
+func setupCtx(ctx tui.Ctx) (tui.Ctx, error) {
 	cf, err := config.Read(ctx)
 	if err != nil {
 		return ctx, errors.Wrap(err, "reading config")
 	}
 
-	ret := app.Ctx{
+	ret := tui.Ctx{
 		Paths:              ctx.Paths,
 		Version:            ctx.Version,
 		DB:                 ctx.DB,
@@ -147,7 +147,7 @@ func setupCtx(ctx app.Ctx) (app.Ctx, error) {
 //
 // lflow has no migrations: a fresh database is created by applying the
 // canonical schema.sql wholesale, and an existing one is left untouched.
-func initDB(ctx app.Ctx) error {
+func initDB(ctx tui.Ctx) error {
 	log.Debug("initializing the database\n")
 
 	db := ctx.DB
@@ -186,7 +186,7 @@ func initSystemKV(db *database.DB, key string, val string) error {
 }
 
 // initSystem inserts system data if missing
-func initSystem(ctx app.Ctx) error {
+func initSystem(ctx tui.Ctx) error {
 	log.Debug("initializing the system\n")
 
 	db := ctx.DB
@@ -243,7 +243,7 @@ func getEditorCommand() string {
 }
 
 // initConfigFile populates a new config file if it does not exist yet
-func initConfigFile(ctx app.Ctx) error {
+func initConfigFile(ctx tui.Ctx) error {
 	path := config.GetPath(ctx)
 	ok, err := utils.FileExists(path)
 	if err != nil {
@@ -266,8 +266,8 @@ func initConfigFile(ctx app.Ctx) error {
 }
 
 // initFiles creates, if necessary, the lflow directory and files inside
-func initFiles(ctx app.Ctx) error {
-	if err := app.InitLflowDirs(ctx.Paths); err != nil {
+func initFiles(ctx tui.Ctx) error {
+	if err := tui.InitLflowDirs(ctx.Paths); err != nil {
 		return errors.Wrap(err, "creating the lflow dir")
 	}
 	if err := initConfigFile(ctx); err != nil {

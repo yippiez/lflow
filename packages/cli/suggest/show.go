@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/pkg/errors"
@@ -18,7 +18,7 @@ type showOptions struct {
 
 // newShowCmd returns `lflow suggest show`: the full proposal, current value
 // beside proposed value, so a reviewer decides from one screen.
-func newShowCmd(ctx app.Ctx) *cobra.Command {
+func newShowCmd(ctx tui.Ctx) *cobra.Command {
 	opts := &showOptions{}
 
 	cmd := &cobra.Command{
@@ -32,7 +32,7 @@ func newShowCmd(ctx app.Ctx) *cobra.Command {
 	return cmd
 }
 
-func newShowRun(ctx app.Ctx, opts *showOptions) infra.RunEFunc {
+func newShowRun(ctx tui.Ctx, opts *showOptions) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("missing suggestion id")

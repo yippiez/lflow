@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/fatih/color"
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/resolve"
@@ -22,7 +22,7 @@ type options struct {
 }
 
 // NewCmd returns a new list command
-func NewCmd(ctx app.Ctx) *cobra.Command {
+func NewCmd(ctx tui.Ctx) *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
@@ -63,7 +63,7 @@ func listRoots(db *database.DB) error {
 	return nil
 }
 
-func newRun(ctx app.Ctx, opts *options) infra.RunEFunc {
+func newRun(ctx tui.Ctx, opts *options) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		db := ctx.DB
 

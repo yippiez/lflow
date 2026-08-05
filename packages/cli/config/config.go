@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/utils/consts"
 	"github.com/pkg/errors"
 )
@@ -20,13 +20,13 @@ type Config struct {
 }
 
 // GetPath returns the path to the lflow settings file: ~/.lflow/settings.json.
-func GetPath(ctx app.Ctx) string {
+func GetPath(ctx tui.Ctx) string {
 	return filepath.Join(ctx.Paths.Home, consts.LflowHomeDirName, consts.SettingsFilename)
 }
 
 // Read reads the settings file. A missing file is not an error — it yields the
 // zero Config so first run and unconfigured commands keep working.
-func Read(ctx app.Ctx) (Config, error) {
+func Read(ctx tui.Ctx) (Config, error) {
 	var ret Config
 
 	b, err := os.ReadFile(GetPath(ctx))
@@ -45,7 +45,7 @@ func Read(ctx app.Ctx) (Config, error) {
 }
 
 // Write writes the config to the settings file, creating ~/.lflow if needed.
-func Write(ctx app.Ctx, cf Config) error {
+func Write(ctx tui.Ctx, cf Config) error {
 	path := GetPath(ctx)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return errors.Wrap(err, "creating the settings directory")

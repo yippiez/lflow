@@ -3,12 +3,12 @@ package version
 import (
 	"fmt"
 
-	"github.com/lflow/lflow/packages/app"
+	"github.com/lflow/lflow/packages/tui"
 	"github.com/spf13/cobra"
 )
 
 // NewCmd returns a new version command
-func NewCmd(ctx app.Ctx) *cobra.Command {
+func NewCmd(ctx tui.Ctx) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the version",

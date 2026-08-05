@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	tuictx "github.com/lflow/lflow/packages/app"
+	tuictx "github.com/lflow/lflow/packages/tui"
 )
 
 // TestVoiceRenderNilMaps guards the panic where voiceRender wrote to a nil voice
