@@ -203,3 +203,16 @@ func (m *Model) deleteRunOut(uuid string) {
 	}
 	_ = database.DeleteNodeOutput(m.ctx.DB, uuid)
 }
+
+// runOutLines replaces a node's run band with the given lines — the math
+// node's alt+r LaTeX export.
+func (m *Model) runOutLines(uuid string, lines []string) {
+	r := m.ensureRun(uuid)
+	r.out = r.out[:0]
+	for _, l := range lines {
+		r.out = append(r.out, outLine{text: l})
+	}
+	r.dropped = 0
+	m.persistRunOut(uuid)
+	m.refreshRows()
+}

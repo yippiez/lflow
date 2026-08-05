@@ -17,12 +17,11 @@ import (
 // A voice note: alt+r records (toggle) via ffmpeg, alt+e plays via ffplay. The
 // audio is a local wav (~/.local/share/lflow/voice/<uuid>.wav) — never in the DB
 // or sync. Inline it shows a ▸ waveform of varying-height bars + duration.
-//
-// The declarative shape (key, label, cliDeps) lives in packages/nodes/voice.go;
-// this file keeps the Model-bound engine, attached here since none of it is
-// pure over Ref/Theme.
 func init() {
-	attachCoreHooks(database.TypeVoice, coreHooks{
+	registerType(nodeType{
+		key:          database.TypeVoice,
+		label:        "Voice",
+		cliDeps:      []string{"ffmpeg"},
 		renderM:      func(m *Model, it *item) string { return m.voiceRender(it) },
 		run:          runVoice,
 		expand:       playVoice,

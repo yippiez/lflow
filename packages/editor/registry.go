@@ -1,15 +1,19 @@
 package editor
 
 import (
+	"strconv"
+	"sync"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lflow/lflow/packages/database"
 )
 
 // nodeType is the per-type descriptor — the single place a node type's editor
-// behavior is declared. Adding a type = one entry here (plus optional render /
-// glyph / expand funcs), instead of editing the scattered switches in glyphFor,
-// renderBody, the /type picker, and the inline-edit guards.
+// behavior is declared. One file per type, registering its descriptor at init
+// (registerType), plus optional render / glyph / expand funcs — instead of
+// editing the scattered switches in glyphFor, renderBody, the /type picker,
+// and the inline-edit guards.
 //
 // Cross-cutting concerns stay where they belong: the collapsed ● glyph is
 // handled in glyphFor (it applies to every type); the
@@ -68,6 +72,9 @@ type nodeType struct {
 	// uses to land on its own face instead of leaving the picker on a row that
 	// looks unchanged (the Table folds to its grid face). nil → nothing.
 	onType func(m *Model, it *item)
+	// onRemove fires when a node of this type leaves the tree — cancel any
+	// in-flight work keyed on it (nlpcompute's generation).
+	onRemove func(m *Model, uuid string)
 
 	// granular look hooks: an editable type keeps caret editing while these
 	// decide its look (glyph, prefix, muted tail) — see the log type.
@@ -128,34 +135,53 @@ func nodeViewOf(it *item) nodeView {
 	return typeOf(it.typ).view
 }
 
-// nodeTypes is the registry the /type picker reads, in database.TypeOrder.
-// Every type now lives in its own file — under packages/nodes (plus python and
-// rust under packages/fileeditor) — registering through nodes.Register at init
-// and folding in lazily (see ensurePlugins); a type whose engine is still
-// Model-bound lays its hooks over the folded entry via attachCoreHooks.
+// nodeTypes is the registry the /type picker reads. Every type lives in its own
+// file under this package, registering its descriptor at init (registerType);
+// the table is lazily re-sorted into database.TypeOrder and indexed on first
+// read, because init order across files is compiler-defined.
 //
 // WARNING (invariant): everything is a node with a free-string type — a NEW
-// node type is a new FILE there, NOT a DB migration. nodes.type is free text
+// node type is a new FILE here, NOT a DB migration. nodes.type is free text
 // and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{}
 
-// byType fills in init() — a var initializer would cycle: nodeTypes references
-// runQuery, which reaches typeOf/byType through the query type filter.
-var byType map[string]nodeType
+// registerType adds a type's descriptor to the registry.
+func registerType(nt nodeType) { nodeTypes = append(nodeTypes, nt) }
 
-func init() {
-	byType = make(map[string]nodeType, len(nodeTypes))
-	for _, nt := range nodeTypes {
-		byType[nt.key] = nt
-	}
+// typeIndexOnce guards the lazy sort + index.
+var typeIndexOnce sync.Once
+
+// ensureTypes sorts the registry into database.TypeOrder and builds byType —
+// lazily on the first lookup, because every type file registers at its own
+// init and only the first READ may assume they have all run.
+func ensureTypes() {
+	typeIndexOnce.Do(func() {
+		pos := make(map[string]int, len(database.TypeOrder))
+		for i, k := range database.TypeOrder {
+			pos[k] = i
+		}
+		sort := nodeTypes
+		for i := 1; i < len(sort); i++ { // insertion sort by TypeOrder (small set)
+			for j := i; j > 0 && pos[sort[j].key] < pos[sort[j-1].key]; j-- {
+				sort[j], sort[j-1] = sort[j-1], sort[j]
+			}
+		}
+		byType = make(map[string]nodeType, len(nodeTypes))
+		for _, nt := range nodeTypes {
+			byType[nt.key] = nt
+		}
+	})
 }
 
-// RegisteredTypeKeys returns every registered node-type key (built-ins plus
-// plugins, internal types included), in registry order. It exists for the
-// registry-parity check: database.TypeOrder and this list must agree, and a
-// test in packages/nodes (the one package that links both sides) enforces it.
+// byType is filled by ensureTypes — a var initializer would cycle: nodeTypes
+// references runQuery, which reaches typeOf/byType through the query type filter.
+var byType map[string]nodeType
+
+// RegisteredTypeKeys returns every registered node-type key (internal types
+// included), in registry order. It exists for the registry-parity check:
+// database.TypeOrder and this list must agree (see registry_parity_test.go).
 func RegisteredTypeKeys() []string {
-	ensurePlugins()
+	ensureTypes()
 	keys := make([]string, 0, len(nodeTypes))
 	for _, nt := range nodeTypes {
 		keys = append(keys, nt.key)
@@ -167,7 +193,7 @@ func RegisteredTypeKeys() []string {
 // bullets, which is what keeps a node of a retired type (e.g. the removed
 // NodeMod system's) rendering instead of crashing.
 func typeOf(key string) nodeType {
-	ensurePlugins()
+	ensureTypes()
 	if nt, ok := byType[key]; ok {
 		return nt
 	}
@@ -177,7 +203,7 @@ func typeOf(key string) nodeType {
 // typeOrder drives the /type picker: the registry in its declared order, minus
 // the internal types another node generates rather than a user chooses.
 func typeOrder() []string {
-	ensurePlugins()
+	ensureTypes()
 	out := make([]string, 0, len(nodeTypes))
 	for _, nt := range nodeTypes {
 		if nt.internal {
@@ -191,4 +217,60 @@ func typeOrder() []string {
 // typeLabel is the picker label for a type key.
 func typeLabel(key string) string {
 	return typeOf(key).label
+}
+
+// removeNodeStateUnder lets types cancel in-flight work (nlpcompute's
+// generation) before a subtree disappears locally or through live sync.
+func (m *Model) removeNodeStateUnder(it *item) {
+	if it == nil {
+		return
+	}
+	var walk func(*item)
+	walk = func(n *item) {
+		if nr := typeOf(n.typ).onRemove; nr != nil {
+			nr(m, n.uuid)
+		}
+		for _, child := range n.children {
+			walk(child)
+		}
+	}
+	walk(it)
+}
+
+// ── shared type helpers ─────────────────────────────────────────────────────
+
+// WindowBands clamps a band list to [scroll, scroll+winH).
+func WindowBands(content []string, scroll, winH int) []string {
+	if scroll > len(content) {
+		scroll = len(content)
+	}
+	end := scroll + winH
+	if end > len(content) {
+		end = len(content)
+	}
+	return content[scroll:end]
+}
+
+// codeBodyTail shows a statement/container header's folded body size:
+// `· 12 lines`. Shared by the language-statement nodes (python, rust) and the
+// language-neutral constructs (fn, class).
+func codeBodyTail(it *item, _ map[string]database.Chip) string {
+	if len(it.children) == 0 {
+		return ""
+	}
+	lines := codeLineCount(it) - 1
+	word := "lines"
+	if lines == 1 {
+		word = "line"
+	}
+	return cDim + " · " + strconv.Itoa(lines) + " " + word + cReset
+}
+
+// codeLineCount counts the lines a subtree renders to.
+func codeLineCount(it *item) int {
+	total := 1
+	for _, c := range it.children {
+		total += codeLineCount(c)
+	}
+	return total
 }

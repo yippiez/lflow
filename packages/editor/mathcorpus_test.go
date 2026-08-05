@@ -305,7 +305,7 @@ func TestMathCorpus(t *testing.T) {
 						string(r), r, lx)
 				}
 			}
-			cols := mathSpanColor(it, []rune(eq.expr))
+			cols := mathSpanColor([]rune(eq.expr))
 			for i, r := range []rune(eq.expr) {
 				if mathIsOpRune(r) && cols[i] != cYellow {
 					t.Errorf("operator %q (index %d) in %q was not tinted", string(r), i, eq.expr)

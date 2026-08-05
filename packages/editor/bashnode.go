@@ -33,11 +33,17 @@ import (
 // (runShell), so running a sub-node runs just that part of the command. The row
 // carries a dim preview of what would run; alt+e opens the output.
 
-// The declarative half (Key/Label/InlineEditable/ContinueOnEnter/RunInTail/
-// CLIDeps, plus the static glyph) has moved to packages/nodes/bash.go; the
-// Model-bound hooks below stay here and attach onto the folded plugin entry.
 func init() {
-	attachCoreHooks(database.TypeBash, coreHooks{
+	registerType(nodeType{
+		key:             database.TypeBash,
+		label:           "Bash",
+		inlineEditable:  true,
+		continueOnEnter: true,
+		runInTail:       true,
+		cliDeps:         []string{"bash"},
+		glyph: func(*item) (string, string) {
+			return "$", cRed
+		},
 		spanColor:    bashSpanColor,
 		bodyTail:     bashBodyTail,
 		run:          runBashNode,

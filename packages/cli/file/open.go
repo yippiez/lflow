@@ -12,7 +12,6 @@ import (
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/editor"
-	"github.com/lflow/lflow/packages/fileeditor"
 	"github.com/lflow/lflow/packages/tui"
 	"github.com/lflow/lflow/packages/utils/log"
 )
@@ -39,10 +38,10 @@ func runOpen(ctx tui.Ctx, path string) error {
 	if err != nil {
 		return errors.Wrap(err, "resolving path")
 	}
-	codec, ok := fileeditor.CodecForPath(path)
+	codec, ok := editor.CodecForPath(path)
 	if !ok {
 		return errors.Errorf("unsupported file type %q: supported are %s",
-			filepath.Ext(path), strings.Join(fileeditor.CodecExts(), ", "))
+			filepath.Ext(path), strings.Join(editor.CodecExts(), ", "))
 	}
 
 	src, mtime, err := readSource(path)
@@ -90,7 +89,7 @@ func runOpen(ctx tui.Ctx, path string) error {
 		return errors.Wrap(err, "naming doc root")
 	}
 
-	if err := fileeditor.ParseIntoDB(db, database.RootUUID, codec, src); err != nil {
+	if err := editor.ParseIntoDB(db, database.RootUUID, codec, src); err != nil {
 		return errors.Wrapf(err, "parsing %s", filepath.Base(path))
 	}
 
@@ -99,7 +98,7 @@ func runOpen(ctx tui.Ctx, path string) error {
 	fileCtx.Live = nil // direct scratch handle: no daemon, no live sync
 
 	onSave := func() error {
-		out, err := fileeditor.RenderFromDB(db, database.RootUUID, codec)
+		out, err := editor.RenderFromDB(db, database.RootUUID, codec)
 		if err != nil {
 			return errors.Wrap(err, "rendering "+codec.Name())
 		}

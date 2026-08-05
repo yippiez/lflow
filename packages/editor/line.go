@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/lflow/lflow/packages/database"
 )
 
@@ -100,4 +102,20 @@ func (m *Model) openCharacterPicker(it *item) {
 	m.mode = modeCharacterPick
 	m.characterPickUUID = it.uuid
 	m.list.open(m, characterSource{}, true)
+}
+
+// The declaration: inline-editable dialogue rows, Enter continues them, and
+// alt+e opens the character picker (the Model-bound list UI).
+func init() {
+	registerType(nodeType{
+		key:             database.TypeLine,
+		label:           "Line",
+		inlineEditable:  true,
+		continueOnEnter: true,
+		prefix:          linePrefix,
+		expand: func(m *Model, it *item) tea.Cmd {
+			m.openCharacterPicker(it)
+			return nil
+		},
+	})
 }

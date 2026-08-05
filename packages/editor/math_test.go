@@ -65,7 +65,7 @@ func TestMathBodyTailInlineWhenSimple(t *testing.T) {
 
 func TestMathSpanColorTintsOperators(t *testing.T) {
 	runes := []rune("x = -b ± √(b²)")
-	got := mathSpanColor(&item{typ: "math"}, runes)
+	got := mathSpanColor(runes)
 	// operators are yellow: '=' @2, '-' @4, '±' @7, '√' @9
 	for _, i := range []int{2, 4, 7, 9} {
 		if got[i] != cYellow {
@@ -88,7 +88,7 @@ func TestMathSpanColorTintsOperators(t *testing.T) {
 
 func TestMathSpanColorFunctionWords(t *testing.T) {
 	runes := []rune("lim x")
-	got := mathSpanColor(&item{typ: "math"}, runes)
+	got := mathSpanColor(runes)
 	for i := 0; i < 3; i++ { // l,i,m
 		if got[i] != cYellow {
 			t.Errorf("lim rune %d = %q, want yellow", i, got[i])

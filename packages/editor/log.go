@@ -3,6 +3,8 @@ package editor
 import (
 	"strings"
 	"time"
+
+	"github.com/lflow/lflow/packages/database"
 )
 
 // The log node type — a timestamped journal line. It began life as the log.js
@@ -34,4 +36,17 @@ func logMuteFrom(name string) int {
 		return -1
 	}
 	return len([]rune(name[:i]))
+}
+
+func init() {
+	registerType(nodeType{
+		key:             database.TypeLog,
+		label:           "Log",
+		inlineEditable:  true,
+		continueOnEnter: true,
+		glyph:           logGlyph,
+		prefix:          logPrefix,
+		baseColor:       func(*item) string { return cDim }, // /color overrides (render.go)
+		muteFrom:        logMuteFrom,
+	})
 }

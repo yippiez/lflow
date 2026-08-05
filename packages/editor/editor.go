@@ -20,7 +20,6 @@ import (
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/database/style"
 	"github.com/lflow/lflow/packages/integrations"
-	"github.com/lflow/lflow/packages/nodes"
 	"github.com/lflow/lflow/packages/tui"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
@@ -877,10 +876,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a keyword may have just been typed (or scrolled into view) — kick the
 		// animation tick if it isn't already running.
 		return m, m.startAnim(cmd)
-	case nodes.PluginMsg:
-		// a plugin's async work flowing back (e.g. nlpcompute generation) — keep the
-		// animation tick alive so a node's shine indicator keeps sliding
-		return m, m.startAnim(msg.HandleNodePlugin(m))
+	case ncDoneMsg:
+		// an nlpcompute generation landing — keep the animation tick alive so a
+		// node's shine indicator keeps sliding while the result is folded in
+		return m, m.startAnim(m.handleNCDone(msg))
 	case daemonEvMsg:
 		m.handleDaemonEv(msg.ev)
 		return m, waitDaemonEv(m.liveFeed)

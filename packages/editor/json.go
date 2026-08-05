@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/utils"
 )
 
@@ -230,4 +232,14 @@ func jsonWordAt(r []rune, i int) string {
 		}
 	}
 	return ""
+}
+
+func init() {
+	registerType(nodeType{
+		key:            database.TypeJSON,
+		label:          "JSON",
+		inlineEditable: false,
+		render:         func(_ *item, name string) string { return renderJSONPreview(name) },
+		view:           jsonView{},
+	})
 }

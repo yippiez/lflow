@@ -29,12 +29,10 @@ import (
 // scrollback dump. For real pixels, alt+o leaves the terminal entirely. A
 // kitty/sixel/iTerm2 blit was tried and removed in 2026-07: it suspended the
 // editor, worked on a minority of terminals, and could not be screenshotted.
-//
-// The declarative shape (key, label, inlineEditable) lives in
-// packages/nodes/image.go; this file keeps the Model-bound engine, attached
-// here since none of it is pure over Ref/Theme.
 func init() {
-	attachCoreHooks(database.TypeImage, coreHooks{
+	registerType(nodeType{
+		key:          database.TypeImage,
+		label:        "Image",
 		renderM:      func(m *Model, it *item) string { return m.imageRender(it) },
 		run:          runImagePaste,
 		view:         imageView{},   // alt+e: scrollable half-block render

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/lflow/lflow/packages/database"
 )
 
@@ -21,8 +22,22 @@ import (
 // alt+r exports LaTeX for the node's subtree (mathToLatex) into its ephemeral
 // run band — run it on any node to get the LaTeX for just that sub-expression.
 //
-// This file is the whole type: the registry hooks, the unified symbol table that
+// This file is the whole type: the registry hook, the unified symbol table that
 // drives BOTH coloring and LaTeX, and the pure preview / LaTeX serializers.
+func init() {
+	registerType(nodeType{
+		key:             database.TypeMath,
+		label:           "Math",
+		inlineEditable:  true,
+		continueOnEnter: true,
+		spanColor: func(_ *item, runes []rune) map[int]string {
+			return mathSpanColor(runes)
+		},
+		bodyTail:     mathBodyTail,
+		run:          runMathLatex, // alt+r: export this subtree's LaTeX to the run band
+		flashActions: mathFlashActions,
+	})
+}
 
 // ── the symbol table: one source for coloring AND LaTeX ────────────────────
 
@@ -322,8 +337,8 @@ func mathWordLatex(w string) (string, bool) {
 }
 
 // matchTok reports the rune length of the first token in toks (sorted
-// longest-first) found at rs[i], 0 when none matches. Shared by math's operator
-// scan and bash's (bashSpanColor).
+// longest-first) found at rs[i], 0 when none matches. Shared by the math and
+// bash operator tinting.
 func matchTok(toks []string, rs []rune, i int) int {
 	for _, tok := range toks {
 		tr := []rune(tok)
@@ -359,7 +374,7 @@ func mathIsOpRune(r rune) bool { return mathSym[r].op }
 // mathSpanColor tints operator runes yellow, function words yellow, and brackets
 // dim, leaving variables and numbers the body's normal color. It rides the
 // per-rune kwColor channel (see renderBody), so caret and selection keep working.
-func mathSpanColor(it *item, runes []rune) map[int]string {
+func mathSpanColor(runes []rune) map[int]string {
 	if len(runes) == 0 {
 		return nil
 	}
@@ -416,12 +431,8 @@ func mathBodyTail(it *item, _ map[string]database.Chip) string {
 // the LaTeX for just that part of the expression.
 func runMathLatex(m *Model, it *item) tea.Cmd {
 	l := mathToLatex(it)
-	r := m.ensureRun(it.uuid)
-	r.out = []outLine{{text: l}}
-	r.dropped = 0
-	m.persistRunOut(it.uuid)
+	m.runOutLines(it.uuid, []string{l})
 	m.flash = "LaTeX → output"
-	m.refreshRows()
 	return nil
 }
 
@@ -742,28 +753,28 @@ func mathIsInfix(op string) bool {
 	return op != "÷" && op != "/" && op != "^" && op != "_" && !mathIsRadical(op)
 }
 
-// wordRuneIndices returns the rune index of each whole-word occurrence of kw in
-// s (bounded by non-letters), so "ln" in "ln x" tints but "sin" in "sinh" does
-// not. Boundaries use the math letter class (ASCII letters).
-func wordRuneIndices(s, kw string) []int {
-	var out []int
-	rs := []rune(s)
-	kr := []rune(kw)
-	for i := 0; i+len(kr) <= len(rs); i++ {
-		if string(rs[i:i+len(kr)]) != kw {
-			continue
-		}
-		if i > 0 && isMathLetter(rs[i-1]) {
-			continue
-		}
-		if i+len(kr) < len(rs) && isMathLetter(rs[i+len(kr)]) {
-			continue
-		}
-		out = append(out, i)
-	}
-	return out
-}
-
 func isMathLetter(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
+// wordRuneIndices returns the rune index of each whole-word occurrence of kw in
+// s — a keyword word bounded by non-letters, so "sinh" does not match inside
+// "sin". Used by the math tests to pin the keyword tinting.
+func wordRuneIndices(s, kw string) []int {
+	rs := []rune(s)
+	var out []int
+	for i := 0; i < len(rs); i++ {
+		if !isMathLetter(rs[i]) {
+			continue
+		}
+		j := i
+		for j < len(rs) && isMathLetter(rs[j]) {
+			j++
+		}
+		if string(rs[i:j]) == kw {
+			out = append(out, i)
+		}
+		i = j - 1
+	}
+	return out
 }

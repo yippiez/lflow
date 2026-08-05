@@ -10,7 +10,6 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/nodes"
 )
 
 // alt+e on a session chip or Agent node opens the same local panel. Its header
@@ -82,7 +81,7 @@ func (agentChipView) bands(m *Model, it *item, rail string, width, scroll, winH 
 	if !ok {
 		return nil
 	}
-	return nodes.WindowBands(m.agentBandContent(h, rail, width), scroll, winH)
+	return WindowBands(m.agentBandContent(h, rail, width), scroll, winH)
 }
 
 func (m *Model) agentRenameState(id string) *textField {

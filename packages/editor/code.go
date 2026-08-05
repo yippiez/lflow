@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/utils"
 )
 
@@ -384,4 +386,16 @@ func codeInlineRender(it *item, name string) string {
 		return cDim + "code" + cReset
 	}
 	return cDim + fmt.Sprintf("code · %d lines", n+1) + cReset
+}
+
+func init() {
+	registerType(nodeType{
+		key:            database.TypeCode,
+		label:          "Code",
+		inlineEditable: false,
+		autoFocus:      true,
+		render:         codeInlineRender,
+		view:           codeView{},
+		blockCode:      codeBlockCode,
+	})
 }

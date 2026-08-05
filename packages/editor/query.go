@@ -21,13 +21,15 @@ import (
 
 const queryMaxHits = 50
 
-// The declarative half (Key/Label/InlineEditable/DisableChips, plus the
-// static prefix and the pure span-color) has moved to packages/nodes/query.go;
-// the Model-bound run hook stays here and attaches onto the folded plugin
-// entry.
 func init() {
-	attachCoreHooks(database.TypeQuery, coreHooks{
-		run: runQuery,
+	registerType(nodeType{
+		key:            database.TypeQuery,
+		label:          "Query",
+		inlineEditable: true,
+		disableChips:   true,
+		prefix:         queryPrefix,
+		spanColor:      querySpanColor,
+		run:            runQuery,
 	})
 }
 

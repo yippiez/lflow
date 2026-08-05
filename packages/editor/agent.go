@@ -690,3 +690,17 @@ func agentChipDisplay(c database.Chip) string {
 	}
 	return glyph + " " + name
 }
+
+// The Agent node is RETIRED (2026-08-04): a session had two surfaces and the
+// whole-row one was the worse of them, so the inline chip is the only one
+// left. The type survives as internal — never offered by /type — so a node
+// somebody still has typed this way keeps its own name and its own row
+// instead of reading as an unknown type.
+func init() {
+	registerType(nodeType{
+		key:            database.TypeAgent,
+		label:          "Agent",
+		internal:       true,
+		inlineEditable: true,
+	})
+}

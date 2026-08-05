@@ -10,7 +10,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/nodes"
 )
 
 // The SVG and HTML nodes (database.TypeSVG / TypeHTML) are markup composed AS an
@@ -38,24 +37,32 @@ import (
 //
 // This file is both types: the tag table that drives coloring AND serialization,
 // the pure serializer/preview, and the two run hooks.
-//
-// The declarative shape (key, label, continueOnEnter, runInTail) lives in
-// packages/nodes/svg.go and packages/nodes/html.go; this file keeps the
-// Model-bound engine for both, attached here since none of it is pure over
-// Ref/Theme.
 func init() {
-	attachCoreHooks(database.TypeSVG, coreHooks{
+	registerType(nodeType{
+		key:             database.TypeSVG,
+		label:           "SVG",
+		inlineEditable:  true,
+		continueOnEnter: true,
+		// deliberately no cliDeps: there is no ONE binary this needs. It tries
+		// several rasterizers in turn (see svgRasterizers), so declaring the
+		// preferred one would warn "missing dependency" on a machine where the
+		// node works perfectly through the next one down.
 		onType:       markupOnType,
 		run:          runSVGRender, // alt+r: rasterize the subtree into the node's picture
 		view:         markupView{}, // alt+e: the picture once rendered, else the document
 		flashActions: svgFlashActions,
 		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.svgBandLines(r, below, maxLine) },
 	})
-	attachCoreHooks(database.TypeHTML, coreHooks{
-		onType:       markupOnType,
-		run:          runHTMLOut,   // alt+r: the serialized markup into the run band
-		view:         markupView{}, // alt+e: the whole document the row shows the head of
-		flashActions: htmlFlashActions,
+	registerType(nodeType{
+		key:             database.TypeHTML,
+		label:           "HTML",
+		inlineEditable:  true,
+		continueOnEnter: true,
+		runInTail:       true,
+		onType:          markupOnType,
+		run:             runHTMLOut,   // alt+r: the serialized markup into the run band
+		view:            markupView{}, // alt+e: the whole document the row shows the head of
+		flashActions:    htmlFlashActions,
 	})
 }
 
@@ -587,7 +594,7 @@ func (v markupView) bands(m *Model, it *item, rail string, width, scroll, winH i
 	if v.picture(m, it) {
 		return (imageView{}).bands(m, it, rail, width, scroll, winH, focused)
 	}
-	return nodes.WindowBands(m.markupViewContent(it, rail, width), scroll, winH)
+	return WindowBands(m.markupViewContent(it, rail, width), scroll, winH)
 }
 
 // markupViewContent is the serialized document, one line per line, tinted the

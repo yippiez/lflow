@@ -8,7 +8,6 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/lflow/lflow/packages/database"
-	"github.com/lflow/lflow/packages/nodes"
 )
 
 // The Table node is a GRID READING of an ordinary subtree — not a new storage
@@ -40,17 +39,16 @@ import (
 // alt+e opens the grid editor (cell cursor, typing edits the cell, ⏎ new row,
 // ⌥n new column, ⌥→ opens a cell's own outline).
 
-// The declarative half (Key/Label/InlineEditable) lives in
-// packages/nodes/table.go; every hook stays here since tableGlyph needs
-// it.collapsed (not on Ref) and bands/view/flashActions/onType are all
-// Model-bound grid machinery.
 func init() {
-	attachCoreHooks(database.TypeTable, coreHooks{
-		glyph:        tableGlyph,
-		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.tableBandLines(r, below, maxLine) },
-		view:         tableView{},
-		flashActions: tableFlashActions,
-		onType:       tableOnType,
+	registerType(nodeType{
+		key:            database.TypeTable,
+		label:          "Table",
+		inlineEditable: true,
+		glyph:          tableGlyph,
+		bands:          func(m *Model, r row, below bool, maxLine int) []string { return m.tableBandLines(r, below, maxLine) },
+		view:           tableView{},
+		flashActions:   tableFlashActions,
+		onType:         tableOnType,
 	})
 }
 
@@ -587,7 +585,7 @@ func (v tableView) bands(m *Model, it *item, rail string, width, scroll, winH in
 		}
 		m.focusScroll = scroll
 	}
-	return nodes.WindowBands(content, scroll, winH)
+	return WindowBands(content, scroll, winH)
 }
 
 // tableHint is the editor's header line: the shape, then the keys that act on
