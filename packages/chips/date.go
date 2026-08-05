@@ -2,10 +2,10 @@ package chips
 
 import (
 	"regexp"
-	"strconv"
 	"time"
-	"unicode"
 	"unicode/utf8"
+
+	"github.com/lflow/lflow/packages/utils"
 )
 
 // The date chip: a canonical YYYY-MM-DD (optionally with HH:MM) on its own word
@@ -22,7 +22,7 @@ var ReISO = regexp.MustCompile(`(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{
 func DateSpans(name string) [][2]int {
 	var spans [][2]int
 	for _, loc := range ReISO.FindAllStringSubmatchIndex(name, -1) {
-		if !WordBound(name, loc[0], loc[1]) {
+		if !utils.WordBound(name, loc[0], loc[1]) {
 			continue
 		}
 		group := func(i int) string {
@@ -31,36 +31,12 @@ func DateSpans(name string) [][2]int {
 			}
 			return ""
 		}
-		if _, ok := BuildDate(Atoi(group(1)), Atoi(group(2)), Atoi(group(3)), Atoi(group(4)), Atoi(group(5)), time.UTC); !ok {
+		if _, ok := BuildDate(utils.Atoi(group(1)), utils.Atoi(group(2)), utils.Atoi(group(3)), utils.Atoi(group(4)), utils.Atoi(group(5)), time.UTC); !ok {
 			continue
 		}
 		spans = append(spans, [2]int{utf8.RuneCountInString(name[:loc[0]]), utf8.RuneCountInString(name[:loc[1]])})
 	}
 	return spans
-}
-
-// WordBound reports whether the byte range [start,end) sits on its own: not
-// glued to a letter or digit on either side.
-func WordBound(s string, start, end int) bool {
-	if start > 0 {
-		r, _ := utf8.DecodeLastRuneInString(s[:start])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return false
-		}
-	}
-	if end < len(s) {
-		r, _ := utf8.DecodeRuneInString(s[end:])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return false
-		}
-	}
-	return true
-}
-
-// Atoi parses an int, returning 0 on error.
-func Atoi(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
 }
 
 // BuildDate validates the parts and returns the time, or false on nonsense like

@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lflow/lflow/packages/chips"
+	"github.com/lflow/lflow/packages/utils"
 )
 
 // dateMatch is a natural-language time phrase found in a row: "now",
@@ -79,8 +80,8 @@ var (
 
 // wordBound, atoi and buildDate live in packages/chips; these aliases keep the
 // editor's date engine readable.
-func wordBound(s string, start, end int) bool { return chips.WordBound(s, start, end) }
-func atoi(s string) int                       { return chips.Atoi(s) }
+func wordBound(s string, start, end int) bool { return utils.WordBound(s, start, end) }
+func atoi(s string) int                       { return utils.Atoi(s) }
 func buildDate(year, month, day, hour, min int, loc *time.Location) (time.Time, bool) {
 	return chips.BuildDate(year, month, day, hour, min, loc)
 }

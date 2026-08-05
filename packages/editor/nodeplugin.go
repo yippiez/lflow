@@ -8,6 +8,7 @@ import (
 
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/nlp"
+	"github.com/lflow/lflow/packages/utils"
 )
 
 // The node plugin host. The editor owns the GENERIC machinery — registry,
@@ -370,6 +371,6 @@ func NodeTheme() NodePalette {
 // NodeCaretVMove walks the caret up/down a line keeping its column;
 // NodeCaretLineCol / NodeCaretAt convert between a caret index and line/column
 // (home = col 0, end = a huge col).
-func NodeCaretVMove(s string, caret, dir int) int     { return jsonCaretLineMove(s, caret, dir) }
-func NodeCaretLineCol(s string, caret int) (int, int) { return jsonCaretLC(s, caret) }
-func NodeCaretAt(s string, line, col int) int         { return jsonLCCaret(s, line, col) }
+func NodeCaretVMove(s string, caret, dir int) int     { return utils.CaretVMove(s, caret, dir) }
+func NodeCaretLineCol(s string, caret int) (int, int) { return utils.CaretLineCol(s, caret) }
+func NodeCaretAt(s string, line, col int) int         { return utils.CaretAt(s, line, col) }

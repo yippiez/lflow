@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/packages/utils"
 )
 
 // The Code node is a multi-line code block: a fully gray background, dim line
@@ -36,7 +37,7 @@ func codeBlockLines(code string, caret, inner int) []string {
 	}
 	caretLine, caretCol := -1, -1
 	if caret >= 0 {
-		caretLine, caretCol = jsonCaretLC(code, caret)
+		caretLine, caretCol = utils.CaretLineCol(code, caret)
 	}
 	lines := strings.Split(code, "\n")
 	numW := len(fmt.Sprintf("%d", len(lines)))
@@ -74,7 +75,7 @@ func CodeBlockBands(code string, caret int, focused bool, rail string, width, sc
 	}
 	caretLine := -1
 	if c >= 0 {
-		caretLine, _ = jsonCaretLC(code, c)
+		caretLine, _ = utils.CaretLineCol(code, c)
 	}
 	if caretLine >= 0 { // keep the caret line in view
 		if caretLine < scroll {
@@ -296,22 +297,22 @@ func (v codeView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 		}
 	case "up":
 		// at the first line, decline so the outline crosses to the previous row
-		if line, _ := jsonCaretLC(buf, caret); line == 0 {
+		if line, _ := utils.CaretLineCol(buf, caret); line == 0 {
 			return nil, false
 		}
-		caret = jsonCaretLineMove(buf, caret, -1)
+		caret = utils.CaretVMove(buf, caret, -1)
 	case "down":
 		// at the last line, decline so the outline crosses to the next row
-		if line, _ := jsonCaretLC(buf, caret); line == strings.Count(buf, "\n") {
+		if line, _ := utils.CaretLineCol(buf, caret); line == strings.Count(buf, "\n") {
 			return nil, false
 		}
-		caret = jsonCaretLineMove(buf, caret, +1)
+		caret = utils.CaretVMove(buf, caret, +1)
 	case "home":
-		line, _ := jsonCaretLC(buf, caret)
-		caret = jsonLCCaret(buf, line, 0)
+		line, _ := utils.CaretLineCol(buf, caret)
+		caret = utils.CaretAt(buf, line, 0)
 	case "end":
-		line, _ := jsonCaretLC(buf, caret)
-		caret = jsonLCCaret(buf, line, 1<<30)
+		line, _ := utils.CaretLineCol(buf, caret)
+		caret = utils.CaretAt(buf, line, 1<<30)
 	case "enter":
 		buf, caret = jsonIns(buf, caret, "\n")
 	case "tab":

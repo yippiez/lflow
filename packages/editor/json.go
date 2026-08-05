@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lflow/lflow/packages/utils"
 )
 
 // jsonView is the JSON node's inline expanded editor (alt+e): a multiline buffer
@@ -66,15 +67,15 @@ func (v jsonView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 			caret++
 		}
 	case "up":
-		caret = jsonCaretLineMove(buf, caret, -1)
+		caret = utils.CaretVMove(buf, caret, -1)
 	case "down":
-		caret = jsonCaretLineMove(buf, caret, +1)
+		caret = utils.CaretVMove(buf, caret, +1)
 	case "home":
-		line, _ := jsonCaretLC(buf, caret)
-		caret = jsonLCCaret(buf, line, 0)
+		line, _ := utils.CaretLineCol(buf, caret)
+		caret = utils.CaretAt(buf, line, 0)
 	case "end":
-		line, _ := jsonCaretLC(buf, caret)
-		caret = jsonLCCaret(buf, line, 1<<30)
+		line, _ := utils.CaretLineCol(buf, caret)
+		caret = utils.CaretAt(buf, line, 1<<30)
 	case "enter":
 		buf, caret = jsonIns(buf, caret, "\n")
 	case "tab":
@@ -111,7 +112,7 @@ func (v jsonView) bands(m *Model, it *item, rail string, width, scroll, winH int
 	}
 	var content []string
 	content = append(content, clip(rail+cReset+cDim+"  json · "+cReset+status+cDim+" · enter newline · tab indent · esc save"+cReset, width))
-	caretLine, caretCol := jsonCaretLC(buf, caret)
+	caretLine, caretCol := utils.CaretLineCol(buf, caret)
 	for i, bl := range strings.Split(buf, "\n") {
 		if focused && i == caretLine {
 			content = append(content, clip(rail+cReset+"  "+cFG+withCaret(bl, caretCol)+cReset, width))
@@ -162,49 +163,6 @@ func jsonIns(buf string, caret int, s string) (string, int) {
 		caret = len(r)
 	}
 	return string(r[:caret]) + s + string(r[caret:]), caret + len([]rune(s))
-}
-
-// ── caret line/column helpers over a multiline buffer ──────────────────────
-func jsonCaretLC(s string, caret int) (line, col int) {
-	r := []rune(s)
-	if caret > len(r) {
-		caret = len(r)
-	}
-	for i := 0; i < caret; i++ {
-		if r[i] == '\n' {
-			line++
-			col = 0
-		} else {
-			col++
-		}
-	}
-	return
-}
-
-func jsonLCCaret(s string, line, col int) int {
-	r := []rune(s)
-	i, cur := 0, 0
-	for i < len(r) && cur < line {
-		if r[i] == '\n' {
-			cur++
-		}
-		i++
-	}
-	c := 0
-	for i < len(r) && r[i] != '\n' && c < col {
-		i++
-		c++
-	}
-	return i
-}
-
-func jsonCaretLineMove(s string, caret, dir int) int {
-	line, col := jsonCaretLC(s, caret)
-	line += dir
-	if line < 0 {
-		line = 0
-	}
-	return jsonLCCaret(s, line, col)
 }
 
 // colorJSONLine is a tolerant per-line JSON colorizer (works on invalid/partial
