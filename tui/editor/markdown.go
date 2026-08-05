@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -147,6 +148,20 @@ func (markdownCodec) Parse(src string) ([]*SrcNode, error) {
 			body := strings.TrimSuffix(strings.TrimPrefix(trimmed, "<!-- "), " -->")
 			if n := classifyMarkerBody(body, false); n != nil {
 				section().Kid(n)
+				// a bar plot's render also hangs a display fence beneath its
+				// marker; the fence is the plot's PREVIEW, not a child node, so
+				// it is consumed here and never materializes as a code node
+				// (the children list after it round-trips the real data).
+				if n.Type == database.TypeBarPlot && i+1 < len(lines) &&
+					strings.HasPrefix(strings.TrimSpace(lines[i+1]), "```") {
+					j := i + 2
+					for ; j < len(lines); j++ {
+						if strings.TrimSpace(lines[j]) == "```" {
+							break
+						}
+					}
+					i = j
+				}
 			} else {
 				section().Kid(&SrcNode{Type: database.TypeComment, Text: body})
 			}
@@ -336,6 +351,10 @@ func (markdownCodec) Render(doc []*SrcNode) (string, error) {
 			}
 			renderTable(n, &out)
 			out = append(out, "")
+		case database.TypeBarPlot:
+			blank()
+			renderBarPlot(n, &out, renderBlock)
+			out = append(out, "")
 		case database.TypeQuote:
 			blank()
 			out = append(out, "> "+n.Text)
@@ -410,6 +429,63 @@ func renderTable(t *SrcNode, out *[]string) {
 		}
 		*out = append(*out, row(cells))
 	}
+}
+
+// renderBarPlot draws a bar plot as a marker comment — which restores the type
+// and title on parse — then a fixed-width ASCII plot in a display fence (the
+// web/mobile renderers' picture of it; the parse consumes the fence, so it is
+// never a node), and then the real data as an ordinary list.
+func renderBarPlot(p *SrcNode, out *[]string, renderBlock func(*SrcNode)) {
+	const plotW = 36
+	*out = append(*out, "<!-- "+fallbackLead+database.TypeBarPlot+": "+p.Text+" -->")
+	*out = append(*out, "```text")
+	if p.Text != "" {
+		*out = append(*out, p.Text)
+	}
+	type bar struct {
+		label string
+		value float64
+	}
+	bars := make([]bar, 0, len(p.Kids))
+	scale := 0.0
+	for _, k := range p.Kids {
+		b := bar{label: k.Text, value: srcValue(k)}
+		if b.value > scale {
+			scale = b.value
+		}
+		bars = append(bars, b)
+	}
+	labelW := 0
+	for _, b := range bars {
+		if lw := len(b.label); lw > labelW {
+			labelW = lw
+		}
+	}
+	for _, b := range bars {
+		fill := 0
+		if scale > 0 && b.value > 0 {
+			fill = int(float64(plotW) * b.value / scale)
+		}
+		*out = append(*out, fmt.Sprintf("%-*s %s %s", labelW, b.label,
+			strings.Repeat("#", fill), barplotVal(b.value)))
+	}
+	*out = append(*out, "```")
+	for _, c := range p.Kids {
+		renderBlock(c)
+	}
+}
+
+// srcValue is a SrcNode's plot value: its own text when numeric, else the
+// recursive sum of its subtree — the codec-side twin of barplotValue.
+func srcValue(n *SrcNode) float64 {
+	if v, ok := barplotNum(n.Text); ok {
+		return v
+	}
+	sum := 0.0
+	for _, k := range n.Kids {
+		sum += srcValue(k)
+	}
+	return sum
 }
 
 // DefaultType: fresh lines in a markdown session stay list items — lists are

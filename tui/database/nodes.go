@@ -86,6 +86,13 @@ const (
 	// moves when a node becomes a table — it is a reading, so any node converts and
 	// the grid ⇄ nodes toggle is lossless. See editor/table.go.
 	TypeTable = "table"
+	// TypeBarPlot reads an ordinary subtree AS a horizontal bar plot: each
+	// first-level child is one bar (its text is the label), a bar's value is its
+	// own text when it parses as a number and otherwise the recursive sum of its
+	// subtree, and a bar's children draw as stacked segments on its row. No node
+	// moves when a node becomes a bar plot — it is a reading, so any node
+	// converts and the plot ⇄ nodes toggle is lossless. See editor/barplot.go.
+	TypeBarPlot = "barplot"
 	// TypeThinking is a plain muted-gray marker node — Claude Code's thinking
 	// glyph and nothing else (no special editor behavior).
 	TypeThinking = "thinking"
@@ -153,6 +160,7 @@ var TypeOrder = []string{
 	TypeComment,
 	TypeText,
 	TypeTable,
+	TypeBarPlot,
 	TypeMol,
 	TypeWF,
 	TypeThinking,
