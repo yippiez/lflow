@@ -128,62 +128,16 @@ func nodeViewOf(it *item) nodeView {
 	return typeOf(it.typ).view
 }
 
-// nodeTypes is the ordered registry; the /type picker shows it in this order.
+// nodeTypes is the registry the /type picker reads, in database.TypeOrder.
+// Every type now lives in its own file — under packages/nodes (plus python and
+// rust under packages/fileeditor) — registering through nodes.Register at init
+// and folding in lazily (see ensurePlugins); a type whose engine is still
+// Model-bound lays its hooks over the folded entry via attachCoreHooks.
 //
-// WARNING (invariant): everything is a node with a free-string type — a NEW node
-// type is a new entry here (plus its descriptor), NOT a DB migration. nodes.type
-// is free text and typeOf() falls back to bullets for unknown keys.
-var nodeTypes = []nodeType{
-	// a table is an ordinary subtree READ as a grid (see table.go): columns are
-	// the children, rows are their children, and a cell's children are the
-	// outline inside it. The face IS the fold state — a folded table draws its
-	// grid, an open one is the plain outline — so ctrl+space / alt+↑↓ toggle
-	// table ⇄ nodes, and alt+e opens the grid editor.
-	{
-		key: database.TypeTable, label: "Table", inlineEditable: true,
-		glyph:        tableGlyph,
-		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.tableBandLines(r, below, maxLine) },
-		view:         tableView{},
-		flashActions: tableFlashActions,
-		onType:       tableOnType,
-	},
-	// a molecule is an ordinary subtree READ as a structure: one atom per node,
-	// the bond to the parent as a prefix (=O), children the atoms bonded to it —
-	// so the outline IS the molecular graph, the way the Math node is the AST.
-	// alt+e draws it. A notation string mentioned inline is a ⌬ chip instead.
-	{
-		key: database.TypeMol, label: "Molecule", inlineEditable: true,
-		glyph:     moleculeGlyph,
-		spanColor: molSpanColor,
-		bodyTail:  molTreeBodyTail,
-		view:      moleculeView{},
-		// building a molecule as an outline is atom-after-atom, so Enter keeps the
-		// type going (the todo-list continuation) — otherwise every second atom
-		// would land as a bullet and need retyping.
-		continueOnEnter: true,
-	},
-	// a mirrored Zotero entry (see zoteroitem.go): the paper itself in the tree,
-	// its tags on the title row and its attachments, annotations and notes as
-	// locked children. Never inline-editable — the subtree is Zotero's, and
-	// alt+r re-reads it. Every node of the mirror wears this type; the binding
-	// in zotero_nodes says which Zotero object each one stands for.
-	{
-		key: database.TypeZotero, label: "Zotero", inlineEditable: false,
-		glyph:        zoteroGlyph,
-		run:          runZoteroPull, // alt+r: re-read the entry, or pick one on an unbound node
-		flashActions: zoteroFlashActions,
-		bodyTail: func(it *item, chips map[string]database.Chip) string {
-			// an unbound zotero node (edge case) reads as a prompt, not a blank row
-			if _, ok := zoteroBindingFor(it); ok {
-				return ""
-			}
-			return cDim + "pick a Zotero entry · alt+r" + cReset
-		},
-	},
-	// The pluggable node types (fn, class, comment, text, nlpcompute — see
-	// packages/nodes; python, rust — see packages/fileeditor) register through
-	// nodes.Register at init and fold in lazily; see ensurePlugins.
-}
+// WARNING (invariant): everything is a node with a free-string type — a NEW
+// node type is a new FILE there, NOT a DB migration. nodes.type is free text
+// and typeOf() falls back to bullets for unknown keys.
+var nodeTypes = []nodeType{}
 
 // byType fills in init() — a var initializer would cycle: nodeTypes references
 // runQuery, which reaches typeOf/byType through the query type filter.

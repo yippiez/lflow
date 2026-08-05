@@ -42,6 +42,26 @@ import (
 // outline may edit a mirrored node — an edit would be silently discarded by the
 // next refresh, which is a lie. See zoteroMirrored / acceptsChildren.
 
+// The declarative half (Key/Label/InlineEditable) lives in
+// packages/nodes/zotero.go; every hook stays here since glyph, run,
+// flashActions and bodyTail all resolve through zoteroBindingFor, which reads
+// the editor-private zoteroBindings map (and the node's raw style/collapsed
+// state) — none of that is reachable from a structure-only Ref.
+func init() {
+	attachCoreHooks(database.TypeZotero, coreHooks{
+		glyph:        zoteroGlyph,
+		run:          runZoteroPull, // alt+r: re-read the entry, or pick one on an unbound node
+		flashActions: zoteroFlashActions,
+		bodyTail: func(it *item, chips map[string]database.Chip) string {
+			// an unbound zotero node (edge case) reads as a prompt, not a blank row
+			if _, ok := zoteroBindingFor(it); ok {
+				return ""
+			}
+			return cDim + "pick a Zotero entry · alt+r" + cReset
+		},
+	})
+}
+
 // zoteroBindings is the whole outline's mirror map (node uuid → the Zotero
 // object that node stands for), hydrated at editor start and kept current by
 // every bind/release below. A package var, like tagColors and nodeSpans,

@@ -40,6 +40,20 @@ import (
 // alt+e opens the grid editor (cell cursor, typing edits the cell, ⏎ new row,
 // ⌥n new column, ⌥→ opens a cell's own outline).
 
+// The declarative half (Key/Label/InlineEditable) lives in
+// packages/nodes/table.go; every hook stays here since tableGlyph needs
+// it.collapsed (not on Ref) and bands/view/flashActions/onType are all
+// Model-bound grid machinery.
+func init() {
+	attachCoreHooks(database.TypeTable, coreHooks{
+		glyph:        tableGlyph,
+		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.tableBandLines(r, below, maxLine) },
+		view:         tableView{},
+		flashActions: tableFlashActions,
+		onType:       tableOnType,
+	})
+}
+
 const (
 	glyphTable = "▦"
 	// a column grows to its content, capped here, and is squeezed no narrower

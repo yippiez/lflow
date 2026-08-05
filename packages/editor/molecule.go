@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/packages/database"
 )
 
 // molecule.go is the self-contained "molecule" node type: the node text is a
@@ -15,6 +17,20 @@ import (
 // Nothing here is persisted beyond it.name: the parsed graph, the force-directed
 // 2D layout and the rasterized canvas all live in the ephemeral per-node store
 // and are recomputed on demand.
+
+// The declarative half (Key/Label/InlineEditable/ContinueOnEnter) plus the
+// static glyph moved to packages/nodes/molecule.go. spanColor, bodyTail and
+// view stay attached here: spanColor needs to know whether the node is a leaf
+// (Plugin.SpanColor takes only runes, no Ref), bodyTail's SMILES flattening
+// runs through parseSMILES/molGraph below plus the chip-anchor stripping in
+// chip.go, and view is the Model-bound 2D viewer.
+func init() {
+	attachCoreHooks(database.TypeMol, coreHooks{
+		spanColor: molSpanColor,
+		bodyTail:  molTreeBodyTail,
+		view:      moleculeView{},
+	})
+}
 
 // ── chemical model ─────────────────────────────────────────────────────────
 
