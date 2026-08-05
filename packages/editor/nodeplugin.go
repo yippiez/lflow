@@ -77,6 +77,10 @@ func (n nodeRef) Is(o nodes.Ref) bool {
 
 func (n nodeRef) CompletedAt() int64 { return n.it.completedAt }
 
+func (n nodeRef) AddedOn() int64 { return n.it.addedOn }
+
+func (n nodeRef) StyleColor() string { return styleBaseColor(n.it.style) }
+
 // removeNodeStateUnder lets plugins cancel in-flight work before a subtree
 // disappears locally or through live sync.
 func (m *Model) removeNodeStateUnder(it *item) {
@@ -202,6 +206,10 @@ func pluginNodeType(p nodes.Plugin) nodeType {
 		r := p.Render
 		nt.renderM = func(m *Model, it *item) string { return r(m, nodeRef{m: m, it: it}) }
 	}
+	if p.RenderPlain != nil {
+		rp := p.RenderPlain
+		nt.render = func(it *item, name string) string { return rp(nodeRef{it: it}, name) }
+	}
 	if p.Run != nil {
 		run := p.Run
 		nt.run = func(m *Model, it *item) tea.Cmd { return run(m, nodeRef{m: m, it: it}) }
@@ -275,6 +283,19 @@ func init() {
 	}
 	nodes.ShineText = ShineText
 	nodes.CodeBlockBands = CodeBlockBands
+	nodes.ExitCodeToSibling = func(h nodes.Host, n nodes.Ref) tea.Cmd {
+		m, ok := h.(*Model)
+		nr, ok2 := n.(nodeRef)
+		if !ok || !ok2 {
+			return nil
+		}
+		return m.exitCodeToSibling(nr.it)
+	}
+	nodes.SetFocusScroll = func(h nodes.Host, scroll int) {
+		if m, ok := h.(*Model); ok {
+			m.focusScroll = scroll
+		}
+	}
 	nodes.RunOut = func(h nodes.Host, uuid string, lines []string) {
 		m, ok := h.(*Model)
 		if !ok {
@@ -288,5 +309,23 @@ func init() {
 		r.dropped = 0
 		m.persistRunOut(uuid)
 		m.refreshRows()
+	}
+	nodes.OpenCharacterPicker = func(h nodes.Host, n nodes.Ref) {
+		m, ok := h.(*Model)
+		if !ok {
+			return
+		}
+		nr, ok := n.(nodeRef)
+		if !ok {
+			return
+		}
+		m.openCharacterPicker(nr.it)
+	}
+	nodes.LinePrefix = func(n nodes.Ref) string {
+		nr, ok := n.(nodeRef)
+		if !ok {
+			return ""
+		}
+		return linePrefix(nr.it)
 	}
 }

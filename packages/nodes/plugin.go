@@ -39,6 +39,13 @@ type Ref interface {
 	// CompletedAt is the node's completion stamp (unix seconds; 0 = open) —
 	// the todo glyph's input. Works on a structure-only ref.
 	CompletedAt() int64
+	// AddedOn is the node's creation stamp (UnixNano; 0 = unknown) — the log
+	// node's time-chip input. Works on a structure-only ref.
+	AddedOn() int64
+	// StyleColor is the node's resolved per-node base style color (a /color
+	// override), already turned into an SGR code — "" when unset. Works on a
+	// structure-only ref.
+	StyleColor() string
 }
 
 // Host is the editor surface a plugin may touch.
@@ -103,8 +110,14 @@ type Plugin struct {
 	Prefix func(n Ref) string
 	// MuteFrom is the rune index the muted tail starts at; -1 = none.
 	MuteFrom func(name string) int
-	Render   func(h Host, n Ref) string  // inline body override
-	Run      func(h Host, n Ref) tea.Cmd // alt+r
+	Render   func(h Host, n Ref) string // host-aware inline body override
+	// RenderPlain is the STATELESS inline body override: it runs on every
+	// render surface, including ones with no live editor (the temp panel, a
+	// hostless test render). name is the body after control-byte stripping;
+	// the structure-only ref carries the raw text. A type whose row never
+	// needs the host should prefer this over Render.
+	RenderPlain func(n Ref, name string) string
+	Run         func(h Host, n Ref) tea.Cmd // alt+r
 	// SpanColor tints individual runes of the EDITABLE body (math-operator
 	// style) without taking over the whole render: rune index → SGR. Pure over
 	// the runes — it runs on the render path with no host.
@@ -219,6 +232,32 @@ var CodeBlockBands = func(code string, caret int, focused bool, rail string, wid
 // of the math node's alt+r LaTeX export. Rebound by the editor; the default is
 // a no-op (fake hosts have no run bands).
 var RunOut = func(h Host, uuid string, lines []string) {}
+
+// ExitCodeToSibling ends a block-editing session by hopping to a fresh sibling
+// (the two-trailing-spaces "done editing" gesture) — tree mutation, so the
+// editor rebinds it; the default declines the exit.
+var ExitCodeToSibling = func(h Host, n Ref) tea.Cmd { return nil }
+
+// SetFocusScroll persists a focused view's computed scroll so its caret-follow
+// auto-scroll carries into the next frame. Rebound by the editor; the default
+// is a no-op (a fake host has no frames).
+var SetFocusScroll = func(h Host, scroll int) {}
+
+// OpenCharacterPicker opens the Line node's alt+e character picker — a
+// Model-bound list UI (mode switch + list.open), so it cannot be expressed
+// over Host/Ref alone. Rebound by the editor; the default is a no-op.
+var OpenCharacterPicker = func(h Host, n Ref) {}
+
+// LinePrefix renders a Line node's "[NAME] " character bracket, colored by
+// the character's assigned color. Its source tables (which character a node
+// names, which color a character wears) are editor-private state keyed off
+// nothing Ref exposes, so it is rebound by the editor at init; the default
+// renders the unassigned-character prompt, which is also correct for a fresh
+// node outside a running editor.
+var LinePrefix = func(n Ref) string {
+	th := Theme()
+	return th.Dim + "[+ character] " + th.Reset
+}
 
 // ── pure helpers ────────────────────────────────────────────────────────────
 

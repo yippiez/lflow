@@ -134,31 +134,6 @@ func nodeViewOf(it *item) nodeView {
 // type is a new entry here (plus its descriptor), NOT a DB migration. nodes.type
 // is free text and typeOf() falls back to bullets for unknown keys.
 var nodeTypes = []nodeType{
-	// the Code node is a multi-line block; resting the cursor on it auto-focuses
-	// its block editor (autoFocus — a thin caret shows, type directly, no alt+e),
-	// so it is not inlineEditable. The borderless gray block REPLACES the node's
-	// row (blockCode), and its multi-line body IS it.name (see code.go).
-	{
-		key: database.TypeCode, label: "Code", inlineEditable: false, autoFocus: true,
-		render:    codeInlineRender, // compact fallback (the temp panel, unknown surfaces)
-		view:      codeView{},
-		blockCode: codeBlockCode,
-	},
-	// a timestamped journal line (see log.go); was the log.js NodeMod before
-	// the extension system was removed — nodes typed under the mod light up
-	// unchanged, the key is the same free string.
-	{
-		key: database.TypeLog, label: "Log", inlineEditable: true, continueOnEnter: true,
-		glyph:     logGlyph,
-		prefix:    logPrefix,
-		baseColor: func(it *item) string { return cDim }, // /color overrides (render.go)
-		muteFrom:  logMuteFrom,
-	},
-	{
-		key: database.TypeJSON, label: "JSON", inlineEditable: false,
-		render: func(it *item, name string) string { return renderJSONPreview(name) },
-		view:   jsonView{},
-	},
 	// a shell command composed AS an outline (see bashnode.go): a "$" row whose
 	// children are its parts — a join operator (| && || ;) or a wrapper ($() ())
 	// composes them, anything else heads them — so a long pipeline is written as
@@ -245,13 +220,6 @@ var nodeTypes = []nodeType{
 		flashActions: htmlFlashActions,
 		runInTail:    true,
 	},
-	{
-		key: database.TypeMath, label: "Math", inlineEditable: true, continueOnEnter: true,
-		spanColor:    mathSpanColor,
-		bodyTail:     mathBodyTail,
-		run:          runMathLatex, // alt+r: export this subtree's LaTeX to the run band
-		flashActions: mathFlashActions,
-	},
 	// a table is an ordinary subtree READ as a grid (see table.go): columns are
 	// the children, rows are their children, and a cell's children are the
 	// outline inside it. The face IS the fold state — a folded table draws its
@@ -279,17 +247,6 @@ var nodeTypes = []nodeType{
 		// type going (the todo-list continuation) — otherwise every second atom
 		// would land as a bullet and need retyping.
 		continueOnEnter: true,
-	},
-	// a Line is ordinary dialogue text with a character attached (see line.go):
-	// the character renders as a colored "[NAME] " prefix, never baked into the
-	// stored name. alt+e (and landing here fresh via /type) opens the character
-	// picker — pick one already used in the outline or write a new one; alt+c
-	// there recolors the highlighted character, and that color follows it to
-	// every Line node that names it.
-	{
-		key: database.TypeLine, label: "Line", inlineEditable: true, continueOnEnter: true,
-		prefix: linePrefix,
-		expand: func(m *Model, it *item) tea.Cmd { m.openCharacterPicker(it); return nil },
 	},
 	// a mirrored Zotero entry (see zoteroitem.go): the paper itself in the tree,
 	// its tags on the title row and its attachments, annotations and notes as

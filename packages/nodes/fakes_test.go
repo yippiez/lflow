@@ -51,6 +51,8 @@ func (f *fakeHost) NodeCompute(context.Context, string, func(nlp.Event)) (string
 type fakeNode struct {
 	uuid, typ, text string
 	completedAt     int64
+	addedOn         int64
+	styleColor      string
 	parent          *fakeNode
 	kids            []*fakeNode
 }
@@ -88,3 +90,7 @@ func (n *fakeNode) Is(o Ref) bool {
 }
 
 func (n *fakeNode) CompletedAt() int64 { return n.completedAt }
+
+func (n *fakeNode) AddedOn() int64 { return n.addedOn }
+
+func (n *fakeNode) StyleColor() string { return n.styleColor }
