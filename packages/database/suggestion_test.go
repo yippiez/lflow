@@ -3,6 +3,8 @@ package database
 import (
 	"testing"
 	"time"
+
+	"github.com/lflow/lflow/packages/utils/assert"
 )
 
 // seedNode inserts a node for a suggestion to target.
@@ -222,6 +224,94 @@ func TestApplyEditRefusesLockedOrDeletedNodes(t *testing.T) {
 		if stored.Status != SuggestPending {
 			t.Fatalf("a failed approval settled the suggestion: %q", stored.Status)
 		}
+	}
+}
+
+// TestSweepStaleSuggestions: a pending proposal whose target node was deleted
+// or expunged can never be approved, so the startup sweep settles it. Live
+// targets — and the root (an add's empty target) — stay pending.
+func TestSweepStaleSuggestions(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	live := seedNode(t, db, "live", RootUUID, "still here")
+	gone := seedNode(t, db, "gone", RootUUID, "tombstoned")
+	missing := seedNode(t, db, "missing", RootUUID, "expunged")
+	if _, err := db.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = ?", gone.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if err := (Node{UUID: missing.UUID}).Expunge(db); err != nil {
+		t.Fatal(err)
+	}
+
+	mustSuggest(t, db, &Suggestion{UUID: "s-live", Kind: SuggestComplete, TargetUUID: live.UUID, CreatedOn: 1})
+	mustSuggest(t, db, &Suggestion{UUID: "s-gone", Kind: SuggestEdit, TargetUUID: gone.UUID,
+		Name: "changed", Fields: FieldName, CreatedOn: 2})
+	mustSuggest(t, db, &Suggestion{UUID: "s-missing", Kind: SuggestAdd, TargetUUID: missing.UUID,
+		Name: "child", CreatedOn: 3})
+	mustSuggest(t, db, &Suggestion{UUID: "s-root", Kind: SuggestAdd, TargetUUID: "", Name: "root child", CreatedOn: 4})
+
+	n, err := SweepStaleSuggestions(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, n, 2, "swept count mismatch")
+
+	check := func(uuid, want string) {
+		t.Helper()
+		var got string
+		MustScan(t, "getting status", db.QueryRow("SELECT status FROM suggestions WHERE uuid = ?", uuid), &got)
+		if got != want {
+			t.Fatalf("suggestion %s status = %q, want %q", uuid, got, want)
+		}
+	}
+	check("s-live", SuggestPending)
+	check("s-root", SuggestPending)
+	check("s-gone", SuggestRejected)
+	check("s-missing", SuggestRejected)
+
+	// settled rows carry a resolution time like any rejection
+	var resolved int64
+	MustScan(t, "getting resolved_on", db.QueryRow("SELECT resolved_on FROM suggestions WHERE uuid = 's-gone'"), &resolved)
+	if resolved == 0 {
+		t.Fatal("swept suggestion has no resolved_on")
+	}
+
+	// a second sweep is a no-op
+	n, err = SweepStaleSuggestions(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, n, 0, "second sweep should settle nothing")
+}
+
+func TestTargetGone(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	live := seedNode(t, db, "live", RootUUID, "still here")
+	gone := seedNode(t, db, "gone", RootUUID, "tombstoned")
+	if _, err := db.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = ?", gone.UUID); err != nil {
+		t.Fatal(err)
+	}
+
+	goneEdit := Suggestion{Kind: SuggestEdit, TargetUUID: gone.UUID}
+	if got, err := TargetGone(db, goneEdit); err != nil || !got {
+		t.Fatalf("deleted target gone = %v, %v", got, err)
+	}
+	goneMissing := Suggestion{Kind: SuggestEdit, TargetUUID: "never-existed"}
+	if got, err := TargetGone(db, goneMissing); err != nil || !got {
+		t.Fatalf("missing target gone = %v, %v", got, err)
+	}
+	liveEdit := Suggestion{Kind: SuggestEdit, TargetUUID: live.UUID}
+	if got, err := TargetGone(db, liveEdit); err != nil || got {
+		t.Fatalf("live target gone = %v, %v", got, err)
+	}
+	rootAdd := Suggestion{Kind: SuggestAdd, TargetUUID: ""}
+	if got, err := TargetGone(db, rootAdd); err != nil || got {
+		t.Fatalf("root add target gone = %v, %v", got, err)
 	}
 }
 

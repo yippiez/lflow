@@ -121,6 +121,9 @@ func (m *Model) enterSuggestReview() {
 //
 // Repeated presses walk the queue from wherever the last one left you, wrapping,
 // so the chord triages everything pending without ever going back to the finder.
+// A proposal whose node was deleted meanwhile cannot be reviewed at all — the
+// walk settles it (cleanStaleSuggest) and moves on, so the queue does not keep
+// tripping on the same ghost.
 func (m *Model) gotoSuggestion() {
 	total := m.pendingSuggestCount()
 	if total == 0 {
@@ -149,16 +152,49 @@ func (m *Model) gotoSuggestion() {
 		}
 	}
 
+	cleaned := 0
 	for off := 1; off <= len(order); off++ {
 		target := order[(start+off+len(order))%len(order)]
 		if len(m.suggestsFor(target)) == 0 {
 			continue // settled underneath us between load and now
 		}
 		if m.openSuggestOn(target) {
+			if cleaned > 0 {
+				m.flash = fmt.Sprintf("%s cleaned · reviewing", suggestNoun(cleaned))
+			}
 			return
 		}
+		cleaned += m.cleanStaleSuggest(target)
+	}
+	if cleaned > 0 {
+		m.flash = fmt.Sprintf("%s cleaned · no reviewable suggestions", suggestNoun(cleaned))
+		return
 	}
 	m.flash = fmt.Sprintf("%s · target missing", suggestNoun(total))
+}
+
+// cleanStaleSuggest settles the pending proposals about a target whose node is
+// gone — deleted or expunged — so the walk never dead-ends on the same ghost
+// twice. A target that is merely off-screen is left alone: only a node that no
+// longer exists makes its proposals unreviewable. Returns how many were settled.
+func (m *Model) cleanStaleSuggest(target string) int {
+	if m.db == nil {
+		return 0
+	}
+	n, err := database.GetNode(m.db, target)
+	if err == nil && !n.Deleted {
+		return 0 // the node is alive; openSuggestOn failed for another reason
+	}
+	settled := 0
+	for _, s := range m.suggestsFor(target) {
+		if database.RejectSuggestion(m.db, s) == nil {
+			settled++
+		}
+	}
+	if settled > 0 {
+		m.loadSuggests()
+	}
+	return settled
 }
 
 // openSuggestOn puts the cursor on target and starts review, reopening the

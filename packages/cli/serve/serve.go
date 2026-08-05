@@ -6,6 +6,7 @@
 package serve
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,12 +14,20 @@ import (
 	"github.com/lflow/lflow/packages/cli/infra"
 	"github.com/lflow/lflow/packages/daemon"
 	"github.com/lflow/lflow/packages/daemon/client"
+	"github.com/lflow/lflow/packages/database"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
 // idleExit is how long the background daemon lingers with no clients.
 const idleExit = 10 * time.Minute
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
 
 // NewCmd builds the serve command. It does not take an app.Ctx: the daemon
 // must never route through a daemon, so it resolves the database itself.
@@ -61,6 +70,14 @@ func NewCmd(versionTag string) *cobra.Command {
 			// in every client
 			if err := infra.PrepareDB(store.DB(), versionTag); err != nil {
 				return errors.Wrap(err, "preparing database")
+			}
+
+			// a node that died since the last run leaves its proposals behind:
+			// settle them at boot so the review queue never opens onto ghosts
+			if n, err := database.SweepStaleSuggestions(store.DB()); err != nil {
+				return errors.Wrap(err, "sweeping stale suggestions")
+			} else if n > 0 && !quiet {
+				fmt.Printf("→ settled %d stale suggestion%s\n", n, plural(n))
 			}
 
 			opts := daemon.Options{Sock: sock, Version: versionTag, HTTP: httpAddr, HTTPToken: httpToken}

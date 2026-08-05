@@ -551,6 +551,36 @@ func TestSuggestApproveSkipsDriftedTarget(t *testing.T) {
 	assert.Equal(t, forced, "suggested text", "--force should rewrite the node")
 }
 
+// TestSuggestApproveSkipsZombieTargets: a proposal whose node was deleted can
+// never be applied — a batch approval skips it with a warning instead of
+// aborting the whole queue.
+func TestSuggestApproveSkipsZombieTargets(t *testing.T) {
+	testDir, opts := setupTestEnv(t)
+
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "keeper")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "doomed")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "doomed")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "keeper")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "remove", "doomed", "--force")
+
+	out := cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", "--all")
+	if !strings.Contains(out, "target was deleted") {
+		t.Fatalf("approve --all did not flag the zombie: %q", out)
+	}
+
+	db := database.OpenTestDB(t, testDir)
+	defer db.Close()
+
+	var status string
+	database.MustScan(t, "getting zombie status",
+		db.QueryRow("SELECT status FROM suggestions WHERE kind = 'complete' AND target_uuid IN (SELECT uuid FROM nodes WHERE name = 'doomed')"), &status)
+	assert.Equal(t, status, database.SuggestPending, "a zombie should stay pending, not approve")
+
+	database.MustScan(t, "getting keeper status",
+		db.QueryRow("SELECT status FROM suggestions WHERE kind = 'complete' AND target_uuid IN (SELECT uuid FROM nodes WHERE name = 'keeper')"), &status)
+	assert.Equal(t, status, database.SuggestApproved, "the live suggestion should approve")
+}
+
 // TestSuggestListJSON is the machine-readable face of the review queue.
 func TestSuggestListJSON(t *testing.T) {
 	_, opts := setupTestEnv(t)

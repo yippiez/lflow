@@ -73,7 +73,9 @@ func resolveRef(db *database.DB, ref string) database.Suggestion {
 }
 
 // targetLine renders the node a suggestion is about, chips resolved, for
-// listings and confirmations.
+// listings and confirmations. A target whose node was deleted or expunged
+// since the suggestion was made shows as its short id with a marker instead
+// of the stale text.
 func targetLine(db *database.DB, s database.Suggestion) string {
 	if s.TargetUUID == "" {
 		return "root"
@@ -81,6 +83,9 @@ func targetLine(db *database.DB, s database.Suggestion) string {
 	n, err := database.GetNode(db, s.TargetUUID)
 	if err != nil {
 		return database.ShortID(s.TargetUUID) + " (gone)"
+	}
+	if n.Deleted {
+		return database.ShortID(s.TargetUUID) + " (deleted)"
 	}
 	chips, _ := database.LoadChips(db)
 	return database.DisplayAnchors(n.Name, chips)

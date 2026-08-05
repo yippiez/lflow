@@ -75,6 +75,13 @@ func newReviewRun(ctx app.Ctx, opts *reviewOptions, verdict string) infra.RunEFu
 				continue
 			}
 
+			// a proposal about a node that was deleted can never be applied:
+			// skip it so one zombie does not abort the whole batch
+			if gone, gerr := database.TargetGone(db, s); gerr == nil && gone {
+				log.Warnf("skipped %s · its target was deleted\n", database.ShortID(s.UUID))
+				continue
+			}
+
 			// a stale proposal would silently overwrite a newer edit, so it
 			// stops here unless the reviewer says otherwise
 			if !opts.force {

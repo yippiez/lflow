@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"sort"
 	"strings"
 	"time"
@@ -296,6 +297,44 @@ func settle(db *DB, s Suggestion, status, resultUUID string) error {
 // RejectSuggestion settles a suggestion without touching the outline.
 func RejectSuggestion(db *DB, s Suggestion) error {
 	return settle(db, s, SuggestRejected, "")
+}
+
+// SweepStaleSuggestions settles every pending suggestion whose target node no
+// longer exists or was deleted: approving such a suggestion is impossible, so
+// the review queue must not keep proposing changes to a ghost. The daemon runs
+// it at startup; returns how many suggestions were settled.
+func SweepStaleSuggestions(db *DB) (int, error) {
+	res, err := db.Exec(`UPDATE suggestions SET status = ?, resolved_on = ?, result_uuid = ?
+		WHERE status = ? AND target_uuid != '' AND
+		target_uuid NOT IN (SELECT uuid FROM nodes WHERE deleted = 0)`,
+		SuggestRejected, time.Now().UnixNano(), "", SuggestPending)
+	if err != nil {
+		return 0, errors.Wrap(err, "sweeping stale suggestions")
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, errors.Wrap(err, "counting swept suggestions")
+	}
+	return int(n), nil
+}
+
+// TargetGone reports whether the node a suggestion is about no longer exists
+// or was deleted. Approving such a suggestion is impossible, so a review batch
+// skips it rather than aborting on it.
+func TargetGone(db *DB, s Suggestion) (bool, error) {
+	// an add suggestion with no target means the root, which always exists
+	if s.TargetUUID == "" {
+		return false, nil
+	}
+	var deleted bool
+	err := db.QueryRow("SELECT deleted FROM nodes WHERE uuid = ?", s.TargetUUID).Scan(&deleted)
+	if err == sql.ErrNoRows {
+		return true, nil
+	}
+	if err != nil {
+		return false, errors.Wrapf(err, "checking target %s", ShortID(s.TargetUUID))
+	}
+	return deleted, nil
 }
 
 // ApplySuggestion approves a suggestion and writes it to the outline in one

@@ -118,6 +118,10 @@ func showEdit(db *database.DB, s database.Suggestion) {
 		fmt.Println(red.Sprint("  → the target node is gone"))
 		return
 	}
+	if n.Deleted {
+		fmt.Println(red.Sprint("  → the target node was deleted"))
+		return
+	}
 
 	pairs := []struct{ label, current, proposed string }{}
 	if s.Proposes(database.FieldName) {

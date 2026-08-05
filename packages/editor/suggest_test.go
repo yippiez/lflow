@@ -249,6 +249,74 @@ func TestGotoSuggestionChordFromReview(t *testing.T) {
 	}
 }
 
+// TestGotoSuggestionCleansZombieTargets: a proposal whose node was deleted is
+// not just skipped — the walk settles it so the queue never trips on the same
+// ghost again, then moves on to the next reviewable target.
+func TestGotoSuggestionCleansZombieTargets(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	if _, err := db.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = 'b1'"); err != nil {
+		t.Fatal(err)
+	}
+	m.loadSuggests()
+	if m.pendingSuggestCount() != 2 {
+		t.Fatalf("queue size = %d", m.pendingSuggestCount())
+	}
+
+	m.gotoSuggestion()
+
+	// the deleted target was cleaned, the walk landed on the live one
+	if m.suggestUUID != "b2" {
+		t.Fatalf("walk landed on %q, want b2 (flash %q)", m.suggestUUID, m.flash)
+	}
+	if cur := m.cursorItem(); cur == nil || cur.uuid != "b2" {
+		t.Fatalf("cursor did not land on b2: %+v", cur)
+	}
+	if m.pendingSuggestCount() != 1 {
+		t.Fatalf("queue size after cleanup = %d, want 1", m.pendingSuggestCount())
+	}
+	var status string
+	database.MustScan(t, "checking cleaned status",
+		db.QueryRow("SELECT status FROM suggestions WHERE uuid = 's1'"), &status)
+	if status != database.SuggestRejected {
+		t.Fatalf("cleaned suggestion status = %q, want rejected", status)
+	}
+	database.MustScan(t, "checking surviving status",
+		db.QueryRow("SELECT status FROM suggestions WHERE uuid = 's2'"), &status)
+	if status != database.SuggestPending {
+		t.Fatalf("live suggestion status = %q, want pending", status)
+	}
+}
+
+// TestGotoSuggestionCleansAllWhenEverythingIsZombie: a queue of nothing but
+// ghosts settles it all and reports the cleanup instead of dead-ending.
+func TestGotoSuggestionCleansAllWhenEverythingIsZombie(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	if _, err := db.Exec("UPDATE nodes SET deleted = 1"); err != nil {
+		t.Fatal(err)
+	}
+	m.loadSuggests()
+
+	m.gotoSuggestion()
+
+	if m.mode == modeSuggest {
+		t.Fatalf("review opened on a ghost: %q", m.suggestUUID)
+	}
+	if m.pendingSuggestCount() != 0 {
+		t.Fatalf("queue size = %d, want 0", m.pendingSuggestCount())
+	}
+	if !strings.Contains(m.flash, "cleaned") {
+		t.Fatalf("flash = %q, want a cleaned report", m.flash)
+	}
+}
+
 func equalStrs(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
