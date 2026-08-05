@@ -37,7 +37,7 @@ var PythonSpec = LangSpec{
 // first-class nodes, everything else is a python statement node, nesting by
 // indentation. Rendering re-indents to 4 spaces per level — a first save
 // normalizes, after which parse→render round-trips byte-identically. Blank
-// lines are empty nodes under the previous line, so spacing survives.
+// lines are empty spacer nodes under the previous line, so spacing survives.
 type pythonCodec struct{}
 
 func init() { fileCodecs = append(fileCodecs, pythonCodec{}) }
@@ -93,7 +93,7 @@ func (pythonCodec) Parse(src string) ([]*SrcNode, error) {
 		if trimmed == "" {
 			// blank: an empty node under the previous line, renders back in
 			// place ("" at any depth) without ending the block
-			stack[len(stack)-1].n.Kid(&SrcNode{Type: database.TypePython})
+			stack[len(stack)-1].n.Kid(&SrcNode{Type: database.TypeEmpty})
 			continue
 		}
 		for len(stack) > 1 && stack[len(stack)-1].indent >= w {

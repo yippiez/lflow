@@ -160,6 +160,26 @@ func TestMarkdownForeignTypeMarker(t *testing.T) {
 	}
 }
 
+// TestMarkdownEmptyRendersBlank: a TypeEmpty node serializes as a plain blank
+// line, never an "<!-- lflow empty: -->" marker comment. Parse still drops
+// bare blanks — they are markdown's structural separators — so the node is
+// ephemeral across a save/reopen.
+func TestMarkdownEmptyRendersBlank(t *testing.T) {
+	out, err := (markdownCodec{}).Render([]*SrcNode{
+		{Type: database.TypeEmpty},
+		{Type: database.TypeText, Text: "hi"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "\nhi\n" {
+		t.Fatalf("got %q", out)
+	}
+	if strings.Contains(out, "lflow") {
+		t.Fatalf("marker leaked: %q", out)
+	}
+}
+
 // TestMarkdownNLPCompute: instruction comment + generated code beneath.
 func TestMarkdownNLPCompute(t *testing.T) {
 	out, err := (markdownCodec{}).Render([]*SrcNode{{
@@ -274,6 +294,35 @@ func TestPythonTodoAndFallback(t *testing.T) {
 	}
 }
 
+// TestPythonBlanksAreEmpty: a blank line is an empty spacer node — not an
+// empty statement row, which would draw a bare bullet in the editor.
+func TestPythonBlanksAreEmpty(t *testing.T) {
+	doc, err := (pythonCodec{}).Parse("a = 1\n\nb = 2\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc) != 2 || len(doc[0].Kids) != 1 || doc[0].Kids[0].Type != database.TypeEmpty {
+		t.Fatalf("blank: %+v", doc)
+	}
+	roundTrip(t, pythonCodec{}, "a = 1\n\nb = 2\n", "a = 1\n\nb = 2\n")
+}
+
+// TestPythonEmptyNodeRendersBlank: a TypeEmpty node serializes as a bare
+// blank line, not a "# lflow empty:" marker comment.
+func TestPythonEmptyNodeRendersBlank(t *testing.T) {
+	out, err := (pythonCodec{}).Render([]*SrcNode{
+		{Type: database.TypePython, Text: "x = 1"},
+		{Type: database.TypeEmpty},
+		{Type: database.TypePython, Text: "y = 2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "x = 1\n\ny = 2\n" {
+		t.Fatalf("got %q", out)
+	}
+}
+
 // ── rust ────────────────────────────────────────────────────────────────────
 
 // TestRustRoundTrip: braces regenerate from structure.
@@ -324,6 +373,19 @@ func TestRustConstructNodes(t *testing.T) {
 // TestRustEmptyBlock: a childless block keeps its braces via the Note marker.
 func TestRustEmptyBlock(t *testing.T) {
 	roundTrip(t, rustCodec{}, "fn noop() {\n}\n", "fn noop() {\n}\n")
+}
+
+// TestRustBlanksAreEmpty: a blank line is an empty spacer node, not an empty
+// statement row (which would draw a bare bullet in the editor).
+func TestRustBlanksAreEmpty(t *testing.T) {
+	doc, err := (rustCodec{}).Parse("use std::fmt;\n\nfn main() {\n}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc) != 3 || doc[1].Type != database.TypeEmpty {
+		t.Fatalf("blank: %+v", doc)
+	}
+	roundTrip(t, rustCodec{}, "use std::fmt;\n\nfn main() {\n}\n", "use std::fmt;\n\nfn main() {\n}\n")
 }
 
 // TestRustMathPow: ^ becomes .powf, π its constant.

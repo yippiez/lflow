@@ -119,7 +119,7 @@ func (rustCodec) Parse(src string) ([]*SrcNode, error) {
 		if trimmed == "" {
 			// blank: attaches inside the open block, in order — never under a
 			// plain statement, which would read as a block on render
-			stack[len(stack)-1].Kid(&SrcNode{Type: database.TypeRust})
+			stack[len(stack)-1].Kid(&SrcNode{Type: database.TypeEmpty})
 			continue
 		}
 		if rustUnterminatedRawString(trimmed) {

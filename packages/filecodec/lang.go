@@ -31,7 +31,8 @@ type LangSpec struct {
 // codeAllowed is the node-type set every code language accepts.
 func codeAllowed(stmtType string) map[string]bool {
 	return allowed(stmtType, database.TypeFn, database.TypeClass, database.TypeComment,
-		database.TypeTodo, database.TypeMath, database.TypeNLPCompute, database.TypeCode)
+		database.TypeTodo, database.TypeMath, database.TypeNLPCompute, database.TypeCode,
+		database.TypeEmpty)
 }
 
 // fallbackMarker is the comment form that carries a foreign node type through
@@ -116,6 +117,10 @@ func RenderCode(doc []*SrcNode, spec LangSpec) (string, error) {
 			for _, l := range strings.Split(n.Text, "\n") {
 				emit(depth, l)
 			}
+		case database.TypeEmpty:
+			// a blank line, at any depth — the spacer's position survives
+			emit(depth, "")
+			kids(n, depth+1)
 		default:
 			// foreign type: carried as a marker comment, restored on parse
 			emit(depth, spec.commentLead+fallbackLead+n.Type+": "+text)

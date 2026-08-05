@@ -342,6 +342,14 @@ func (markdownCodec) Render(doc []*SrcNode) (string, error) {
 			for _, c := range n.Kids {
 				renderBlock(c)
 			}
+		case database.TypeEmpty:
+			// the spacer renders as a blank line, never a marker comment; parse
+			// drops bare blanks (they are markdown's structural separators), so
+			// the node itself is ephemeral across a save/reopen
+			out = append(out, "")
+			for _, c := range n.Kids {
+				renderBlock(c)
+			}
 		case database.TypeBullets, database.TypeTodo:
 			renderList(n, 0)
 		case database.TypeFn:
