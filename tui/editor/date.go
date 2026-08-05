@@ -1,0 +1,209 @@
+package editor
+
+import (
+	"regexp"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/lflow/lflow/tui/database"
+	"github.com/lflow/lflow/tui/utils"
+)
+
+// dateMatch is a natural-language time phrase found in a row: "now",
+// "bugün", "11 şubat 2025 saat 15:20", "2025-02-11", "11/02/2025 9:30".
+// ctrl+t replaces the phrase with its canonical YYYY-MM-DD[ HH:MM] form, which
+// the renderer then recognises by format and paints as a date chip — no
+// brackets or markers are stored.
+type dateMatch struct {
+	start, end int // rune offsets of the phrase in the name
+	t          time.Time
+	hasTime    bool
+	phrase     string
+}
+
+// canonical renders the canonical date text the phrase converts into. It is
+// bare — the chip styling comes from render detecting this format, not from any
+// stored marker.
+func (d dateMatch) canonical() string {
+	if d.hasTime {
+		return d.t.Format("2006-01-02 15:04")
+	}
+	return d.t.Format("2006-01-02")
+}
+
+// detectDateSpans returns the rune ranges [start,end) of every canonical date in
+// the name — a valid YYYY-MM-DD optionally followed by HH:MM, standing on its
+// own word boundary. The renderer chips these regardless of the node's color.
+// The detection lives in tui/database, shared with the CLI's chipify.
+func detectDateSpans(name string) [][2]int { return database.DateSpans(name) }
+
+var monthsByName = map[string]time.Month{
+	"ocak": time.January, "şubat": time.February, "mart": time.March,
+	"nisan": time.April, "mayıs": time.May, "haziran": time.June,
+	"temmuz": time.July, "ağustos": time.August, "eylül": time.September,
+	"ekim": time.October, "kasım": time.November, "aralık": time.December,
+	"january": time.January, "february": time.February, "march": time.March,
+	"april": time.April, "may": time.May, "june": time.June,
+	"july": time.July, "august": time.August, "september": time.September,
+	"october": time.October, "november": time.November, "december": time.December,
+}
+
+const monthAlternation = `ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık|` +
+	`january|february|march|april|may|june|july|august|september|october|november|december`
+
+// monthLookup folds the matched month name with both the english and the
+// turkish casing rules: MAYIS lowers to mayıs, APRIL must not become aprıl.
+func monthLookup(s string) (time.Month, bool) {
+	if m, ok := monthsByName[strings.ToLower(s)]; ok {
+		return m, true
+	}
+	if m, ok := monthsByName[strings.ToLowerSpecial(unicode.TurkishCase, s)]; ok {
+		return m, true
+	}
+	return 0, false
+}
+
+// optional clock suffix: "saat 15:20", "at 15:20", "15.20"
+const clockSuffix = `(?:\s+(?:saat\s+|at\s+)?(\d{1,2})[:.](\d{2}))?`
+
+// reISO lives in tui/database (shared with chipify); the relative and named
+// formats stay here since only the editor's ctrl+t resolves natural language.
+var reISO = database.ReISO
+
+var (
+	reRelative = regexp.MustCompile(`(?i)(now|şimdi|today|bugün|tomorrow|yarın|yesterday|dün)`)
+	reNamed    = regexp.MustCompile(`(?i)(\d{1,2})\s+(` + monthAlternation + `)\s+(\d{4})` + clockSuffix)
+	reNumeric  = regexp.MustCompile(`(\d{1,2})[./](\d{1,2})[./](\d{4})` + clockSuffix)
+)
+
+// wordBound, atoi and buildDate live in tui/database; these aliases keep the
+// editor's date engine readable.
+func wordBound(s string, start, end int) bool { return utils.WordBound(s, start, end) }
+func atoi(s string) int                       { return utils.Atoi(s) }
+func buildDate(year, month, day, hour, min int, loc *time.Location) (time.Time, bool) {
+	return database.BuildDate(year, month, day, hour, min, loc)
+}
+
+// detectDate finds the convertible time phrase to act on: the one whose
+// span contains caret, else the one nearest caret. caret is a rune offset.
+// This keeps the bottom-bar hint and the ctrl+t conversion acting where the
+// user is editing instead of always grabbing the leftmost match.
+func detectDate(name string, caret int, now time.Time) *dateMatch {
+	return pickByCaret(detectAllDates(name, now), caret)
+}
+
+// detectAllDates returns every time phrase in name — relative words and the
+// three absolute formats — each with its resolved time.Time. It is the shared
+// scanner behind ctrl+t (which picks the one nearest the caret) and the time
+// query filter (which considers them all).
+func detectAllDates(name string, now time.Time) []*dateMatch {
+	var matches []*dateMatch
+	matches = append(matches, detectRelative(name, now)...)
+	matches = append(matches, detectPattern(name, reNamed, func(g []string) (time.Time, bool, bool) {
+		month, ok := monthLookup(g[2])
+		if !ok {
+			return time.Time{}, false, false
+		}
+		hasTime := g[4] != ""
+		t, ok := buildDate(atoi(g[3]), int(month), atoi(g[1]), atoi(g[4]), atoi(g[5]), now.Location())
+		return t, hasTime, ok
+	})...)
+	matches = append(matches, detectPattern(name, reISO, func(g []string) (time.Time, bool, bool) {
+		hasTime := g[4] != ""
+		t, ok := buildDate(atoi(g[1]), atoi(g[2]), atoi(g[3]), atoi(g[4]), atoi(g[5]), now.Location())
+		return t, hasTime, ok
+	})...)
+	matches = append(matches, detectPattern(name, reNumeric, func(g []string) (time.Time, bool, bool) {
+		hasTime := g[4] != ""
+		t, ok := buildDate(atoi(g[3]), atoi(g[2]), atoi(g[1]), atoi(g[4]), atoi(g[5]), now.Location())
+		return t, hasTime, ok
+	})...)
+	return matches
+}
+
+// pickByCaret chooses the phrase containing caret, else the one whose span is
+// nearest it; ties resolve to the leftmost. caret is a rune offset.
+func pickByCaret(matches []*dateMatch, caret int) *dateMatch {
+	var best *dateMatch
+	bestDist := -1
+	for _, d := range matches {
+		if d == nil {
+			continue
+		}
+		dist := 0
+		if caret < d.start {
+			dist = d.start - caret
+		} else if caret > d.end {
+			dist = caret - d.end
+		}
+		if best == nil || dist < bestDist || (dist == bestDist && d.start < best.start) {
+			best, bestDist = d, dist
+		}
+	}
+	return best
+}
+
+// detectRelative finds the day words: now, bugün, tomorrow, dün...
+func detectRelative(name string, now time.Time) []*dateMatch {
+	var out []*dateMatch
+	for _, loc := range reRelative.FindAllStringIndex(name, -1) {
+		if !wordBound(name, loc[0], loc[1]) {
+			continue
+		}
+		word := strings.ToLowerSpecial(unicode.TurkishCase, name[loc[0]:loc[1]])
+		midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		var t time.Time
+		hasTime := false
+		switch word {
+		case "now", "şimdi":
+			t, hasTime = now, true
+		case "today", "bugün":
+			t = midnight
+		case "tomorrow", "yarın":
+			t = midnight.AddDate(0, 0, 1)
+		case "yesterday", "dün":
+			t = midnight.AddDate(0, 0, -1)
+		default:
+			continue
+		}
+		out = append(out, &dateMatch{
+			start:   utf8.RuneCountInString(name[:loc[0]]),
+			end:     utf8.RuneCountInString(name[:loc[1]]),
+			t:       t,
+			hasTime: hasTime,
+			phrase:  name[loc[0]:loc[1]],
+		})
+	}
+	return out
+}
+
+// detectPattern runs one absolute-date regexp and converts every hit
+// whose boundaries and calendar parts hold up.
+func detectPattern(name string, re *regexp.Regexp, build func(groups []string) (time.Time, bool, bool)) []*dateMatch {
+	var out []*dateMatch
+	for _, loc := range re.FindAllStringSubmatchIndex(name, -1) {
+		if !wordBound(name, loc[0], loc[1]) {
+			continue
+		}
+		groups := make([]string, re.NumSubexp()+1)
+		for g := 0; g <= re.NumSubexp(); g++ {
+			if loc[2*g] >= 0 {
+				groups[g] = name[loc[2*g]:loc[2*g+1]]
+			}
+		}
+		t, hasTime, ok := build(groups)
+		if !ok {
+			continue
+		}
+		out = append(out, &dateMatch{
+			start:   utf8.RuneCountInString(name[:loc[0]]),
+			end:     utf8.RuneCountInString(name[:loc[1]]),
+			t:       t,
+			hasTime: hasTime,
+			phrase:  name[loc[0]:loc[1]],
+		})
+	}
+	return out
+}

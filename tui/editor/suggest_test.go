@@ -1,0 +1,732 @@
+package editor
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/lflow/lflow/tui/database"
+	"github.com/lflow/lflow/tui/runtime"
+)
+
+// suggestModel builds a db-backed model over one node, with the node also
+// present in the tree so the review surface has something to hang from.
+func suggestModel(t *testing.T, name string) (*Model, *database.DB, *item) {
+	t.Helper()
+	db := database.InitTestMemoryDB(t)
+	if err := database.EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(80, name)
+	m.db = db
+	cur := m.tree.root.children[0]
+	cur.uuid = "n1"
+	m.tree.byUUID[cur.uuid] = cur
+	if err := (database.Node{UUID: cur.uuid, ParentUUID: database.RootUUID, Name: name,
+		Type: database.TypeBullets}).Insert(db); err != nil {
+		t.Fatal(err)
+	}
+	m.tree.root.uuid = database.RootUUID
+	m.cursor = m.rowIndexOf(cur)
+	return m, db, cur
+}
+
+func fileSuggestion(t *testing.T, db *database.DB, s database.Suggestion) database.Suggestion {
+	t.Helper()
+	if err := s.Insert(db); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// TestDeletingANodeSettlesItsSuggestions: deleting the node a proposal is about
+// settles the proposal in the same save. Otherwise the queue counts a node that
+// is not on screen and cannot be reviewed, and alt+g s walks onto a ghost for
+// the rest of the session — the boot sweep is too late to help.
+func TestDeletingANodeSettlesItsSuggestions(t *testing.T) {
+	m, db, cur := suggestModel(t, "doomed")
+	// the helper wires the db onto the Model but not the tree, and leaves the
+	// item flagged new; a node loaded from the DB is neither, and only a tree
+	// with a db and a non-new item tombstones anything on save
+	m.tree.db = db
+	cur.isNew = false
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "renamed", Fields: database.FieldName, BaseName: "doomed"})
+	m.loadSuggests()
+	if got := m.pendingSuggestCount(); got != 1 {
+		t.Fatalf("queue size before delete = %d, want 1", got)
+	}
+
+	m.deleteNode(cur)
+	if _, err := m.saveAll(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := m.pendingSuggestCount(); got != 0 {
+		t.Fatalf("queue still holds %d proposal(s) about the deleted node", got)
+	}
+	var status string
+	database.MustScan(t, "getting status",
+		db.QueryRow("SELECT status FROM suggestions WHERE target_uuid = ?", cur.uuid), &status)
+	if status != database.SuggestRejected {
+		t.Fatalf("suggestion status = %q, want %q", status, database.SuggestRejected)
+	}
+
+	// and the walk has nowhere to get stuck
+	m.gotoSuggestion()
+	if m.mode == modeSuggest {
+		t.Fatal("review opened on a deleted node")
+	}
+	if !strings.Contains(m.flash, "no suggestions") {
+		t.Fatalf("flash = %q, want it to report an empty queue", m.flash)
+	}
+}
+
+// TestSuggestShowsInlineOnTheNode: an arriving proposal reads on the node's own
+// row — a yellow arrow and the text it proposes — and it has changed nothing.
+func TestSuggestShowsInlineOnTheNode(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing",
+		Author: "agent"})
+	m.loadSuggests()
+
+	inline := m.suggestInline(cur)
+	if !strings.Contains(inline, "→ ship the other thing") {
+		t.Fatalf("row did not carry the proposal: %q", inline)
+	}
+	if !strings.Contains(inline, cYellow) {
+		t.Fatalf("the proposal is not yellow: %q", inline)
+	}
+	glyph, color := m.suggestGlyph(cur, glyphTodo, cDim)
+	if glyph != glyphSuggest || color != cYellow {
+		t.Fatalf("node glyph = %q/%q, want a yellow outline circle", glyph, color)
+	}
+	// nothing hangs under the node until review opens on it
+	if band := m.suggestBandLines(m.rows[m.cursor], false, 80); band != nil {
+		t.Fatalf("an unreviewed proposal drew a band: %#v", band)
+	}
+	if cur.name != "ship the thing" {
+		t.Fatalf("a pending proposal changed the node: %q", cur.name)
+	}
+	if got := m.pendingSuggestCount(); got != 1 {
+		t.Fatalf("pending count = %d", got)
+	}
+}
+
+// TestSuggestInlineCountsTheRest: several proposals on one node still read as
+// one row — the first, then how many more wait behind it.
+func TestSuggestInlineCountsTheRest(t *testing.T) {
+	m, db, cur := suggestModel(t, "inbox")
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "first idea", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "second idea", CreatedOn: 2})
+	m.loadSuggests()
+
+	inline := m.suggestInline(cur)
+	if !strings.Contains(inline, "→ + first idea") {
+		t.Fatalf("inline missed the first proposal: %q", inline)
+	}
+	if !strings.Contains(inline, "+1") {
+		t.Fatalf("inline did not count the rest: %q", inline)
+	}
+}
+
+func TestGotoSuggestionCommandAndChord(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestComplete, TargetUUID: cur.uuid})
+	m.loadSuggests()
+
+	m.press("alt+g")
+	if !m.gotoPending {
+		t.Fatal("alt+g off a link should wait for the goto subkey")
+	}
+	m.press("s")
+	if m.mode != modeSuggest || m.suggestUUID != cur.uuid {
+		t.Fatalf("alt+g s did not jump to review: mode=%v uuid=%q", m.mode, m.suggestUUID)
+	}
+	m.press("esc")
+	m.press("alt+g")
+	m.press("g")
+	if m.mode != modeFinder || m.finder.act != actGoto {
+		t.Fatalf("alt+g g did not open goto: mode=%v action=%v", m.mode, m.finder.act)
+	}
+
+	hasNew, hasOld := false, false
+	for _, c := range slashCommands {
+		hasNew = hasNew || c.name == "/goto:suggestion"
+		hasOld = hasOld || c.name == "/suggestions"
+	}
+	if !hasNew || hasOld {
+		t.Fatalf("suggestion commands: new=%v old=%v", hasNew, hasOld)
+	}
+}
+
+// TestGotoChordWithAltHeld: nobody lets go of Alt between the two keys of a
+// chord pressed that fast, so the leader accepts the second key either way.
+func TestGotoChordWithAltHeld(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestComplete, TargetUUID: cur.uuid})
+	m.loadSuggests()
+
+	m.press("alt+g")
+	m.press("alt+s")
+	if m.mode != modeSuggest || m.suggestUUID != cur.uuid {
+		t.Fatalf("alt+g alt+s did not jump to review: mode=%v uuid=%q", m.mode, m.suggestUUID)
+	}
+	m.press("esc")
+	m.press("alt+g")
+	m.press("alt+g")
+	if m.mode != modeFinder || m.finder.act != actGoto {
+		t.Fatalf("alt+g alt+g did not open goto: mode=%v action=%v", m.mode, m.finder.act)
+	}
+	// the held-Alt second key must not leave the leader armed for a third
+	if m.gotoPending {
+		t.Fatal("the goto leader stayed armed after alt+g alt+g")
+	}
+}
+
+// forestModel builds a db-backed model over a two-branch forest and opens the
+// view on one branch, so the other branch's nodes are not loaded at all — the
+// shape that used to dead-end goto-suggestion with "none in this view".
+func forestModel(t *testing.T) (*Model, *database.DB) {
+	t.Helper()
+	db := database.InitTestMemoryDB(t)
+	if err := database.EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []database.Node{
+		{UUID: "a", ParentUUID: database.RootUUID, Name: "branch a", Rank: 0},
+		{UUID: "a1", ParentUUID: "a", Name: "here", Rank: 0},
+		{UUID: "b", ParentUUID: database.RootUUID, Name: "branch b", Rank: 1},
+		{UUID: "b1", ParentUUID: "b", Name: "over there", Rank: 0},
+		{UUID: "b2", ParentUUID: "b", Name: "also over there", Rank: 1},
+	} {
+		n.Type = database.TypeBullets
+		if err := n.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tr, err := loadTree(db, "a") // the view is branch a; branch b is off-tree
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Model{db: db, ctx: runtime.Ctx{DB: db}, tree: tr,
+		viewStack: []*item{tr.root}, width: 80, height: 24,
+		chips: map[string]database.Chip{}}
+	m.refreshRows()
+	return m, db
+}
+
+// TestGotoSuggestionReachesOffViewTargets: the queue is global, so a proposal
+// filed against a node outside the loaded view reopens the outline at that
+// node's PARENT — the target has to be a row for review to hang off it.
+func TestGotoSuggestionReachesOffViewTargets(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestEdit,
+		TargetUUID: "b1", Name: "renamed", Fields: database.FieldName, CreatedOn: 1})
+	m.loadSuggests()
+
+	if m.rowIndexOfUUID("b1") >= 0 {
+		t.Fatal("b1 should not be on screen before the jump")
+	}
+	m.gotoSuggestion()
+
+	if m.tree.root.uuid != "b" {
+		t.Fatalf("view root = %q, want the target's parent b", m.tree.root.uuid)
+	}
+	if m.mode != modeSuggest || m.suggestUUID != "b1" {
+		t.Fatalf("review did not open on b1: mode=%v uuid=%q flash=%q", m.mode, m.suggestUUID, m.flash)
+	}
+	if cur := m.cursorItem(); cur == nil || cur.uuid != "b1" {
+		t.Fatalf("cursor did not land on the target: %+v", cur)
+	}
+}
+
+// TestGotoSuggestionWalksTheQueue: the first target is the oldest one filed —
+// deterministically, not whatever the map iterated first — and repeated presses
+// walk the rest of the queue and wrap.
+func TestGotoSuggestionWalksTheQueue(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s3", Kind: database.SuggestComplete,
+		TargetUUID: "a1", CreatedOn: 3})
+	m.loadSuggests()
+
+	if want := []string{"b1", "b2", "a1"}; !equalStrs(m.suggestOrder, want) {
+		t.Fatalf("queue order = %v, want %v", m.suggestOrder, want)
+	}
+	for _, want := range []string{"b1", "b2", "a1", "b1"} { // wraps back around
+		m.gotoSuggestion()
+		if m.suggestUUID != want {
+			t.Fatalf("walk landed on %q, want %q (flash %q)", m.suggestUUID, want, m.flash)
+		}
+		if cur := m.cursorItem(); cur == nil || cur.uuid != want {
+			t.Fatalf("cursor did not follow the walk to %q: %+v", want, cur)
+		}
+	}
+}
+
+// TestGotoSuggestionChordFromReview: alt+g s hops straight from one proposal to
+// the next without an esc in between — review mode arms the leader itself.
+func TestGotoSuggestionChordFromReview(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	m.loadSuggests()
+
+	m.press("alt+g")
+	m.press("s")
+	if m.suggestUUID != "b1" {
+		t.Fatalf("first hop = %q, want b1", m.suggestUUID)
+	}
+	m.press("alt+g")
+	m.press("s")
+	if m.mode != modeSuggest || m.suggestUUID != "b2" {
+		t.Fatalf("second hop from review = %q mode=%v, want b2 in review", m.suggestUUID, m.mode)
+	}
+}
+
+// TestGotoSuggestionCleansZombieTargets: a proposal whose node was deleted is
+// not just skipped — the walk settles it so the queue never trips on the same
+// ghost again, then moves on to the next reviewable target.
+func TestGotoSuggestionCleansZombieTargets(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	if _, err := db.Exec("UPDATE nodes SET deleted = 1 WHERE uuid = 'b1'"); err != nil {
+		t.Fatal(err)
+	}
+	m.loadSuggests()
+	if m.pendingSuggestCount() != 2 {
+		t.Fatalf("queue size = %d", m.pendingSuggestCount())
+	}
+
+	m.gotoSuggestion()
+
+	// the deleted target was cleaned, the walk landed on the live one
+	if m.suggestUUID != "b2" {
+		t.Fatalf("walk landed on %q, want b2 (flash %q)", m.suggestUUID, m.flash)
+	}
+	if cur := m.cursorItem(); cur == nil || cur.uuid != "b2" {
+		t.Fatalf("cursor did not land on b2: %+v", cur)
+	}
+	if m.pendingSuggestCount() != 1 {
+		t.Fatalf("queue size after cleanup = %d, want 1", m.pendingSuggestCount())
+	}
+	var status string
+	database.MustScan(t, "checking cleaned status",
+		db.QueryRow("SELECT status FROM suggestions WHERE uuid = 's1'"), &status)
+	if status != database.SuggestRejected {
+		t.Fatalf("cleaned suggestion status = %q, want rejected", status)
+	}
+	database.MustScan(t, "checking surviving status",
+		db.QueryRow("SELECT status FROM suggestions WHERE uuid = 's2'"), &status)
+	if status != database.SuggestPending {
+		t.Fatalf("live suggestion status = %q, want pending", status)
+	}
+}
+
+// TestGotoSuggestionCleansAllWhenEverythingIsZombie: a queue of nothing but
+// ghosts settles it all and reports the cleanup instead of dead-ending.
+func TestGotoSuggestionCleansAllWhenEverythingIsZombie(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	if _, err := db.Exec("UPDATE nodes SET deleted = 1"); err != nil {
+		t.Fatal(err)
+	}
+	m.loadSuggests()
+
+	m.gotoSuggestion()
+
+	if m.mode == modeSuggest {
+		t.Fatalf("review opened on a ghost: %q", m.suggestUUID)
+	}
+	if m.pendingSuggestCount() != 0 {
+		t.Fatalf("queue size = %d, want 0", m.pendingSuggestCount())
+	}
+	if !strings.Contains(m.flash, "cleaned") {
+		t.Fatalf("flash = %q, want a cleaned report", m.flash)
+	}
+}
+
+func equalStrs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestSuggestShowsOnBlockFacedTypes: a Code node's row IS its block, so the
+// proposal hangs as a line under the block instead of a row suffix. Every other
+// type gets it through the shared row suffix.
+func TestSuggestShowsOnBlockFacedTypes(t *testing.T) {
+	for _, typ := range []string{database.TypeCode, database.TypeNLPCompute} {
+		t.Run(typ, func(t *testing.T) {
+			m, db, cur := suggestModel(t, "func main() {}")
+			cur.typ = typ
+			if _, err := db.Exec("UPDATE nodes SET type = ? WHERE uuid = ?", typ, cur.uuid); err != nil {
+				t.Fatal(err)
+			}
+			m.refreshRows()
+			fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit,
+				TargetUUID: cur.uuid, Name: "func main() { run() }", Fields: database.FieldName,
+				BaseName: "func main() {}", Author: "agent"})
+			m.loadSuggests()
+
+			lines := strings.Join(m.suggestBlockLines(m.rows[m.cursor], false, 80), "\n")
+			if !strings.Contains(lines, "→ func main() { run() }") {
+				t.Fatalf("%s block carried no proposal: %q", typ, lines)
+			}
+			glyph, color := m.suggestGlyph(cur, glyphOpen, cDim)
+			if glyph != glyphSuggest || color != cYellow {
+				t.Fatalf("%s glyph = %q/%q, want a yellow outline circle", typ, glyph, color)
+			}
+		})
+	}
+}
+
+// TestSuggestShowsOnTableAndOtherRowTypes: every row-shaped type carries the
+// proposal through the same suffix, so a table or a heading reads like a bullet.
+func TestSuggestShowsOnTableAndOtherRowTypes(t *testing.T) {
+	for _, typ := range []string{database.TypeTable, database.TypeH1, database.TypeTodo,
+		database.TypeQuery, database.TypeMath, database.TypeJSON} {
+		t.Run(typ, func(t *testing.T) {
+			m, db, cur := suggestModel(t, "quarter plan")
+			cur.typ = typ
+			if _, err := db.Exec("UPDATE nodes SET type = ? WHERE uuid = ?", typ, cur.uuid); err != nil {
+				t.Fatal(err)
+			}
+			m.refreshRows()
+			fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestAdd,
+				TargetUUID: cur.uuid, Name: "add a risks column", Author: "agent"})
+			m.loadSuggests()
+
+			if inline := m.suggestInline(cur); !strings.Contains(inline, "→ + add a risks column") {
+				t.Fatalf("%s row carried no proposal: %q", typ, inline)
+			}
+		})
+	}
+}
+
+// TestSuggestReviewApprovesEdit: alt+v then y applies the proposal to the node.
+func TestSuggestReviewApprovesEdit(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	s := fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing",
+		Message: "clearer", Author: "agent"})
+	m.loadSuggests()
+
+	m.press("alt+v")
+	if m.mode != modeSuggest {
+		t.Fatalf("alt+v did not open review: mode = %v", m.mode)
+	}
+	band := strings.Join(m.suggestBandLines(m.rows[m.cursor], false, 80), "\n")
+	for _, want := range []string{"clearer", "ship the thing", "ship the other thing", "approve", "reject"} {
+		if !strings.Contains(band, want) {
+			t.Fatalf("review band missing %q: %q", want, band)
+		}
+	}
+
+	m.press("y")
+
+	stored, err := database.GetSuggestion(db, s.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != database.SuggestApproved {
+		t.Fatalf("status = %q", stored.Status)
+	}
+	n, err := database.GetNode(db, cur.uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Name != "ship the other thing" {
+		t.Fatalf("approved edit did not reach the node: %q", n.Name)
+	}
+	if m.mode != modeOutline {
+		t.Fatalf("review stayed open after the last proposal: mode = %v", m.mode)
+	}
+	if m.pendingSuggestCount() != 0 {
+		t.Fatal("approved proposal is still queued")
+	}
+	// the reloaded tree shows the applied text
+	if got := m.tree.byUUID[cur.uuid]; got == nil || got.name != "ship the other thing" {
+		t.Fatalf("tree did not pick up the approval: %+v", got)
+	}
+}
+
+func TestSuggestReviewMakesCompletionStateExplicit(t *testing.T) {
+	m, db, cur := suggestModel(t, "copy selected nodes")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestComplete, TargetUUID: cur.uuid,
+		Message: "implemented", Author: "agent"})
+	m.loadSuggests()
+
+	m.press("alt+v")
+	band := stripSGR(strings.Join(m.suggestBandLines(m.rows[m.cursor], false, 120), "\n"))
+	for _, want := range []string{
+		"suggested by agent · mark complete · implemented",
+		"- state: open",
+		"+ state: complete",
+		"y approve (marks complete)",
+	} {
+		if !strings.Contains(band, want) {
+			t.Fatalf("completion review does not explain %q:\n%s", want, band)
+		}
+	}
+
+	m.press("y")
+	n, err := database.GetNode(db, cur.uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.CompletedAt == 0 {
+		t.Fatal("approving the displayed state diff did not complete the node")
+	}
+}
+
+// TestSuggestReviewRejectLeavesNode: n settles the proposal and the node is
+// untouched.
+func TestSuggestReviewRejectLeavesNode(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	s := fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing"})
+	m.loadSuggests()
+
+	m.press("alt+v")
+	m.press("n")
+
+	stored, err := database.GetSuggestion(db, s.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != database.SuggestRejected {
+		t.Fatalf("status = %q", stored.Status)
+	}
+	n, err := database.GetNode(db, cur.uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Name != "ship the thing" {
+		t.Fatalf("reject changed the node: %q", n.Name)
+	}
+}
+
+// TestSuggestReviewApprovesAdd: approving a proposed child creates it under the
+// node, and the reloaded tree shows it.
+func TestSuggestReviewApprovesAdd(t *testing.T) {
+	m, db, cur := suggestModel(t, "reading list")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestAdd, TargetUUID: cur.uuid,
+		Name: "Designing Data-Intensive Applications", Type: database.TypeBullets, Author: "agent"})
+	m.loadSuggests()
+
+	m.press("alt+v")
+	m.press("y")
+
+	kids, err := database.GetChildren(db, cur.uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(kids) != 1 || kids[0].Name != "Designing Data-Intensive Applications" {
+		t.Fatalf("approved add did not create the child: %+v", kids)
+	}
+	node := m.tree.byUUID[cur.uuid]
+	if node == nil || len(node.children) != 1 {
+		t.Fatalf("tree did not reload with the new child: %+v", node)
+	}
+}
+
+// TestSuggestReviewEscKeepsItPending: esc is "not now", not a verdict.
+func TestSuggestReviewEscKeepsItPending(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	s := fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing"})
+	m.loadSuggests()
+
+	m.press("alt+v")
+	m.press("esc")
+
+	if m.mode != modeOutline {
+		t.Fatalf("esc did not leave review: mode = %v", m.mode)
+	}
+	stored, err := database.GetSuggestion(db, s.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != database.SuggestPending {
+		t.Fatalf("esc settled the proposal: %q", stored.Status)
+	}
+	if m.pendingSuggestCount() != 1 {
+		t.Fatal("the proposal left the queue")
+	}
+}
+
+// TestSuggestReviewRefusesDriftedTarget: the editor holds back a proposal
+// written against text that has since changed, same as the CLI.
+func TestSuggestReviewRefusesDriftedTarget(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	s := fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing"})
+	if _, err := db.Exec("UPDATE nodes SET name = ? WHERE uuid = ?", "moved on", cur.uuid); err != nil {
+		t.Fatal(err)
+	}
+	m.loadSuggests()
+
+	m.press("alt+v")
+	m.press("y")
+
+	stored, err := database.GetSuggestion(db, s.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != database.SuggestPending {
+		t.Fatalf("a drifted proposal was applied: %q", stored.Status)
+	}
+	if !strings.Contains(m.flash, "changed since suggested") {
+		t.Fatalf("flash did not explain the hold: %q", m.flash)
+	}
+}
+
+// TestSuggestReviewWalksSeveral: two proposals on one node review in turn.
+func TestSuggestReviewWalksSeveral(t *testing.T) {
+	m, db, cur := suggestModel(t, "inbox")
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "first idea", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "second idea", CreatedOn: 2})
+	m.loadSuggests()
+
+	m.press("alt+v")
+	band := strings.Join(m.suggestBandLines(m.rows[m.cursor], false, 80), "\n")
+	if !strings.Contains(band, "1/2") {
+		t.Fatalf("review did not number the queue: %q", band)
+	}
+	m.press("down")
+	if m.suggestSel != 1 {
+		t.Fatalf("down did not walk to the second proposal: %d", m.suggestSel)
+	}
+	m.press("y") // approve the second one
+
+	s2, err := database.GetSuggestion(db, "s2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s2.Status != database.SuggestApproved {
+		t.Fatalf("second proposal status = %q", s2.Status)
+	}
+	s1, err := database.GetSuggestion(db, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s1.Status != database.SuggestPending {
+		t.Fatalf("first proposal was settled too: %q", s1.Status)
+	}
+	if m.mode != modeSuggest {
+		t.Fatal("review closed while a proposal was still queued")
+	}
+}
+
+// TestSuggestReviewOpensOnTheInlineOne: the arrow on the row and the proposal
+// review opens on must be the same one — the queue is ordered by when it was
+// filed, and review starts at its head.
+func TestSuggestReviewOpensOnTheInlineOne(t *testing.T) {
+	m, db, cur := suggestModel(t, "rollout plan")
+	fileSuggestion(t, db, database.Suggestion{UUID: "later", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "and an owner column", Author: "teammate", CreatedOn: 20})
+	fileSuggestion(t, db, database.Suggestion{UUID: "first", Kind: database.SuggestAdd,
+		TargetUUID: cur.uuid, Name: "add a risks column", Author: "agent", CreatedOn: 10})
+	m.loadSuggests()
+
+	if inline := m.suggestInline(cur); !strings.Contains(inline, "add a risks column") {
+		t.Fatalf("inline showed the wrong proposal: %q", inline)
+	}
+	m.press("alt+v")
+	band := strings.Join(m.suggestBandLines(m.rows[m.cursor], false, 80), "\n")
+	if !strings.Contains(band, "add a risks column") {
+		t.Fatalf("review opened on a different proposal than the row showed: %q", band)
+	}
+	if strings.Contains(band, "and an owner column") {
+		t.Fatalf("review showed the second proposal too: %q", band)
+	}
+}
+
+// TestSuggestReviewIsFlushAndUnmarked: the expanded proposal sits at the node's
+// own column and repeats no circle — the node already wears the yellow one.
+func TestSuggestReviewIsFlushAndUnmarked(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing",
+		Message: "clearer", Author: "agent"})
+	m.loadSuggests()
+	m.press("alt+v")
+
+	band := m.suggestBandLines(m.rows[m.cursor], false, 80)
+	if len(band) == 0 {
+		t.Fatal("review drew no band")
+	}
+	rail := stripSGR(continuationPrefix(m.rows[m.cursor], false))
+	for _, l := range band {
+		plain := stripSGR(l)
+		if strings.Contains(plain, glyphSuggest) {
+			t.Fatalf("the band repeated the node's circle: %q", plain)
+		}
+		if !strings.HasPrefix(plain, rail) {
+			t.Fatalf("band line does not start at the node's column: %q", plain)
+		}
+		if strings.HasPrefix(plain[len(rail):], "  ") {
+			t.Fatalf("band line is indented past the node's column: %q", plain)
+		}
+	}
+}
+
+// TestSuggestToolbarCountHasNoCircle: the bar counts what waits, without the
+// glyph — the circle belongs on the node.
+func TestSuggestToolbarCountHasNoCircle(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing"})
+	m.loadSuggests()
+
+	bar := stripSGR(strings.Join(m.bottomBar(80), "\n"))
+	if !strings.Contains(bar, "1 suggestion") {
+		t.Fatalf("bar dropped the count: %q", bar)
+	}
+	if strings.Contains(bar, glyphSuggest+" 1 suggestion") {
+		t.Fatalf("bar still wears the circle: %q", bar)
+	}
+}
+
+// TestSuggestSurvivesTheTempPanel: stepping into the Temporary Domain renders
+// the main outline through the read-only region — a proposal must still mark
+// its node there, or it looks like it went away.
+func TestSuggestSurvivesTheTempPanel(t *testing.T) {
+	m, db, cur := suggestModel(t, "ship the thing")
+	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestEdit, TargetUUID: cur.uuid,
+		Name: "ship the other thing", Fields: database.FieldName, BaseName: "ship the thing",
+		Author: "agent"})
+	m.loadSuggests()
+
+	lines := m.readonlyRegionLines(m.tree, m.tree.root, 0, 6, 80, false, -1)
+	joined := stripSGR(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, glyphSuggest+" ship the thing") {
+		t.Fatalf("read-only region dropped the node's circle: %q", joined)
+	}
+	if !strings.Contains(joined, "→ ship the other thing") {
+		t.Fatalf("read-only region dropped the proposal: %q", joined)
+	}
+}

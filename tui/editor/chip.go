@@ -1,0 +1,744 @@
+package editor
+
+import (
+	"sort"
+	"strings"
+
+	"github.com/lflow/lflow/tui/database"
+	"github.com/lflow/lflow/tui/utils"
+	"github.com/mattn/go-runewidth"
+)
+
+// A chip is an inline structured token. The node's stored name carries an opaque
+// ANCHOR — a sentinel-delimited chip id, "￼<id>￼" — and the chip's real
+// data lives in the chips table (see tui/database/chip.go). The editor treats
+// each anchor as one atomic unit (the caret jumps it, backspace deletes it whole)
+// and renders it as the chip kind's compact display.
+//
+// WARNING (invariant): chips are the one place a node's name is NOT plain text —
+// an anchor is a marker. Every surface that reads a name (render, CLI, export,
+// search, bash run) resolves anchors through the chip store first.
+
+// chipSentinel opens and closes an anchor (OBJECT REPLACEMENT CHARACTER). It
+// aliases the database's canonical constant so the two packages can never define
+// a different sentinel.
+const chipSentinel = database.ChipSentinel
+
+// chipAnchor builds the in-text anchor for a chip id.
+func chipAnchor(id string) string {
+	return string(chipSentinel) + id + string(chipSentinel)
+}
+
+// anchorSpan is one anchor's rune range [start,end) (both sentinels included)
+// and the chip id it carries.
+type anchorSpan struct {
+	start, end int
+	id         string
+}
+
+// anchorSpans returns every well-formed anchor in runes, in order. The sentinel
+// scan itself lives once in database.AnchorSpans; this wraps it in the editor's
+// local span type the caret/layout helpers below index into.
+func anchorSpans(runes []rune) []anchorSpan {
+	dbSpans := database.AnchorSpans(runes)
+	if len(dbSpans) == 0 {
+		return nil
+	}
+	spans := make([]anchorSpan, len(dbSpans))
+	for i, sp := range dbSpans {
+		spans[i] = anchorSpan{start: sp.Start, end: sp.End, id: sp.ID}
+	}
+	return spans
+}
+
+// hasAnchor reports whether name contains any chip anchor — the guard that keeps
+// the chip-aware render/caret paths off every chipless node.
+func hasAnchor(name string) bool {
+	return strings.ContainsRune(name, chipSentinel)
+}
+
+// chipsEnabled is a node-type capability, not a hard-coded exception in key
+// handling. Query expressions deliberately keep their operators and tokens
+// literal; other types can opt out for their own syntax too.
+func chipsEnabled(it *item) bool {
+	return it != nil && !typeOf(it.typ).disableChips
+}
+
+// insertLiteralAt splices plain text s into the active rich-text surface (the
+// node name, or its note while a note picker is open) and parks the caret after
+// it.
+func (m *Model) insertLiteralAt(cur *item, caret int, s string) {
+	text := m.richText(cur)
+	runes := []rune(text)
+	if caret > len(runes) {
+		caret = len(runes)
+	}
+	if caret < 0 {
+		caret = 0
+	}
+	m.setRichText(cur, string(runes[:caret])+s+string(runes[caret:]))
+	shiftSpans(m.richSpanUUID(cur), caret, len([]rune(s)))
+	m.persistSpans(m.richSpanUUID(cur))
+	m.caret = caret + len([]rune(s))
+}
+
+// spanStartingAt returns the anchor beginning exactly at rune index i, or nil.
+func spanStartingAt(spans []anchorSpan, i int) *anchorSpan {
+	for k := range spans {
+		if spans[k].start == i {
+			return &spans[k]
+		}
+	}
+	return nil
+}
+
+// spanContaining returns the anchor whose interior strictly contains i, or nil —
+// used to keep the caret off an anchor's interior.
+func spanContaining(spans []anchorSpan, i int) *anchorSpan {
+	for k := range spans {
+		if i > spans[k].start && i < spans[k].end {
+			return &spans[k]
+		}
+	}
+	return nil
+}
+
+// spanEndingAt returns the anchor whose end is exactly i, or nil (backspace target).
+func spanEndingAt(spans []anchorSpan, i int) *anchorSpan {
+	for k := range spans {
+		if spans[k].end == i {
+			return &spans[k]
+		}
+	}
+	return nil
+}
+
+// chipAtCaret returns the chip the caret sits on: its anchor begins at the
+// caret, or ends exactly at it. With no kinds it matches any chip; otherwise
+// it matches only chips whose Kind is one of kinds. This is the one caret
+// finder every *ChipAtCaret wrapper (cmd, agent, link, zotero, tag) calls.
+func (m *Model) chipAtCaret(cur *item, kinds ...string) (database.Chip, bool) {
+	if cur == nil {
+		return database.Chip{}, false
+	}
+	spans := anchorSpans([]rune(cur.name))
+	for _, sp := range []*anchorSpan{spanStartingAt(spans, m.caret), spanEndingAt(spans, m.caret)} {
+		if sp == nil {
+			continue
+		}
+		c, ok := m.chips[sp.id]
+		if !ok {
+			continue
+		}
+		if len(kinds) == 0 {
+			return c, true
+		}
+		for _, k := range kinds {
+			if c.Kind == k {
+				return c, true
+			}
+		}
+	}
+	return database.Chip{}, false
+}
+
+// ── chip-kind registry ─────────────────────────────────────────────────────
+
+// chipKind declares how one kind of chip behaves: its color, its compact display
+// form, and its expansion to the full underlying value (for bash, CLI and search).
+type chipKind struct {
+	key     string
+	color   string
+	display func(value string) string // compact form, e.g. "@readme.txt"
+	expand  func(value string) string // full value, e.g. the absolute path
+}
+
+const (
+	chipKindTag  = "tag"
+	chipKindDate = "date"
+	chipKindLink = "link"
+	chipKindCmd  = "cmd"
+	chipKindIcon = "icon" // painted service glyph; value=glyph, label=shortcode
+	// an agentic coding session inline: value=the CLI variant id ("claude"), the
+	// session itself in local node_output keyed by the chip id. alt+r opens or
+	// resumes it, alt+e shows its transcript (see agent.go).
+	chipKindAgent = "agent"
+	chipKindMol   = "molecule"
+	// an element chip is the reserved head of an SVG/HTML row: the tag and its
+	// attributes, structured, so the rest of the row is free text. value = the
+	// spec ("div class=card"), label = its display form. See markup.go.
+	chipKindElement = "element"
+	// a citation; value=zotero:// select URI, label=author-year (see zotero.go)
+	chipKindZotero = "zotero"
+)
+
+var chipKinds = map[string]chipKind{
+	// tag/date kinds make the chip model uniform (see the chip-kind design). Their
+	// display equals their value, so nothing is hidden; legacy plain-text #tags and
+	// dates still render via inlineSpans until they are backfilled into chips.
+	chipKindTag: {
+		key:     chipKindTag,
+		color:   cDim,
+		display: func(v string) string { return "#" + v },
+		expand:  func(v string) string { return "#" + v },
+	},
+	chipKindDate: {
+		key:     chipKindDate,
+		color:   bgPill + cFG, // the date pill, matching legacy date rendering
+		display: func(v string) string { return v },
+		expand:  func(v string) string { return v },
+	},
+	// link chips carry a name (label) and a target (value: a URL or
+	// lflow://node/<uuid>). display/expand below are fallbacks on value only —
+	// chipDisplay/chipExpand special-case links to use the label.
+	chipKindLink: {
+		key:     chipKindLink,
+		color:   cAccent + cUnderline,
+		display: func(v string) string { return "→" + v },
+		expand:  func(v string) string { return v },
+	},
+	// a cmd chip is inline runnable shell: value is the command, run on alt+r.
+	// display/expand below are value-only fallbacks — chipDisplay special-cases
+	// cmd to append the session-local output preview held in the chip label.
+	chipKindCmd: {
+		key:     chipKindCmd,
+		color:   cYellow,
+		display: func(v string) string { return "$ " + v },
+		expand:  func(v string) string { return v },
+	},
+	// a session chip is a handle on one agentic coding session. value is the CLI
+	// variant id; the label carries the session's live title (refreshed from the
+	// CLI's store, never persisted — see refreshAgentChip). Color is per-chip
+	// (the variant's, or the session's own), applied in renderBody.
+	chipKindAgent: {
+		key:     chipKindAgent,
+		color:   cFG,
+		display: func(v string) string { return v },
+		expand:  func(v string) string { return v },
+	},
+	// an icon chip is a painted service glyph from the :shortcode picker.
+	// value is the glyph (CLI/export show it raw); label is the shortcode used
+	// to recover the brand color at render. Color is per-chip (see renderBody),
+	// not the static kind color below.
+	chipKindIcon: {
+		key:     chipKindIcon,
+		color:   cFG,
+		display: func(v string) string { return v },
+		expand:  func(v string) string { return v },
+	},
+	// an element chip is a markup node's reserved head: <tag attrs> as ONE atomic
+	// token at the start of the row, so the words after it are unambiguously the
+	// element's text. Half of HTML's tag names are ordinary English words — "a
+	// headline", "code review", "time to ship" — so a row cannot be read as an
+	// element by looking at its first word. Reserving the slot is what removes
+	// the guess, the way a Line node reserves its character.
+	chipKindElement: {
+		key:     chipKindElement,
+		color:   cAccent,
+		display: elementChipLabel,
+		expand:  func(v string) string { return "<" + v + ">" },
+	},
+	// a molecule chip is a structure referenced inline in prose: value is the full
+	// SMILES/SELFIES notation, painted as a block — the benzene ring with the
+	// notation inside it — so it reads as one object in the sentence. expand gives
+	// the notation back whole, so CLI, export and search still see the chemistry.
+	chipKindMol: {
+		key:     chipKindMol,
+		color:   bgMol + cFG,
+		display: molChipDisplay,
+		expand:  func(v string) string { return v },
+	},
+	// a zotero chip is an inline citation: value is Zotero's own select URI,
+	// label the compact author-year form. display/expand below are value-only
+	// fallbacks — chipDisplay/chipExpand special-case it to use the label, the
+	// same split link chips use. Color is the brand paint (see renderBody).
+	chipKindZotero: {
+		key:     chipKindZotero,
+		color:   cRed,
+		display: func(v string) string { return zoteroMark + " " + v },
+		expand:  func(v string) string { return v },
+	},
+}
+
+func chipKindOf(kind string) (chipKind, bool) {
+	k, ok := chipKinds[kind]
+	return k, ok
+}
+
+// linkColorMode is the /settings "link.color" preference ("blue" or "gray"),
+// applied at render time so it tracks the active theme's palette.
+var linkColorMode = "gray"
+
+// linkChipColorCode is the SGR for a link chip: blue (accent) or muted gray, kept
+// underlined either way so a link stays visually a link.
+func linkChipColorCode() string {
+	if linkColorMode == "gray" {
+		return cDim + cUnderline
+	}
+	return cAccent + cUnderline
+}
+
+// chipDisplay returns the compact display string for a chip record. A link uses
+// its label (the arbitrary name), not its target.
+func chipDisplay(c database.Chip) string {
+	if c.Kind == chipKindLink {
+		// a link to a known service (Google Sheets/Docs/Drive …) adds that
+		// service's mark to its name — same arrow, same styling; see service.go
+		if svc, ok := linkService(c); ok {
+			return "→" + database.ServiceDisplay(svc, c.Label)
+		}
+		return "→" + linkChipLabel(c)
+	}
+	if c.Kind == chipKindAgent {
+		// glyph + the session's live title (see agentChipDisplay)
+		return agentChipDisplay(c)
+	}
+	if c.Kind == chipKindZotero {
+		return zoteroMark + " " + zoteroChipLabel(c)
+	}
+	if c.Kind == chipKindCmd {
+		// the label holds the run preview (set by setCmdPreview / hydrateCmdPreviews;
+		// never written to the chips table). show "$ cmd → preview" when a band
+		// is in memory or was rehydrated from local node_output.
+		// "$ " mirrors the bash node's prompt — renderBody paints it as a code cell.
+		s := "$ " + c.Value
+		if c.Label != "" {
+			s += " → " + c.Label
+		}
+		return s
+	}
+	if k, ok := chipKindOf(c.Kind); ok && k.display != nil {
+		return k.display(c.Value)
+	}
+	return c.Value
+}
+
+// nonBreaking swaps the spaces INSIDE a chip's display for U+00A0. A chip is one
+// atomic cluster to the caret (chipVisualRows walks anchors whole), so the
+// renderer must not let a soft wrap split it either — and wrapLine only ever
+// breaks at an ordinary space. NBSP measures one cell and the terminal draws it
+// as a space, so nothing about the row's geometry changes.
+//
+// A cmd chip is the exception and never comes through here: it is a whole shell
+// command, long by nature, and renderCmdChip already carries its tint across a
+// wrap.
+func nonBreaking(s string) string { return strings.ReplaceAll(s, " ", "\u00a0") }
+
+// chipExpand returns the full underlying value for a chip record. A link expands
+// to "[name](target)" so both halves survive bash/script/export surfaces.
+func chipExpand(c database.Chip) string {
+	if c.Kind == chipKindLink {
+		return "[" + linkChipLabel(c) + "](" + c.Value + ")"
+	}
+	// a citation expands to the same markdown-ish pair, so both the human
+	// citation and the machine reference survive export, scripts and search
+	if c.Kind == chipKindZotero {
+		return "[" + zoteroChipLabel(c) + "](" + c.Value + ")"
+	}
+	if k, ok := chipKindOf(c.Kind); ok && k.expand != nil {
+		return k.expand(c.Value)
+	}
+	return c.Value
+}
+
+// linkChipLabel is a link's display name, falling back to its target so a link
+// is never blank.
+func linkChipLabel(c database.Chip) string {
+	if c.Label != "" {
+		return c.Label
+	}
+	return c.Value
+}
+
+// chipifyBeforeCaret converts a #tag or canonical date ending exactly at the
+// caret into a chip anchor — called when a token is committed (a space typed, or
+// Enter). It reuses the same detection that renders legacy tags/dates, so there
+// are no new false positives. Returns true if it converted something. A Bash row
+// is exempt: its "#" is a shell comment, its "$" a variable, both the command's
+// own syntax (see bashLiteralRow).
+func (m *Model) chipifyBeforeCaret(cur *item) bool {
+	if cur = m.editTargetOf(cur); cur == nil || !chipsEnabled(cur) {
+		return false
+	}
+	if bashLiteralRow(cur) {
+		return false
+	}
+	name := cur.name
+	runes := []rune(name)
+	for _, sp := range detectTagSpans(name) {
+		if sp[1] == m.caret {
+			val := strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#")
+			return m.replaceRangeWithChip(cur, sp[0], sp[1], chipKindTag, val)
+		}
+	}
+	for _, sp := range detectDateSpans(name) {
+		if sp[1] == m.caret {
+			return m.replaceRangeWithChip(cur, sp[0], sp[1], chipKindDate, string(runes[sp[0]:sp[1]]))
+		}
+	}
+	return false
+}
+
+// replaceRangeWithChip swaps runes[start:end) for a new chip anchor of the given
+// kind/value and parks the caret just after it.
+func (m *Model) replaceRangeWithChip(cur *item, start, end int, kind, value string) bool {
+	anchor := m.createChip(kind, value)
+	if anchor == "" {
+		return false
+	}
+	runes := []rune(cur.name)
+	cur.name = string(runes[:start]) + anchor + string(runes[end:])
+	m.caret = start + len([]rune(anchor))
+	m.unsaved = true
+	return true
+}
+
+// backfillChipsOnce converts every legacy plain-text #tag and canonical date in
+// the outline into chips, exactly once (guarded by a system flag). It reuses the
+// same detection that renders them, so what becomes a chip is exactly what
+// already rendered as one.
+func (m *Model) backfillChipsOnce() {
+	if m.ctx.DB == nil {
+		return
+	}
+	var done string
+	if database.GetSystem(m.ctx.DB, "chips_backfilled", &done) == nil && done == "1" {
+		return
+	}
+	converted := 0
+	var walk func(it *item)
+	walk = func(it *item) {
+		if it.mirrorOf == "" && it.name != "" && !hasAnchor(it.name) {
+			converted += m.backfillName(it)
+		}
+		for _, c := range it.children {
+			walk(c)
+		}
+	}
+	walk(m.tree.root)
+	if converted > 0 {
+		if _, err := m.tree.save(); err == nil {
+			m.tree.refreshSnapshots()
+		}
+	}
+	_ = database.UpsertSystem(m.ctx.DB, "chips_backfilled", "1")
+}
+
+// backfillName rewrites it.name, replacing every tag/date span with a chip
+// anchor; it returns how many it converted.
+func (m *Model) backfillName(it *item) int {
+	type match struct {
+		start, end  int
+		kind, value string
+	}
+	name := it.name
+	runes := []rune(name)
+	var ms []match
+	for _, sp := range detectTagSpans(name) {
+		ms = append(ms, match{sp[0], sp[1], chipKindTag, strings.TrimPrefix(string(runes[sp[0]:sp[1]]), "#")})
+	}
+	for _, sp := range detectDateSpans(name) {
+		ms = append(ms, match{sp[0], sp[1], chipKindDate, string(runes[sp[0]:sp[1]])})
+	}
+	if len(ms) == 0 {
+		return 0
+	}
+	sort.Slice(ms, func(i, j int) bool { return ms[i].start < ms[j].start })
+
+	var b strings.Builder
+	prev, last, n := 0, -1, 0
+	for _, mm := range ms {
+		if mm.start < last {
+			continue // overlapping span (e.g. a date inside a tag) — keep the earlier
+		}
+		b.WriteString(string(runes[prev:mm.start]))
+		b.WriteString(m.createChip(mm.kind, mm.value))
+		prev, last, n = mm.end, mm.end, n+1
+	}
+	b.WriteString(string(runes[prev:]))
+	it.name = b.String()
+	return n
+}
+
+// ── Model chip store ───────────────────────────────────────────────────────
+
+// createChip records a new chip (kind + value) and returns the in-text anchor to
+// splice into a node name. The record is written through to the DB at once so it
+// survives even before the node is saved (the anchor in the name pins it).
+func (m *Model) createChip(kind, value string) string {
+	return m.createLabeledChip(kind, value, "")
+}
+
+// createLabeledChip is createChip with an explicit display label — used by link
+// chips, whose name is separate from their target value.
+func (m *Model) createLabeledChip(kind, value, label string) string {
+	id, err := utils.GenerateUUID()
+	if err != nil {
+		return ""
+	}
+	// WARNING (invariant): a chip label is plain display text and must never hold
+	// a chip sentinel — an anchor inside a label corrupts anchorSpans (the sentinel
+	// reads as an anchor delimiter) and leaks the inner chip id. Callers resolve
+	// anchors first; this strip is the last-resort guard at the single chokepoint.
+	label = strings.ReplaceAll(label, string(chipSentinel), "")
+	c := database.Chip{ID: id, Kind: kind, Value: value, Label: label}
+	if m.chips == nil {
+		m.chips = map[string]database.Chip{}
+	}
+	m.chips[id] = c
+	if m.ctx.DB != nil {
+		_ = database.UpsertChip(m.ctx.DB, c)
+	}
+	return chipAnchor(id)
+}
+
+// deleteChipID drops a chip record (in-memory and on disk). The caller removes
+// its anchor from the node name. A chip's LOCAL sidecar row goes with it — a cmd
+// chip's run band, a session chip's session pointer — since both are keyed by the
+// chip id and nothing can reach them once the chip is gone.
+func (m *Model) deleteChipID(id string) {
+	delete(m.chips, id)
+	delete(m.nodeData, id)
+	delete(agentLooks, id)
+	if db := m.chipDB(); db != nil {
+		_ = database.DeleteChip(db, id)
+		_ = database.DeleteNodeOutput(db, id)
+	}
+}
+
+// chipDB is the handle the chip store and its sidecars go through. The two
+// fields are the same database wherever the editor really runs; taking either
+// one keeps delete and undo writing to the SAME place, which is the whole point
+// — a sidecar dropped through one handle and restored through the other is a
+// session chip that comes back nameless.
+func (m *Model) chipDB() *database.DB {
+	if m.db != nil {
+		return m.db
+	}
+	return m.ctx.DB
+}
+
+// chipSidecars snapshots the local node_output row behind every current chip: a
+// cmd chip's run band, a session chip's session pointer. They are keyed by chip
+// id and deleted with the chip, so an undo that restores only the chip RECORD
+// brings back an agent chip that has forgotten its session, its name and its
+// color — and cannot be renamed back, because there is no session under it to
+// rename.
+func (m *Model) chipSidecars() map[string]string {
+	db := m.chipDB()
+	if db == nil || len(m.chips) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(m.chips))
+	for id := range m.chips {
+		ids = append(ids, id)
+	}
+	out, err := database.LoadNodeOutputs(db, ids)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// restoreChipSidecars puts the snapshotted sidecars back and drops the ones the
+// snapshot did not have, then forgets every cached copy so the next render reads
+// the restored rows rather than the state it deleted them from.
+func (m *Model) restoreChipSidecars(want map[string]string, touched map[string]bool) {
+	db := m.chipDB()
+	for id := range want {
+		touched[id] = true
+	}
+	for id := range touched {
+		delete(m.nodeData, id)
+		delete(agentLooks, id)
+		if db == nil {
+			continue
+		}
+		if raw, ok := want[id]; ok {
+			_ = database.SaveNodeOutput(db, id, raw)
+		} else {
+			_ = database.DeleteNodeOutput(db, id)
+		}
+	}
+	// the chip's rendered pill is built from the session under it, so it has to
+	// be rebuilt now that the session is back
+	for id, c := range m.chips {
+		if c.Kind == chipKindAgent {
+			m.refreshAgentChip(id)
+		}
+	}
+}
+
+// ── resolving anchors in a name ────────────────────────────────────────────
+
+// dispByID returns an anchor's display string from the chip store, or a dim
+// placeholder when the record is missing (orphaned anchor).
+func dispByID(id string, chips map[string]database.Chip) string {
+	if c, ok := chips[id]; ok {
+		return chipDisplay(c)
+	}
+	return "@?"
+}
+
+// expandAnchors replaces every anchor in name with the chip's full value — used
+// for bash runs and machine-readable surfaces.
+func expandAnchors(name string, chips map[string]database.Chip) string {
+	if !hasAnchor(name) {
+		return name
+	}
+	runes := []rune(name)
+	var b strings.Builder
+	i := 0
+	for _, sp := range anchorSpans(runes) {
+		b.WriteString(string(runes[i:sp.start]))
+		if c, ok := chips[sp.id]; ok {
+			b.WriteString(chipExpand(c))
+		}
+		i = sp.end
+	}
+	b.WriteString(string(runes[i:]))
+	return b.String()
+}
+
+// displayAnchors replaces every anchor in name with the chip's compact display —
+// used for human-readable surfaces outside the editor (CLI list/grep).
+func displayAnchors(name string, chips map[string]database.Chip) string {
+	if !hasAnchor(name) {
+		return name
+	}
+	runes := []rune(name)
+	var b strings.Builder
+	i := 0
+	for _, sp := range anchorSpans(runes) {
+		b.WriteString(string(runes[i:sp.start]))
+		b.WriteString(dispByID(sp.id, chips))
+		i = sp.end
+	}
+	b.WriteString(string(runes[i:]))
+	return b.String()
+}
+
+// ── chip-aware visual layout ───────────────────────────────────────────────
+// These mirror visualRows / caretColumn / caretAtColumn but treat each anchor as
+// one atomic cluster whose width is its chip display width, so a collapsed chip
+// occupies the right columns and never splits across a wrap.
+
+func anchorWidth(sp anchorSpan, chips map[string]database.Chip) int {
+	return visibleWidth(dispByID(sp.id, chips))
+}
+
+// chipDispWidth returns the display width of runes[start:end] with anchors collapsed.
+func chipDispWidth(runes []rune, start, end int, spans []anchorSpan, chips map[string]database.Chip) int {
+	w, seg := 0, start
+	flush := func(to int) {
+		if to > seg {
+			w += visibleWidth(string(runes[seg:to]))
+		}
+	}
+	for i := start; i < end; {
+		if sp := spanStartingAt(spans, i); sp != nil && sp.end <= end {
+			flush(i)
+			w += anchorWidth(*sp, chips)
+			i = sp.end
+			seg = i
+			continue
+		}
+		i++
+	}
+	flush(end)
+	return w
+}
+
+// chipVisualRows is visualRows with anchors as atomic clusters; it returns the
+// stored rune offset that begins each visual line.
+func chipVisualRows(name string, width, firstCol, hang int, chips map[string]database.Chip) []int {
+	starts := []int{0}
+	runes := []rune(name)
+	if width <= 0 {
+		return starts
+	}
+	spans := anchorSpans(runes)
+	bodyCol := hang
+	if hang >= width {
+		hang = 0
+	}
+	if firstCol >= width {
+		firstCol = 0
+	}
+	lineStart := 0
+	curWidth := firstCol
+	avail := width
+	lastSpace := -1
+	emit := func(start int) {
+		starts = append(starts, start)
+		lineStart = start
+		curWidth = 0
+		avail = width - hang
+		lastSpace = -1
+	}
+	i := 0
+	for i < len(runes) {
+		var clEnd, rw int
+		isAnchor := false
+		if sp := spanStartingAt(spans, i); sp != nil {
+			clEnd, rw, isAnchor = sp.end, anchorWidth(*sp, chips), true
+		} else {
+			_, cl := firstCluster(runes[i:])
+			clEnd = i + cl
+			rw = runewidth.StringWidth(string(runes[i:clEnd]))
+		}
+		r := runes[i]
+		if curWidth+rw > avail {
+			if r == ' ' && !isAnchor {
+				emit(i + 1)
+				i++
+				continue
+			}
+			if lastSpace > lineStart {
+				next := lastSpace + 1
+				emit(next)
+				curWidth = chipDispWidth(runes, next, i, spans, chips)
+				continue
+			}
+			if i > lineStart {
+				emit(i)
+				continue
+			}
+			// the cluster ALONE is wider than a whole line — an oversized chip
+			// anchor is atomic and can never fit, so it owns this line and the
+			// walk moves past it (the renderer clips the overflow); re-testing
+			// it in place would emit the same start forever and hang the UI.
+			curWidth += rw
+			i = clEnd
+			continue
+		}
+		if r == ' ' && !isAnchor && curWidth >= bodyCol {
+			lastSpace = i
+		}
+		curWidth += rw
+		i = clEnd
+	}
+	return starts
+}
+
+// chipCaretAtColumn returns the stored offset on a visual line nearest display
+// column col, snapped to a cluster/anchor boundary (never an anchor interior).
+func chipCaretAtColumn(runes []rune, start, end, col int, spans []anchorSpan, chips map[string]database.Chip) int {
+	w := 0
+	for i := start; i < end; {
+		var clEnd, rw int
+		if sp := spanStartingAt(spans, i); sp != nil {
+			clEnd, rw = sp.end, anchorWidth(*sp, chips)
+		} else {
+			_, cl := firstCluster(runes[i:])
+			clEnd = i + cl
+			rw = runewidth.StringWidth(string(runes[i:clEnd]))
+		}
+		if w+rw > col {
+			return i
+		}
+		w += rw
+		i = clEnd
+	}
+	return end
+}
