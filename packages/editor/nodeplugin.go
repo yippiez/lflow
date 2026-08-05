@@ -121,7 +121,9 @@ func init() { ensurePlugins = foldPlugins }
 func foldPlugins() {
 	foldOnce.Do(func() {
 		for _, p := range nodes.Registered() {
-			nodeTypes = append(nodeTypes, pluginNodeType(p))
+			nt := pluginNodeType(p)
+			overlayCoreHooks(&nt)
+			nodeTypes = append(nodeTypes, nt)
 		}
 		pos := make(map[string]int, len(database.TypeOrder))
 		for i, k := range database.TypeOrder {
@@ -140,6 +142,94 @@ func foldPlugins() {
 			byType[nt.key] = nt
 		}
 	})
+}
+
+// coreHooks is the Model-bound half of a core type that has moved its
+// DECLARATION to packages/nodes but keeps its engine here: the type's editor
+// file attaches these at init (attachCoreHooks), and the fold lays them over
+// the folded plugin entry wherever the plugin left the hook nil. As a hook is
+// rewritten against Host/Ref it migrates into the plugin file and drops out of
+// the attachment — the end state is an empty attachment and one file per type.
+type coreHooks struct {
+	glyph        func(it *item) (string, string)
+	render       func(it *item, name string) string
+	renderM      func(m *Model, it *item) string
+	prefix       func(it *item) string
+	baseColor    func(it *item) string
+	muteFrom     func(name string) int
+	spanColor    func(it *item, runes []rune) map[int]string
+	bodyTail     func(it *item, chips map[string]database.Chip) string
+	run          func(m *Model, it *item) tea.Cmd
+	view         nodeView
+	expand       func(m *Model, it *item) tea.Cmd
+	openHost     func(m *Model, it *item) tea.Cmd
+	flashActions func(m *Model, it *item) []flashAction
+	bands        func(m *Model, r row, below bool, maxLine int) []string
+	blockCode    func(m *Model, it *item, focused bool) (code string, caret int, ok bool)
+	onType       func(m *Model, it *item)
+}
+
+// coreHookAttachments maps a type key to its Model-bound hooks.
+var coreHookAttachments = map[string]coreHooks{}
+
+// attachCoreHooks registers a core type's Model-bound hooks — called from the
+// type's editor file at init, folded in by ensurePlugins.
+func attachCoreHooks(key string, h coreHooks) { coreHookAttachments[key] = h }
+
+// overlayCoreHooks fills a folded entry's nil hooks from its attachment.
+func overlayCoreHooks(nt *nodeType) {
+	h, ok := coreHookAttachments[nt.key]
+	if !ok {
+		return
+	}
+	if nt.glyph == nil {
+		nt.glyph = h.glyph
+	}
+	if nt.render == nil {
+		nt.render = h.render
+	}
+	if nt.renderM == nil {
+		nt.renderM = h.renderM
+	}
+	if nt.prefix == nil {
+		nt.prefix = h.prefix
+	}
+	if nt.baseColor == nil {
+		nt.baseColor = h.baseColor
+	}
+	if nt.muteFrom == nil {
+		nt.muteFrom = h.muteFrom
+	}
+	if nt.spanColor == nil {
+		nt.spanColor = h.spanColor
+	}
+	if nt.bodyTail == nil {
+		nt.bodyTail = h.bodyTail
+	}
+	if nt.run == nil {
+		nt.run = h.run
+	}
+	if nt.view == nil {
+		nt.view = h.view
+	}
+	if nt.expand == nil {
+		nt.expand = h.expand
+	}
+	if nt.openHost == nil {
+		nt.openHost = h.openHost
+	}
+	if nt.flashActions == nil {
+		nt.flashActions = h.flashActions
+	}
+	if nt.bands == nil {
+		nt.bands = h.bands
+	}
+	if nt.blockCode == nil {
+		nt.blockCode = h.blockCode
+	}
+	if nt.onType == nil {
+		nt.onType = h.onType
+	}
 }
 
 // pluginNodeType adapts one nodes.Plugin onto the internal descriptor.
