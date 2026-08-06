@@ -20,15 +20,51 @@ import (
 // renderer share one number.
 const pickerMaxRows = 8
 
+// pickerFixedHeight is the height a picker holds while open, by default: even
+// a list with a single option reserves three rows. A popup that shrank with
+// its match count jumped shape on every keystroke — an emoji picker with one
+// match read as a different widget than one with forty.
+const pickerFixedHeight = 3
+
 // listPicker owns the selection index, the optional search query, and the scroll
 // window for whichever Group-A picker is open.
 type listPicker struct {
 	sel   int    // highlighted row, index into the filtered items; handleKey keeps it valid
 	query string // live search query; always "" for static (non-searchable) pickers
 
+	// fixedHeight is how many option rows the picker draws while open,
+	// regardless of how many items it has: a list with fewer items pads its
+	// window with blank rows, one with more scrolls within it. 0 = the shared
+	// default (pickerFixedHeight).
+	fixedHeight int
+
 	// searchable splits the family: slash, /type, and the completer filter on typed
 	// runes; /style and /theme ignore them and just navigate a fixed list.
 	searchable bool
+}
+
+// height is the picker's fixed row window: its own fixedHeight when set, the
+// shared default otherwise.
+func (p *listPicker) height() int {
+	if p.fixedHeight > 0 {
+		return p.fixedHeight
+	}
+	return pickerFixedHeight
+}
+
+// rows is how many item rows the picker draws for n items — its fixed-height
+// window, padded when fewer items exist. Zero items draw no rows at all (only
+// a header). This is the one number View's body budget and render both trust,
+// so a pad or a window never draws more than the layout promised.
+func (p *listPicker) rows(n int) int {
+	if n == 0 {
+		return 0
+	}
+	h := p.height()
+	if h > pickerMaxRows {
+		h = pickerMaxRows
+	}
+	return h
 }
 
 // pickerItem is one row. label/value/desc cover the plain cases; render, when
@@ -228,7 +264,10 @@ func (p *listPicker) render(m *Model, src pickerSource, maxLine int) []string {
 	if len(items) == 0 {
 		return lines
 	}
-	win := pickerMaxRows
+	win := p.height()
+	if win > pickerMaxRows {
+		win = pickerMaxRows
+	}
 	s := scrollStart(p.sel, len(items), win)
 	e := s + win
 	if e > len(items) {
@@ -249,6 +288,12 @@ func (p *listPicker) render(m *Model, src pickerSource, maxLine int) []string {
 			}
 		}
 		lines = append(lines, clip(" "+mark+content, maxLine))
+	}
+	// pad the window to its fixed height: a list with one match is the same
+	// shape as one with forty, so the popup does not jump as a query filters
+	// it down. p.rows promises this many rows, and the pad is what draws them.
+	for ; e < s+win; e++ {
+		lines = append(lines, "")
 	}
 	return lines
 }

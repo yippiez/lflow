@@ -220,10 +220,7 @@ func (m *Model) viewBudgets(barLines, maxLine int) viewLayout {
 	}
 	pickerRows := 0
 	if pickerItems > 0 || headerRows > 0 {
-		win := pickerItems
-		if win > pickerMaxRows {
-			win = pickerMaxRows
-		}
+		win := m.list.rows(pickerItems)
 		pickerRows = win + headerRows
 		if pickerRows > rowBudget-1 { // always leave at least one body row
 			pickerRows = rowBudget - 1

@@ -41,7 +41,7 @@ func TestPickerRowsTruncateAndKeepTheirShape(t *testing.T) {
 	lines := p.render(m, src, maxLine)
 
 	// header + exactly one line per visible option, never more than the window
-	want := 1 + pickerMaxRows
+	want := 1 + p.rows(20)
 	if len(lines) != want {
 		t.Fatalf("render drew %d lines, want %d (a header plus one per option)", len(lines), want)
 	}
@@ -56,11 +56,7 @@ func TestPickerRowsTruncateAndKeepTheirShape(t *testing.T) {
 
 	// what render draws and what counts promises View must agree
 	items, header := p.counts(m, src)
-	win := items
-	if win > pickerMaxRows {
-		win = pickerMaxRows
-	}
-	if got := win + header; got != len(lines) {
+	if got := p.rows(items) + header; got != len(lines) {
 		t.Errorf("counts promised %d lines, render drew %d", got, len(lines))
 	}
 
@@ -78,13 +74,52 @@ func TestPickerShortRowsAreLeftAlone(t *testing.T) {
 	p.open(m, src, false)
 
 	lines := p.render(m, src, 80)
-	if len(lines) != 2 {
-		t.Fatalf("render drew %d lines, want one per option", len(lines))
+	if len(lines) != 3 {
+		t.Fatalf("render drew %d lines, want the fixed height even for two options", len(lines))
 	}
 	for _, l := range lines {
 		if strings.Contains(l, "…") {
 			t.Errorf("a row that fits was clipped anyway: %q", stripSGR(l))
 		}
+	}
+}
+
+// TestPickerFixedHeightHoldsItsShape: the popup's height is fixed and never
+// changes with the item count — one match draws the same three rows as twenty.
+func TestPickerFixedHeightHoldsItsShape(t *testing.T) {
+	m := &Model{}
+	p := &listPicker{}
+
+	for _, n := range []int{1, 2, 3, 8, 20} {
+		src := longSource{n: n}
+		p.open(m, src, true)
+		items, header := p.counts(m, src)
+		want := p.rows(items) + header
+		if got := len(p.render(m, src, 80)); got != want {
+			t.Errorf("%d items: render drew %d lines, fixed height promised %d", n, got, want)
+		}
+	}
+	// an override raises the floor
+	p.fixedHeight = 4
+	src := longSource{n: 1}
+	p.open(m, src, true)
+	items, header := p.counts(m, src)
+	if got := len(p.render(m, src, 80)); got != p.rows(items)+header {
+		t.Errorf("fixedHeight 4 with one item drew %d lines, want %d", got, p.rows(items)+header)
+	}
+}
+
+// TestPickerNoRowsWhenEmpty: no matches draws no item rows at all — the popup
+// does not hold its fixed height over an empty list.
+func TestPickerNoRowsWhenEmpty(t *testing.T) {
+	m := &Model{}
+	src := longSource{n: 0}
+	p := &listPicker{}
+	p.open(m, src, true)
+	lines := p.render(m, src, 80)
+	want := 1 // the header alone
+	if len(lines) != want {
+		t.Fatalf("empty picker drew %d lines, want just the header", len(lines))
 	}
 }
 
