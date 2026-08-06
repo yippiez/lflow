@@ -241,6 +241,10 @@ func (m *Model) agentTraces(h agentHandle) []agentTrace {
 }
 
 func readAgentTrace(v agentVariant, s agentSession) []agentTrace {
+	if db := v.openAgentDB(); db != nil {
+		defer db.Close()
+		return db.trace(s.SessionID)
+	}
 	path := agentSessionPath(v.sessionDirs(), v.exts, s.SessionID)
 	st, err := os.Stat(path)
 	if err != nil || st.IsDir() {

@@ -20,6 +20,16 @@ ignores:
   # the daemon's single-writer store builds its own DSN (busy timeout AND WAL)
   # on a custom driver with an update hook — database.Open cannot express it
   - tui/daemon/store.go
+  # the agent-chip readers open the CLIs' OWN sqlite stores (opencode v1's
+  # opencode.db) READ-ONLY and never write to them — database.Open would
+  # connect write-capable, create the file if it went missing, and journal
+  # writes into a store the CLI owns. The busy-timeout race the rule guards
+  # (lflow's own shared DB) cannot occur on a read-only handle, which takes
+  # no locks a writer waits on
+  - tui/editor/agentdb.go
+  # the agent-db tests seed throwaway sqlite fixtures, the same way the
+  # zotero helpers seed a fake library — no lflow process ever shares them
+  - tui/editor/agentdb_test.go
   # the zotero test helpers seed a throwaway FAKE Zotero library (a file Zotero
   # itself would own) — no lflow process ever shares it, so the busy-timeout
   # race the rule guards against cannot happen there

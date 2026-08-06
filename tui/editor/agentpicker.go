@@ -60,10 +60,6 @@ func scanAgentSessions(ch chan tea.Msg) {
 		batch = make([]agentStoreSession, 0, agentScanBatch)
 	}
 	for _, v := range agentVariants {
-		roots := v.sessionDirs()
-		if len(roots) == 0 {
-			continue
-		}
 		// the CLI's own index of what its sessions are called, read ONCE per
 		// store rather than per session: for Claude Code the name and color live
 		// beside the transcript, not in it
@@ -71,11 +67,7 @@ func scanAgentSessions(ch chan tea.Msg) {
 		if v.idents != nil {
 			idents = v.idents()
 		}
-		for _, path := range agentStoreFiles(roots, v.exts, v.sessionPath) {
-			s := agentReadMeta(v.id, path)
-			if s.id == "" {
-				continue
-			}
+		for _, s := range v.agentSessions() {
 			s.applyIdent(idents[s.id])
 			if batch = append(batch, s); len(batch) == agentScanBatch {
 				flush()

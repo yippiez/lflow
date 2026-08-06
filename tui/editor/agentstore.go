@@ -41,6 +41,44 @@ const (
 	agentTitleCap  = 200                 // sanity bound on a session name, not a display width
 )
 
+// agentSessions lists every session the CLI's own store holds, newest first —
+// the SQLite database when the CLI keeps one, else the record files. It is
+// what the picker scans and what the fallback paths for a chip lookup use.
+func (v agentVariant) agentSessions() []agentStoreSession {
+	if db := v.openAgentDB(); db != nil {
+		defer db.Close()
+		out := db.sessions()
+		for i := range out {
+			out[i].variant = v.id
+		}
+		return out
+	}
+	var out []agentStoreSession
+	for _, path := range agentStoreFiles(v.sessionDirs(), v.exts, v.sessionPath) {
+		s := agentReadMeta(v.id, path)
+		if s.id == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// agentStoreSessionFor looks ONE session up in the CLI's own store — what a
+// chip reads when the CLI renamed the session, or the name a session STARTED
+// from lflow takes on its first landing.
+func (v agentVariant) agentStoreSessionFor(id string) (agentStoreSession, bool) {
+	if db := v.openAgentDB(); db != nil {
+		defer db.Close()
+		return db.session(id)
+	}
+	if path := agentSessionPath(v.sessionDirs(), v.exts, id); path != "" {
+		s := agentReadMeta(v.id, path)
+		return s, s.id != ""
+	}
+	return agentStoreSession{}, false
+}
+
 // agentStoreSession is one session discovered in a CLI's own store: what lflow
 // needs to offer it in the "attach an existing session" picker and to keep a chip
 // labelled with the session's live name.

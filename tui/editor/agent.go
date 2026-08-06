@@ -52,6 +52,13 @@ type agentVariant struct {
 	// conversation its CLI already made.
 	args func(sessionID string) []string
 
+	// dbPaths is where the CLI keeps its sessions when they live in a SQLite
+	// database rather than record files (opencode v1: opencode.db). When it is
+	// set and a store is found, the picker, the per-session lookups and the
+	// trace read the database READ-ONLY; sessionRoots stays as the fallback
+	// for releases that still write the record files.
+	dbPaths func() []string
+
 	// sessionRoots is where the CLI keeps its sessions: what the "attach an
 	// existing session" picker lists and where a session's name is read from.
 	sessionRoots func() []string
@@ -136,6 +143,12 @@ var agentVariants = []agentVariant{
 		id: "opencode", label: "opencode", bin: "opencode",
 		glyph: "▣", color: agentMono,
 		args: func(id string) []string { return []string{"--session", id} },
+		// opencode v1 keeps the whole store in a SQLite database, not the
+		// record files newer layouts abandoned; the file paths below survive
+		// as the fallback for releases that still write them. Only the v1
+		// database (opencode.db) is read; v2's opencode-next.db has a
+		// different schema and is deliberately not touched yet.
+		dbPaths: func() []string { return agentDBPaths("<data>/opencode/opencode.db") },
 		// opencode keeps sessions and their messages as sibling trees (and, in newer
 		// layouts, one such pair per project), so discovery is pinned to the session
 		// side.
@@ -258,9 +271,9 @@ func (m *Model) agentMeta(id string, v agentVariant, s agentSession) agentStoreS
 		}
 	}
 	meta := agentStoreSession{variant: v.id, id: s.SessionID}
-	if path := agentSessionPath(v.sessionDirs(), v.exts, s.SessionID); path != "" {
-		meta = agentReadMeta(v.id, path)
-		meta.id = s.SessionID
+	if m, ok := v.agentStoreSessionFor(s.SessionID); ok {
+		meta = m
+		meta.variant, meta.id = v.id, s.SessionID
 	}
 	meta.applyIdent(m.agentIdentOf(v, s.SessionID))
 	store["agentMeta"], store["agentMetaAt"] = meta, time.Now()
@@ -457,7 +470,7 @@ func (m *Model) handleAgentClosed(msg agentClosedMsg) {
 	// makes, just at the only moment this chip has one to take. Every landing
 	// after that leaves it alone: the CLI does not get to keep relabelling a node.
 	if !s.Snapshot {
-		if meta := agentReadMeta(v.id, agentSessionPath(v.sessionDirs(), v.exts, s.SessionID)); meta.title != "" {
+		if meta, ok := v.agentStoreSessionFor(s.SessionID); ok && meta.title != "" {
 			s.Title, s.Snapshot = meta.title, true
 			if s.Color == "" {
 				s.Color = meta.color
