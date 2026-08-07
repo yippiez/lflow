@@ -6,7 +6,7 @@ package editor
 // Two of them did the reading on the update goroutine, which is bubbletea's
 // single event loop: nothing repaints and no key is read while it runs, so the
 // editor froze for as long as the read took. The Zotero picker paid a library
-// read; the session picker walked three CLI stores and parsed the head of every
+// read; the session picker walked the CLI stores and parsed the head of every
 // transcript in them.
 //
 // Both now hand that work to a goroutine and take the answer as a message. The

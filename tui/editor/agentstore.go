@@ -107,15 +107,16 @@ type agentReg struct {
 // agentIdent is what a CLI records ABOUT a session, as distinct from what the
 // conversation contains: the name it goes by, and the color it was given.
 //
-// The three CLIs keep this in three different places, and none of them is the
-// transcript — which is why a session read only from its transcript came back
-// nameless and got labelled with its first prompt instead:
+// The CLIs keep this in different places, and for some of them none of it is
+// the transcript — which is why a session read only from its transcript came
+// back nameless and got labelled with its first prompt instead:
 //
-//	claude    ~/.claude/jobs/<short>/state.json — name AND color, keyed by
-//	          sessionId. The only one of the three that records a color.
-//	pi        a {"type":"session_info","name":…} record appended to the
-//	          session's own JSONL; the last one written is the current name.
-//	opencode  the "title" field of the session record itself.
+//	claude       ~/.claude/jobs/<short>/state.json — name AND color, keyed by
+//	             sessionId. The only one of the CLIs that records a color.
+//	pi           a {"type":"session_info","name":…} record appended to the
+//	             session's own JSONL; the last one written is the current name.
+//	opencode     the "title" field of the session record itself.
+//	prime-agent  the same session_info record pi writes, in the same shape.
 type agentIdent struct{ name, color string }
 
 // registryIdents reads session names out of a CLI's live-session registry. The
