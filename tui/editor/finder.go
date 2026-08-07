@@ -53,7 +53,14 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 			}
 		}
 	} else {
-		hits, err = database.SearchNodes(m.db, query, true)
+		// A query carrying the `>` operator is evaluated hierarchically ("A > B"
+		// = nodes matching B nested under a node matching A, see finder_query.go);
+		// every other query stays on the plain lexical search.
+		if hierHits, hierarchical := m.finderHierSearch(query); hierarchical {
+			hits = hierHits
+		} else {
+			hits, err = database.SearchNodes(m.db, query, true)
+		}
 	}
 	if err != nil {
 		return nil
@@ -128,6 +135,9 @@ func (nodeFinderBackend) interceptEnter(m *Model, query string) (bool, tea.Model
 func (nodeFinderBackend) queryAffordance(m *Model, query string) string {
 	if m.finder.act == actLinkInsert && browser.IsURL(query) {
 		return cAccent + " ↵ " + cReset + cDim + "link to " + cFG + browser.Normalize(query) + cReset
+	}
+	if hasPipeOperator(query) {
+		return cDim + "A > B · results are the nodes matching B nested under A" + cReset
 	}
 	return ""
 }

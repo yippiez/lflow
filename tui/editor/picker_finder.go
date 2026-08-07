@@ -28,6 +28,14 @@ type bodyFinder struct {
 	// cannot change underneath it, and rebuilding this per keystroke made typing
 	// pay for a shape that had not moved.
 	counts map[string]int
+
+	// hier is the candidate context for hierarchical (`A > B`) finder queries,
+	// built lazily on the first pipe query of the session and reused by every
+	// keystroke after — one full outline scan per session, not per keystroke.
+	// semByScope memoizes the semantic vector space per in() scope on top of it,
+	// so a "quoted" stage does not rebuild the model on every keystroke either.
+	hier       *qCtx
+	semByScope map[string]*semanticModel
 }
 
 // finderRow is one fully-counted result: the node plus its subtree count,
@@ -62,6 +70,8 @@ func (f *bodyFinder) open(m *Model, act finderAction, be finderBackend) {
 	f.sel = 0
 	f.hits = nil
 	f.counts = nil // read once, on the first search of this session
+	f.hier = nil   // rebuilt once, on the first `A > B` query of this session
+	f.semByScope = nil
 	f.refresh(m, be)
 }
 
