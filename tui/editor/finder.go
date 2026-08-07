@@ -422,6 +422,7 @@ func (m *Model) jumpTo(target database.Node) error {
 	m.tree = t
 	m.viewStack = []*item{t.root}
 	m.undoStack = nil
+	m.redoStack = nil
 	m.refreshAncestors()
 	m.cursor = 0
 	m.caret = 0

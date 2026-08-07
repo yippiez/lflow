@@ -193,6 +193,7 @@ func (m *Model) applyEvent(ev wire.Event) {
 	// external structure invalidates the undo stack: undoing across it would
 	// resurrect or tombstone the other client's work
 	m.undoStack = nil
+	m.redoStack = nil
 	m.undoMark = ""
 
 	cur := m.cursorItem()
@@ -491,6 +492,7 @@ func (m *Model) resync() {
 	}
 
 	m.undoStack = nil
+	m.redoStack = nil
 	m.undoMark = ""
 	m.refreshAncestors()
 	m.refreshRows()
