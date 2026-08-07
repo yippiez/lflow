@@ -2206,6 +2206,10 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		} else if isTypedRune(k) {
+			// a paste that IS a link names the run after it, same as node text
+			if m.pasteLinkOverSelection(k) {
+				return m, nil
+			}
 			m.deleteTextSelection()
 		}
 	}

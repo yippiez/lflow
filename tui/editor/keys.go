@@ -234,6 +234,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// that removed it lands where it was. Anything that is not a typed
 				// character just releases the selection as before.
 				if isTypedRune(k) {
+					// a paste that IS a link names the run after it: the selected
+					// text becomes the link chip, the pasted link its target
+					if m.pasteLinkOverSelection(k) {
+						return m, nil
+					}
 					m.deleteTextSelection()
 					break
 				}

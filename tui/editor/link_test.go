@@ -441,6 +441,182 @@ func TestCtrlTNodeLinkLabelFallsBackToURI(t *testing.T) {
 	}
 }
 
+// TestPasteLinkOverSelectionChipsTheRun: select a phrase, paste a URL — the
+// run becomes a link chip named after the selected text with the URL as its
+// target. No ctrl+t: the paste over the selection IS the conversion.
+func TestPasteLinkOverSelectionChipsTheRun(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "edit", Name: "see the design here", Rank: 0},
+	)
+	cursorOn(m, "edit")
+	m.caret = len([]rune("see "))
+	m.press("ctrl+shift+right") // "the"
+	m.press("ctrl+shift+right") // " the design"
+	if _, lo, hi, ok := m.textSelection(); !ok || lo != 4 || hi != 14 {
+		t.Fatalf("selection = [%d,%d) ok=%v, want [4,14) 'the design'", lo, hi, ok)
+	}
+
+	m.press("https://example.com/design") // a paste: one runes message
+
+	edit := m.tree.byUUID["edit"]
+	if got := displayAnchors(edit.name, m.chips); got != "see →the design here" {
+		t.Fatalf("after paste: %q, want the run replaced by a link chip", got)
+	}
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip created")
+	}
+	if c.Value != "https://example.com/design" {
+		t.Errorf("chip target = %q", c.Value)
+	}
+	if c.Label != "the design" {
+		t.Errorf("chip label = %q, want the selected text", c.Label)
+	}
+	if m.textSelOn {
+		t.Fatal("the paste must release the selection")
+	}
+	if m.caret != 4+len([]rune(database.ChipAnchor(c.ID))) {
+		t.Errorf("caret = %d, want just past the chip", m.caret)
+	}
+}
+
+// TestPasteNodeLinkOverSelectionChipsTheRun: the same gesture with an
+// lflow://node/ link (the /link clipboard payload) — the chip points at the
+// node and keeps the selected phrase as its name.
+func TestPasteNodeLinkOverSelectionChipsTheRun(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "tgt", Name: "Target Node", Rank: 0},
+		database.Node{UUID: "edit", Name: "see the design here", Rank: 1},
+	)
+	cursorOn(m, "edit")
+	m.caret = len([]rune("see "))
+	m.press("ctrl+shift+right")
+	m.press("ctrl+shift+right")
+
+	m.press(nodeLinkURI("tgt"))
+
+	edit := m.tree.byUUID["edit"]
+	if got := displayAnchors(edit.name, m.chips); got != "see →the design here" {
+		t.Fatalf("after paste: %q", got)
+	}
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip created")
+	}
+	if c.Value != nodeLinkURI("tgt") {
+		t.Errorf("chip target = %q, want %q", c.Value, nodeLinkURI("tgt"))
+	}
+	if c.Label != "the design" {
+		t.Errorf("chip label = %q, want the selected text", c.Label)
+	}
+}
+
+// TestPasteOverSelectionNonLinkReplacesPlainText: a paste that is not a link
+// keeps the plain replace behavior — no chip, no conversion.
+func TestPasteOverSelectionNonLinkReplacesPlainText(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "alpha beta"})
+	cursorOn(m, "edit")
+	m.caret = len([]rune("alpha "))
+	m.press("shift+right") // "b"
+	m.press("shift+right") // "be"
+
+	m.press("xx")
+
+	edit := m.tree.byUUID["edit"]
+	if edit.name != "alpha xxta" {
+		t.Fatalf("name = %q, want plain replacement 'alpha xxta'", edit.name)
+	}
+	if len(m.chips) != 0 {
+		t.Fatalf("a non-link paste must not create chips, got %v", m.chips)
+	}
+	if m.textSelOn {
+		t.Fatal("the paste must release the selection")
+	}
+}
+
+// TestPasteLinkOverSelectionTakesInnerChips: a chip inside the selected run
+// goes with it — its record dies with its anchor, exactly like a plain
+// deleteTextSelection over the same run. The run's visible text (the chip's
+// display, "#qol") becomes the new link's name.
+func TestPasteLinkOverSelectionTakesInnerChips(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "see "})
+	edit := m.tree.byUUID["edit"]
+	m.cursor = m.rowIndexOf(edit)
+	m.caret = len([]rune(edit.name))
+	tagAnchor := m.createLabeledChip(chipKindTag, "qol", "")
+	edit.name += tagAnchor + " here"
+	tagID := anchorChipID(tagAnchor)
+	// a styled run after the chip must slide along with the replacement
+	m.setSpanStyle(edit, len([]rune("see "))+len([]rune(tagAnchor))+1, len([]rune(edit.name)), "color:red")
+
+	textSelUUID, textSelLo, textSelHi = edit.uuid, len([]rune("see ")), len([]rune("see "))+len([]rune(tagAnchor))
+	m.textSelOn = true
+
+	m.press("https://example.com/x")
+
+	if got := displayAnchors(edit.name, m.chips); got != "see →#qol here" {
+		t.Fatalf("name = %q, want 'see →#qol here' (the chip's display is the label)", got)
+	}
+	if _, ok := m.chips[tagID]; ok {
+		t.Fatal("the tag chip record outlived its anchor")
+	}
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("the link chip was not created")
+	}
+	if c.Label != "#qol" {
+		t.Errorf("chip label = %q, want the selected run's display '#qol'", c.Label)
+	}
+	if c.Value != "https://example.com/x" {
+		t.Errorf("chip target = %q", c.Value)
+	}
+}
+
+// TestPasteLinkOverSelectionInNote: the note surface does the same — select a
+// phrase in a note, paste a link, the run becomes the chip.
+func TestPasteLinkOverSelectionInNote(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "row", Note: "delete this word"})
+	it := m.tree.byUUID["edit"]
+	m.cursor = m.rowIndexOf(it)
+	m.mode = modeNote
+	m.caret = len("delete ")
+	m.press("ctrl+shift+right") // "this"
+	m.press("ctrl+shift+right") // "this word"
+
+	m.press("https://example.com/notes")
+
+	if got := displayAnchors(it.note, m.chips); got != "delete →this word" {
+		t.Fatalf("note = %q, want the run replaced by a link chip", got)
+	}
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip created")
+	}
+	if c.Value != "https://example.com/notes" || c.Label != "this word" {
+		t.Errorf("chip = %+v, want value https://example.com/notes, label 'this word'", c)
+	}
+}
+
+// TestPasteLinkOverSelectionBareWWWNormalizes: a pasted bare "www." host gains
+// https:// like every other URL entry point.
+func TestPasteLinkOverSelectionBareWWWNormalizes(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: "read it"})
+	cursorOn(m, "edit")
+	m.caret = len([]rune("read "))
+	m.press("shift+right")
+	m.press("shift+right")
+
+	m.press("www.example.com")
+
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip created")
+	}
+	if c.Value != "https://www.example.com" {
+		t.Errorf("chip target = %q, want normalized https://www.example.com", c.Value)
+	}
+}
+
 // TestDetectURLNearPicksCaretAdjacent mirrors TestDetectDateCaretAware: with two
 // URLs in the text, detectURLNear must act on the one nearest the caret, not
 // always the leftmost.

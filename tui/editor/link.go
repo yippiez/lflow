@@ -221,6 +221,90 @@ func (m *Model) insertURLLink(raw string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// linkFromPaste parses a pasted run as a single link target: an
+// lflow://node/<uuid> node link (canonical as-is) or a URL (normalized, so a
+// bare "www." gains "https://"). Trailing whitespace and sentence punctuation
+// trim, like detectURLNear. ok=false when the run is not a link.
+func linkFromPaste(s string) (value string, ok bool) {
+	s = trimURLPunct(strings.TrimSpace(s))
+	if s == "" {
+		return "", false
+	}
+	if _, isNode := nodeLinkUUID(s); isNode {
+		return s, true
+	}
+	if browser.IsURL(s) {
+		return browser.Normalize(s), true
+	}
+	return "", false
+}
+
+// pasteLinkOverSelection turns a paste over a selected run into a link chip
+// whose name is the selected text and whose target is the pasted link: select
+// a phrase, paste a URL — or an lflow://node/ link copied with /link — and the
+// run becomes "→phrase" with no ctrl+t. A paste that is not a link leaves the
+// selection to the plain replace path. Returns true when the paste was consumed.
+func (m *Model) pasteLinkOverSelection(k tea.KeyMsg) bool {
+	if k.Type != tea.KeyRunes || len(k.Runes) == 0 || k.Alt {
+		return false
+	}
+	cur, lo, hi, ok := m.textSelection()
+	if !ok {
+		return false
+	}
+	value, ok := linkFromPaste(string(k.Runes))
+	if !ok {
+		return false
+	}
+	// the note is edited on the resolved node; a name goes through editTarget so
+	// a mirror links from its source
+	target := cur
+	if !m.richNoteActive() {
+		if target = m.editTargetOf(cur); target == nil {
+			return false
+		}
+	}
+	if !chipsEnabled(target) {
+		return false
+	}
+	m.pushUndo("")
+	runes := []rune(m.richText(target))
+	if hi > len(runes) {
+		hi = len(runes)
+	}
+	if lo < 0 || lo >= hi {
+		return false
+	}
+	// the label is the selected run, anchors resolved to display text so a
+	// chipped phrase never leaks a raw anchor into the link's name
+	label := displayAnchors(string(runes[lo:hi]), m.chips)
+	if label == "" {
+		if uuid, isNode := nodeLinkUUID(value); isNode {
+			label = m.nodeLinkLabel(uuid)
+		} else {
+			label = urlChipLabel(value)
+		}
+	}
+	anchor := m.createLabeledChip(chipKindLink, value, label)
+	if anchor == "" {
+		return false
+	}
+	// a chip inside the run goes with it — same rule as deleteTextSelection
+	for _, sp := range anchorSpans(runes) {
+		if sp.start >= lo && sp.end <= hi {
+			m.deleteChipID(sp.id)
+		}
+	}
+	id := m.richSpanUUID(target)
+	m.setRichText(target, string(runes[:lo])+anchor+string(runes[hi:]))
+	shiftSpans(id, lo, len([]rune(anchor))-(hi-lo))
+	m.persistSpans(id)
+	m.caret = lo + len([]rune(anchor))
+	m.clearTextSel()
+	m.flash = "linked → " + trimFlash(label, 24)
+	return true
+}
+
 // ── alt+e link editor (modeLinkEdit) ───────────────────────────────────────
 
 // openLinkEdit enters the two-field editor for a link chip's name and target.
