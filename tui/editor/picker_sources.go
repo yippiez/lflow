@@ -69,8 +69,18 @@ func (slashSource) items(m *Model, q string) []pickerItem {
 	return out
 }
 
-func (slashSource) header(*Model, *listPicker) string { return "" }
-func (slashSource) initialSel(*Model) int             { return 0 }
+// header shows a hint when the query has no matches: the menu STAYS open on a
+// dead-end query so backspace can trim it back to something that matches —
+// closing on no match left the typed "/query" as stranded literal text with
+// no way back into the menu. Enter commits the literal text; esc strips it.
+func (slashSource) header(m *Model, p *listPicker) string {
+	if p.query != "" && len(m.filteredSlash(p.query)) == 0 {
+		return " " + cDim + "no matches · enter keeps the text · esc cancels" + cReset
+	}
+	return ""
+}
+
+func (slashSource) initialSel(*Model) int { return 0 }
 
 func (slashSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	if it.value == "" {
@@ -96,8 +106,10 @@ func (slashSource) onRune(m *Model, p *listPicker, r []rune) bool {
 			m.caret += len(ins)
 		}
 	}
-	// nothing matches anymore: it was ordinary text, keep it as typed and close
-	return len(m.filteredSlash(p.query)) == 0
+	// a dead-end query never closes the menu: it stays open on the "no matches"
+	// hint so backspace trims the query back to something that matches (the
+	// header carries the keep/cancel affordances)
+	return false
 }
 
 func (s slashSource) onSpace(m *Model, p *listPicker) bool {

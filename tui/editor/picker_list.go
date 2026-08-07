@@ -125,8 +125,9 @@ type pickerEscapeSource interface {
 
 type inlineTextSource interface {
 	// onRune handles a typed rune: append to p.query, splice into the node text,
-	// and report whether the picker should now close (the slash menu closes when
-	// nothing matches).
+	// and report whether the picker should now close (the completer commits and
+	// closes on a space; the slash menu never auto-closes — a dead-end query
+	// stays open on a hint so backspace can trim it).
 	onRune(m *Model, p *listPicker, r []rune) (closePicker bool)
 	// onSpace handles space (the tag completer commits "#word" and closes; the
 	// slash menu treats it as an ordinary query rune).

@@ -1303,11 +1303,10 @@ func TestSlashBackspaceDismissKeepsStatusBar(t *testing.T) {
 	}
 }
 
-// TestSlashEscapeRemovesTriggeringSlash is the F10 regression: opening the slash
+// TestSlashEscStripsTriggeringSlash is the F10 regression: opening the slash
 // menu types a "/" into the editable node text, so escaping the menu must strip
-// that triggering slash and leave the node name exactly as it was before. A
-// literal slash word is only committed when Enter runs an unknown command.
-func TestSlashEscapeKeepsTypedText(t *testing.T) {
+// that triggering slash and leave the node name exactly as it was before.
+func TestSlashEscStripsTriggeringSlash(t *testing.T) {
 	m := newTestModel(80, "hello")
 	m.cursor = 0
 	m.caret = len([]rune("hello"))
@@ -1320,16 +1319,98 @@ func TestSlashEscapeKeepsTypedText(t *testing.T) {
 	m.press("p")
 	m.press("a")
 
-	// escape closes the menu but LEAVES the typed "/pa" as literal text, so you can
-	// write things like "/pa" without the menu swallowing them.
+	// escape cancels the menu and takes the typed "/pa" back out — the node
+	// reads exactly as it did before the menu opened.
 	mm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	*m = *mm.(*Model)
 
 	if m.mode != modeOutline {
 		t.Fatalf("escape should return to outline mode, mode=%v", m.mode)
 	}
+	if got := m.cursorItem().name; got != "hello" {
+		t.Fatalf("escape must strip the typed slash query, got %q", got)
+	}
+}
+
+// TestSlashEnterCommitsLiteralText: a slash query that matches nothing is
+// literal text, not a command — the menu stays open on a "no matches" hint,
+// and Enter commits the typed "/pa" so you can still write things like "/pa"
+// without the menu swallowing them.
+func TestSlashEnterCommitsLiteralText(t *testing.T) {
+	m := newTestModel(80, "hello")
+	m.cursor = 0
+	m.caret = len([]rune("hello"))
+
+	m.press("/")
+	m.press("p")
+	m.press("a")
+	if m.mode != modeSlash {
+		t.Fatalf("a query with no matches must keep the menu open, mode=%v", m.mode)
+	}
+
+	mm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	*m = *mm.(*Model)
+
+	if m.mode != modeOutline {
+		t.Fatalf("enter should return to outline mode, mode=%v", m.mode)
+	}
 	if got := m.cursorItem().name; got != "hello/pa" {
-		t.Fatalf("escape must keep the typed text, got %q", got)
+		t.Fatalf("enter must keep the typed text as literal, got %q", got)
+	}
+}
+
+// TestSlashBackspaceTrimsNoMatchQuery: a dead-end query no longer closes the
+// menu, so backspace trims the query until matches return — only the backspace
+// on the empty query dismisses the menu, and the node text mirrors every trim.
+func TestSlashBackspaceTrimsNoMatchQuery(t *testing.T) {
+	m := newTestModel(80, "hello")
+	m.cursor = 0
+	m.caret = len([]rune("hello"))
+
+	m.press("/")
+	m.press("a")
+	m.press("s")
+	m.press("f")
+	if m.mode != modeSlash || m.list.query != "asf" {
+		t.Fatalf("dead-end query must keep the menu open, mode=%v query=%q", m.mode, m.list.query)
+	}
+	if got := len(m.filteredSlash(m.list.query)); got != 0 {
+		t.Fatalf("asf should match no commands, got %d", got)
+	}
+	if hint := (slashSource{}).header(m, &m.list); hint == "" {
+		t.Fatal("a dead-end query should draw the no-matches hint")
+	}
+	if got := m.cursorItem().name; got != "hello/asf" {
+		t.Fatalf("inline mirror must carry the query, got %q", got)
+	}
+
+	m.press("backspace") // "as" — still no match, the menu stays
+	if m.mode != modeSlash || m.list.query != "as" {
+		t.Fatalf("backspace into a no-match query must keep the menu, mode=%v query=%q", m.mode, m.list.query)
+	}
+
+	m.press("backspace") // "a" — matches again
+	if m.mode != modeSlash {
+		t.Fatalf("menu must still be open, mode=%v", m.mode)
+	}
+	if got := len(m.filteredSlash(m.list.query)); got == 0 {
+		t.Fatal("backspace to 'a' should restore matches")
+	}
+	if got := m.cursorItem().name; got != "hello/a" {
+		t.Fatalf("backspace must trim the mirrored text too, got %q", got)
+	}
+
+	m.press("backspace") // "" — the full list
+	if m.mode != modeSlash || m.list.query != "" {
+		t.Fatalf("empty query keeps the menu on the full list, mode=%v query=%q", m.mode, m.list.query)
+	}
+
+	m.press("backspace") // empty query backspaces out of the menu
+	if m.mode != modeOutline {
+		t.Fatalf("backspace on an empty query should dismiss the menu, mode=%v", m.mode)
+	}
+	if got := m.cursorItem().name; got != "hello" {
+		t.Fatalf("dismiss must strip the slash text, got %q", got)
 	}
 }
 
