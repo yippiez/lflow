@@ -370,6 +370,21 @@ func GetNode(db *DB, uuid string) (Node, error) {
 	return n, nil
 }
 
+// NodeByName returns the newest non-deleted node whose name matches exactly.
+// Empty names never match. It resolves a freehand in(<name>) scope selector in
+// the finder, where the query line is plain text and cannot carry a node-link
+// chip.
+func NodeByName(db *DB, name string) (Node, error) {
+	n, err := scanNode(db.QueryRow("SELECT "+nodeColumns+
+		" FROM nodes WHERE deleted = 0 AND name = ? AND name != '' ORDER BY edited_on DESC LIMIT 1", name))
+	if err == sql.ErrNoRows {
+		return n, errors.Errorf("node named %q not found", name)
+	} else if err != nil {
+		return n, errors.Wrapf(err, "querying node named %q", name)
+	}
+	return n, nil
+}
+
 // GetChildren returns the non-deleted children of the given parent ("" = roots),
 // ordered by rank.
 func GetChildren(db *DB, parentUUID string) ([]Node, error) {
@@ -739,6 +754,21 @@ func SearchNodes(db *DB, query string, includeCompleted bool) ([]Node, error) {
 // rather than first assembling a giant candidate slice, so opening a query stays
 // responsive while its result set arrives.
 func StreamLiveNodes(db *DB, batchSize int, yield func([]Node) bool) error {
+	return streamLive(db, batchSize, true, yield)
+}
+
+// StreamLiveNodesIncl is StreamLiveNodes without the empty-name filter: empty
+// structural nodes stream too, so a caller that builds an ancestor map can walk
+// a `>` chain through them. Mirrors stream as well — callers filter. Only the
+// finder's hierarchical search context uses this today.
+func StreamLiveNodesIncl(db *DB, batchSize int, yield func([]Node) bool) error {
+	return streamLive(db, batchSize, false, yield)
+}
+
+// streamLive is the shared scan behind both live-node streams. skipEmpty drops
+// unnamed nodes (the usual callers only match text), and the empty structural
+// nodes it leaves out still anchor ancestor walks in the outline.
+func streamLive(db *DB, batchSize int, skipEmpty bool, yield func([]Node) bool) error {
 	if batchSize < 1 {
 		batchSize = 1
 	}
@@ -758,7 +788,7 @@ func StreamLiveNodes(db *DB, batchSize int, yield func([]Node) bool) error {
 		if err != nil {
 			return errors.Wrap(err, "scanning node")
 		}
-		if tempUUIDs[n.UUID] || n.Name == "" {
+		if tempUUIDs[n.UUID] || (skipEmpty && n.Name == "") {
 			continue
 		}
 		batch = append(batch, n)
