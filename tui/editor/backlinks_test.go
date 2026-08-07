@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lflow/lflow/tui/database"
@@ -121,6 +122,68 @@ func TestBacklinksFlushesPendingEditBeforeSearching(t *testing.T) {
 	got := mm.(*Model)
 	if len(got.finder.hits) != 1 || got.finder.hits[0].node.UUID != "b" {
 		t.Fatalf("want 1 hit (b), got %d: %v", len(got.finder.hits), got.finder.hits)
+	}
+}
+
+// TestTypeSuffixShowsBacklinkCount: a node referenced elsewhere in the outline
+// wears " · n backlinks" on its row even uncollapsed — unlike children, the
+// referrers are never visible from the row, so the count is always useful. A
+// node nobody references shows nothing.
+func TestTypeSuffixShowsBacklinkCount(t *testing.T) {
+	db := database.InitTestMemoryDB(t)
+	insert := func(n database.Node) {
+		t.Helper()
+		if err := n.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(database.Node{UUID: "root", Name: "root", Type: database.TypeBullets, AddedOn: 1, EditedOn: 1})
+	insert(database.Node{UUID: "src", ParentUUID: "root", Name: "the source", Type: database.TypeBullets, Rank: 0, AddedOn: 10, EditedOn: 10})
+	// mirror of src under another parent
+	insert(database.Node{UUID: "mir", ParentUUID: "root", Name: "", MirrorOf: "src", Type: database.TypeBullets, Rank: 1, AddedOn: 20, EditedOn: 20})
+	// a node with a link chip pointing at src
+	chipID := "lk1"
+	if err := database.UpsertChip(db, database.Chip{ID: chipID, Kind: "link", Value: "lflow://node/src", Label: "the source"}); err != nil {
+		t.Fatal(err)
+	}
+	insert(database.Node{
+		UUID: "linker", ParentUUID: "root",
+		Name: "mentions " + database.ChipAnchor(chipID),
+		Type: database.TypeBullets, Rank: 2, AddedOn: 30, EditedOn: 30,
+	})
+	insert(database.Node{UUID: "noise", ParentUUID: "root", Name: "noise", Type: database.TypeBullets, Rank: 3, AddedOn: 40, EditedOn: 40})
+
+	root := &item{uuid: "root", name: "root"}
+	src := &item{uuid: "src", name: "the source", parent: root}
+	mir := &item{uuid: "mir", name: "", mirrorOf: "src", parent: root}
+	root.children = []*item{src, mir}
+	tr := &tree{
+		db: db, root: root,
+		byUUID:        map[string]*item{"root": root, "src": src, "mir": mir},
+		externalNames: map[string]string{}, snapshots: map[string]snapshot{},
+	}
+	m := &Model{
+		db: db, tree: tr, viewStack: []*item{root},
+		width: 100, height: 30, chips: map[string]database.Chip{},
+	}
+	m.refreshRows() // refreshRows also reads BacklinkCounts
+
+	suffix := func(it *item) string {
+		return stripSGR(m.typeSuffix(m.rows[m.rowIndexOf(it)]))
+	}
+	if got := suffix(src); !strings.Contains(got, "2 backlinks") {
+		t.Fatalf("src suffix = %q, want · 2 backlinks (mir + linker)", got)
+	}
+	if got := suffix(src); strings.Contains(got, "children") {
+		t.Fatalf("src is expanded and childless, suffix must not mention children: %q", got)
+	}
+	if got := suffix(mir); !strings.Contains(got, "2 backlinks") {
+		t.Fatalf("mirror row suffix = %q, want its source's 2 backlinks", got)
+	}
+	// a count keyed under an unrelated uuid must never leak into a row
+	m.backlinkCounts["missing"] = 3
+	if got := suffix(src); !strings.Contains(got, "2 backlinks") {
+		t.Fatalf("suffix must not pick up unrelated counts: %q", got)
 	}
 }
 

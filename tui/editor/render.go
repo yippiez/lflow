@@ -1074,7 +1074,8 @@ func jsonPreview(s string, n int) string {
 
 // typeSuffix returns a dim suffix describing non-default state. The note is no
 // longer flagged here — it shows in full as a tinted band under the node (see
-// noteBandLines) — so the suffix only carries mirror and collapsed-child counts.
+// noteBandLines) — so the suffix only carries mirror, collapsed-child and
+// backlink counts.
 // relTime renders a coarse "how long ago" for a unix-seconds timestamp.
 func relTime(ts int64) string {
 	d := time.Since(time.Unix(ts, 0))
@@ -1133,6 +1134,16 @@ func (m *Model) typeSuffix(r row) string {
 			noun = "child"
 		}
 		parts = append(parts, fmt.Sprintf("%d %s", len(kids), noun))
+	}
+	// the nodes elsewhere that mirror or [[-link to this one. Unlike children,
+	// backlinks are never visible from the row, so the count shows whenever it
+	// is nonzero — a mirror row counts its source's.
+	if n := m.backlinkCount(it); n > 0 {
+		noun := "backlinks"
+		if n == 1 {
+			noun = "backlink"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", n, noun))
 	}
 	suffix := ""
 	if len(parts) > 0 {

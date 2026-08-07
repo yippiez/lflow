@@ -150,6 +150,10 @@ type Model struct {
 	ctx   runtime.Ctx // for config and node context
 	tree  *tree
 	chips map[string]database.Chip // inline chip records, keyed by id (see chip.go)
+	// backlinkCounts is every node's reference count (mirrors + [[ link chips
+	// pointing at it) across the WHOLE outline, one bulk DB read per refreshRows
+	// (see database.BacklinkCounts) — the "n backlinks" row suffix.
+	backlinkCounts map[string]int
 
 	viewStack []*item // zoom stack; last is the current view root
 	cursor    int     // index into visibleRows
@@ -659,6 +663,33 @@ func (m *Model) refreshRows() {
 	// publish the look of every visible coding session (color + status tail) for
 	// the Model-less render path — see agentLooks
 	m.refreshAgentLooks()
+	m.refreshBacklinkCounts()
+}
+
+// refreshBacklinkCounts re-reads the whole outline's reference counts for the
+// "n backlinks" row suffix. One bulk query per outline change (refreshRows runs
+// on edits, not per frame); a failed read leaves the counts as they were, so a
+// transient DB error never takes the suffix away. Mirrors resolve to their
+// source's count — the row shows the node it actually represents.
+func (m *Model) refreshBacklinkCounts() {
+	if m.db == nil {
+		return
+	}
+	counts, err := database.BacklinkCounts(m.db)
+	if err != nil {
+		return
+	}
+	m.backlinkCounts = counts
+}
+
+// backlinkCount is the number of nodes elsewhere in the outline referencing
+// it.uuid — a mirror or [[ link chip. Mirrors answer for their source.
+func (m *Model) backlinkCount(it *item) int {
+	uuid := it.uuid
+	if it.mirrorOf != "" {
+		uuid = m.tree.sourceUUID(it)
+	}
+	return m.backlinkCounts[uuid]
 }
 
 // expandStep opens the cursor node one visible level: uncollapse it, and when

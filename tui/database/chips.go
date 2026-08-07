@@ -632,3 +632,37 @@ func BacklinkNodes(db *DB, targetUUID string) ([]Node, error) {
 	}
 	return ret, nil
 }
+
+// BacklinkCounts returns, for every referenced node, how many non-deleted nodes
+// reference it — mirrors of it plus nodes whose name embeds a link chip
+// targeting it. One pass over the whole outline, keyed by the referenced
+// node's bare uuid (mirrors) or its lflow://node/<uuid> chip value (links), so
+// both count into the same bucket. The editor's row suffix ("3 backlinks")
+// reads this; /backlinks lists the referrers themselves.
+func BacklinkCounts(db *DB) (map[string]int, error) {
+	rows, err := db.Query(`
+		SELECT mirror_of FROM nodes WHERE deleted = 0 AND mirror_of != ''
+		UNION ALL
+		SELECT c.value FROM nodes
+		JOIN chips c ON c.kind = 'link' AND c.value LIKE 'lflow://node/%' AND instr(nodes.name, c.id) > 0
+		WHERE nodes.deleted = 0`)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying backlink counts")
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var target string
+		if err := rows.Scan(&target); err != nil {
+			return nil, errors.Wrap(err, "scanning backlink count")
+		}
+		if target == "" {
+			continue
+		}
+		counts[strings.TrimPrefix(target, nodeLinkScheme)]++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "iterating backlink counts")
+	}
+	return counts, nil
+}
