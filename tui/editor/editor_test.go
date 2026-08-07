@@ -203,6 +203,14 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyCtrlT}
 	case "ctrl+w":
 		return tea.KeyMsg{Type: tea.KeyCtrlW}
+	case "ctrl+y":
+		return tea.KeyMsg{Type: tea.KeyCtrlY}
+	case "ctrl+z":
+		return tea.KeyMsg{Type: tea.KeyCtrlZ}
+	case "ctrl+shift+z":
+		// the codebase's convention for shifted chords the terminal delivers as
+		// text (see key("ctrl+shift+right")): the string is what handleKey matches
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ctrl+shift+z")}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -1509,6 +1517,88 @@ func TestUndoReversesTyping(t *testing.T) {
 
 	if got := m.tree.root.children[0].name; got != "A" {
 		t.Fatalf("undo should revert the typed burst, got %q", got)
+	}
+}
+
+// TestUndoReversesPasteSeparately: typing and a paste on the same node are
+// separate undo steps — one undo removes just the paste, the next the typing.
+func TestUndoReversesPasteSeparately(t *testing.T) {
+	m, a, _, _ := mergeModel()
+	m.cursor = m.rowIndexOf(a)
+	m.caret = len([]rune(a.name))
+
+	for _, r := range "BC" {
+		m.press(string(r))
+	}
+	m.feed(pasteMsg("DE"))
+	if a.name != "ABCDE" {
+		t.Fatalf("type+paste should extend the name, got %q", a.name)
+	}
+
+	m.undo()
+	if got := m.tree.root.children[0].name; got != "ABC" {
+		t.Fatalf("first undo should revert only the paste, got %q", got)
+	}
+	m.undo()
+	if got := m.tree.root.children[0].name; got != "A" {
+		t.Fatalf("second undo should revert the typing, got %q", got)
+	}
+}
+
+// TestRedoReplaysUndoneAction: ctrl+y (and ctrl+shift+z where the terminal
+// delivers it) brings back what ctrl+z took away.
+func TestRedoReplaysUndoneAction(t *testing.T) {
+	m, a, _, _ := mergeModel()
+	m.cursor = m.rowIndexOf(a)
+	m.caret = len([]rune(a.name))
+
+	for _, r := range "BC" {
+		m.press(string(r))
+	}
+	m.press("ctrl+y")
+	if got := m.tree.root.children[0].name; got != "ABC" {
+		t.Fatalf("redo on an empty stack should leave the name, got %q", got)
+	}
+
+	m.undo()
+	if got := m.tree.root.children[0].name; got != "A" {
+		t.Fatalf("undo should revert the typed burst, got %q", got)
+	}
+	m.press("ctrl+y")
+	if got := m.tree.root.children[0].name; got != "ABC" {
+		t.Fatalf("ctrl+y should redo the typed burst, got %q", got)
+	}
+
+	// and the same stack serves ctrl+shift+z where the terminal sends it
+	m.undo()
+	m.press("ctrl+shift+z")
+	if got := m.tree.root.children[0].name; got != "ABC" {
+		t.Fatalf("ctrl+shift+z should redo the typed burst, got %q", got)
+	}
+}
+
+// TestRedoClearedByNewEdit: an edit after an undo branches off the undone
+// state — the parked redo is dropped, not replayed on top of the new edit.
+func TestRedoClearedByNewEdit(t *testing.T) {
+	m, a, _, _ := mergeModel()
+	m.cursor = m.rowIndexOf(a)
+	m.caret = len([]rune(a.name))
+
+	m.press("B")
+	m.undo()
+	if got := m.tree.root.children[0].name; got != "A" {
+		t.Fatalf("undo should revert, got %q", got)
+	}
+	m.press("X")
+	if got := m.tree.root.children[0].name; got != "AX" {
+		t.Fatalf("typing after undo should edit the restored node, got %q", got)
+	}
+	if len(m.redoStack) != 0 {
+		t.Fatal("a new edit should clear the redo stack")
+	}
+	m.redo()
+	if got := m.tree.root.children[0].name; got != "AX" {
+		t.Fatalf("redo with a cleared stack should be a no-op, got %q", got)
 	}
 }
 
