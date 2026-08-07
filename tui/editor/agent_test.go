@@ -235,7 +235,7 @@ func TestContrastInk(t *testing.T) {
 		t.Errorf("ink on orange = %q, want dark", got)
 	}
 	// every fill in the palette is one an eye reads as light: none of them may
-	// end up wearing white ink. Grok's red is the one that used to.
+	// end up wearing white ink. The red swatch is the one that used to.
 	for name, code := range styleColorCode {
 		if got := contrastInk(code); got != cInkDark {
 			t.Errorf("ink on %s = %q, want dark — the mark washes out otherwise", name, got)
