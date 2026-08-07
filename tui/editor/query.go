@@ -308,7 +308,7 @@ func (m *Model) handleQueryLoad(msg queryLoadMsg) tea.Cmd {
 func (m *Model) evaluateQuery(q *item, load *queryLoad) tea.Cmd {
 	return func() tea.Msg {
 		return queryReadyMsg{generation: load.generation,
-			matches: evalMatches(q, load.parsed, load.scope, load.ctx)}
+			matches: evalMatches(q.uuid, load.parsed, load.scope, load.ctx)}
 	}
 }
 
@@ -376,7 +376,7 @@ func (m *Model) queryMatches(q *item) []database.Node {
 // including the breadcrumb sort that walks the tree. It therefore belongs to the
 // UI goroutine; a worker calls evalMatches and lets handleQueryReady finish.
 func (m *Model) queryMatchesInCtx(q *item, pq parsedQuery, scope string, ctx *qCtx) []database.Node {
-	out := evalMatches(q, pq, scope, ctx)
+	out := evalMatches(q.uuid, pq, scope, ctx)
 	if pq.breadcrumb {
 		m.sortByCrumb(out)
 	}
@@ -395,9 +395,10 @@ func (m *Model) sortByCrumb(out []database.Node) {
 
 // evalMatches is the pure half: it reads only the candidate context, which stops
 // changing once the scan is done. That is what lets a large query evaluate on a
-// worker while the editor keeps drawing.
-func evalMatches(q *item, pq parsedQuery, scope string, ctx *qCtx) []database.Node {
-	ctx = ctx.scoped(q, scope)
+// worker while the editor keeps drawing. excludeUUID never appears in the result
+// set — the query node for query views, the cursor node for the finder.
+func evalMatches(excludeUUID string, pq parsedQuery, scope string, ctx *qCtx) []database.Node {
+	ctx = ctx.scoped(excludeUUID, scope)
 	if len(ctx.cands) == 0 {
 		return nil
 	}
@@ -406,12 +407,13 @@ func evalMatches(q *item, pq parsedQuery, scope string, ctx *qCtx) []database.No
 	var out []database.Node
 	for u := range hitSet {
 		c := ctx.byUUID[u]
-		if c == nil || c.uuid == q.uuid {
+		if c == nil || c.uuid == excludeUUID {
 			continue
 		}
 		out = append(out, database.Node{
 			UUID: c.uuid, Name: c.name, Note: c.note, Type: c.typ,
 			ParentUUID: c.parent, AddedOn: c.addedOn, Starred: c.starred,
+			Style: c.style, EditedOn: c.editedOn,
 		})
 	}
 
@@ -523,19 +525,25 @@ func (ctx *qCtx) add(q *item, c qCand) {
 // scoped returns a non-mutating view of ctx narrowed to the requested subtree.
 // A streamed scan must retain candidates outside the scope for a later batch:
 // they may supply an ancestor link needed to prove a descendant is in scope.
-func (ctx *qCtx) scoped(q *item, scope string) *qCtx {
-	if q == nil {
-		return ctx
-	}
+// excludeUUID prunes the excluded node's whole subtree — the query view never
+// matches a query's own descendants. Exclusion and scope are independent: an
+// empty excludeUUID still narrows the scope.
+func (ctx *qCtx) scoped(excludeUUID, scope string) *qCtx {
 	if scope == "" {
 		scope = database.RootUUID
 	}
+	if excludeUUID == "" && scope == database.RootUUID {
+		return ctx // nothing to exclude, nothing to narrow — no copy
+	}
 	out := &qCtx{m: ctx.m, now: ctx.now, chips: ctx.chips, parent: ctx.parent,
 		byUUID: map[string]*qCand{}, seen: ctx.seen, partial: ctx.partial}
-	qRoot := map[string]bool{q.uuid: true}
 	scopeRoot := map[string]bool{scope: true}
+	var qRoot map[string]bool
+	if excludeUUID != "" {
+		qRoot = map[string]bool{excludeUUID: true}
+	}
 	for _, c := range ctx.cands {
-		if ctx.underAny(c.uuid, qRoot) || !ctx.atOrUnderAny(c.uuid, scopeRoot) {
+		if (qRoot != nil && ctx.underAny(c.uuid, qRoot)) || !ctx.atOrUnderAny(c.uuid, scopeRoot) {
 			continue
 		}
 		out.cands = append(out.cands, c)

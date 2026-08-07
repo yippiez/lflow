@@ -346,3 +346,45 @@ func TestQueryBoolOps(t *testing.T) {
 		t.Errorf("pipe+OR left: %v", got)
 	}
 }
+
+// TestQueryPipeOverlappingStages: a node that matches BOTH the ancestor stage
+// and the descendant stage still counts when another A-node sits above it —
+// "work" > "work task" finds the task nested under work, even though "work
+// task" contains "work" itself. Only a lone match is never "under itself".
+func TestQueryPipeOverlappingStages(t *testing.T) {
+	root := &item{uuid: "root"}
+	work := &item{uuid: "work", name: "work", parent: root}
+	wt := &item{uuid: "wt", name: "work task", parent: work}
+	wtDone := &item{uuid: "wtd", name: "work task done", parent: wt}
+	other := &item{uuid: "other", name: "task elsewhere", parent: root}
+	work.children = []*item{wt}
+	wt.children = []*item{wtDone}
+	q := &item{uuid: "q", typ: database.TypeQuery, parent: root}
+	root.children = []*item{work, other, q}
+	tr := &tree{
+		root:          root,
+		snapshots:     map[string]snapshot{},
+		externalNames: map[string]string{},
+		byUUID: map[string]*item{
+			"root": root, "work": work, "wt": wt, "wtd": wtDone, "other": other, "q": q,
+		},
+	}
+	m := &Model{tree: tr}
+
+	names := func(ns []database.Node) map[string]bool {
+		s := map[string]bool{}
+		for _, n := range ns {
+			s[n.UUID] = true
+		}
+		return s
+	}
+
+	q.name = "work > task"
+	got := names(m.queryMatches(q))
+	if !got["wt"] || !got["wtd"] {
+		t.Errorf("overlapping stages must keep tasks under work: %v", got)
+	}
+	if got["other"] {
+		t.Errorf("a task outside work must stay out: %v", got)
+	}
+}

@@ -30,7 +30,9 @@ import (
 // standalone "(project || release)" still groups the boolean expression.
 //
 // "A > B" keeps nodes matching B that sit under a node matching A (strict
-// descendants). Time bounds that share an AND combine into one window so a
+// descendants). A B-node whose own name also matches A still counts when
+// another A-node sits above it ("work" > "work task" finds the task under
+// work). Time bounds that share an AND combine into one window so a
 // node needs any one of its dates inside [after, before].
 //
 // WARNING (invariant): the colon spellings (`type:todo`, `:type:todo`,
@@ -46,6 +48,42 @@ type parsedQuery struct {
 }
 
 func (pq parsedQuery) empty() bool { return pq.expr == nil || !pq.hasAnything }
+
+// hasSemantic reports whether the expression contains a "quoted" atom, whose
+// evaluation needs the vector space built over the candidate set. The finder
+// uses it to decide whether the (expensive) semantic model must be materialized
+// for this keystroke's evaluation.
+func (pq parsedQuery) hasSemantic() bool {
+	var walk func(e qExpr) bool
+	walk = func(e qExpr) bool {
+		switch v := e.(type) {
+		case *qSemantic:
+			return true
+		case *qOr:
+			for _, k := range v.kids {
+				if walk(k) {
+					return true
+				}
+			}
+		case *qAnd:
+			for _, k := range v.kids {
+				if walk(k) {
+					return true
+				}
+			}
+		case *qPipe:
+			for _, s := range v.stages {
+				if walk(s) {
+					return true
+				}
+			}
+		case *qNot:
+			return walk(v.kid)
+		}
+		return false
+	}
+	return walk(pq.expr)
+}
 
 // --- expression AST ----------------------------------------------------------
 
@@ -297,6 +335,12 @@ type qCand struct {
 	addedOn                int64
 	completedAt            int64
 	starred                bool
+	// style/editedOn carry a candidate's picker appearance. The finder's
+	// hierarchical search reads them back so a styled or recently edited node
+	// renders the same in the picker as it does under a plain search; the query
+	// view leaves them zero (its mirrors render via the source node).
+	style    string
+	editedOn int64
 }
 
 // qCtx holds the candidate universe for one query run.
@@ -337,13 +381,27 @@ func (ctx *qCtx) recordScore(uuid string, s float64) {
 	}
 }
 
-// underAny reports whether uuid is a strict descendant of any node in roots.
-func (ctx *qCtx) underAny(uuid string, roots map[string]bool) bool {
-	if roots[uuid] {
-		return false // strict: self is not under self
+// recordParent records a parent edge without making uuid a candidate. Mirrors
+// are projections, never search targets, but a `>` chain may have to pass
+// through one to reach the real nodes below it — the edge is all the walk
+// needs. First source wins, like add's ancestry guard.
+func (ctx *qCtx) recordParent(uuid, parent string) {
+	if uuid == "" || parent == "" {
+		return
 	}
-	// Bad legacy mirror/parent data must not turn a nested query into a long
-	// loop. The seen guard makes this O(depth), even when a cycle appears.
+	if ctx.parent[uuid] == "" {
+		ctx.parent[uuid] = parent
+	}
+}
+
+// underAny reports whether uuid has a proper ancestor in roots — the "under"
+// test that gives `A > B` its meaning. A node that ALSO matches the ancestor
+// stage (an A-name inside a B-node's own title, "work" > "work task") is still
+// under the set when another A-node sits above it; only its own membership is
+// never counted as ancestry, so a lone match is not "under itself".
+// Bad legacy mirror/parent data must not turn a nested query into a long
+// loop. The seen guard makes this O(depth), even when a cycle appears.
+func (ctx *qCtx) underAny(uuid string, roots map[string]bool) bool {
 	seen := map[string]bool{}
 	for hops, cur := 0, uuid; hops < 64; hops++ {
 		if seen[cur] {
