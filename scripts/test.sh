@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 #
-# scripts/test.sh — build the lflow binary once, then run the bash/tmux e2e
-# regression suite (every tests/test-*.sh). Prints PASS/FAIL per script and a
-# final summary; exits non-zero if any test failed.
+# scripts/test.sh — run the Go unit tests (with the fts5 tag the sqlite schema
+# needs), then build the lflow binary once and run the bash/tmux e2e regression
+# suite (every tests/test-*.sh). Prints PASS/FAIL per script and a final
+# summary; exits non-zero if any test failed.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
+
+echo "→ unit tests"
+go test --tags fts5 ./...
 
 TMPDIR_BIN="$(mktemp -d "/tmp/lflow-e2e-suite.XXXXXX")"
 trap 'rm -rf "${TMPDIR_BIN}"' EXIT
