@@ -437,7 +437,7 @@ textarea.edit-overlay::selection {
 
 .divider-rule {
   border-top: 1px solid var(--guide);
-  margin: 10px 0;
+  margin: 5px 0 15px;
 }
 
 /* ---- bottom bar / toolbar ---- */
