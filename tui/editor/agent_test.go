@@ -111,9 +111,8 @@ func TestAgentVariantsRegistered(t *testing.T) {
 }
 
 // TestAgentMonoVariants: an agent whose mark is black on white has no brand color
-// to wear, and lflow does not invent one — Codex, Grok, OpenCode and T3 Code all
-// share the mono fill and are told apart by their glyphs. The pill IS that mark:
-// a black fill, and the white ink contrastInk arrives at on its own.
+// to wear, and lflow does not invent one — the pill IS that mark: a black fill,
+// and the white ink contrastInk arrives at on its own.
 func TestAgentMonoVariants(t *testing.T) {
 	mono := map[string]bool{"opencode": true}
 	for id := range mono {
