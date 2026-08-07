@@ -299,6 +299,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// undo the last action (alt+z is the fallback where ctrl+z suspends)
 		m.undo()
 		return m, nil
+	case "ctrl+y", "ctrl+shift+z":
+		// redo the last undo (ctrl+shift+z is the accepted chord where the
+		// terminal delivers it; ctrl+y works everywhere)
+		m.redo()
+		return m, nil
 	case "enter":
 		cur := m.cursorItem()
 		if cur != nil && cur.queryGenerated() {

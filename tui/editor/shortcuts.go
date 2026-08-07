@@ -38,6 +38,7 @@ var shortcutSections = []shortcutSection{
 		{"y / x", "copy / cut the active selection"},
 		{"alt+y / alt+x", "copy / cut selection or cursor subtree"},
 		{"ctrl+z / alt+z", "undo"},
+		{"ctrl+y / ctrl+shift+z", "redo"},
 		{"ctrl+s", "save"},
 	}},
 	{"Nodes and commands", [][2]string{

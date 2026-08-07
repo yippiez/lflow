@@ -95,6 +95,7 @@ var slashCommands = []slashCommand{
 	{"/style", "Style this node — or just the text selected with shift+←/→"},
 	{"/type", "Set this node's type"},
 	{"/undo", "Undo the last action"},
+	{"/redo", "Redo the last undo"},
 }
 
 // stylePickerItem groups the text-attribute toggles and the color choices
@@ -365,8 +366,10 @@ type Model struct {
 	textSelOn     bool
 	textSelAnchor int
 
-	// /undo: snapshots of the tree taken before each action
+	// /undo and /redo: snapshots of the tree taken before each action; redo
+	// stacks the states undo popped, until a new edit clears it
 	undoStack []undoState
+	redoStack []undoState
 	undoMark  string
 
 	// breadcrumb names above the loaded root, from the forest root down
@@ -488,6 +491,7 @@ func (m *Model) reopenAt(rootUUID, focusUUID string) {
 	m.tree = t
 	m.viewStack = []*item{t.root}
 	m.undoStack = nil // a reload is a fresh editing context
+	m.redoStack = nil
 	m.refreshAncestors()
 	m.refreshRows()
 	m.cursor = 0
@@ -514,12 +518,24 @@ type undoState struct {
 
 // pushUndo snapshots the tree before a mutating action. The mark coalesces a run
 // of same-kind edits — typing a word is one undo step, not one per character —
-// by skipping the snapshot when the mark matches the previous one.
+// by skipping the snapshot when the mark matches the previous one. Any new
+// snapshot invalidates the redo stack: the edit branches off the undone state.
 func (m *Model) pushUndo(mark string) {
 	if mark != "" && mark == m.undoMark {
 		return
 	}
 	m.undoMark = mark
+	m.undoStack = append(m.undoStack, m.captureUndoState())
+	m.redoStack = nil
+	const maxUndo = 100
+	if len(m.undoStack) > maxUndo {
+		m.undoStack = m.undoStack[len(m.undoStack)-maxUndo:]
+	}
+}
+
+// captureUndoState snapshots the live tree and cursor exactly as it is right
+// now — the state a later undo (or redo) restores.
+func (m *Model) captureUndoState() undoState {
 	st := undoState{
 		root:     cloneItem(m.tree.root, nil),
 		deleted:  append([]string(nil), m.tree.deleted...),
@@ -539,11 +555,7 @@ func (m *Model) pushUndo(mark string) {
 	for i, v := range m.viewStack {
 		st.view[i] = v.uuid
 	}
-	m.undoStack = append(m.undoStack, st)
-	const maxUndo = 100
-	if len(m.undoStack) > maxUndo {
-		m.undoStack = m.undoStack[len(m.undoStack)-maxUndo:]
-	}
+	return st
 }
 
 // snapshotForKey pushes an undo snapshot before a mutating outline key. A run of
@@ -551,6 +563,18 @@ func (m *Model) pushUndo(mark string) {
 // structural action is its own step.
 func (m *Model) snapshotForKey(key string, k tea.KeyMsg) {
 	cur := m.cursorItem()
+	// undo/redo chords are commands, never edits — they must not snapshot (a
+	// snapshot would also clear the redo stack the redo chord is about to read)
+	if key == "ctrl+z" || key == "alt+z" || key == "ctrl+y" || key == "ctrl+shift+z" {
+		return
+	}
+	// a paste is its own undo step, never merged with the typing around it:
+	// type "ab", paste "cd" — one undo removes just the paste, the next the
+	// typed text. (Pastes that become chips push their own snapshot inside.)
+	if k.Paste {
+		m.pushUndo("")
+		return
+	}
 	if (m.selOn || m.textSelOn) && (key == "y" || key == "x") {
 		return // clipboard.go snapshots the cut; copy does not mutate
 	}
@@ -577,7 +601,8 @@ func (m *Model) snapshotForKey(key string, k tea.KeyMsg) {
 	}
 }
 
-// undo restores the most recent snapshot.
+// undo restores the most recent snapshot, first parking the current state on
+// the redo stack so the same key shape can bring it back.
 func (m *Model) undo() {
 	if len(m.undoStack) == 0 {
 		m.flash = "nothing to undo"
@@ -585,8 +610,28 @@ func (m *Model) undo() {
 	}
 	st := m.undoStack[len(m.undoStack)-1]
 	m.undoStack = m.undoStack[:len(m.undoStack)-1]
+	m.redoStack = append(m.redoStack, m.captureUndoState())
 	m.undoMark = "" // the next edit starts a fresh snapshot
+	m.restoreUndoState(st)
+}
 
+// redo replays the state undo parked, in the reverse direction: the current
+// state goes back on the undo stack and the parked snapshot comes back.
+func (m *Model) redo() {
+	if len(m.redoStack) == 0 {
+		m.flash = "nothing to redo"
+		return
+	}
+	st := m.redoStack[len(m.redoStack)-1]
+	m.redoStack = m.redoStack[:len(m.redoStack)-1]
+	m.undoStack = append(m.undoStack, m.captureUndoState())
+	m.undoMark = "" // the next edit starts a fresh snapshot
+	m.restoreUndoState(st)
+}
+
+// restoreUndoState swaps the snapshot's tree, chips, sidecars and view in —
+// shared by undo and redo, which only differ in which stack feeds it.
+func (m *Model) restoreUndoState(st undoState) {
 	m.tree.root = cloneItem(st.root, nil) // clone so the stacked entry stays pristine
 	m.tree.external = make([]*item, len(st.external))
 	for i, ex := range st.external {
@@ -2133,6 +2178,8 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.openFinder(actBacklinks)
 	case "/undo":
 		m.undo()
+	case "/redo":
+		m.redo()
 	}
 	return m, nil
 }
