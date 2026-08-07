@@ -78,7 +78,7 @@ var slashCommands = []slashCommand{
 	{"/goto:suggestion", "Jump to the next node with a pending suggestion"},
 	{"/hide:complete", "Hide or show completed nodes"},
 	{"/insert", "Insert a chip — or a Zotero entry — at caret"},
-	{"/link", "Insert an inline [[ link to a node or URL"},
+	{"/link", "Copy this node's lflow link (a selection copies all of them)"},
 	{"/lock", "Lock or unlock this node as read-only"},
 	{"/mirror:from", "Mirror another node here"},
 	{"/mirror:to", "Mirror this node into another node"},
@@ -2042,8 +2042,35 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// bring the picked node's mirror here (replaces an empty node, else lands below)
 		m.openFinder(actMirrorHere)
 	case "/link":
-		// splice an inline link chip at the caret (same as the [[ trigger)
-		m.openFinder(actLinkInsert)
+		// copy the lflow://node/<uuid> link of the cursor node — or of every
+		// selected root when a row selection is live — to the clipboard. The
+		// pasted link reads as plain text and converts to a link chip on ctrl+t
+		// (see detectURLNear); /insert → Link splices the chip in directly.
+		targets := m.selectionRoots()
+		if len(targets) == 0 {
+			if cur := m.cursorItem(); cur != nil {
+				targets = []*item{cur}
+			}
+		}
+		if len(targets) == 0 {
+			return m, nil
+		}
+		var linkText strings.Builder
+		for _, t := range targets {
+			linkText.WriteString(nodeLinkURI(m.tree.sourceUUID(t)))
+			linkText.WriteByte('\n')
+		}
+		_, ok := clipWrite(strings.TrimSuffix(linkText.String(), "\n"))
+		if !ok {
+			m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
+			return m, nil
+		}
+		m.clearSel()
+		noun := "link"
+		if len(targets) > 1 {
+			noun = "links"
+		}
+		m.flash = fmt.Sprintf("copied %d %s to clipboard", len(targets), noun)
 	case "/mirror:workflowy":
 		// the Workflowy sibling: this node becomes the pull handle, and alt+r
 		// fetches the subtree once it holds a link (see wf.go)

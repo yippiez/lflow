@@ -646,7 +646,12 @@ func (m *Model) bottomBar(maxLine int) []string {
 				// hands the color back so the rest of the bar stays muted
 				state += fmt.Sprintf(" · "+cFG+"ctrl+t %q → %s"+cDim, d.phrase, d.canonical())
 			} else if u := detectURLNear(cur.name, m.caret); u != nil {
-				state += fmt.Sprintf(" · "+cFG+"ctrl+t %q → link chip"+cDim, u.raw)
+				// a pasted lflow://node/ link names its target node in the hint
+				what := "link chip"
+				if uuid, isNode := nodeLinkUUID(u.raw); isNode {
+					what = m.nodeLinkLabel(uuid)
+				}
+				state += fmt.Sprintf(" · "+cFG+"ctrl+t %q → "+what+cDim, u.raw)
 			}
 		}
 	}

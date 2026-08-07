@@ -1,6 +1,6 @@
 // Package browser opens web URLs in the user's default browser and tells a URL
-// apart from other text — used by the editor's /link so a node can link to a
-// website, not just another node.
+// apart from other text — used by the editor's link insert ([[ or /insert →
+// Link) so a node can link to a website, not just another node.
 package browser
 
 import (
@@ -25,8 +25,8 @@ func Host(s string) string {
 var schemeRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 
 // IsURL reports whether s looks like a web address — an explicit scheme
-// (https://…) or a bare "www." host — so /link can route it to the browser
-// instead of the node finder. A node UUID (hex, no scheme) is never a URL.
+// (https://…) or a bare "www." host — so the link insert can route it to the
+// browser instead of the node finder. A node UUID (hex, no scheme) is never a URL.
 func IsURL(s string) bool {
 	s = strings.TrimSpace(s)
 	return schemeRe.MatchString(s) || strings.HasPrefix(s, "www.")

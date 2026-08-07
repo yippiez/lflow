@@ -12,22 +12,25 @@ import (
 
 // A link chip points at a node or a website. Its target is stored in the chip
 // value — "lflow://node/<uuid>" for a node, a URL otherwise — and its arbitrary
-// display name in the chip label. Create one with "[[" (or /link), follow it with
-// alt+g or alt+r. A target pointing at a known service (Google Sheets/Docs/…)
-// renders as that service's branded chip; see service.go.
+// display name in the chip label. Create one with "[[" (or /insert → Link),
+// follow it with alt+g or alt+r. A target pointing at a known service (Google
+// Sheets/Docs/…) renders as that service's branded chip; see service.go.
 //
-// A bare URL typed inline (no "[[") is never auto-chipped by typing: like a
-// natural-language date phrase, it only offers itself in the status bar and
-// converts on ctrl+t (see detectURLNear, keys.go's ctrl+t handler and the
-// status-bar hint in view.go) — never as a side effect of typing a space.
+// A bare URL — or a pasted "lflow://node/<uuid>" link, as /link copies it —
+// typed inline (no "[[" ) is never auto-chipped by typing: like a natural-
+// language date phrase, it only offers itself in the status bar and converts on
+// ctrl+t (see detectURLNear, keys.go's ctrl+t handler and the status-bar hint
+// in view.go) — never as a side effect of typing a space.
 
 const nodeLinkScheme = "lflow://node/"
 
 // reURL matches a bare web address in free text: an explicit scheme
-// ("https://…") or a "www." host, greedily up to the next whitespace. The `\b`
-// anchor keeps it off a scheme glued to a preceding letter/digit; trailing
+// ("https://…"), a "www." host, or a pasted "lflow://node/<uuid>" node link
+// (matched case-sensitively — the editor always writes it lowercase, and a
+// typed variant is not a node link), greedily up to the next whitespace. The
+// `\b` anchor keeps it off a scheme glued to a preceding letter/digit; trailing
 // sentence punctuation ("check https://x.com.") is trimmed in detectURLNear.
-var reURL = regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`)
+var reURL = regexp.MustCompile(`(?i)\b(?:https?://|www\.|(?-i:lflow://node/))\S+`)
 
 // trimURLPunct strips trailing characters that almost always read as sentence
 // punctuation rather than URL syntax. A trailing ')' is only trimmed when it
@@ -58,10 +61,11 @@ type urlMatch struct {
 	raw        string
 }
 
-// detectURLNear finds the bare URL phrase to act on: the one whose span
-// contains caret, else the one nearest caret — mirroring detectDate's pick
-// (date.go's pickByCaret) so ctrl+t and the bottom-bar hint act on the URL the
-// user is looking at instead of always the leftmost one. caret is a rune offset.
+// detectURLNear finds the bare URL — or pasted "lflow://node/<uuid>" link —
+// phrase to act on: the one whose span contains caret, else the one nearest
+// caret — mirroring detectDate's pick (date.go's pickByCaret) so ctrl+t and the
+// bottom-bar hint act on the URL the user is looking at instead of always the
+// leftmost one. caret is a rune offset.
 func detectURLNear(name string, caret int) *urlMatch {
 	runes := []rune(name)
 	var best *urlMatch
@@ -101,6 +105,40 @@ func urlChipLabel(url string) string {
 
 // nodeLinkURI builds a node link target from a uuid.
 func nodeLinkURI(uuid string) string { return nodeLinkScheme + uuid }
+
+// nodeLinkLabel names a link chip converted from a pasted "lflow://node/<uuid>"
+// link: the target node's own name (anchors resolved to display text, so a
+// chipped title never leaks a raw anchor into the label), else the URI itself
+// when the target is gone.
+func (m *Model) nodeLinkLabel(uuid string) string {
+	for _, name := range []string{m.treeName(uuid), m.dbName(uuid)} {
+		if label := displayAnchors(name, m.chips); label != "" {
+			return label
+		}
+	}
+	return nodeLinkURI(uuid)
+}
+
+// treeName returns a loaded node's name (fresh — the in-memory edit may not
+// have flushed yet).
+func (m *Model) treeName(uuid string) string {
+	if it, ok := m.tree.byUUID[uuid]; ok {
+		return it.name
+	}
+	return ""
+}
+
+// dbName returns a saved node's name from the database.
+func (m *Model) dbName(uuid string) string {
+	if m.db == nil {
+		return ""
+	}
+	n, err := database.GetNode(m.db, uuid)
+	if err != nil {
+		return ""
+	}
+	return n.Name
+}
 
 // nodeLinkUUID returns the uuid a node-link target points at, or ok=false for a
 // URL target.

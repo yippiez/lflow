@@ -488,9 +488,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+t":
 		// convert a time phrase under the cursor to canonical date text (the renderer
-		// then chips it); with no date phrase there, convert a bare URL under the
-		// cursor straight into a link chip instead — neither ever happens just from
-		// typing, only this explicit key (see the status-bar hint in view.go).
+		// then chips it); with no date phrase there, convert a bare URL — or a
+		// pasted lflow://node/<uuid> link — under the cursor straight into a link
+		// chip instead — neither ever happens just from typing, only this explicit
+		// key (see the status-bar hint in view.go).
 		if tgt := m.editTarget(); tgt != nil {
 			if d := detectDate(tgt.name, m.caret, time.Now()); d != nil && d.phrase != d.canonical() {
 				runes := []rune(tgt.name)
@@ -499,8 +500,16 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.caret = d.start + len([]rune(date))
 				m.unsaved = true
 			} else if u := detectURLNear(tgt.name, m.caret); u != nil && chipsEnabled(tgt) {
-				value := browser.Normalize(u.raw)
-				anchor := m.createLabeledChip(chipKindLink, value, urlChipLabel(value))
+				value, label := u.raw, ""
+				if uuid, isNode := nodeLinkUUID(u.raw); isNode {
+					// a pasted node link names itself after its target node; the
+					// URI is already canonical, never browser-normalized
+					label = m.nodeLinkLabel(uuid)
+				} else {
+					value = browser.Normalize(u.raw)
+					label = urlChipLabel(value)
+				}
+				anchor := m.createLabeledChip(chipKindLink, value, label)
 				if anchor != "" {
 					runes := []rune(tgt.name)
 					tgt.name = string(runes[:u.start]) + anchor + string(runes[u.end:])

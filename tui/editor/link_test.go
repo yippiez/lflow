@@ -291,6 +291,156 @@ func TestNodeLinkURIRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSlashLinkCopiesNodeLink: /link copies the cursor node's
+// lflow://node/<uuid> link to the clipboard — it does NOT splice a chip (that
+// is /insert → Link's job). The pasted link converts on ctrl+t.
+func TestSlashLinkCopiesNodeLink(t *testing.T) {
+	clip := clipCapture(t)
+	m, _ := dbModel(t, database.Node{UUID: "src", Name: "the source"})
+	cursorOn(m, "src")
+	m.caret = 0
+
+	mm, _ := m.runSlash("/link")
+	got := mm.(*Model)
+	if s := clip(); s != nodeLinkURI("src") {
+		t.Fatalf("copied %q, want %q", s, nodeLinkURI("src"))
+	}
+	if !strings.Contains(got.flash, "copied 1 link to clipboard") {
+		t.Fatalf("flash = %q, want the link count", got.flash)
+	}
+	if len(got.chips) != 0 {
+		t.Fatalf("/link must not create chips, got %v", got.chips)
+	}
+	if got.mode != modeOutline {
+		t.Fatalf("mode = %v, want modeOutline (no finder)", got.mode)
+	}
+	if _, ok := linkChipOf(got); ok {
+		t.Fatal("/link must not splice a link chip")
+	}
+}
+
+// TestSlashLinkCopiesSelectedLinks: with a row selection live, /link copies
+// every selected root's link, one per line.
+func TestSlashLinkCopiesSelectedLinks(t *testing.T) {
+	clip := clipCapture(t)
+	m, _ := dbModel(t,
+		database.Node{UUID: "a", Name: "alpha", Rank: 0},
+		database.Node{UUID: "b", Name: "beta", Rank: 1},
+	)
+	cursorOn(m, "a")
+	m.caret = 0
+	m.press("shift+down") // select both rows
+	if !m.selOn {
+		t.Fatal("shift+down did not start a row selection")
+	}
+
+	mm, _ := m.runSlash("/link")
+	got := mm.(*Model)
+	if s := clip(); s != nodeLinkURI("a")+"\n"+nodeLinkURI("b") {
+		t.Fatalf("copied %q, want the two links", s)
+	}
+	if got.selOn {
+		t.Fatal("copy must release the row selection")
+	}
+	if !strings.Contains(got.flash, "copied 2 links to clipboard") {
+		t.Fatalf("flash = %q, want the link count", got.flash)
+	}
+}
+
+// TestSlashLinkResolvesMirrorToItsSource: /link on a mirror row copies the
+// ORIGINAL's link — a mirror is the same node everywhere.
+func TestSlashLinkResolvesMirrorToItsSource(t *testing.T) {
+	clip := clipCapture(t)
+	m, _ := dbModel(t,
+		database.Node{UUID: "src", Name: "original", Rank: 0},
+		database.Node{UUID: "mir", Name: "", MirrorOf: "src", Rank: 1},
+	)
+	cursorOn(m, "mir")
+	m.caret = 0
+
+	m.runSlash("/link")
+	if s := clip(); s != nodeLinkURI("src") {
+		t.Fatalf("copied %q, want the source's link %q", s, nodeLinkURI("src"))
+	}
+}
+
+// TestDetectURLNearPicksNodeLink: a pasted lflow://node/<uuid> link reads like
+// a bare URL — detectURLNear finds it, trailing punctuation trims, and it never
+// matches when glued to a preceding word.
+func TestDetectURLNearPicksNodeLink(t *testing.T) {
+	if u := detectURLNear("see lflow://node/abc-123 here", 6); u == nil || u.raw != "lflow://node/abc-123" {
+		t.Fatalf("pasted node link not found: %+v", u)
+	}
+	if u := detectURLNear("see lflow://node/abc-123.", 0); u == nil || u.raw != "lflow://node/abc-123" {
+		t.Fatalf("trailing period should be trimmed: %+v", u)
+	}
+	if u := detectURLNear("xlflow://node/abc-123", 0); u != nil {
+		t.Fatalf("scheme glued to a preceding word must not match: %+v", u)
+	}
+	if u := detectURLNear("see LFLLOW://node/abc", 0); u != nil {
+		t.Fatalf("an upper-case node scheme is not a node link: %+v", u)
+	}
+}
+
+// TestCtrlTConvertsPastedNodeLink: ctrl+t on a pasted lflow://node/<uuid> link
+// turns it into a link chip named after its target node — the /link → paste →
+// ctrl+t round trip. A URL keeps its old path (host label, normalized target).
+func TestCtrlTConvertsPastedNodeLink(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "tgt", Name: "Target Node", Rank: 0},
+		database.Node{UUID: "edit", Name: "", Rank: 1},
+	)
+	cursorOn(m, "edit")
+	m.caret = 0
+
+	// the /link clipboard payload lands as plain text (a paste)
+	m.press(nodeLinkURI("tgt"))
+	edit := m.tree.byUUID["edit"]
+	if hasAnchor(edit.name) {
+		t.Fatalf("pasting a node link must not auto-chip it: %q", edit.name)
+	}
+	m.caret = len([]rune(edit.name))
+	m.feed(key("ctrl+t"))
+
+	edit = m.tree.byUUID["edit"]
+	if !hasAnchor(edit.name) {
+		t.Fatalf("ctrl+t did not chip the node link: %q", edit.name)
+	}
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip created")
+	}
+	if c.Value != nodeLinkURI("tgt") {
+		t.Errorf("chip target = %q, want %q", c.Value, nodeLinkURI("tgt"))
+	}
+	if c.Label != "Target Node" {
+		t.Errorf("chip label = %q, want the node's name Target Node", c.Label)
+	}
+	if got := displayAnchors(edit.name, m.chips); got != "→Target Node" {
+		t.Errorf("rendered link = %q, want →Target Node", got)
+	}
+}
+
+// TestCtrlTNodeLinkLabelFallsBackToURI: converting a node link whose target has
+// been deleted still works — the chip names itself after the URI.
+func TestCtrlTNodeLinkLabelFallsBackToURI(t *testing.T) {
+	m, _ := dbModel(t, database.Node{UUID: "edit", Name: ""})
+	cursorOn(m, "edit")
+	m.caret = 0
+
+	m.press(nodeLinkURI("ghost"))
+	m.caret = len([]rune(nodeLinkURI("ghost")))
+	m.feed(key("ctrl+t"))
+
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip created")
+	}
+	if c.Value != nodeLinkURI("ghost") || c.Label != nodeLinkURI("ghost") {
+		t.Errorf("chip = %+v, want value+label both %q", c, nodeLinkURI("ghost"))
+	}
+}
+
 // TestDetectURLNearPicksCaretAdjacent mirrors TestDetectDateCaretAware: with two
 // URLs in the text, detectURLNear must act on the one nearest the caret, not
 // always the leftmost.
