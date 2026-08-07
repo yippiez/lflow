@@ -216,12 +216,14 @@ func emptyLine(r row, maxLine int, selected bool) string {
 // (circle) is hidden, but its SLOT is still reserved — a normal row is
 // " connector ○ body", so the rule starts where the body would, and the ~96%
 // footprint is of the content width after that bump, not the whole line. The
-// rule is CENTERED in that space so equal gaps hang on the left and right.
-// A non-empty body (the node's text, already rendered by renderBody with chips,
-// styles and caret) sits on the midpoint of the rule — equal rule runs on each
-// side center the text, with one space of breathing room around it; if the text
-// leaves no room for a rule it stands alone. Muted gray normally, red under the
-// cursor — the rule itself is the selection cue since there's no glyph.
+// rule hangs LEFT of center: the reserved glyph slot is a node gap that
+// already contributes space on the left, so the rule's own left gap is half
+// of what the right side carries. A non-empty body (the node's text, already
+// rendered by renderBody with chips, styles and caret) sits on the midpoint
+// of the rule — equal rule runs on each side center the text, with one space
+// of breathing room around it; if the text leaves no room for a rule it
+// stands alone. Muted gray normally, red under the cursor — the rule itself
+// is the selection cue since there's no glyph.
 func dividerLine(r row, maxLine int, body string, selected bool) string {
 	// same indent as an ordinary row — connector, then a blank cell where the
 	// glyph would sit, then the separator space
@@ -233,13 +235,14 @@ func dividerLine(r row, maxLine int, body string, selected bool) string {
 	avail := maxLine - visibleWidth(prefix) // content width after the indent/rail
 
 	// the whole divider — rule with or without text — keeps the same ~96%
-	// footprint, CENTERED, so a named divider hangs short like an empty one
-	// instead of stretching the full width.
+	// footprint, hung left: the left gap is half of the right's, so a named
+	// divider hangs short like an empty one instead of stretching the full
+	// width.
 	span := avail * 24 / 25
 	if span < 1 {
 		span = 1
 	}
-	lead := (avail - span) / 2
+	lead := (avail - span) / 4 // half the centering: the node gap sits left already
 	if lead < 0 {
 		lead = 0
 	}

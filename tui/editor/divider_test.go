@@ -39,8 +39,9 @@ func TestDividerRendersFullWidthRule(t *testing.T) {
 	}
 }
 
-// TestDividerLineCentered: the rule is ~80% of the available width and centered,
-// with roughly equal gaps on the left and right so it sits in the middle.
+// TestDividerLineCentered: the rule is ~96% of the available width and hangs
+// left of center — its left gap is half of the right's, because the reserved
+// glyph slot already contributes a node gap on the left.
 func TestDividerLineCentered(t *testing.T) {
 	m := newTestModel(60, "x")
 	r := m.rows[0]
@@ -57,11 +58,14 @@ func TestDividerLineCentered(t *testing.T) {
 	}
 	leftGap := leading - prefixW
 	rightGap := maxLine - leading - dashes
-	if d := leftGap - rightGap; d < -1 || d > 1 {
-		t.Errorf("rule not centered: leftGap=%d rightGap=%d", leftGap, rightGap)
+	if want := (avail - dashes) / 4; leftGap != want {
+		t.Errorf("left gap = %d, want %d (half the centering)", leftGap, want)
 	}
-	if leftGap < 1 {
-		t.Errorf("rule should hang short on the left too, leftGap=%d", leftGap)
+	if rightGap != avail-dashes-leftGap {
+		t.Errorf("right gap = %d, want %d (left's half added here)", rightGap, avail-dashes-leftGap)
+	}
+	if rightGap <= leftGap {
+		t.Errorf("rule should hang left: rightGap=%d leftGap=%d", rightGap, leftGap)
 	}
 }
 
