@@ -80,9 +80,9 @@ func chipOn(t *testing.T, m *Model, uuid string, v agentVariant, attach agentSto
 // TestAgentVariantsRegistered: every CLI lflow can host is declared with the one
 // binary it shells out to, its own mark and its own color.
 func TestAgentVariantsRegistered(t *testing.T) {
-	want := map[string]string{"claude": "✽", "pi": "ᴘɪ", "opencode": "▣"}
+	want := map[string]string{"claude": "✽", "pi": "ᴘɪ", "opencode": "▣", "prime-agent": "RLM"}
 	if len(agentVariants) != len(want) {
-		t.Fatalf("registry has %d variants, want just the three CLIs", len(agentVariants))
+		t.Fatalf("registry has %d variants, want just the four CLIs", len(agentVariants))
 	}
 	for id, glyph := range want {
 		v := variant(t, id)
@@ -114,7 +114,7 @@ func TestAgentVariantsRegistered(t *testing.T) {
 // to wear, and lflow does not invent one — the pill IS that mark: a black fill,
 // and the white ink contrastInk arrives at on its own.
 func TestAgentMonoVariants(t *testing.T) {
-	mono := map[string]bool{"opencode": true}
+	mono := map[string]bool{"opencode": true, "prime-agent": true}
 	for id := range mono {
 		v := variant(t, id)
 		if got := v.colorSGR(); got != "\x1b[38;2;0;0;0m" {
@@ -145,9 +145,10 @@ func TestAgentMonoVariants(t *testing.T) {
 // each variant has exactly one command line and it always carries an id.
 func TestAgentVariantArgs(t *testing.T) {
 	want := map[string]string{
-		"claude":   "--resume abc-123",
-		"pi":       "--session-id abc-123",
-		"opencode": "--session abc-123",
+		"claude":      "--resume abc-123",
+		"pi":          "--session-id abc-123",
+		"opencode":    "--session abc-123",
+		"prime-agent": "-r abc-123",
 	}
 	for id, argv := range want {
 		if got := strings.Join(variant(t, id).args("abc-123"), " "); got != argv {
@@ -171,6 +172,33 @@ func TestAgentReadMeta(t *testing.T) {
 	}
 	if meta.cwd != "/home/dev/repo" {
 		t.Errorf("cwd = %q", meta.cwd)
+	}
+}
+
+// TestAgentReadMetaPrimeAgent reads a prime-agent session's identity out of its
+// own transcript. The schema is pi's — session, message and session_info
+// records — so the tolerant reader parses it unchanged, and records of types it
+// has never met (agent_status, session_state, …) are skipped rather than
+// misread.
+func TestAgentReadMetaPrimeAgent(t *testing.T) {
+	id := "019fd6c9-67cd-770f-8aff-a329566b2f4d"
+	path := filepath.Join(t.TempDir(), id+".jsonl")
+	rec := `{"type":"session","version":3,"id":"` + id + `","timestamp":"2026-08-06T11:15:51.373Z","cwd":"/home/eren/work2/nearbysend","rlmDepth":0}` + "\n" +
+		`{"type":"message","id":"8d4c9a67","parentId":"32cadafb","timestamp":"2026-08-06T11:16:22.400Z","message":{"role":"user","content":[{"type":"text","text":"build a cli"}]}}` + "\n" +
+		`{"type":"agent_status","id":"5f133d88","parentId":"f959faee","timestamp":"2026-08-06T11:16:25.102Z","status":{"summary":"","taskState":"needs_input","basedOnMessageCount":2}}` + "\n" +
+		`{"type":"session_info","id":"6ec47b33","parentId":"f4986d2d","timestamp":"2026-08-06T11:18:44.085Z","name":"nearbysend Worker 1"}` + "\n"
+	if err := os.WriteFile(path, []byte(rec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	meta := agentReadMeta("prime-agent", path)
+	if meta.title != "nearbysend Worker 1" {
+		t.Errorf("title = %q, want the session_info name", meta.title)
+	}
+	if meta.cwd != "/home/eren/work2/nearbysend" {
+		t.Errorf("cwd = %q", meta.cwd)
+	}
+	if meta.id != id {
+		t.Errorf("id = %q, want the filename's", meta.id)
 	}
 }
 
