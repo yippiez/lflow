@@ -16,12 +16,10 @@ func (m *Model) View() string {
 	}
 	maxLine := width - 1 // never touch the last column: deferred-wrap desync
 
-	// per-frame paint state: which cmd chips are mid-run (the shimmer), the
-	// headline each running node row hangs after its "→", and each live agent
-	// session's status (the chip pill's shimmer)
+	// per-frame paint state: which cmd chips are mid-run (the shimmer) and the
+	// headline each running node row hangs after its "→"
 	m.syncLiveCmdRuns()
 	m.syncRunTails()
-	m.syncAgentMux()
 
 	if m.quitting {
 		if m.err != nil {
@@ -44,8 +42,6 @@ func (m *Model) View() string {
 		lines = m.viewLinkEdit(maxLine)
 	} else if m.mode == modeCmdEdit {
 		lines = m.viewCmdEdit(maxLine)
-	} else if m.mode == modeMux {
-		lines = m.viewMux(maxLine)
 	} else if m.mode == modeAgentEdit {
 		lines = m.viewAgentEdit(maxLine)
 	} else {
@@ -620,22 +616,6 @@ func (m *Model) bottomBar(maxLine int) []string {
 	// may sit silent for minutes, and the bar says it is still going
 	if n := m.runningCount(); n > 0 {
 		state += fmt.Sprintf(" · "+cRed+"%d bash running"+cDim, n)
-	}
-	// live agent sessions get a standing tally: they die with the editor, so
-	// the bar owes you the count the whole time they exist — red only while
-	// one is actually mid-work, dim when they sit at their prompts
-	if live, working := m.agentMuxCounts(); live > 0 {
-		noun := func(n int) string {
-			if n == 1 {
-				return "agent"
-			}
-			return "agents"
-		}
-		if working > 0 {
-			state += fmt.Sprintf(" · "+cRed+"%d %s working"+cDim, working, noun(working))
-		} else {
-			state += fmt.Sprintf(" · %d %s idle", live, noun(live))
-		}
 	}
 	// a proposal waiting on review is worth seeing even when its node is off
 	// screen — it changes nothing until somebody settles it

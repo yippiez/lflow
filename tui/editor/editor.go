@@ -51,7 +51,6 @@ const (
 	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
 	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
 	modeShortcuts      // /shortcuts: full-page, scrollable shortcut reference
-	modeMux            // the multiplexer attach view: an agent session full-screen, keys forwarded (see muxview.go)
 	modeAgentEdit      // the alt+e session page: name and color together (see agentedit.go)
 )
 
@@ -254,9 +253,9 @@ type Model struct {
 	// (cancel/finish/delete) drops all of it atomically — see run/ensureRun.
 	runs map[string]*runState
 
-	// muxm is the multiplexer: every PTY session — a bash run, an agent resumed
-	// in the background — lives here, keyed by the same uuid/chip-id keyspace as
-	// runs. Lazily created (see mux); sessions die with the editor.
+	// muxm is the PTY engine: every bash run's session lives here, keyed by
+	// the same uuid keyspace as runs. Lazily created (see mux); sessions die
+	// with the editor.
 	muxm *multiplexer.Manager
 
 	// Temporary Domain — a scratch outline region (a second root, 7-day retention)
@@ -390,10 +389,7 @@ type Model struct {
 	pendingEvs  []wire.Event
 	needResync  bool
 
-	escPending  bool
-	quitWarned  bool   // quit pressed once with agents running; the next one stops them
-	muxID       string // the chip id attached in the mux view (modeMux)
-	quickReply  bool   // the focused chip band is the ⌥m quick-reply box, not the trace
+	escPending bool
 
 	// the ⌥e session edit page (modeAgentEdit)
 	agentEditID    string
@@ -401,12 +397,12 @@ type Model struct {
 	agentEditCaret int
 	agentEditField int // 0 = name, 1 = color
 	agentEditColor int // index into agentColorOptions
-	unsaved     bool
-	quitting    bool
-	animTicking bool   // the magic-keyword animation tick is currently scheduled
-	flash       string // one-shot status for the bottom bar, cleared on keypress
-	flashErr    bool   // the flash is an error — rendered red (see errorFlash)
-	err         error
+	unsaved        bool
+	quitting       bool
+	animTicking    bool   // the magic-keyword animation tick is currently scheduled
+	flash          string // one-shot status for the bottom bar, cleared on keypress
+	flashErr       bool   // the flash is an error — rendered red (see errorFlash)
+	err            error
 
 	saved struct {
 		written int
@@ -948,7 +944,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// special-case clear — just record the new size.
 		m.width = msg.Width
 		m.height = msg.Height
-		m.muxResized() // an attached session stays glued to the frame
 		return m, nil
 	case tea.MouseMsg:
 		m.handleMouse(msg)
@@ -991,9 +986,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleQueryReady(msg)
 	case animTickMsg:
 		animFrame++
-		// the tick doubles as the agent status clock: the working→idle debounce
-		// must advance even when the agent goes silent
-		m.tickMuxStatus()
 		if m.animActive() {
 			return m, animTick() // keep animating while a keyword or paste spinner is live
 		}
@@ -1070,13 +1062,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flash = "opened in " + msg.via
 		}
 		return m, nil
-	case agentClosedMsg:
-		// the CLI lflow suspended for has exited — record the session and repaint
-		m.handleAgentClosed(msg)
-		m.refreshRows()
-		return m, nil
-	case agentMuxMsg:
-		return m, m.handleAgentMux(msg)
 	}
 	return m, nil
 }
@@ -2349,14 +2334,6 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
-	// agents mid-work are worth a second look before they die with the editor:
-	// the first quit warns in the toolbar — which already carries the red
-	// tally — and the next one stops them and goes
-	if m.runningAgentCount() > 0 && !m.quitWarned {
-		m.quitWarned = true
-		m.errorFlash("quit again to stop them")
-		return m, nil
-	}
 	if m.muxm != nil {
 		m.muxm.KillAll()
 	}

@@ -263,12 +263,9 @@ func (m *Model) focusCmdChip(c database.Chip) {
 }
 
 // activeView resolves the focused inline view: a focused chip's own band (the
-// cmd chip's run output, a session chip's transcript), else the node type's view.
+// cmd chip's run output), else the node type's view.
 func (m *Model) activeView(it *item) nodeView {
 	if m.focusChip != "" {
-		if c, ok := m.chips[m.focusChip]; ok && c.Kind == chipKindAgent {
-			return quickReplyView{} // ⌥m — a session chip's one band
-		}
 		return cmdChipView{}
 	}
 	return nodeViewOf(it)

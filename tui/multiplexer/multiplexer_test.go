@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // drain collects a session's whole stream into the screen, the way the editor
@@ -253,31 +251,5 @@ func TestStatusDebounce(t *testing.T) {
 	s.Scr.Write([]byte("\x1b[2J\x1b[H│ ❯ │"))
 	if got := s.UpdateStatus(); got != StatusIdle {
 		t.Fatalf("visible idle must publish immediately, got %v", got)
-	}
-}
-
-// TestEncodeKey pins the forwarding vocabulary.
-func TestEncodeKey(t *testing.T) {
-	cases := []struct {
-		k    tea.KeyMsg
-		app  bool
-		want string
-	}{
-		{tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")}, false, "hi"},
-		{tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x"), Alt: true}, false, "\x1bx"},
-		{tea.KeyMsg{Type: tea.KeyEnter}, false, "\r"},
-		{tea.KeyMsg{Type: tea.KeyEscape}, false, "\x1b"},
-		{tea.KeyMsg{Type: tea.KeyBackspace}, false, "\x7f"},
-		{tea.KeyMsg{Type: tea.KeyUp}, false, "\x1b[A"},
-		{tea.KeyMsg{Type: tea.KeyUp}, true, "\x1bOA"},
-		{tea.KeyMsg{Type: tea.KeyShiftTab}, false, "\x1b[Z"},
-		{tea.KeyMsg{Type: tea.KeyCtrlC}, false, "\x03"},
-		{tea.KeyMsg{Type: tea.KeyCtrlR}, false, "\x12"},
-		{tea.KeyMsg{Type: tea.KeyPgDown}, false, "\x1b[6~"},
-	}
-	for _, c := range cases {
-		if got := string(EncodeKey(c.k, c.app)); got != c.want {
-			t.Errorf("EncodeKey(%s, app=%v) = %q want %q", c.k.String(), c.app, got, c.want)
-		}
 	}
 }

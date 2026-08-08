@@ -14,7 +14,7 @@ import (
 //
 // Neither touches the row's text: a chip's name and color are its own, stored in
 // LOCAL node_output beside the session id and never written back into the CLI's
-// store. ⌥r runs the session; that is the whole vocabulary.
+// store. ⌥o copies the session's open command; that is the whole vocabulary.
 
 // openAgentEdit enters the page for the chip at hand.
 func (m *Model) openAgentEdit(c database.Chip) {

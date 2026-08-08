@@ -1,7 +1,7 @@
-// Package multiplexer hosts lflow's background terminal sessions: a PTY, the
-// VT screen its output paints, and — for agent sessions — a status read off
-// that screen. The editor owns a Manager; sessions die with the editor and
-// agent conversations are picked back up through their CLIs' native resume.
+// Package multiplexer hosts lflow's background terminal sessions: a PTY and
+// the VT screen its output paints. The editor's bash runs ride it (the editor
+// owns a Manager; sessions die with the editor), and `lflow mux` drives it
+// from the command line.
 package multiplexer
 
 import (
@@ -77,8 +77,8 @@ type Screen struct {
 	link       string // the open OSC 8 hyperlink target, "" = none
 	lastX      int    // where the last graphic rune landed — combining marks join it
 	lastY      int
-	top, bot   int // scroll region rows, inclusive
-	wrapNext   bool   // deferred wrap: a rune landed in the last column
+	top, bot   int  // scroll region rows, inclusive
+	wrapNext   bool // deferred wrap: a rune landed in the last column
 	scrollback [][]cell
 	sbCap      int // scrollback cap; rows dropped off the head are counted
 	dropped    int

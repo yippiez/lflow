@@ -2,7 +2,7 @@
 // editor: run any program on a session PTY, feed it input on a timeline, and
 // dump the screen the session's VT holds — plain or styled. It exists so the
 // multiplexer can be exercised and inspected by scripts and agents: the same
-// engine the editor's agent chips ride, minus the editor.
+// engine the editor's bash runs ride, minus the editor.
 //
 //	lflow mux run --dur 6s --snap 2s --send '3s:hello' -- opencode
 //	lflow mux run --ansi --key '1s:down' --key '2s:enter' -- vim README.md
@@ -130,8 +130,7 @@ func parseTimeline(sends, types, keys, snaps []string) ([]action, error) {
 	return out, nil
 }
 
-// namedKeys is the CLI's key vocabulary — raw terminal bytes, the same ones
-// the attach view forwards.
+// namedKeys is the CLI's key vocabulary — raw terminal bytes.
 var namedKeys = map[string]string{
 	"enter": "\r", "esc": "\x1b", "tab": "\t", "space": " ",
 	"backspace": "\x7f", "up": "\x1b[A", "down": "\x1b[B",

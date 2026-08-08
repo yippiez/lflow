@@ -57,10 +57,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key != "esc" {
 		m.escPending = false
 	}
-	// the quit warning stands only while quit is what you're pressing
-	if key != "ctrl+q" && key != "ctrl+c" && key != "esc" {
-		m.quitWarned = false
-	}
 
 	switch m.mode {
 	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert,
@@ -72,8 +68,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleLinkEditKey(k)
 	case modeCmdEdit:
 		return m.handleCmdEditKey(k)
-	case modeMux:
-		return m.handleMuxKey(k)
 	case modeAgentEdit:
 		return m.handleAgentEditKey(k)
 	case modeNote:
@@ -704,9 +698,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if c, ok := m.cmdChipAtCaret(cur); ok {
 				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
 			}
-			if c, ok := m.agentChipForKeys(cur); ok {
-				return m, m.runAgentChip(c) // an inline session chip opens its CLI
-			}
 			// running a link chip IS opening it — the browser for a URL (a Google
 			// Sheets/Docs chip lands in the host browser), a jump for a node link.
 			// Same action as alt+g, reached from the key every other inline chip
@@ -753,20 +744,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if zoteroMirrored(cur) {
 				return m.zoteroOpenNode(cur, true)
 			}
-			// a session chip's host app is a TERMINAL WINDOW: the CLI's own
-			// native resume, outside lflow — refused while the session is live
-			// on the multiplexer (two processes on one conversation corrupt it)
+			// a session chip's "open in host" is its native resume COMMAND on
+			// the clipboard — paste it in whatever terminal you like; lflow
+			// never runs the agent itself
 			if c, ok := m.agentChipForKeys(cur); ok {
-				m.openAgentTerminal(c)
-				return m, nil
-			}
-		}
-		return m, nil
-	case "alt+m":
-		// quick reply: the session chip's row grows the rounded reply box
-		if cur := m.cursorItem(); cur != nil {
-			if c, ok := m.agentChipForKeys(cur); ok {
-				m.openQuickReply(c)
+				m.copyAgentCommand(c)
 				return m, nil
 			}
 		}

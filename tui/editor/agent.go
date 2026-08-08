@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/lflow/lflow/tui/database"
 )
 
@@ -19,14 +17,10 @@ import (
 // color, in whatever ink contrasts with that fill, plus a cloud mark when the
 // session is a hosted one.
 //
-// ⌥r runs the session on the MULTIPLEXER: the CLI resumes on a background PTY
-// in the session's pinned working directory and lflow's full-screen attach
-// view opens on it (ctrl+q detaches, the agent keeps running). The chip
-// shimmers while the agent works. ⌥o opens the session in a new HOST terminal
-// window instead — the native resume, outside lflow (a live mux session is
-// stopped and handed over). ⌥m sends it a quick message without attaching;
-// the box shows the agent's last word. ⌥e opens the session edit page — name
-// and color. /agents lists every session in the outline, live ones first.
+// lflow never runs the agent: ⌥o copies the CLI's native resume command — a
+// cd into the session's pinned directory and the resume argv — to the
+// clipboard, ready to paste into any terminal. ⌥e opens the session edit page
+// — name and color. /agents lists every session in the outline.
 //
 // WARNING (invariant): lflow never copies a conversation into the outline. A chip
 // or Agent node stores only {variant, cwd, session id} plus the name and color it
@@ -415,89 +409,50 @@ func (m *Model) refreshAgentLooks() {
 
 // ── opening a session ──────────────────────────────────────────────────────
 
-// agentClosedMsg lands when the CLI lflow suspended for has exited.
-type agentClosedMsg struct {
-	id      string // the chip id — the session handle's storage key
-	variant string
-	err     error
-}
-
-// agentOpen resumes the CLI on a background multiplexer session and opens the
-// attach view on it — lflow keeps the screen; the agent runs behind it. A chip
-// whose session is already live just re-attaches.
-func (m *Model) agentOpen(v agentVariant, id, cwd string) tea.Cmd {
-	if sess := m.mux().Get(id); sess != nil && sess.Live() {
-		m.muxAttach(id)
-		return nil
+// copyAgentCommand is ⌥o on a session chip: the CLI's native resume command
+// goes to the clipboard — a cd into the session's directory and the resume
+// argv, ready to paste into any terminal. lflow never runs the agent itself:
+// the conversation belongs to the CLI, and you open it where you like.
+func (m *Model) copyAgentCommand(c database.Chip) {
+	v, ok := agentVariantByID(c.Value)
+	if !ok {
+		m.errorFlash("unknown agent: " + c.Value)
+		return
 	}
-	if !m.depOK(v.bin) {
-		m.errorFlash("Missing dependency: " + v.bin)
-		return nil
-	}
-	s := m.agentLoad(id)
-	s.Variant = v.id
-	if s.Cwd == "" {
-		s.Cwd = cwd
-	}
+	s := m.agentLoad(c.ID)
 	// lflow does not start conversations: a chip is a handle on one the CLI
 	// already has, so an empty id means the chip was never pointed at anything.
 	if s.SessionID == "" {
 		m.flash = v.label + " · no session attached · /agent finds one"
-		return nil
+		return
 	}
-	// a session pinned to a directory that is gone (an attached session from
-	// another machine, a moved repo) refuses to open rather than silently running
-	// the agent somewhere else — which repo it works in is the whole point
-	if s.Cwd != "" {
-		if st, err := os.Stat(s.Cwd); err != nil || !st.IsDir() {
-			m.errorFlash(v.id + ": " + tildePath(s.Cwd) + " is gone · the session is pinned to it")
-			return nil
-		}
-	}
-	m.agentSave(id, s)
-
-	// flush pending edits before the agent starts: it may reach back into the
-	// outline through the lflow CLI while it runs, and it must see what is on
-	// screen here.
-	_ = m.flushSync()
-
 	argv := append([]string{v.bin}, v.args(s.SessionID)...)
-	cols, rows := m.muxSize()
-	sess := m.mux().Start(id, v.id, m.agentTitle(id, v, s), s.Cwd, argv, cols, rows)
-	m.muxAttach(id)
-	return m.startAnim(waitAgentMux(sess))
+	cmd := shellQuoteAll(argv)
+	if s.Cwd != "" {
+		cmd = "cd " + shellQuote(s.Cwd) + " && " + cmd
+	}
+	via, ok := clipWrite(cmd)
+	if !ok {
+		m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
+		return
+	}
+	m.flash = "command copied · " + via
 }
 
-// handleAgentClosed lands the CLI's exit: run bookkeeping, and the session's
-// current name re-read from the store the CLI may have just renamed it in.
-func (m *Model) handleAgentClosed(msg agentClosedMsg) {
-	v, ok := agentVariantByID(msg.variant)
-	if !ok {
-		return
+// shellQuote wraps s for a POSIX shell when it needs it.
+func shellQuote(s string) string {
+	if s != "" && !strings.ContainsAny(s, " \t\n'\"\\$`&|;<>()*?[]#~") {
+		return s
 	}
-	s := m.agentLoad(msg.id)
-	s.Variant = v.id
-	// A session STARTED from lflow has no name until the CLI gives it one, so the
-	// first landing is where its identity is taken — the same snapshot attaching
-	// makes, just at the only moment this chip has one to take. Every landing
-	// after that leaves it alone: the CLI does not get to keep relabelling a node.
-	if !s.Snapshot {
-		if meta, ok := v.agentStoreSessionFor(s.SessionID); ok && meta.title != "" {
-			s.Title, s.Snapshot = meta.title, true
-			if s.Color == "" {
-				s.Color = meta.color
-			}
-		}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func shellQuoteAll(argv []string) string {
+	q := make([]string, len(argv))
+	for i, a := range argv {
+		q[i] = shellQuote(a)
 	}
-	m.agentSave(msg.id, s)
-	delete(m.nodeStore(msg.id), "agentMeta") // the session moved - re-read it
-	delete(m.nodeStore(msg.id), "agentTrace")
-	m.refreshAgentChip(msg.id)
-	if msg.err != nil {
-		m.errorFlash(v.label + ": " + msg.err.Error())
-		return
-	}
-	m.flash = v.id + " · session " + agentShortID(s.SessionID)
+	return strings.Join(q, " ")
 }
 
 // agentAttach points a chip at an EXISTING session from the CLI's own store —
@@ -585,10 +540,10 @@ func (m *Model) insertAgentChip(cur *item, v agentVariant, attach agentStoreSess
 	m.insertLiteralAt(cur, m.caret, anchor)
 	m.publishAgentLook(id, v)
 	m.refreshAgentChip(id)
-	m.flash = v.label + " · ⌥r runs · ⌥m messages · ⌥e edits"
+	m.flash = v.label + " · ⌥o copies the open command · ⌥e edits"
 }
 
-// agentChipForKeys is what ⌥r / ⌥e / ⌥n / ⌥c act on. It prefers the chip the
+// agentChipForKeys is what ⌥o / ⌥e / ⌥c act on. It prefers the chip the
 // caret is exactly on, and falls back to the row's chip when the row has only
 // one — a row wide enough to WRAP puts End on the end of a visual line rather
 // than after the chip, and a key that silently does nothing there reads as a
@@ -622,21 +577,6 @@ func (m *Model) agentChipForKeys(cur *item) (database.Chip, bool) {
 // anchorChipID recovers the chip id from an anchor built by createChip.
 func anchorChipID(anchor string) string {
 	return strings.Trim(anchor, string(chipSentinel))
-}
-
-// runAgentChip is ⌥r on a session chip: open, or resume, the session.
-func (m *Model) runAgentChip(c database.Chip) tea.Cmd {
-	v, ok := agentVariantByID(c.Value)
-	if !ok {
-		m.errorFlash("unknown agent: " + c.Value)
-		return nil
-	}
-	s := m.agentLoad(c.ID)
-	cwd := s.Cwd
-	if cwd == "" {
-		cwd = processCWD()
-	}
-	return m.agentOpen(v, c.ID, cwd)
 }
 
 // refreshAgentChip refreshes a chip's inline label — the name the pill shows:

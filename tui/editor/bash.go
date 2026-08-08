@@ -241,9 +241,9 @@ func (m *Model) finishRun(uuid string) {
 		r.ch = nil
 	}
 	// a shell session's record has nothing left to say once the band is
-	// persisted — the screen lives on in runState; agent sessions stay filed
+	// persisted — the screen lives on in runState
 	if m.muxm != nil {
-		if s := m.muxm.Get(uuid); s != nil && s.Agent == "" {
+		if s := m.muxm.Get(uuid); s != nil {
 			m.muxm.Drop(uuid)
 		}
 	}

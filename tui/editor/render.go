@@ -766,15 +766,6 @@ func renderAgentChip(c database.Chip, caretOn, struck bool) string {
 	if label == "" {
 		label = c.Value // no session yet: the pill names the CLI
 	}
-	// a WORKING session shimmers its fill — the pill's own color with the
-	// sliding highlight the cmd chip's cell wears, text untouched. The caret
-	// SUSPENDS the shimmer: being able to see where you are beats the pulse,
-	// and the tally already says the agent is busy.
-	if !struck && !caretOn && agentMuxWorking(c.ID) {
-		if base, ok := chipRGB(col); ok {
-			return renderAgentChipShimmer(glyph, label, base, contrastInk(col))
-		}
-	}
 	var b strings.Builder
 	b.WriteString(cReset)
 	if caretOn {
@@ -786,36 +777,6 @@ func renderAgentChip(c database.Chip, caretOn, struck bool) string {
 	}
 	b.WriteString(" " + glyph + " " + label + " " + cReset)
 	return b.String()
-}
-
-// renderAgentChipShimmer paints the working pill: each cell's background is
-// the session color lifted toward white where the highlight band passes.
-func renderAgentChipShimmer(glyph, label string, base [3]int, ink string) string {
-	peak := [3]int{lift(base[0]), lift(base[1]), lift(base[2])}
-	runes := []rune(" " + glyph + " " + label + " ")
-	var b strings.Builder
-	b.WriteString(cReset)
-	b.WriteString(ink)
-	bg := ""
-	for j, r := range runes {
-		cr, cg, cb := lerpRGB3(base, peak, shimmerAt(len(runes), j, animFrame))
-		if s := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", cr, cg, cb); s != bg {
-			b.WriteString(s)
-			bg = s
-		}
-		b.WriteRune(r)
-	}
-	b.WriteString(cReset)
-	return b.String()
-}
-
-// lift raises one channel toward white for the shimmer's peak.
-func lift(c int) int { return c + (255-c)*45/100 }
-
-// chipRGB reads a pill fill's channels; a non-truecolor fill shimmers not.
-func chipRGB(fg string) ([3]int, bool) {
-	r, g, b, ok := sgrRGB(fg)
-	return [3]int{r, g, b}, ok
 }
 
 // bgOf turns a foreground SGR ("\x1b[38;2;r;g;bm") into the matching BACKGROUND

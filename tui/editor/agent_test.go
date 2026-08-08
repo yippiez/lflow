@@ -406,97 +406,6 @@ func TestAgentAttachExistingSession(t *testing.T) {
 	}
 }
 
-// TestAgentOpenRefusesGoneCwd: a session pinned to a directory that no longer
-// exists refuses to open rather than running the agent somewhere else.
-func TestAgentOpenRefusesGoneCwd(t *testing.T) {
-	c := variant(t, "claude")
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
-	chip := chipOn(t, m, "note", c, agentStoreSession{})
-	gone := filepath.Join(t.TempDir(), "removed-repo")
-	m.agentSave(chip.ID, agentSession{Variant: c.id, SessionID: "abc-123", Cwd: gone})
-
-	if cmd := m.agentOpen(c, chip.ID, gone); cmd != nil {
-		t.Error("a session whose directory is gone must not launch the CLI")
-	}
-	if !strings.Contains(m.flash, "is gone") {
-		t.Errorf("flash = %q, want it to name the missing directory", m.flash)
-	}
-}
-
-// TestAgentPanelShowsTrace: alt+e shows the identity plus virtual transcript
-// rows read from the CLI store. Nothing from those rows is copied into nodes.
-// TestAgentLastResponse: the quick-reply box's one-liner is the store's last
-// assistant message when no live session holds a fresher title.
-func TestAgentLastResponse(t *testing.T) {
-	id := claudeStore(t, recSummary, recUser,
-		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"pinned the flake to a race"}]}}`)
-	c := variant(t, "claude")
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
-	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, cwd: "/home/dev/repo"})
-
-	if got := m.agentLastResponse(chip.ID); got != "pinned the flake to a race" {
-		t.Fatalf("last response = %q, want the store's last assistant line", got)
-	}
-}
-
-func TestAgentTraceReadsAssistantTools(t *testing.T) {
-	rec := map[string]any{
-		"type": "assistant",
-		"message": map[string]any{"role": "assistant", "content": []any{
-			map[string]any{"type": "text", "text": "I will inspect it."},
-			map[string]any{"type": "tool_use", "name": "read", "input": map[string]any{"path": "main.go"}},
-		}},
-	}
-	got := agentRecordTrace(rec)
-	if len(got) != 2 || got[0].kind != "assistant" || got[1].kind != "tool" ||
-		!strings.Contains(got[1].text, "main.go") {
-		t.Fatalf("assistant trace = %#v", got)
-	}
-}
-
-// Pi writes camelCase toolCall/toolResult records; both belong in the trace.
-func TestAgentTraceReadsPiToolRecords(t *testing.T) {
-	call := map[string]any{"type": "message", "message": map[string]any{
-		"role": "assistant", "content": []any{map[string]any{
-			"type": "toolCall", "name": "bash", "arguments": map[string]any{"command": "go test ./..."},
-		}},
-	}}
-	got := agentRecordTrace(call)
-	if len(got) != 1 || got[0].kind != "tool" || !strings.Contains(got[0].text, "go test ./...") {
-		t.Fatalf("Pi tool call trace = %#v", got)
-	}
-	result := map[string]any{"type": "message", "message": map[string]any{
-		"role": "toolResult", "content": []any{map[string]any{"type": "text", "text": "ok"}},
-	}}
-	got = agentRecordTrace(result)
-	if len(got) != 1 || got[0].kind != "result" || got[0].text != "ok" {
-		t.Fatalf("Pi tool result trace = %#v", got)
-	}
-}
-
-// Pi's filename is timestamp_<session-id>.jsonl even though the pointer stored
-// on a chip/node is the session id from the first JSONL record.
-func TestAgentTraceFindsTimestampPrefixedPiTranscript(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	id := "019eb6ff-caef-78d0-8a2a-93e6ddd1f826"
-	dir := filepath.Join(home, ".pi", "agent", "sessions", "--home-dev-repo--")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	body := `{"type":"session","id":"` + id + `","cwd":"/home/dev/repo"}` + "\n" +
-		`{"type":"message","message":{"role":"user","content":[{"type":"text","text":"show the trace"}]}}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "2026-06-11T14-04-37-487Z_"+id+".jsonl"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	v := variant(t, "pi")
-	got := readAgentTrace(v, agentSession{Variant: "pi", SessionID: id})
-	if len(got) != 1 || got[0].kind != "user" || got[0].text != "show the trace" {
-		t.Fatalf("Pi timestamp-prefixed trace = %#v", got)
-	}
-}
-
 // TestAgentNodeTypeRetired: a session has ONE surface, the inline chip. The
 // whole-row Agent node was removed — its key stays valid so a node somebody
 // still has typed that way keeps its own name, but nothing offers it any more.
@@ -1251,5 +1160,35 @@ func TestAgentChipImportsItsColorOnce(t *testing.T) {
 	m.hydrateAgentChips()
 	if got := m.agentLoad(chip.ID); got.Color != "#4ec9b0" {
 		t.Errorf("color = %q — a later recolor in the CLI leaked in", got.Color)
+	}
+}
+
+// TestCopyAgentCommand: ⌥o puts the CLI's native resume command on the
+// clipboard — a cd into the session's pinned directory and the resume argv —
+// so the session opens wherever it is pasted. lflow itself runs nothing.
+func TestCopyAgentCommand(t *testing.T) {
+	clip := clipCapture(t)
+
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	chip := chipOn(t, m, "note", c, agentStoreSession{})
+	m.agentSave(chip.ID, agentSession{Variant: c.id, SessionID: "abc-123", Cwd: "/home/dev/my repo"})
+
+	m.copyAgentCommand(m.chips[chip.ID])
+	if !strings.Contains(m.flash, "command copied") {
+		t.Fatalf("flash = %q", m.flash)
+	}
+	want := "cd '/home/dev/my repo' && claude --resume abc-123"
+	if got := clip(); got != want {
+		t.Fatalf("clipboard = %q, want %q", got, want)
+	}
+
+	// a chip never pointed at a session copies nothing and says why
+	empty := chipOn(t, m, "note", c, agentStoreSession{})
+	m.agentSave(empty.ID, agentSession{Variant: c.id})
+	m.flash = ""
+	m.copyAgentCommand(m.chips[empty.ID])
+	if !strings.Contains(m.flash, "no session attached") {
+		t.Fatalf("empty chip: flash = %q", m.flash)
 	}
 }

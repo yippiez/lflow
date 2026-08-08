@@ -2,10 +2,8 @@ package editor
 
 import (
 	"database/sql"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -99,63 +97,6 @@ func TestAgentDBLookupFindsArchived(t *testing.T) {
 	}
 }
 
-// TestAgentDBTrace maps a session's parts onto the panel's trace: text by the
-// message's role, reasoning as thinking, and a tool part as its call and its
-// output, in file order.
-func TestAgentDBTrace(t *testing.T) {
-	opencodeDBStore(t, func(db *sql.DB) {
-		mustExec(t, db, "INSERT INTO session VALUES ('ses_1', 't', '/w', 1, NULL)")
-		mustExec(t, db, "INSERT INTO message VALUES ('msg_u', 'ses_1', 1, '{\"role\":\"user\"}')")
-		mustExec(t, db, "INSERT INTO message VALUES ('msg_a', 'ses_1', 2, '{\"role\":\"assistant\"}')")
-		mustExec(t, db, "INSERT INTO part VALUES ('p1', 'msg_u', 'ses_1', 1, '{\"type\":\"text\",\"text\":\"<system-reminder>noise</system-reminder> fix it\"}')")
-		mustExec(t, db, "INSERT INTO part VALUES ('p2', 'msg_a', 'ses_1', 2, '{\"type\":\"reasoning\",\"text\":\"thinking hard\"}')")
-		mustExec(t, db, "INSERT INTO part VALUES ('p3', 'msg_a', 'ses_1', 3, '{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"make test\"},\"output\":\"ok\"}}')")
-		mustExec(t, db, "INSERT INTO part VALUES ('p4', 'msg_a', 'ses_1', 4, '{\"type\":\"text\",\"text\":\"done\"}')")
-		mustExec(t, db, "INSERT INTO part VALUES ('p5', 'msg_a', 'ses_1', 5, '{\"type\":\"patch\",\"files\":[\"a.go\"]}')")
-	})
-	traces := dbTraceFor(t, "ses_1")
-	var got []string
-	for _, tr := range traces {
-		got = append(got, tr.kind+":"+tr.text)
-	}
-	want := []string{
-		"user:fix it", // the wrapper was stripped, as the file reader would
-		"thinking:thinking hard",
-		"tool:bash {\"command\":\"make test\"}",
-		"result:ok",
-		"assistant:done",
-	}
-	if len(got) != len(want) {
-		t.Fatalf("traces = %q, want %q", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("trace[%d] = %q, want %q (full: %q)", i, got[i], want[i], got)
-		}
-	}
-}
-
-// TestAgentDBTraceCapsToTail: a session that runs past the trace cap shows its
-// most recent parts, like the file reader's tail read — a head part that ends
-// before the boundary is cut with the head.
-func TestAgentDBTraceCapsToTail(t *testing.T) {
-	opencodeDBStore(t, func(db *sql.DB) {
-		mustExec(t, db, "INSERT INTO session VALUES ('ses_1', 't', '/w', 1, NULL)")
-		mustExec(t, db, "INSERT INTO message VALUES ('msg_u', 'ses_1', 1, '{\"role\":\"user\"}')")
-		head := `{"type":"text","text":"` + strings.Repeat("h", agentTraceCap) + `"}`
-		tail := `{"type":"text","text":"` + strings.Repeat("t", agentTraceCap) + `"}`
-		mustExec(t, db, "INSERT INTO part VALUES ('p1', 'msg_u', 'ses_1', 1, ?)", head)
-		mustExec(t, db, "INSERT INTO part VALUES ('p2', 'msg_u', 'ses_1', 2, ?)", tail)
-	})
-	traces := dbTraceFor(t, "ses_1")
-	if len(traces) != 1 {
-		t.Fatalf("traces = %d, want only the tail part", len(traces))
-	}
-	if strings.ContainsAny(traces[0].text, "h") {
-		t.Error("the head part survived the cap")
-	}
-}
-
 // TestAgentDBOpenSkipsForeignSchema: a database without the v1 session table
 // (opencode v2's layout) is not read as one it is not.
 func TestAgentDBOpenSkipsForeignSchema(t *testing.T) {
@@ -210,59 +151,9 @@ func TestAgentDBOpenReadOnly(t *testing.T) {
 	}
 }
 
-func dbTraceFor(t *testing.T, id string) []agentTrace {
-	t.Helper()
-	db := ocv1(t).openAgentDB()
-	if db == nil {
-		t.Fatal("store not opened")
-	}
-	defer db.Close()
-	return db.trace(id)
-}
-
 func mustExec(t *testing.T, db *sql.DB, query string, args ...any) {
 	t.Helper()
 	if _, err := db.Exec(query, args...); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestAgentPartTrace maps each v1 part type onto its trace rows, and nothing
-// structural (patch, file, step) onto any.
-func TestAgentPartTrace(t *testing.T) {
-	cases := []struct {
-		part string
-		role string
-		want []string
-	}{
-		{`{"type":"text","text":"<local-command-caveat>x</local-command-caveat> hi"}`, "user", []string{"user:hi"}},
-		{`{"type":"text","text":"  hello  "}`, "assistant", []string{"assistant:hello"}},
-		{`{"type":"text","text":"  "}`, "user", nil},
-		{`{"type":"reasoning","text":"think\nmore"}`, "assistant", []string{"thinking:think more"}},
-		{`{"type":"tool","tool":"bash","state":{"input":{"command":"ls"},"output":"a\nb"}}`, "assistant", []string{"tool:bash {\"command\":\"ls\"}", "result:a b"}},
-		{`{"type":"tool","tool":"bash"}`, "assistant", []string{"tool:bash"}},
-		{`{"type":"patch","files":["a.go"]}`, "assistant", nil},
-		{`{"type":"file","filename":"a.go"}`, "user", nil},
-		{`{"type":"step-start","snapshot":"s"}`, "assistant", nil},
-		{`{"type":"compaction","auto":true}`, "assistant", nil},
-	}
-	for _, tc := range cases {
-		var part map[string]any
-		if err := json.Unmarshal([]byte(tc.part), &part); err != nil {
-			t.Fatal(err)
-		}
-		var got []string
-		for _, tr := range agentPartTrace(part, tc.role) {
-			got = append(got, tr.kind+":"+tr.text)
-		}
-		if len(got) != len(tc.want) {
-			t.Errorf("part %s -> %q, want %q", tc.part, got, tc.want)
-			continue
-		}
-		for i := range tc.want {
-			if got[i] != tc.want[i] {
-				t.Errorf("part %s -> trace[%d] %q, want %q", tc.part, i, got[i], tc.want[i])
-			}
-		}
 	}
 }
