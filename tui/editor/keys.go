@@ -58,30 +58,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.escPending = false
 	}
 
-	// Off a contextual link, alt+g is a small goto leader: g opens the ordinary
-	// node finder, s jumps to pending review. Consume the second key here before
-	// normal text editing can type it into the node.
-	//
-	// The second key is accepted with Alt still held (alt+g, alt+s) as well as
-	// plain: nobody lets go of a modifier between two keys pressed that fast, and
-	// a chord that only works if you do reads as a chord that does not work.
-	if m.gotoPending {
-		m.gotoPending = false
-		switch key {
-		case "g", "alt+g":
-			if !m.tempActive {
-				m.openFinder(actGoto)
-			}
-		case "s", "alt+s":
-			m.gotoSuggestion()
-		case "esc":
-			m.flash = "goto canceled"
-		default:
-			m.flash = "goto · g node · s suggestion"
-		}
-		return m, nil
-	}
-
 	switch m.mode {
 	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert,
 		modeAgentPick, modeAgentColor, modeCharacterPick, modeCharacterColor, modeCite:
@@ -657,8 +633,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m.zoteroOpenNode(cur, false)
 			}
 		}
-		m.gotoPending = true
-		m.flash = "goto · g node · s suggestion · esc cancel"
+		if !m.tempActive {
+			m.openFinder(actGoto)
+		}
 		return m, nil
 	case "alt+i":
 		// edit the command inside a cmd chip at the caret — the one edit a $ chip

@@ -164,10 +164,6 @@ type Model struct {
 	// mirror of an ancestor may re-enter its target, one level per expand
 	// press. Ephemeral view state — never persisted or synced.
 	unroll map[string]int
-	// alt+g is a two-key goto leader off links: g opens the node finder and s
-	// jumps to the next pending suggestion. Contextual link/Zotero opens still
-	// happen immediately on alt+g.
-	gotoPending bool
 
 	width  int
 	height int
@@ -347,7 +343,7 @@ type Model struct {
 	// modeSuggest is up. A proposal has changed nothing until it is approved.
 	suggests map[string][]database.Suggestion
 	// suggestOrder is the queue's targets in filing order, deduplicated — what
-	// alt+g s walks. The map above cannot answer "next", only "here".
+	// alt+v walks. The map above cannot answer "next", only "here".
 	suggestOrder []string
 	suggestUUID  string
 	suggestSel   int

@@ -40,7 +40,7 @@ func fileSuggestion(t *testing.T, db *database.DB, s database.Suggestion) databa
 
 // TestDeletingANodeSettlesItsSuggestions: deleting the node a proposal is about
 // settles the proposal in the same save. Otherwise the queue counts a node that
-// is not on screen and cannot be reviewed, and alt+g s walks onto a ghost for
+// is not on screen and cannot be reviewed, and alt+v walks onto a ghost for
 // the rest of the session — the boot sweep is too late to help.
 func TestDeletingANodeSettlesItsSuggestions(t *testing.T) {
 	m, db, cur := suggestModel(t, "doomed")
@@ -132,24 +132,24 @@ func TestSuggestInlineCountsTheRest(t *testing.T) {
 	}
 }
 
-func TestGotoSuggestionCommandAndChord(t *testing.T) {
+func TestGotoSuggestionSingleKey(t *testing.T) {
 	m, db, cur := suggestModel(t, "ship the thing")
 	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestComplete, TargetUUID: cur.uuid})
 	m.loadSuggests()
 
-	m.press("alt+g")
-	if !m.gotoPending {
-		t.Fatal("alt+g off a link should wait for the goto subkey")
-	}
-	m.press("s")
+	// alt+v on a node WITHOUT suggestions walks to the next one carrying a
+	// proposal — the single-key successor of the old alt+g s chord.
+	m.press("alt+v")
 	if m.mode != modeSuggest || m.suggestUUID != cur.uuid {
-		t.Fatalf("alt+g s did not jump to review: mode=%v uuid=%q", m.mode, m.suggestUUID)
+		t.Fatalf("alt+v did not jump to review: mode=%v uuid=%q", m.mode, m.suggestUUID)
 	}
 	m.press("esc")
+
+	// alt+g on plain text opens the node finder directly — the single-key
+	// successor of the old alt+g g chord.
 	m.press("alt+g")
-	m.press("g")
 	if m.mode != modeFinder || m.finder.act != actGoto {
-		t.Fatalf("alt+g g did not open goto: mode=%v action=%v", m.mode, m.finder.act)
+		t.Fatalf("alt+g did not open goto: mode=%v action=%v", m.mode, m.finder.act)
 	}
 
 	hasNew, hasOld := false, false
@@ -162,27 +162,41 @@ func TestGotoSuggestionCommandAndChord(t *testing.T) {
 	}
 }
 
-// TestGotoChordWithAltHeld: nobody lets go of Alt between the two keys of a
-// chord pressed that fast, so the leader accepts the second key either way.
-func TestGotoChordWithAltHeld(t *testing.T) {
-	m, db, cur := suggestModel(t, "ship the thing")
-	fileSuggestion(t, db, database.Suggestion{Kind: database.SuggestComplete, TargetUUID: cur.uuid})
+// TestAltVFallsThroughToTheNextSuggestion: the cursor sits on a node with
+// nothing pending, but the queue has proposals elsewhere — alt+v walks the
+// global queue to the next one instead of dead-ending on the current node.
+func TestAltVFallsThroughToTheNextSuggestion(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestEdit,
+		TargetUUID: "b1", Name: "renamed", Fields: database.FieldName, CreatedOn: 1})
 	m.loadSuggests()
 
-	m.press("alt+g")
-	m.press("alt+s")
-	if m.mode != modeSuggest || m.suggestUUID != cur.uuid {
-		t.Fatalf("alt+g alt+s did not jump to review: mode=%v uuid=%q", m.mode, m.suggestUUID)
+	if cur := m.cursorItem(); cur != nil && m.suggestsFor(cur.uuid) != nil {
+		t.Fatalf("the cursor node should have no proposal: %q", cur.uuid)
 	}
-	m.press("esc")
-	m.press("alt+g")
-	m.press("alt+g")
-	if m.mode != modeFinder || m.finder.act != actGoto {
-		t.Fatalf("alt+g alt+g did not open goto: mode=%v action=%v", m.mode, m.finder.act)
+	m.press("alt+v")
+	if m.mode != modeSuggest || m.suggestUUID != "b1" {
+		t.Fatalf("alt+v did not walk to b1: mode=%v uuid=%q flash=%q", m.mode, m.suggestUUID, m.flash)
 	}
-	// the held-Alt second key must not leave the leader armed for a third
-	if m.gotoPending {
-		t.Fatal("the goto leader stayed armed after alt+g alt+g")
+}
+
+// TestGotoSuggestionFromReview: alt+g in review hops straight from one proposal
+// to the next without an esc in between — review mode takes the key itself.
+func TestGotoSuggestionFromReview(t *testing.T) {
+	m, db := forestModel(t)
+	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
+		TargetUUID: "b1", CreatedOn: 1})
+	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
+		TargetUUID: "b2", CreatedOn: 2})
+	m.loadSuggests()
+
+	m.gotoSuggestion()
+	if m.suggestUUID != "b1" {
+		t.Fatalf("first hop = %q, want b1", m.suggestUUID)
+	}
+	m.press("alt+g")
+	if m.mode != modeSuggest || m.suggestUUID != "b2" {
+		t.Fatalf("second hop from review = %q mode=%v, want b2 in review", m.suggestUUID, m.mode)
 	}
 }
 
@@ -267,28 +281,6 @@ func TestGotoSuggestionWalksTheQueue(t *testing.T) {
 		if cur := m.cursorItem(); cur == nil || cur.uuid != want {
 			t.Fatalf("cursor did not follow the walk to %q: %+v", want, cur)
 		}
-	}
-}
-
-// TestGotoSuggestionChordFromReview: alt+g s hops straight from one proposal to
-// the next without an esc in between — review mode arms the leader itself.
-func TestGotoSuggestionChordFromReview(t *testing.T) {
-	m, db := forestModel(t)
-	fileSuggestion(t, db, database.Suggestion{UUID: "s1", Kind: database.SuggestComplete,
-		TargetUUID: "b1", CreatedOn: 1})
-	fileSuggestion(t, db, database.Suggestion{UUID: "s2", Kind: database.SuggestComplete,
-		TargetUUID: "b2", CreatedOn: 2})
-	m.loadSuggests()
-
-	m.press("alt+g")
-	m.press("s")
-	if m.suggestUUID != "b1" {
-		t.Fatalf("first hop = %q, want b1", m.suggestUUID)
-	}
-	m.press("alt+g")
-	m.press("s")
-	if m.mode != modeSuggest || m.suggestUUID != "b2" {
-		t.Fatalf("second hop from review = %q mode=%v, want b2 in review", m.suggestUUID, m.mode)
 	}
 }
 

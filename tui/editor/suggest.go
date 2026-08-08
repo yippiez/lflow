@@ -89,18 +89,15 @@ func (m *Model) clampSuggestSel() {
 }
 
 // enterSuggestReview opens review on the cursor node. A node with nothing
-// pending says so, and points at the rest of the queue if there is any.
+// pending falls through to the rest of the queue — alt+v is the one key that
+// reviews this node's proposals, and when there are none, the next one.
 func (m *Model) enterSuggestReview() {
 	cur := m.cursorItem()
 	if cur == nil {
 		return
 	}
 	if len(m.suggestsFor(cur.uuid)) == 0 {
-		if n := m.pendingSuggestCount(); n > 0 {
-			m.flash = fmt.Sprintf("no suggestions here · %s elsewhere · /goto:suggestion", suggestNoun(n))
-		} else {
-			m.flash = "no suggestions"
-		}
+		m.gotoSuggestion()
 		return
 	}
 	m.mode = modeSuggest
@@ -108,9 +105,9 @@ func (m *Model) enterSuggestReview() {
 	m.suggestSel = 0
 }
 
-// gotoSuggestion (/goto:suggestion or alt+g s) moves to the next node carrying a
-// proposal and opens review on it — the way to reach one that arrived while you
-// were reading somewhere else.
+// gotoSuggestion (/goto:suggestion, alt+v on a clean node, or alt+g in review)
+// moves to the next node carrying a proposal and opens review on it — the way
+// to reach one that arrived while you were reading somewhere else.
 //
 // The queue is GLOBAL, not what happens to be on screen: a proposal filed
 // against a node in another part of the outline is still waiting for you, and
@@ -266,10 +263,10 @@ func (m *Model) handleSuggestKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.suggestSel++
 		m.clampSuggestSel()
 	case "alt+g":
-		// review mode owns the keyboard, so the goto leader has to be armed from
-		// inside it too — otherwise walking the queue means esc before every hop
-		m.gotoPending = true
-		m.flash = "goto · g node · s suggestion · esc cancel"
+		// review mode owns the keyboard, so the walk has to hop from inside it
+		// too — otherwise moving between the queue's nodes means esc before
+		// every hop
+		m.gotoSuggestion()
 	case "esc", "alt+v", "q":
 		m.mode = modeOutline
 		m.suggestUUID = ""
