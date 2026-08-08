@@ -392,6 +392,7 @@ type Model struct {
 	escPending  bool
 	quitWarned  bool   // quit pressed once with agents running; the next one stops them
 	muxID       string // the chip id attached in the mux view (modeMux)
+	quickReply  bool   // the focused chip band is the ⌥m quick-reply box, not the trace
 	unsaved     bool
 	quitting    bool
 	animTicking bool   // the magic-keyword animation tick is currently scheduled

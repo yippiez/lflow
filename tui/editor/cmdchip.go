@@ -267,6 +267,9 @@ func (m *Model) focusCmdChip(c database.Chip) {
 func (m *Model) activeView(it *item) nodeView {
 	if m.focusChip != "" {
 		if c, ok := m.chips[m.focusChip]; ok && c.Kind == chipKindAgent {
+			if m.quickReply {
+				return quickReplyView{} // ⌥m: the reply box, not the trace
+			}
 			return agentChipView{}
 		}
 		return cmdChipView{}

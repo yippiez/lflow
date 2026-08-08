@@ -65,6 +65,10 @@ var shortcutSections = []shortcutSection{
 		{"alt+i", "edit command chip"},
 		{"alt+n", "rename agent session chip"},
 		{"alt+c on agent", "recolor agent session chip"},
+		{"alt+r on agent", "run in the multiplexer, attached"},
+		{"ctrl+q attached", "detach; the agent keeps running"},
+		{"alt+o on agent", "open in a new terminal window"},
+		{"alt+m", "quick message to the running agent"},
 	}},
 	{"Leave", [][2]string{
 		{"esc", "close a page, picker, selection or focused view"},

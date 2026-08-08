@@ -751,6 +751,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if zoteroMirrored(cur) {
 				return m.zoteroOpenNode(cur, true)
 			}
+			// a session chip's host app is a TERMINAL WINDOW: the CLI's own
+			// native resume, outside lflow — refused while the session is live
+			// on the multiplexer (two processes on one conversation corrupt it)
+			if c, ok := m.agentChipForKeys(cur); ok {
+				m.openAgentTerminal(c)
+				return m, nil
+			}
+		}
+		return m, nil
+	case "alt+m":
+		// quick reply: the session chip's row grows the rounded reply box
+		if cur := m.cursorItem(); cur != nil {
+			if c, ok := m.agentChipForKeys(cur); ok {
+				m.openQuickReply(c)
+				return m, nil
+			}
 		}
 		return m, nil
 	case "alt+n":

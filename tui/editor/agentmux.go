@@ -1,8 +1,11 @@
 package editor
 
 import (
+	"os"
+
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/lflow/lflow/tui/database"
 	"github.com/lflow/lflow/tui/multiplexer"
 )
 
@@ -124,4 +127,47 @@ func agentMuxWorking(id string) bool {
 func agentMuxLive(id string) bool {
 	_, ok := agentMuxStates[id]
 	return ok
+}
+
+// openAgentTerminal is ⌥o on a session chip: the CLI's native resume in a new
+// HOST terminal window — the current open, outside lflow. A session live on
+// the multiplexer refuses: resuming one conversation in two processes at once
+// corrupts the CLI's own record of it.
+func (m *Model) openAgentTerminal(c database.Chip) {
+	v, ok := agentVariantByID(c.Value)
+	if !ok {
+		m.errorFlash("unknown agent: " + c.Value)
+		return
+	}
+	if sess := m.mux().Get(c.ID); sess != nil && sess.Live() {
+		m.errorFlash("running in multiplexer · stop it before opening elsewhere")
+		return
+	}
+	if !m.depOK(v.bin) {
+		m.errorFlash("Missing dependency: " + v.bin)
+		return
+	}
+	s := m.agentLoad(c.ID)
+	if s.SessionID == "" {
+		m.flash = v.label + " · no session attached · /agent finds one"
+		return
+	}
+	cwd := s.Cwd
+	if cwd == "" {
+		cwd = processCWD()
+	}
+	if cwd != "" {
+		if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
+			m.errorFlash(v.id + ": " + tildePath(cwd) + " is gone · the session is pinned to it")
+			return
+		}
+	}
+	_ = m.flushSync()
+	argv := append([]string{v.bin}, v.args(s.SessionID)...)
+	via, err := multiplexer.OpenTerminalWindow(cwd, argv)
+	if err != nil {
+		m.errorFlash("terminal: " + err.Error())
+		return
+	}
+	m.flash = "opened in " + via
 }
