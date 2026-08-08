@@ -56,6 +56,7 @@ func newRunCmd() *cobra.Command {
 		agent      string
 		ansi       bool
 		sends      []string
+		types      []string
 		keys       []string
 		snaps      []string
 	)
@@ -65,7 +66,7 @@ func newRunCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			multiplexer.CaptureHostColors()
-			timeline, err := parseTimeline(sends, keys, snaps)
+			timeline, err := parseTimeline(sends, types, keys, snaps)
 			if err != nil {
 				return err
 			}
@@ -77,13 +78,14 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&dur, "dur", 5*time.Second, "how long the session runs before it is stopped")
 	cmd.Flags().StringVar(&agent, "agent", "", "agent id for status detection (claude, pi, opencode, prime-agent)")
 	cmd.Flags().BoolVar(&ansi, "ansi", false, "dump styled rows (SGR escapes) instead of plain text")
-	cmd.Flags().StringArrayVar(&sends, "send", nil, "send text at an offset, e.g. '2s:hello there' (Enter follows, delayed)")
-	cmd.Flags().StringArrayVar(&keys, "key", nil, "send a named key at an offset, e.g. '1s:enter' (enter, esc, tab, up, down, left, right, space, backspace, ctrl+<x>)")
+	cmd.Flags().StringArrayVar(&sends, "send", nil, "send a MESSAGE at an offset, e.g. '2s:hello there' — paste semantics (bracketed if the app asked) with Enter following; what the editor's quick reply does")
+	cmd.Flags().StringArrayVar(&types, "type", nil, "type text at an offset as raw KEYSTROKES, e.g. '1s:jjZZ' — no paste guards, no Enter; what drives vim-style normal modes")
+	cmd.Flags().StringArrayVar(&keys, "key", nil, "send a key at an offset, e.g. '1s:enter' — a name (enter, esc, tab, arrows, space, backspace, ctrl+<x>) or a single character")
 	cmd.Flags().StringArrayVar(&snaps, "snap", nil, "capture the screen at an offset, e.g. '2s' (the end is always captured)")
 	return cmd
 }
 
-func parseTimeline(sends, keys, snaps []string) ([]action, error) {
+func parseTimeline(sends, types, keys, snaps []string) ([]action, error) {
 	var out []action
 	split := func(s string) (time.Duration, string, error) {
 		at, arg, ok := strings.Cut(s, ":")
@@ -102,6 +104,13 @@ func parseTimeline(sends, keys, snaps []string) ([]action, error) {
 			return nil, err
 		}
 		out = append(out, action{d, "send", arg})
+	}
+	for _, s := range types {
+		d, arg, err := split(s)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, action{d, "type", arg})
 	}
 	for _, s := range keys {
 		d, arg, err := split(s)
@@ -136,6 +145,10 @@ func keyBytes(name string) ([]byte, error) {
 	}
 	if c, ok := strings.CutPrefix(name, "ctrl+"); ok && len(c) == 1 && c[0] >= 'a' && c[0] <= 'z' {
 		return []byte{c[0] - 'a' + 1}, nil
+	}
+	// a single character is itself a key
+	if r := []rune(name); len(r) == 1 {
+		return []byte(name), nil
 	}
 	return nil, fmt.Errorf("unknown key %q", name)
 }
@@ -202,6 +215,8 @@ loop:
 			switch a.kind {
 			case "send":
 				_ = s.SendText(a.arg)
+			case "type":
+				_ = s.Write([]byte(a.arg))
 			case "key":
 				b, err := keyBytes(a.arg)
 				if err != nil {

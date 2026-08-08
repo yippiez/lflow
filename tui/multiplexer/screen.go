@@ -6,6 +6,7 @@ package multiplexer
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -83,8 +84,8 @@ type Screen struct {
 	dropped    int
 
 	saveX, saveY int
-	savePen      string
-	savePenBG    string
+	penSt        penState // the pen as categories — pen/penBG are its render
+	savePenSt    penState
 
 	altGrid    [][]cell // the primary grid, parked while the alt screen is up
 	altX, altY int
@@ -593,19 +594,52 @@ func (s *Screen) csi(cmd ansi.Cmd, params ansi.Params) {
 	}
 }
 
-// setPen updates the current SGR. Attributes are re-emitted structurally, so
-// truecolor and every attribute survive without the screen having to model
-// them; a bare reset (or no params) clears the pen entirely.
-//
-// The walk is structure-aware on purpose: only a BARE TOP-LEVEL zero is a
-// reset. The old "any zero resets" reading corrupted every dark truecolor —
-// 38;2;0;0;0 carries three zeros that are channel values, not resets — which
-// is exactly what shredded an agent TUI's dark theme. Extended colors consume
-// their arguments as a unit (semicolon form), and colon chains keep their
-// colons, so 4:3 underline styles and 38:2::r:g:b survive as sent.
+// penState is the pen as CATEGORIES, not a transcript: each attribute slot
+// holds the raw escape that last set it, and a new SGR of the same category
+// REPLACES its predecessor. The transcript model (append every sequence, only
+// a reset truncates) grew without bound under programs that never reset — an
+// agent TUI accumulated one more fg/bg pair per row, and a color-cycling
+// program built kilobyte pens for one word.
+type penState struct {
+	bold, faint, italic, blink, inverse, conceal, strike string
+	under, fg, bg, ul                                    string
+	other                                                map[int]string // unmodeled SGRs (fonts, overline…), keyed by their lead param
+}
+
+func (p *penState) clear() { *p = penState{} }
+
+// compose renders the pen for cell storage, plus the background alone (BCE).
+func (p *penState) compose() (pen, bg string) {
+	var b strings.Builder
+	for _, s := range []string{p.bold, p.faint, p.italic, p.under, p.blink,
+		p.inverse, p.conceal, p.strike, p.fg, p.bg, p.ul} {
+		b.WriteString(s)
+	}
+	if len(p.other) > 0 {
+		keys := make([]int, 0, len(p.other))
+		for k := range p.other {
+			keys = append(keys, k)
+		}
+		sort.Ints(keys)
+		for _, k := range keys {
+			b.WriteString(p.other[k])
+		}
+	}
+	return b.String(), p.bg
+}
+
+// setPen updates the current SGR pen. The walk is structure-aware: only a
+// BARE TOP-LEVEL zero is a reset (38;2;0;0;0 carries three zeros that are
+// channel values — the old "any zero resets" reading shredded dark themes),
+// extended colors consume their arguments as a unit, and colon chains keep
+// their colons so 4:3 undercurl and 38:2::r:g:b survive as sent.
 func (s *Screen) setPen(params ansi.Params) {
 	if len(params) == 0 {
-		s.pen = ""
+		// ESC[m — the empty form of the reset, what git and less actually emit.
+		// It clears the BCE background too; leaving that armed floods every
+		// later erase with a stale color.
+		s.penSt.clear()
+		s.pen, s.penBG = "", ""
 		return
 	}
 	type tok struct {
@@ -633,11 +667,63 @@ func (s *Screen) setPen(params ansi.Params) {
 		}
 		return out
 	}
+	p := &s.penSt
+	apply := func(head int, seq string) {
+		switch {
+		case head == 0:
+			p.clear()
+		case head == 1:
+			p.bold = seq
+		case head == 2:
+			p.faint = seq
+		case head == 22:
+			p.bold, p.faint = "", ""
+		case head == 3:
+			p.italic = seq
+		case head == 23:
+			p.italic = ""
+		case head == 4 || head == 21:
+			p.under = seq
+		case head == 24:
+			p.under = ""
+		case head == 5 || head == 6:
+			p.blink = seq
+		case head == 25:
+			p.blink = ""
+		case head == 7:
+			p.inverse = seq
+		case head == 27:
+			p.inverse = ""
+		case head == 8:
+			p.conceal = seq
+		case head == 28:
+			p.conceal = ""
+		case head == 9:
+			p.strike = seq
+		case head == 29:
+			p.strike = ""
+		case (head >= 30 && head <= 37) || (head >= 90 && head <= 97) || head == 38:
+			p.fg = seq
+		case head == 39:
+			p.fg = ""
+		case (head >= 40 && head <= 47) || (head >= 100 && head <= 107) || head == 48:
+			p.bg = seq
+		case head == 49:
+			p.bg = ""
+		case head == 58:
+			p.ul = seq
+		case head == 59:
+			p.ul = ""
+		default:
+			if p.other == nil {
+				p.other = map[int]string{}
+			}
+			p.other[head] = seq
+		}
+	}
 	for i < len(toks) {
 		g := next()
 		switch {
-		case len(g) == 1 && g[0].v == 0:
-			s.pen, s.penBG = "", "" // SGR reset — a bare zero and nothing else
 		case len(g) == 1 && (g[0].v == 38 || g[0].v == 48 || g[0].v == 58):
 			// semicolon-form extended color: the mode and its channels are
 			// separate params that belong to this one attribute
@@ -655,38 +741,31 @@ func (s *Screen) setPen(params ansi.Params) {
 					parts = append(parts, nums(next())...)
 				}
 			}
-			seq := "\x1b[" + strings.Join(parts, ";") + "m"
-			s.pen += seq
-			if g[0].v == 48 {
-				s.penBG = seq // extended background: erases fill with it (BCE)
-			}
+			apply(g[0].v, "\x1b["+strings.Join(parts, ";")+"m")
 		case len(g) > 1:
-			seq := "\x1b[" + strings.Join(nums(g), ":") + "m"
-			s.pen += seq
-			if g[0].v == 48 {
-				s.penBG = seq
-			}
+			apply(g[0].v, "\x1b["+strings.Join(nums(g), ":")+"m")
 		default:
-			seq := "\x1b[" + strings.Join(nums(g), ";") + "m"
-			s.pen += seq
-			// classic background attributes drive back-color erase too
-			v := g[0].v
-			switch {
-			case v == 49:
-				s.penBG = ""
-			case (v >= 40 && v <= 47) || (v >= 100 && v <= 107):
-				s.penBG = seq
-			}
+			apply(g[0].v, "\x1b["+strings.Join(nums(g), ";")+"m")
+		}
+	}
+	s.pen, s.penBG = p.compose()
+}
+
+func (s *Screen) saveCursor() {
+	s.saveX, s.saveY = s.x, s.y
+	s.savePenSt = s.penSt
+	if s.penSt.other != nil {
+		s.savePenSt.other = make(map[int]string, len(s.penSt.other))
+		for k, v := range s.penSt.other {
+			s.savePenSt.other[k] = v
 		}
 	}
 }
 
-func (s *Screen) saveCursor() {
-	s.saveX, s.saveY, s.savePen, s.savePenBG = s.x, s.y, s.pen, s.penBG
-}
-
 func (s *Screen) restoreCursor() {
-	s.x, s.y, s.pen, s.penBG = s.saveX, s.saveY, s.savePen, s.savePenBG
+	s.x, s.y = s.saveX, s.saveY
+	s.penSt = s.savePenSt
+	s.pen, s.penBG = s.penSt.compose()
 }
 
 // setAlt enters or leaves the alternate screen: a full-screen app (top, vim)
@@ -715,6 +794,7 @@ func (s *Screen) setAlt(on bool) {
 func (s *Screen) reset() {
 	s.grid = blankGrid(s.w, s.h)
 	s.x, s.y, s.pen, s.penBG, s.link = 0, 0, "", "", ""
+	s.penSt.clear()
 	s.lastX, s.lastY = -1, -1
 	s.top, s.bot = 0, s.h-1
 	s.altOn, s.altGrid = false, nil

@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -318,6 +319,38 @@ func TestTermBackColorErase(t *testing.T) {
 	feed(s, "\x1b[44m\x1b[0m\x1b[2J")
 	if row := s.GridLines(false)[0]; strings.Contains(row, "44") {
 		t.Errorf("reset did not clear the erase background: %q", row)
+	}
+}
+
+// TestTermEmptySGRClearsBCE: ESC[m — the empty reset git and less emit — must
+// clear the erase background too, or every later clear floods the screen with
+// a stale color. (Found by the loop's regression sweep.)
+func TestTermEmptySGRClearsBCE(t *testing.T) {
+	s := newTestScreen(20, 4)
+	feed(s, "\x1b[41m\x1b[m\x1b[2J\x1b[2;3Hmid")
+	for y, row := range s.GridLines(false) {
+		if strings.Contains(row, "41") {
+			t.Fatalf("row %d kept the reset background: %q", y, row)
+		}
+	}
+}
+
+// TestTermPenSupersedes: a new SGR of the same category replaces its
+// predecessor — the pen must not grow with a program that never resets.
+func TestTermPenSupersedes(t *testing.T) {
+	s := newTestScreen(30, 3)
+	var seq strings.Builder
+	for i := 0; i < 300; i++ {
+		fmt.Fprintf(&seq, "\x1b[3%dm", i%8)
+	}
+	seq.WriteString("END")
+	feed(s, seq.String())
+	row := s.Lines()[0]
+	if len(row) > 80 {
+		t.Fatalf("pen accumulated: %d-byte row for the word END", len(row))
+	}
+	if !strings.Contains(row, "\x1b[33m") { // 299 % 8 = 3 — the last flip wins
+		t.Errorf("last color did not survive: %q", row)
 	}
 }
 
