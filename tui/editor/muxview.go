@@ -33,8 +33,8 @@ func (m *Model) muxDetach() {
 	m.muxID = ""
 }
 
-// muxViewSize is the attached pane: the full frame minus the header row, and
-// never the last column (deferred-wrap desync).
+// muxViewSize is the attached pane: the whole frame — the terminal owns every
+// row — but never the last column (deferred-wrap desync).
 func (m *Model) muxViewSize() (cols, rows int) {
 	w, h := m.width, m.height
 	if w <= 0 {
@@ -43,7 +43,7 @@ func (m *Model) muxViewSize() (cols, rows int) {
 	if h <= 0 {
 		h = 24
 	}
-	return clampInt(w-1, 20, 500), max(h-1, 5)
+	return clampInt(w-1, 20, 500), max(h, 5)
 }
 
 // handleMuxKey forwards the keyboard to the session. Only ctrl+q is lflow's.
@@ -73,37 +73,19 @@ func (m *Model) handleMuxKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// viewMux paints the attached session: the screen, cursor and all, then ONE
-// dim status line at the bottom — the terminal owns the frame, lflow keeps a
-// whisper. No pill, no chrome above: an agent TUI draws its own identity.
+// viewMux paints the attached session: the screen, cursor and all, and NOTHING
+// of lflow's — no bar, no pill, no chrome. The frame is indistinguishable from
+// the agent running natively; an agent TUI draws its own identity.
 func (m *Model) viewMux(maxLine int) []string {
 	s := m.mux().Get(m.muxID)
 	if s == nil {
 		return []string{cDim + " session gone · any key returns" + cReset}
 	}
-	glyph, title := "◈", s.Label
-	if v, ok := agentVariantByID(s.Agent); ok {
-		glyph = v.glyph
-		title = m.agentTitle(m.muxID, v, m.agentLoad(m.muxID))
-	}
-	status := ""
-	switch {
-	case !s.Live():
-		status = cRed + "exited" + cDim
-	case s.Status() == multiplexer.StatusWorking:
-		status = shimmerLabel("working…") + cDim + " " + elapsedShort(s.Elapsed())
-	case s.Status() == multiplexer.StatusBlocked:
-		status = cRed + "waiting on you" + cDim
-	default:
-		status = "idle"
-	}
 	var lines []string
 	for _, row := range s.Scr.GridLines(true) {
 		lines = append(lines, clip(row, maxLine))
 	}
-	bar := cDim + " " + glyph + " " + title + " · " + status + " · ctrl+q detach" + cReset
-	lines = append(lines, clip(bar, maxLine))
-	m.pageRows = len(lines) // no toolbar — the whole frame is the terminal
+	m.pageRows = len(lines) // the whole frame is the terminal
 	return lines
 }
 

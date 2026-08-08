@@ -433,3 +433,59 @@ func itoa(i int) string {
 	}
 	return string(b)
 }
+
+// TestTermTitleNeverLeaksToGrid: an OSC 0/2 title must be swallowed whole by
+// the title filter — the parser never sees it. Fed raw, x/ansi ends the OSC at
+// the 0x9c byte inside ✳ (U+2733) and PRINTS the title's tail into the grid:
+// "pondered the repo" smeared over the agent's screen was a live bug.
+func TestTermTitleNeverLeaksToGrid(t *testing.T) {
+	s := newTestScreen(60, 4)
+	s.Write([]byte("before\x1b]0;✳ pondered the repo\x07after"))
+	if got := s.Title(); got != "✳ pondered the repo" {
+		t.Fatalf("title = %q", got)
+	}
+	plain := strings.Join(screenText(s), "\n")
+	if !strings.Contains(plain, "beforeafter") {
+		t.Fatalf("text around the title must be untouched:\n%s", plain)
+	}
+	if strings.Contains(plain, "pondered") {
+		t.Fatalf("title text leaked into the grid:\n%s", plain)
+	}
+
+	// ST-terminated OSC 2, split across arbitrary chunk boundaries
+	s = newTestScreen(60, 4)
+	raw := []byte("x\x1b]2;✳ split title\x1b\\y")
+	for _, b := range raw {
+		s.Write([]byte{b})
+	}
+	if got := s.Title(); got != "✳ split title" {
+		t.Fatalf("chunked title = %q", got)
+	}
+	if plain := strings.Join(screenText(s), "\n"); !strings.Contains(plain, "xy") || strings.Contains(plain, "split") {
+		t.Fatalf("chunked title leaked or ate text:\n%s", plain)
+	}
+}
+
+// TestTermTitleFilterPassesOtherSequences: the filter must hand every
+// non-title byte to the parser intact — OSC 8 links keep working, SGR around
+// a title survives, and a lone ESC] followed by a non-title OSC replays.
+func TestTermTitleFilterPassesOtherSequences(t *testing.T) {
+	s := newTestScreen(60, 4)
+	s.Write([]byte("\x1b[31mred\x1b]0;t\x07\x1b]8;;https://x.test\x1b\\link\x1b]8;;\x1b\\"))
+	row := s.GridLines(false)[0]
+	if !strings.Contains(row, "31m") || !strings.Contains(row, "https://x.test") {
+		t.Fatalf("SGR or OSC 8 lost through the title filter: %q", row)
+	}
+	if got := s.Title(); got != "t" {
+		t.Fatalf("title = %q", got)
+	}
+	// an OSC that is neither 0; nor 2; passes through untouched (0-prefixed id)
+	s = newTestScreen(60, 4)
+	s.Write([]byte("a\x1b]04;stuff\x07b"))
+	if plain := strings.Join(screenText(s), "\n"); !strings.Contains(plain, "ab") {
+		t.Fatalf("non-title OSC broke the stream:\n%s", plain)
+	}
+	if s.Title() != "" {
+		t.Fatalf("OSC 04 must not set the title, got %q", s.Title())
+	}
+}

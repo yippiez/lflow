@@ -59,10 +59,10 @@ wait_for "ride the mux" 8
 send Enter
 wait_for "ᴘɪ ride the mux" 8
 
-# ⌥r: resume on the mux, attach view up, the fake CLI on its PTY
+# ⌥r: resume on the mux, attach view up — the fake CLI's own frame, no chrome
 send M-r
-wait_for "ctrl+q detach" 8
 wait_for "pi resumed with: --session-id ${id}" 8
+assert_not_contains "ctrl+q detach"
 
 # ctrl+q: back to the outline, agent still running, tallied in the toolbar
 send C-q

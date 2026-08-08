@@ -96,7 +96,7 @@ type Screen struct {
 	bracketedPaste bool   // DECSET ?2004h
 	appCursor      bool   // DECCKM ?1h
 
-	// the title scanner's state — see scanTitle
+	// the title filter's state — see filterTitles
 	tState int
 	tBuf   []byte
 
@@ -134,7 +134,7 @@ func NewScreen(w, h, sbCap int) *Screen {
 // osc handles the one OSC that must land IN PARSE ORDER with the text around
 // it: 8, hyperlinks — the open target stamps every cell printed under it, so
 // linked text keeps its URL through the screen. Titles ride their own byte
-// scanner instead (see scanTitle: the parser truncates multibyte titles at a
+// filter instead (see filterTitles: the parser truncates multibyte titles at a
 // raw 0x9c); URIs are ASCII, so the parser hook is safe for links.
 func (s *Screen) osc(cmd int, data []byte) {
 	if cmd != 8 {
@@ -198,72 +198,102 @@ func (s *Screen) fillRow(w int) []cell {
 }
 
 // Write feeds output bytes to the screen. Safe to call with arbitrary chunk
-// boundaries — the parser keeps its state between calls, so a sequence split
-// across two reads still lands as one sequence.
+// boundaries — both the title filter and the parser keep their state between
+// calls, so a sequence split across two reads still lands as one sequence.
 func (s *Screen) Write(b []byte) (int, error) {
-	s.scanTitle(b)
-	s.p.Parse(b)
+	s.p.Parse(s.filterTitles(b))
 	return len(b), nil
 }
 
-// scanTitle harvests OSC 0/2 titles with its own byte scanner rather than the
-// parser's OSC hook: the parser reads the raw byte 0x9c as an 8-bit C1 String
-// Terminator even mid-UTF-8-rune, and Claude Code's idle glyph ✳ (U+2733,
-// e2 9c b3) contains exactly that byte — the parser hands back a truncated
-// title. This scanner terminates only on BEL or ESC \, is incremental across
-// chunk boundaries, and leaves every other sequence to the parser.
-func (s *Screen) scanTitle(b []byte) {
-	const (
-		tGround = iota
-		tEsc
-		tOsc    // collecting OSC data
-		tOscEsc // saw ESC inside the data: '\' ends it, anything else aborts
-	)
+// filterTitles harvests OSC 0/2 titles with its own byte scanner AND strips
+// them from the stream, so the parser never sees them. Both halves matter: the
+// parser reads the raw byte 0x9c as an 8-bit C1 String Terminator even
+// mid-UTF-8-rune, and Claude Code's idle glyph ✳ (U+2733, e2 9c b3) contains
+// exactly that byte — fed such a title, the parser not only truncates it, it
+// ends the OSC early and PRINTS the title's tail into the grid as text. This
+// scanner terminates only on BEL or ESC \, is incremental across chunk
+// boundaries, and passes every other sequence (OSC 8 links included) through
+// to the parser byte for byte.
+
+// filterTitles states, held in Screen.tState across Write chunks.
+const (
+	tGround      = iota
+	tEsc         // held ESC — ']' opens an OSC, anything else replays
+	tOscHead     // deciding whether the OSC is a title ("0;" / "2;")
+	tOscTitle    // swallowing a title's text
+	tOscTitleEsc // ESC inside a title: '\' terminates, anything else aborts
+	tOscPass     // some other OSC, passing through until its terminator
+	tOscPassEsc  // ESC inside a passed-through OSC
+)
+
+func (s *Screen) filterTitles(b []byte) []byte {
+	// the "0;"/"2;" prefix was consumed on the way into tOscTitle, so tBuf is
+	// the bare title text. Color queries are NOT answered here: the reader
+	// goroutine already did, and a second reply would land in the program's
+	// input as keys.
 	finish := func() {
-		t := string(s.tBuf)
-		// Color queries are NOT answered here: the reader goroutine already
-		// did, and a second reply would land in the program's input as keys.
-		if rest, ok := strings.CutPrefix(t, "0;"); ok {
-			t = rest
-		} else if rest, ok := strings.CutPrefix(t, "2;"); ok {
-			t = rest
-		} else {
-			return // some other OSC — not ours
-		}
 		s.title = strings.Map(func(r rune) rune {
 			if r < ' ' {
 				return -1
 			}
 			return r
-		}, t)
+		}, string(s.tBuf))
 	}
+	out := make([]byte, 0, len(b))
 	for i := 0; i < len(b); i++ {
 		c := b[i]
 		switch s.tState {
 		case tGround:
 			if c == 0x1b {
 				s.tState = tEsc
+				continue // held until we know it is not a title OSC
 			}
+			out = append(out, c)
 		case tEsc:
 			switch c {
 			case ']':
-				s.tState, s.tBuf = tOsc, s.tBuf[:0]
+				s.tState, s.tBuf = tOscHead, s.tBuf[:0]
 			case 0x1b:
-				// stay: another ESC restarts the sequence
+				out = append(out, 0x1b) // release the held ESC, hold this one
 			default:
+				out = append(out, 0x1b, c)
 				s.tState = tGround
 			}
-		case tOsc:
+		case tOscHead:
+			// deciding whether this OSC is a title: "0;" or "2;" says yes,
+			// anything else replays the held bytes and passes the rest through
+			switch {
+			case c == 0x07 || c == 0x1b:
+				out = append(out, 0x1b, ']')
+				out = append(out, s.tBuf...)
+				out = append(out, c)
+				s.tState = tGround
+				if c == 0x1b {
+					s.tState = tEsc
+					out = out[:len(out)-1]
+				}
+			case len(s.tBuf) == 0 && (c == '0' || c == '2'):
+				s.tBuf = append(s.tBuf, c)
+			case len(s.tBuf) == 1 && c == ';':
+				s.tBuf = s.tBuf[:0]
+				s.tState = tOscTitle
+			default:
+				out = append(out, 0x1b, ']')
+				out = append(out, s.tBuf...)
+				out = append(out, c)
+				s.tState = tOscPass
+			}
+		case tOscTitle: // swallowing a title: nothing reaches the parser
 			switch {
 			case c == 0x07:
 				finish()
 				s.tState = tGround
 			case c == 0x1b:
-				s.tState = tOscEsc
+				s.tState = tOscTitleEsc
 			case len(s.tBuf) < 4096:
 				s.tBuf = append(s.tBuf, c)
 			}
-		case tOscEsc:
+		case tOscTitleEsc:
 			if c == '\\' {
 				finish()
 			}
@@ -271,8 +301,23 @@ func (s *Screen) scanTitle(b []byte) {
 			if c == 0x1b {
 				s.tState = tEsc
 			}
+		case tOscPass: // some other OSC: the parser's business, passed through
+			out = append(out, c)
+			switch c {
+			case 0x07:
+				s.tState = tGround
+			case 0x1b:
+				s.tState = tOscPassEsc
+			}
+		case tOscPassEsc:
+			out = append(out, c)
+			s.tState = tOscPass
+			if c == '\\' {
+				s.tState = tGround
+			}
 		}
 	}
+	return out
 }
 
 // ── writing ─────────────────────────────────────────────────────────────────
