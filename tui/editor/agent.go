@@ -103,16 +103,16 @@ const agentMono = "#000000"
 //
 // Each glyph is plain Unicode, never an emoji — a chip has to paint in one cell,
 // and the CLIs' own marks are emoji or images. Claude Code's florette ✽, Pi in
-// small caps, a squared O for opencode, and prime-agent spells its runtime name
-// RLM in plain text. ᴘ (U+1D18) needs the phonetic block: it is absent from
+// small caps, a squared O for opencode, and prime-agent wears its runtime's ≋
+// watermark. ᴘ (U+1D18) needs the phonetic block: it is absent from
 // DejaVu Sans Mono and present in Liberation/Free Mono and most modern terminal
 // fonts.
 //
 // A variant wears its agent's OWN color and never an invented one: Claude's
-// orange and Pi's purple are themed swatches, while opencode's and prime-agent's
-// marks are black on white and take agentMono. That is only the DEFAULT — ⌥c
-// recolors any chip, and a session Claude Code gave a color of its own wears that
-// instead.
+// orange and Pi's purple are themed swatches, while opencode's mark is black on
+// white and takes agentMono and prime-agent is painted in Prime Intellect's neon
+// green. That is only the DEFAULT — ⌥c recolors any chip, and a session Claude
+// Code gave a color of its own wears that instead.
 var agentVariants = []agentVariant{
 	{
 		id: "claude", label: "Claude Code", bin: "claude",
@@ -162,9 +162,10 @@ var agentVariants = []agentVariant{
 		// prime-agent is the RLM runtime's own CLI; -r resumes a saved session by
 		// id, resolved against its session dir. Its transcript schema is pi's —
 		// session, message and session_info records — so the tolerant reader
-		// parses it unchanged. It names no color, so it wears the black mark.
+		// parses it unchanged. It wears Prime Intellect's neon green with a dark
+		// mark: the ≋ is the runtime's own watermark, painted black on the green.
 		id: "prime-agent", label: "Prime Agent", bin: "prime-agent",
-		glyph: "RLM", color: agentMono,
+		glyph: "≋", color: "#85ed75",
 		args:         func(id string) []string { return []string{"-r", id} },
 		sessionRoots: func() []string { return homeStores(".prime/agent/sessions") },
 		exts:         []string{".jsonl"},

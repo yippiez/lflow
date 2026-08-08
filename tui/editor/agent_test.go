@@ -80,7 +80,7 @@ func chipOn(t *testing.T, m *Model, uuid string, v agentVariant, attach agentSto
 // TestAgentVariantsRegistered: every CLI lflow can host is declared with the one
 // binary it shells out to, its own mark and its own color.
 func TestAgentVariantsRegistered(t *testing.T) {
-	want := map[string]string{"claude": "✽", "pi": "ᴘɪ", "opencode": "▣", "prime-agent": "RLM"}
+	want := map[string]string{"claude": "✽", "pi": "ᴘɪ", "opencode": "▣", "prime-agent": "≋"}
 	if len(agentVariants) != len(want) {
 		t.Fatalf("registry has %d variants, want just the four CLIs", len(agentVariants))
 	}
@@ -114,7 +114,7 @@ func TestAgentVariantsRegistered(t *testing.T) {
 // to wear, and lflow does not invent one — the pill IS that mark: a black fill,
 // and the white ink contrastInk arrives at on its own.
 func TestAgentMonoVariants(t *testing.T) {
-	mono := map[string]bool{"opencode": true, "prime-agent": true}
+	mono := map[string]bool{"opencode": true}
 	for id := range mono {
 		v := variant(t, id)
 		if got := v.colorSGR(); got != "\x1b[38;2;0;0;0m" {
@@ -124,13 +124,16 @@ func TestAgentMonoVariants(t *testing.T) {
 			t.Errorf("ink on %s = %q, want white on the black fill", id, got)
 		}
 	}
-	// the agents that DO have a color keep it, and it stays a themed swatch
+	// the agents that DO have a color keep it — a themed swatch, or a literal
+	// for an agent whose brand color the palette cannot name
 	for _, v := range agentVariants {
 		if mono[v.id] {
 			continue
 		}
 		if _, ok := styleColorCode[v.color]; !ok {
-			t.Errorf("%s color %q is not a themed swatch", v.id, v.color)
+			if _, _, _, ok := parseHexColor(v.color); !ok {
+				t.Errorf("%s color %q is neither a themed swatch nor a hex literal", v.id, v.color)
+			}
 		}
 	}
 	// a literal is not a special case: every variant resolves to a real fill

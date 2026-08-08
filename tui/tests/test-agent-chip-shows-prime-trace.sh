@@ -28,7 +28,7 @@ wait_for "nearbysend Worker 1" 8
 # /insert → Agent opens an asynchronously filled session picker; select only
 # after the fake prime-agent transcript has appeared in it.
 send Enter
-wait_for "RLM nearbysend Worker 1" 8
+wait_for "≋ nearbysend Worker 1" 8
 # the chip is filed; ⌥e opens its trace panel
 send M-e
 wait_for "traces · 2 events" 8
