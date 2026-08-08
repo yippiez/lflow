@@ -54,6 +54,9 @@ var iconCatalog = []iconEntry{
 	{"⇔", "iff", "white"},
 	{"⟳", "loop", "white"},
 	{"⟴", "rlooparrow", "white"},
+	{"➷", "rarrowfeather", "white"}, // U+27B7 black rightwards arrowtail
+	{"➸", "rarrowhead", "white"},    // U+27B8 black rightwards arrowhead
+	{"➹", "rarrowbar", "white"},     // U+27B9 black rightwards arrowbar
 	// other — white
 	{"⫘", "chain", "white"},
 	{"⌕", "magnifier", "white"}, // U+2315, not the 🔎 emoji

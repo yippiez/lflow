@@ -22,6 +22,7 @@ func TestIconCatalogShortcodesUnique(t *testing.T) {
 	// sanity: the agreed set is present
 	for _, code := range []string{
 		"larrow", "rarrow", "doublearrow", "ldarrow", "rdarrow", "iff", "loop", "rlooparrow",
+		"rarrowfeather", "rarrowhead", "rarrowbar",
 		"chain", "magnifier", "decision",
 		"trello", "cpapers", "zotero", "claude", "obsidian",
 		"melt", "shush", "cold", "block", "no", "warning",
@@ -78,8 +79,8 @@ func TestFilterIcons(t *testing.T) {
 		t.Fatalf("empty filter = %d, want full catalog %d", len(all), len(iconCatalog))
 	}
 	got := filterIcons("rarr")
-	if len(got) != 1 || got[0].shortcode != "rarrow" {
-		t.Fatalf("filter rarr = %v, want [rarrow]", got)
+	if len(got) != 4 || got[0].shortcode != "rarrow" {
+		t.Fatalf("filter rarr = %v, want rarrow and the three feathered rarrs, rarrow first", got)
 	}
 	// leading colon on the query is ignored
 	got = filterIcons(":loop")
