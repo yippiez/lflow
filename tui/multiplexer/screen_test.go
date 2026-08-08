@@ -267,6 +267,98 @@ func TestTermInsertDeleteLines(t *testing.T) {
 	}
 }
 
+// TestTermPrivatePrefixIgnored: protocol sequences with private prefixes must
+// not execute as screen edits — kitty-keyboard push/pop read as SCORC warped
+// the cursor home, XTMODKEYS read as SGR underline+faint, XTSAVE as SCOSC,
+// XTRESTORE as DECSTBM, XTSMGRAPHICS as scroll-up. (Found by the agent loop.)
+func TestTermPrivatePrefixIgnored(t *testing.T) {
+	s := newTestScreen(40, 12)
+	feed(s, "A normal line\r\n")
+	feed(s, "\x1b[>4;2m", "B after XTMODKEYS\r\n")
+	feed(s, "\x1b[>1u", "C after kitty push\r\n")
+	feed(s, "\x1b[<u", "D after kitty pop\r\n")
+	feed(s, "\x1b[?1004s", "E after XTSAVE\r\n")
+	feed(s, "\x1b[?1;1;0S", "X after sixel query\r\n")
+	feed(s, "\x1b[?1004;1006r", "Y after XTRESTORE\r\n")
+	got := screenText(s)
+	want := []string{"A normal line", "B after XTMODKEYS", "C after kitty push",
+		"D after kitty pop", "E after XTSAVE", "X after sixel query", "Y after XTRESTORE"}
+	for i, w := range want {
+		if i >= len(got) || got[i] != w {
+			t.Fatalf("row %d = %q, want %q — private prefix executed as an edit:\n%v", i, got[min(i, len(got)-1)], w, got)
+		}
+	}
+	if raw := s.Lines()[1]; strings.Contains(raw, "\x1b[4m") || strings.Contains(raw, "\x1b[2m") {
+		t.Errorf("XTMODKEYS leaked into the pen: %q", raw)
+	}
+}
+
+// TestTermBackColorErase: ED/EL fill with the pen's BACKGROUND, so a program
+// that paints \e[44m\e[2J gets a blue screen, not default holes.
+func TestTermBackColorErase(t *testing.T) {
+	s := newTestScreen(24, 6)
+	feed(s, "\x1b[44m\x1b[2J")
+	for y, row := range s.GridLines(false) {
+		if !strings.Contains(row, "\x1b[44m") {
+			t.Fatalf("row %d lost the erase background: %q", y, row)
+		}
+	}
+	feed(s, "\x1b[3;1HAAAA\x1b[41m\x1b[K")
+	if row := s.GridLines(false)[2]; !strings.Contains(row, "\x1b[41m") {
+		t.Errorf("EL 0 did not fill with the red background: %q", row)
+	}
+	// scroll fills carry it too
+	s = newTestScreen(10, 2)
+	feed(s, "\x1b[42m", "a\r\nb\r\nc\r\n")
+	if row := s.GridLines(false)[1]; !strings.Contains(row, "\x1b[42m") {
+		t.Errorf("scroll fill lost the background: %q", row)
+	}
+	// and a bare reset clears it
+	s = newTestScreen(10, 2)
+	feed(s, "\x1b[44m\x1b[0m\x1b[2J")
+	if row := s.GridLines(false)[0]; strings.Contains(row, "44") {
+		t.Errorf("reset did not clear the erase background: %q", row)
+	}
+}
+
+// TestTermZeroWidthClusters: combining accents attach to their base cell and
+// ZWJ emoji sequences stay one cluster — café keeps its accent, the family
+// stays a family. (Found by the agent loop.)
+func TestTermZeroWidthClusters(t *testing.T) {
+	s := newTestScreen(40, 3)
+	feed(s, "café ë\r\n")
+	if got := s.GridPlain()[0]; got != "café ë" {
+		t.Fatalf("combining marks lost: %q", got)
+	}
+	s = newTestScreen(40, 3)
+	family := "\U0001F468‍\U0001F469‍\U0001F467"
+	feed(s, family+" x\r\n")
+	if got := s.GridPlain()[0]; !strings.Contains(got, family) {
+		t.Fatalf("ZWJ cluster split apart: %q", got)
+	}
+	// the cluster occupies ONE wide cell: x lands at column 3, not column 7
+	if x := strings.Index(strings.ReplaceAll(s.GridPlain()[0], family, "FF"), "x"); x != 3 {
+		t.Errorf("cluster width wrong: x at %d, want 3", x)
+	}
+}
+
+// TestTermHyperlinksSurvive: OSC 8 targets stamp their cells and render back
+// out, so linked text keeps its URL through the screen.
+func TestTermHyperlinksSurvive(t *testing.T) {
+	s := newTestScreen(40, 3)
+	feed(s, "\x1b]8;;https://x.dev\x1b\\docs\x1b]8;;\x1b\\ plain\r\n")
+	row := s.Lines()[0]
+	if !strings.Contains(row, "\x1b]8;;https://x.dev\x1b\\") {
+		t.Fatalf("link target lost: %q", row)
+	}
+	if !strings.Contains(row, "\x1b]8;;\x1b\\") {
+		t.Errorf("link never closed: %q", row)
+	}
+	if got := s.GridPlain()[0]; got != "docs plain" {
+		t.Errorf("text mangled by the link: %q", got)
+	}
+}
+
 // TestTermResize: content survives top-aligned, the cursor stays in range, and
 // writing keeps working at the new size.
 func TestTermResize(t *testing.T) {

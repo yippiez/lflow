@@ -138,6 +138,39 @@ printf '\033]11;?\007'; IFS= read -rsd $'\a' -t 3 bg; printf 'bg:%s\n' "$(printf
 	}
 }
 
+// TestQueryRepliesSingle: exactly ONE answer per query — a duplicate lands in
+// the program's input as a keystroke burst. (Found by the agent loop: both
+// the screen scanner and the reader goroutine were answering OSC 10/11.)
+func TestQueryRepliesSingle(t *testing.T) {
+	mx := NewManager(100)
+	script := `printf '\033]11;?\007'; sleep 0.7
+stty raw -echo min 0 time 0 2>/dev/null || true
+n=0; while IFS= read -rsd $'\a' -t 0.3 r; do n=$((n+1)); done
+printf 'replies:%d\n' "$n"`
+	s := mx.Start("qs", "", "count", "", []string{"bash", "-c", script}, 60, 8)
+	drain(t, s, 10*time.Second)
+	text := strings.Join(s.Scr.GridPlain(), "\n")
+	if !strings.Contains(text, "replies:1") {
+		t.Fatalf("want exactly one OSC 11 reply, got:\n%s", text)
+	}
+}
+
+// TestQueryXTVersionAnswered: the identification queries probing apps stall on.
+func TestQueryXTVersionAnswered(t *testing.T) {
+	mx := NewManager(100)
+	script := `printf '\033[>0q'; IFS= read -rsd '\' -t 3 v; printf 'xtver:%s\n' "$(printf '%s' "$v" | tr -d '\033')"
+printf '\033[?1;1;0S'; IFS= read -rsd S -t 3 g; printf 'gfx:%sS\n' "$(printf '%s' "$g" | tr -d '\033')"`
+	s := mx.Start("qv", "", "xtver", "", []string{"bash", "-c", script}, 60, 8)
+	drain(t, s, 10*time.Second)
+	text := strings.Join(s.Scr.GridPlain(), "\n")
+	if !strings.Contains(text, "xtver:P>|lflow-mux") {
+		t.Errorf("XTVERSION unanswered:\n%s", text)
+	}
+	if !strings.Contains(text, "gfx:[?1;1S") {
+		t.Errorf("XTSMGRAPHICS unanswered:\n%s", text)
+	}
+}
+
 // TestScreenModes pins DECSET tracking: bracketed paste, app cursor, cursor
 // visibility.
 func TestScreenModes(t *testing.T) {

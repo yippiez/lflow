@@ -26,6 +26,8 @@ var (
 	reQFG   = regexp.MustCompile(`\x1b\]10;\?(?:\x07|\x1b\\)`)
 	reQBG   = regexp.MustCompile(`\x1b\]11;\?(?:\x07|\x1b\\)`)
 	reQTcap = regexp.MustCompile(`\x1bP\+q[0-9A-Fa-f;]*(?:\x07|\x1b\\)`)
+	reQXVer = regexp.MustCompile(`\x1b\[>0?q`)
+	reQGfx  = regexp.MustCompile(`\x1b\[\?([0-9]+);[0-9;]*S`)
 )
 
 // queryAnswerer scans output chunks for terminal queries and answers them on
@@ -79,6 +81,19 @@ func (qa *queryAnswerer) scan(chunk []byte) {
 	for _, m := range reQTcap.FindAllIndex(buf, -1) {
 		if m[1] > seen {
 			reply("\x1bP0+r\x1b\\")
+		}
+	}
+	for _, m := range reQXVer.FindAllIndex(buf, -1) {
+		if m[1] > seen {
+			// XTVERSION — apps gate capabilities on any-answer-at-all
+			reply("\x1bP>|lflow-mux 1.0\x1b\\")
+		}
+	}
+	for _, m := range reQGfx.FindAllSubmatchIndex(buf, -1) {
+		if m[1] > seen {
+			// XTSMGRAPHICS — status 1 = error: no sixel/regis here, and saying
+			// so beats a probe timeout
+			reply(fmt.Sprintf("\x1b[?%s;1S", buf[m[2]:m[3]]))
 		}
 	}
 

@@ -33,10 +33,14 @@ import (
 // cell is one screen cell: its rune plus the SGR pen active when it was
 // written ("" = default). A space with a pen keeps a colored background. cont
 // marks the shadow cell under the right half of a wide rune — rendering skips
-// it, the terminal's own wide glyph covers it.
+// it, the terminal's own wide glyph covers it. comb carries the zero-width
+// tail of a grapheme cluster (combining accents, ZWJ emoji joins); link is
+// the OSC 8 hyperlink the cell was written under.
 type cell struct {
 	r    rune
 	sgr  string
+	comb string
+	link string
 	cont bool
 }
 
@@ -68,7 +72,11 @@ type Screen struct {
 	grid       [][]cell
 	x, y       int    // cursor, 0-based
 	pen        string // current SGR, "" = default
-	top, bot   int    // scroll region rows, inclusive
+	penBG      string // the pen's BACKGROUND alone — what erases fill with (BCE)
+	link       string // the open OSC 8 hyperlink target, "" = none
+	lastX      int    // where the last graphic rune landed — combining marks join it
+	lastY      int
+	top, bot   int // scroll region rows, inclusive
 	wrapNext   bool   // deferred wrap: a rune landed in the last column
 	scrollback [][]cell
 	sbCap      int // scrollback cap; rows dropped off the head are counted
@@ -76,6 +84,7 @@ type Screen struct {
 
 	saveX, saveY int
 	savePen      string
+	savePenBG    string
 
 	altGrid    [][]cell // the primary grid, parked while the alt screen is up
 	altX, altY int
@@ -108,7 +117,7 @@ func NewScreen(w, h, sbCap int) *Screen {
 	if h < 1 {
 		h = 24
 	}
-	s := &Screen{w: w, h: h, top: 0, bot: h - 1, sbCap: sbCap}
+	s := &Screen{w: w, h: h, top: 0, bot: h - 1, sbCap: sbCap, lastX: -1, lastY: -1}
 	s.grid = blankGrid(w, h)
 	s.p = ansi.NewParser()
 	s.p.SetHandler(ansi.Handler{
@@ -116,8 +125,28 @@ func NewScreen(w, h, sbCap int) *Screen {
 		Execute:   s.execute,
 		HandleCsi: s.csi,
 		HandleEsc: s.esc,
+		HandleOsc: s.osc,
 	})
 	return s
+}
+
+// osc handles the one OSC that must land IN PARSE ORDER with the text around
+// it: 8, hyperlinks — the open target stamps every cell printed under it, so
+// linked text keeps its URL through the screen. Titles ride their own byte
+// scanner instead (see scanTitle: the parser truncates multibyte titles at a
+// raw 0x9c); URIs are ASCII, so the parser hook is safe for links.
+func (s *Screen) osc(cmd int, data []byte) {
+	if cmd != 8 {
+		return
+	}
+	t := string(data) // "8;params;URI"
+	if rest, ok := strings.CutPrefix(t, "8;"); ok {
+		if _, uri, ok := strings.Cut(rest, ";"); ok {
+			s.link = uri
+			return
+		}
+	}
+	s.link = ""
 }
 
 // reply sends an answer to the program when the session wired one up. Only
@@ -146,6 +175,27 @@ func blankRow(w int) []cell {
 	return r
 }
 
+// blank is what ERASES fill with: back-color erase, as real terminals do it —
+// a program that paints `\e[44m\e[2J` gets a blue screen, not default-colored
+// holes. Only the pen's background travels into erased cells, never its
+// foreground attributes.
+func (s *Screen) blank() cell {
+	if s.penBG == "" {
+		return blankCell
+	}
+	return cell{r: ' ', sgr: s.penBG}
+}
+
+// fillRow is blankRow under the current background — scroll and erase fills.
+func (s *Screen) fillRow(w int) []cell {
+	r := make([]cell, w)
+	b := s.blank()
+	for i := range r {
+		r[i] = b
+	}
+	return r
+}
+
 // Write feeds output bytes to the screen. Safe to call with arbitrary chunk
 // boundaries — the parser keeps its state between calls, so a sequence split
 // across two reads still lands as one sequence.
@@ -170,16 +220,8 @@ func (s *Screen) scanTitle(b []byte) {
 	)
 	finish := func() {
 		t := string(s.tBuf)
-		// OSC 10/11 color QUERIES ride the same scanner: answer with the host
-		// terminal's own colors so the program themes itself to match
-		if t == "10;?" {
-			s.reply("\x1b]10;%s\x07", ReplyFG)
-			return
-		}
-		if t == "11;?" {
-			s.reply("\x1b]11;%s\x07", ReplyBG)
-			return
-		}
+		// Color queries are NOT answered here: the reader goroutine already
+		// did, and a second reply would land in the program's input as keys.
 		if rest, ok := strings.CutPrefix(t, "0;"); ok {
 			t = rest
 		} else if rest, ok := strings.CutPrefix(t, "2;"); ok {
@@ -238,8 +280,26 @@ func (s *Screen) print(r rune) {
 	// wide runes occupy two columns — an agent TUI full of emoji and CJK
 	// shears its whole layout if they are laid down as one
 	w := runewidth.RuneWidth(r)
+	last := func() *cell {
+		if s.lastY >= 0 && s.lastY < s.h && s.lastX >= 0 && s.lastX < s.w {
+			return &s.grid[s.lastY][s.lastX]
+		}
+		return nil
+	}
 	if w <= 0 {
-		return // combining marks and other zero-width input: nothing to lay out
+		// zero-width input JOINS the last graphic cell instead of vanishing:
+		// combining accents (café in NFD), ZWJ, variation selectors — dropping
+		// them strips accents and splits emoji families apart
+		if c := last(); c != nil {
+			c.comb += string(r)
+		}
+		return
+	}
+	// a rune arriving after a ZWJ continues that cell's cluster — the family
+	// emoji is ONE glyph in a terminal, not three glyphs and four columns
+	if c := last(); c != nil && strings.HasSuffix(c.comb, "\u200d") {
+		c.comb += string(r)
+		return
 	}
 	if s.wrapNext {
 		s.x = 0
@@ -257,9 +317,10 @@ func (s *Screen) print(r rune) {
 		s.x = 0
 		s.index()
 	}
-	s.grid[s.y][s.x] = cell{r: r, sgr: s.pen}
+	s.grid[s.y][s.x] = cell{r: r, sgr: s.pen, link: s.link}
+	s.lastX, s.lastY = s.x, s.y
 	if w == 2 && s.x+1 < s.w {
-		s.grid[s.y][s.x+1] = cell{r: 0, sgr: s.pen, cont: true}
+		s.grid[s.y][s.x+1] = cell{r: 0, sgr: s.pen, link: s.link, cont: true}
 		s.x++
 	}
 	s.x++
@@ -331,7 +392,7 @@ func (s *Screen) scrollUp(n int) {
 	for i := 0; i < n; i++ {
 		row := s.grid[s.top]
 		copy(s.grid[s.top:s.bot], s.grid[s.top+1:s.bot+1])
-		s.grid[s.bot] = blankRow(s.w)
+		s.grid[s.bot] = s.fillRow(s.w)
 		if full && !s.altOn {
 			s.pushScrollback(row)
 		}
@@ -341,7 +402,7 @@ func (s *Screen) scrollUp(n int) {
 func (s *Screen) scrollDown(n int) {
 	for i := 0; i < n; i++ {
 		copy(s.grid[s.top+1:s.bot+1], s.grid[s.top:s.bot])
-		s.grid[s.top] = blankRow(s.w)
+		s.grid[s.top] = s.fillRow(s.w)
 	}
 }
 
@@ -389,6 +450,42 @@ func (s *Screen) csi(cmd ansi.Cmd, params ansi.Params) {
 			return def
 		}
 		return v
+	}
+	// PRIVATE-PREFIXED sequences are protocol, not screen edits. Dispatching on
+	// the final byte alone executed kitty-keyboard pushes (CSI > 1 u) as
+	// restore-cursor, XTMODKEYS (CSI > 4;2 m) as SGR underline+faint, and
+	// XTSAVE/XTRESTORE (CSI ? Pm s/r) as save-cursor and scroll-region — a
+	// startup scramble in every modern TUI. Only the DEC modes ('?' h/l) act;
+	// every other prefixed sequence is consumed whole.
+	if pfx := cmd.Prefix(); pfx != 0 {
+		if pfx == '?' {
+			switch cmd.Final() {
+			case 'h', 'l':
+				set := cmd.Final() == 'h'
+				params.ForEach(0, func(_, v int, _ bool) {
+					switch v {
+					case 1049, 1047, 47: // the alternate screen
+						s.setAlt(set)
+					case 1: // DECCKM — application cursor keys
+						s.appCursor = set
+					case 25: // DECTCEM — cursor visibility
+						s.cursorHidden = !set
+					case 2004: // bracketed paste
+						s.bracketedPaste = set
+					}
+				})
+			case 'n':
+				if p(0, 0) == 6 { // DECXCPR
+					s.reply("\x1b[?%d;%dR", s.y+1, s.x+1)
+				}
+			}
+		}
+		return
+	}
+	// intermediate-byte forms (DECSCUSR's SP q, DECSTR's ! p, DECRQM's $ p)
+	// are likewise consumed rather than misread through their final byte
+	if cmd.Intermediate() != 0 {
+		return
 	}
 	switch cmd.Final() {
 	case 'A': // CUU
@@ -446,27 +543,27 @@ func (s *Screen) csi(cmd ansi.Cmd, params ansi.Params) {
 		n := min(p(0, 1), s.bot-s.y+1)
 		for i := 0; i < n; i++ {
 			copy(s.grid[s.y+1:s.bot+1], s.grid[s.y:s.bot])
-			s.grid[s.y] = blankRow(s.w)
+			s.grid[s.y] = s.fillRow(s.w)
 		}
 	case 'M': // DL — delete lines at the cursor
 		n := min(p(0, 1), s.bot-s.y+1)
 		for i := 0; i < n; i++ {
 			copy(s.grid[s.y:s.bot], s.grid[s.y+1:s.bot+1])
-			s.grid[s.bot] = blankRow(s.w)
+			s.grid[s.bot] = s.fillRow(s.w)
 		}
 	case 'P': // DCH — delete characters
 		n := clamp(p(0, 1), 0, s.w-s.x)
 		row := s.grid[s.y]
 		copy(row[s.x:], row[s.x+n:])
 		for i := s.w - n; i < s.w; i++ {
-			row[i] = blankCell
+			row[i] = s.blank()
 		}
 	case '@': // ICH — insert blanks
 		n := clamp(p(0, 1), 0, s.w-s.x)
 		row := s.grid[s.y]
 		copy(row[s.x+n:], row[s.x:s.w-n])
 		for i := s.x; i < s.x+n; i++ {
-			row[i] = blankCell
+			row[i] = s.blank()
 		}
 	case 'X': // ECH — erase characters
 		s.eraseLineFrom(s.y, s.x, s.x+p(0, 1))
@@ -492,22 +589,6 @@ func (s *Screen) csi(cmd ansi.Cmd, params ansi.Params) {
 	case 'n': // DSR 6 — cursor position report (the one grid-stateful query)
 		if p(0, 0) == 6 {
 			s.reply("\x1b[%d;%dR", s.y+1, s.x+1)
-		}
-	case 'h', 'l':
-		if cmd.Prefix() == '?' {
-			set := cmd.Final() == 'h'
-			params.ForEach(0, func(_, v int, _ bool) {
-				switch v {
-				case 1049, 1047, 47: // the alternate screen
-					s.setAlt(set)
-				case 1: // DECCKM — application cursor keys
-					s.appCursor = set
-				case 25: // DECTCEM — cursor visibility
-					s.cursorHidden = !set
-				case 2004: // bracketed paste
-					s.bracketedPaste = set
-				}
-			})
 		}
 	}
 }
@@ -556,7 +637,7 @@ func (s *Screen) setPen(params ansi.Params) {
 		g := next()
 		switch {
 		case len(g) == 1 && g[0].v == 0:
-			s.pen = "" // SGR reset — a bare zero and nothing else
+			s.pen, s.penBG = "", "" // SGR reset — a bare zero and nothing else
 		case len(g) == 1 && (g[0].v == 38 || g[0].v == 48 || g[0].v == 58):
 			// semicolon-form extended color: the mode and its channels are
 			// separate params that belong to this one attribute
@@ -574,17 +655,39 @@ func (s *Screen) setPen(params ansi.Params) {
 					parts = append(parts, nums(next())...)
 				}
 			}
-			s.pen += "\x1b[" + strings.Join(parts, ";") + "m"
+			seq := "\x1b[" + strings.Join(parts, ";") + "m"
+			s.pen += seq
+			if g[0].v == 48 {
+				s.penBG = seq // extended background: erases fill with it (BCE)
+			}
 		case len(g) > 1:
-			s.pen += "\x1b[" + strings.Join(nums(g), ":") + "m"
+			seq := "\x1b[" + strings.Join(nums(g), ":") + "m"
+			s.pen += seq
+			if g[0].v == 48 {
+				s.penBG = seq
+			}
 		default:
-			s.pen += "\x1b[" + strings.Join(nums(g), ";") + "m"
+			seq := "\x1b[" + strings.Join(nums(g), ";") + "m"
+			s.pen += seq
+			// classic background attributes drive back-color erase too
+			v := g[0].v
+			switch {
+			case v == 49:
+				s.penBG = ""
+			case (v >= 40 && v <= 47) || (v >= 100 && v <= 107):
+				s.penBG = seq
+			}
 		}
 	}
 }
 
-func (s *Screen) saveCursor()    { s.saveX, s.saveY, s.savePen = s.x, s.y, s.pen }
-func (s *Screen) restoreCursor() { s.x, s.y, s.pen = s.saveX, s.saveY, s.savePen }
+func (s *Screen) saveCursor() {
+	s.saveX, s.saveY, s.savePen, s.savePenBG = s.x, s.y, s.pen, s.penBG
+}
+
+func (s *Screen) restoreCursor() {
+	s.x, s.y, s.pen, s.penBG = s.saveX, s.saveY, s.savePen, s.savePenBG
+}
 
 // setAlt enters or leaves the alternate screen: a full-screen app (top, vim)
 // gets a blank grid to paint and the scrolling history stays untouched
@@ -611,7 +714,8 @@ func (s *Screen) setAlt(on bool) {
 // terminal leaves the history alone).
 func (s *Screen) reset() {
 	s.grid = blankGrid(s.w, s.h)
-	s.x, s.y, s.pen = 0, 0, ""
+	s.x, s.y, s.pen, s.penBG, s.link = 0, 0, "", "", ""
+	s.lastX, s.lastY = -1, -1
 	s.top, s.bot = 0, s.h-1
 	s.altOn, s.altGrid = false, nil
 	s.wrapNext = false
@@ -620,7 +724,7 @@ func (s *Screen) reset() {
 
 func (s *Screen) eraseRows(from, to int) {
 	for y := max(0, from); y <= min(to, s.h-1); y++ {
-		s.grid[y] = blankRow(s.w)
+		s.grid[y] = s.fillRow(s.w)
 	}
 }
 
@@ -628,8 +732,9 @@ func (s *Screen) eraseLineFrom(y, from, to int) {
 	if y < 0 || y >= s.h {
 		return
 	}
+	b := s.blank()
 	for x := max(0, from); x < min(to, s.w); x++ {
-		s.grid[y][x] = blankCell
+		s.grid[y][x] = b
 	}
 }
 
@@ -750,6 +855,7 @@ func (s *Screen) GridPlain() []string {
 				r = ' '
 			}
 			b.WriteRune(r)
+			b.WriteString(c.comb)
 		}
 		out[y] = b.String()
 	}
@@ -774,7 +880,8 @@ func renderRow(row []cell) string { return renderRowCursor(row, -1) }
 
 // renderRowCursor is renderRow with a block cursor: the cell at cx (-1 for
 // none) renders in reverse video and the row extends to reach it even when the
-// content ends earlier.
+// content ends earlier. Hyperlinked runs are re-wrapped in their OSC 8, and a
+// cell's combining tail (accents, ZWJ clusters) rides out with its rune.
 func renderRowCursor(row []cell, cx int) string {
 	end := len(row)
 	for end > 0 && (row[end-1].r == ' ' || row[end-1].r == 0) && row[end-1].sgr == "" {
@@ -788,10 +895,24 @@ func renderRowCursor(row []cell, cx int) string {
 	}
 	var b strings.Builder
 	pen := "\x00" // not any real pen, so the first cell always emits
+	link := ""
+	setLink := func(target string) {
+		if target == link {
+			return
+		}
+		if link != "" {
+			b.WriteString("\x1b]8;;\x1b\\")
+		}
+		if target != "" {
+			b.WriteString("\x1b]8;;" + target + "\x1b\\")
+		}
+		link = target
+	}
 	for j, c := range row[:end] {
 		if c.cont {
 			continue // covered by the wide rune to its left
 		}
+		setLink(c.link)
 		if j == cx {
 			// the cursor cell resets around itself so the reverse video covers
 			// exactly one cell; the next cell re-arms its own pen
@@ -806,6 +927,7 @@ func renderRowCursor(row []cell, cx int) string {
 				r = ' '
 			}
 			b.WriteRune(r)
+			b.WriteString(c.comb)
 			b.WriteString(Reset)
 			pen = "\x00"
 			continue
@@ -823,7 +945,9 @@ func renderRowCursor(row []cell, cx int) string {
 			r = ' '
 		}
 		b.WriteRune(r)
+		b.WriteString(c.comb)
 	}
+	setLink("")
 	b.WriteString(Reset)
 	return b.String()
 }
