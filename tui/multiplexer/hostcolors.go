@@ -1,30 +1,28 @@
-package editor
+package multiplexer
 
 import (
 	"fmt"
 	"os"
 
 	"github.com/muesli/termenv"
-
-	"github.com/lflow/lflow/tui/multiplexer"
 )
 
-// captureHostColors asks the REAL terminal for its fore/background before
-// bubbletea takes the tty, and files the answers where mux sessions can serve
-// them back out: a TUI running on a session PTY queries its "terminal" for
+// CaptureHostColors asks the REAL terminal for its fore/background — callers
+// run it before any TUI takes the tty — and files the answers where sessions
+// serve them back out: a program on a session PTY queries its "terminal" for
 // colors on startup, and the truthful answer is what lets it paint the same
 // background the outer terminal has instead of guessing at a theme.
-func captureHostColors() {
+func CaptureHostColors() {
 	f := os.Stdout
 	if st, err := f.Stat(); err != nil || st.Mode()&os.ModeCharDevice == 0 {
 		return // not a terminal: keep the defaults
 	}
 	out := termenv.NewOutput(f)
 	if s, ok := xColor(out.ForegroundColor()); ok {
-		multiplexer.ReplyFG = s
+		ReplyFG = s
 	}
 	if s, ok := xColor(out.BackgroundColor()); ok {
-		multiplexer.ReplyBG = s
+		ReplyBG = s
 	}
 }
 

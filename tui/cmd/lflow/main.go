@@ -12,6 +12,7 @@ import (
 	"github.com/lflow/lflow/tui/cli/auth"
 	"github.com/lflow/lflow/tui/cli/export"
 	"github.com/lflow/lflow/tui/cli/file"
+	"github.com/lflow/lflow/tui/cli/mux"
 	"github.com/lflow/lflow/tui/cli/node"
 	"github.com/lflow/lflow/tui/cli/root"
 	"github.com/lflow/lflow/tui/cli/serve"
@@ -24,9 +25,11 @@ var versionTag = "master"
 
 func main() {
 	// the daemon itself must never route through a daemon: `lflow serve`
-	// skips client init entirely and owns the database directly
-	if len(os.Args) > 1 && os.Args[1] == "serve" {
+	// skips client init entirely and owns the database directly. `lflow mux`
+	// takes the same early path — a session harness needs no database at all.
+	if len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "mux") {
 		root.Register(serve.NewCmd(versionTag))
+		root.Register(mux.NewCmd())
 		if err := root.Execute(); err != nil {
 			log.Errorf("%s\n", err.Error())
 			os.Exit(1)
@@ -49,6 +52,7 @@ func main() {
 	root.Register(export.NewCmd(*ctx))
 	root.Register(version.NewCmd(*ctx))
 	root.Register(serve.NewCmd(versionTag)) // listed in --help; runs via the early path
+	root.Register(mux.NewCmd())             // listed in --help; runs via the early path
 
 	if err := root.Execute(); err != nil {
 		log.Errorf("%s\n", err.Error())

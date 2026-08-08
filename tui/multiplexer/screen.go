@@ -116,23 +116,17 @@ func NewScreen(w, h, sbCap int) *Screen {
 		Execute:   s.execute,
 		HandleCsi: s.csi,
 		HandleEsc: s.esc,
-		HandleDcs: s.dcs,
 	})
 	return s
 }
 
-// reply sends an answer to the program when the session wired one up.
+// reply sends an answer to the program when the session wired one up. Only
+// the CURSOR POSITION report goes through here — it needs the grid's live
+// state; every static query is answered instantly by the reader goroutine's
+// queryAnswerer, and answering both places would double-reply.
 func (s *Screen) reply(format string, args ...any) {
 	if s.Reply != nil {
 		s.Reply(fmt.Appendf(nil, format, args...))
-	}
-}
-
-// dcs answers the one DCS query worth answering: XTGETTCAP gets a well-formed
-// "invalid" so the asker stops waiting instead of hanging on silence.
-func (s *Screen) dcs(cmd ansi.Cmd, params ansi.Params, data []byte) {
-	if cmd.Final() == 'q' && cmd.Intermediate() == '+' {
-		s.reply("\x1bP0+r\x1b\\")
 	}
 }
 
@@ -495,43 +489,9 @@ func (s *Screen) csi(cmd ansi.Cmd, params ansi.Params) {
 		s.restoreCursor()
 	case 'm': // SGR — the pen
 		s.setPen(params)
-	case 'n': // DSR — device status / cursor position report
-		switch p(0, 0) {
-		case 5:
-			s.reply("\x1b[0n") // operating
-		case 6:
+	case 'n': // DSR 6 — cursor position report (the one grid-stateful query)
+		if p(0, 0) == 6 {
 			s.reply("\x1b[%d;%dR", s.y+1, s.x+1)
-		}
-	case 'c': // DA — device attributes
-		switch cmd.Prefix() {
-		case 0: // primary: a VT220 that speaks truecolor
-			s.reply("\x1b[?62;22c")
-		case '>': // secondary
-			s.reply("\x1b[>1;10;0c")
-		}
-	case 'p':
-		if cmd.Prefix() == '?' && cmd.Intermediate() == '$' {
-			// DECRQM — report the modes the screen actually models; everything
-			// else is "not recognized", which is an ANSWER, unlike silence
-			mode := p(0, 0)
-			onOff := func(on bool) int {
-				if on {
-					return 1
-				}
-				return 2
-			}
-			switch mode {
-			case 1:
-				s.reply("\x1b[?1;%d$y", onOff(s.appCursor))
-			case 25:
-				s.reply("\x1b[?25;%d$y", onOff(!s.cursorHidden))
-			case 2004:
-				s.reply("\x1b[?2004;%d$y", onOff(s.bracketedPaste))
-			case 1049, 1047, 47:
-				s.reply("\x1b[?%d;%d$y", mode, onOff(s.altOn))
-			default:
-				s.reply("\x1b[?%d;0$y", mode)
-			}
 		}
 	case 'h', 'l':
 		if cmd.Prefix() == '?' {

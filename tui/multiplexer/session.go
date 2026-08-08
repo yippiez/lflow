@@ -159,10 +159,14 @@ func (mx *Manager) start(s *Session, argv []string, cols, rows int) {
 		chunks := make(chan []byte, 64)
 		go func() {
 			defer close(chunks)
+			// terminal queries are answered HERE, the moment they come off the
+			// PTY — a TUI's startup color probe won't wait for an event loop
+			qa := &queryAnswerer{out: ptmx}
 			buf := make([]byte, 32<<10)
 			for {
 				n, err := ptmx.Read(buf)
 				if n > 0 {
+					qa.scan(buf[:n])
 					b := make([]byte, n)
 					copy(b, buf[:n])
 					select {

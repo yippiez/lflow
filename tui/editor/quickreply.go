@@ -43,32 +43,33 @@ func (m *Model) quickReplyField(id string) *textField {
 	return f
 }
 
-// agentLastResponse is the one-line "what it last said": the live terminal
-// title while a session runs (Claude keeps a summary there), else the last
-// assistant message from the CLI's own store.
+// agentLastResponse is the one-line "what it last said": the last assistant
+// MESSAGE from the CLI's own store — that is the box's whole purpose — with
+// the live terminal title only as the mid-work progress line (Claude paints a
+// summary there while it thinks) or the fallback when the store has nothing.
 func (m *Model) agentLastResponse(id string) string {
+	title := ""
+	working := false
 	if m.muxm != nil {
 		if s := m.muxm.Get(id); s != nil && s.Live() {
-			if t := s.TitleLine(); t != "" {
-				return t
+			title = s.TitleLine()
+			working = s.Status() == multiplexer.StatusWorking
+		}
+	}
+	if working && title != "" {
+		return title
+	}
+	if c, ok := m.chips[id]; ok {
+		if v, ok := agentVariantByID(c.Value); ok {
+			traces := m.agentTraces(agentHandle{id: id, v: v, sess: m.agentLoad(id)})
+			for i := len(traces) - 1; i >= 0; i-- {
+				if traces[i].kind == "assistant" {
+					return traces[i].text
+				}
 			}
 		}
 	}
-	c, ok := m.chips[id]
-	if !ok {
-		return ""
-	}
-	v, ok := agentVariantByID(c.Value)
-	if !ok {
-		return ""
-	}
-	traces := m.agentTraces(agentHandle{id: id, v: v, sess: m.agentLoad(id)})
-	for i := len(traces) - 1; i >= 0; i-- {
-		if traces[i].kind == "assistant" {
-			return traces[i].text
-		}
-	}
-	return ""
+	return title
 }
 
 // sendQuickReply ships the field to the session's PTY.

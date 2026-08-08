@@ -125,6 +125,13 @@ func (m *Model) syncAgentMux() {
 			}
 		}
 	}
+	// an agent that just stopped working has NEW words in its store: drop the
+	// cached trace so the quick-reply box reads what it actually said
+	for id, prev := range agentMuxStates {
+		if prev == multiplexer.StatusWorking && st[id] != multiplexer.StatusWorking {
+			delete(m.nodeStore(id), "agentTrace")
+		}
+	}
 	agentMuxStates = st
 }
 

@@ -2491,7 +2491,7 @@ func RunFile(ctx runtime.Ctx, nodeUUID string, fs FileSession) error {
 	// The mouse is NOT captured by default — the terminal owns drag-select and
 	// copy-on-select. The "mouse: wheel" setting turns capture on (Init /
 	// handleSettingsKey) so the wheel scrolls the outline instead.
-	captureHostColors() // ask the real terminal its colors while we still own the tty
+	multiplexer.CaptureHostColors() // ask the real terminal its colors while we still own the tty
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {
