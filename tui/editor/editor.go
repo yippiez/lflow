@@ -390,6 +390,7 @@ type Model struct {
 	needResync  bool
 
 	escPending bool
+	escAt      time.Time // when the pending esc landed — split alt-chord window
 
 	// the ⌥e session edit page (modeAgentEdit)
 	agentEditID    string

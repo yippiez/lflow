@@ -52,7 +52,20 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.quit()
 		}
 		m.escPending = true
+		m.escAt = time.Now()
 		return m, nil
+	}
+	// A SPLIT alt-chord: some hosts (Windows Terminal through conpty among
+	// them) deliver alt+<letter> as ESC and the bare letter in two separate
+	// writes, which lands here as an esc keypress — silently arming the
+	// esc-esc quit above — followed at machine speed by a rune that would
+	// type into the node. No human types a letter this soon after a
+	// deliberate esc: reassemble the chord instead. This is what made ⌥o
+	// need a double-tap and leak stray letters into rows.
+	if m.escPending && !k.Alt && k.Type == tea.KeyRunes && len(k.Runes) == 1 &&
+		k.Runes[0] >= 'a' && k.Runes[0] <= 'z' && time.Since(m.escAt) < 60*time.Millisecond {
+		m.escPending = false
+		return m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: k.Runes, Alt: true})
 	}
 	if key != "esc" {
 		m.escPending = false

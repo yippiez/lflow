@@ -1192,3 +1192,39 @@ func TestCopyAgentCommand(t *testing.T) {
 		t.Fatalf("empty chip: flash = %q", m.flash)
 	}
 }
+
+// TestSplitAltChordReassembled: some hosts deliver alt+<letter> as ESC and the
+// bare letter in two separate reads. The esc arms the esc-esc quit and the
+// letter used to TYPE into the node — ⌥o needed a double-tap and rows grew
+// stray letters. An esc followed at machine speed by a lowercase rune is a
+// chord, and reassembles; a letter typed a human beat later still types.
+func TestSplitAltChordReassembled(t *testing.T) {
+	clip := clipCapture(t)
+
+	c := variant(t, "claude")
+	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
+	chip := chipOn(t, m, "note", c, agentStoreSession{})
+	m.agentSave(chip.ID, agentSession{Variant: c.id, SessionID: "abc-123", Cwd: "/repo"})
+	before := m.tree.byUUID["note"].name
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+
+	if want := "cd /repo && claude --resume abc-123"; clip() != want {
+		t.Fatalf("split alt+o did not copy; clipboard misses %q", want)
+	}
+	if got := m.tree.byUUID["note"].name; got != before {
+		t.Fatalf("the chord's letter leaked into the node: %q -> %q", before, got)
+	}
+	if m.escPending {
+		t.Fatal("a reassembled chord must disarm the esc-esc quit")
+	}
+
+	// a letter after a HUMAN pause is typing, not a chord
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+	m.escAt = m.escAt.Add(-200 * time.Millisecond)
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	if got := m.tree.byUUID["note"].name; got == before {
+		t.Fatal("a slow letter after esc must still type into the node")
+	}
+}
