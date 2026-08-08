@@ -675,9 +675,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if c, ok := m.cmdChipAtCaret(cur); ok {
 				m.focusCmdChip(c) // ⌥e on a cmd chip: its run output as an inline band
 				return m, nil
-			} else if c, ok := m.agentChipForKeys(cur); ok {
-				m.focusAgentChip(c) // ⌥e on a session chip: its transcript as a band
-				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
 				return m, nil

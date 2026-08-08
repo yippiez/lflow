@@ -73,40 +73,37 @@ func (m *Model) handleMuxKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// viewMux paints the attached session: one header line — the agent's pill,
-// its live status, the detach key — then the session's screen, cursor and all.
+// viewMux paints the attached session: the screen, cursor and all, then ONE
+// dim status line at the bottom — the terminal owns the frame, lflow keeps a
+// whisper. No pill, no chrome above: an agent TUI draws its own identity.
 func (m *Model) viewMux(maxLine int) []string {
 	s := m.mux().Get(m.muxID)
 	if s == nil {
 		return []string{cDim + " session gone · any key returns" + cReset}
 	}
-	glyph, col, title := "◈", cDim, s.Label
+	glyph, title := "◈", s.Label
 	if v, ok := agentVariantByID(s.Agent); ok {
 		glyph = v.glyph
-		col = m.publishAgentLook(m.muxID, v)
 		title = m.agentTitle(m.muxID, v, m.agentLoad(m.muxID))
 	}
 	status := ""
 	switch {
 	case !s.Live():
-		status = cRed + "exited" + cReset
+		status = cRed + "exited" + cDim
 	case s.Status() == multiplexer.StatusWorking:
 		status = shimmerLabel("working…") + cDim + " " + elapsedShort(s.Elapsed())
 	case s.Status() == multiplexer.StatusBlocked:
-		status = cRed + "waiting on you" + cReset
+		status = cRed + "waiting on you" + cDim
 	default:
-		status = cDim + "idle" + cReset
+		status = "idle"
 	}
-	head := cReset + bgOf(col) + contrastInk(col) + " " + glyph + " " + title + " " + cReset +
-		" " + status + cDim + " · ctrl+q detach" + cReset
-	if line := s.TitleLine(); line != "" && line != title {
-		head += cDim + " · " + line + cReset
-	}
-	lines := []string{clip(head, maxLine)}
+	var lines []string
 	for _, row := range s.Scr.GridLines(true) {
 		lines = append(lines, clip(row, maxLine))
 	}
-	m.pageRows = len(lines) // no status bar — the whole frame is the terminal
+	bar := cDim + " " + glyph + " " + title + " · " + status + " · ctrl+q detach" + cReset
+	lines = append(lines, clip(bar, maxLine))
+	m.pageRows = len(lines) // no toolbar — the whole frame is the terminal
 	return lines
 }
 

@@ -146,6 +146,58 @@ func TestTermColorsSurvive(t *testing.T) {
 	}
 }
 
+// TestTermDarkTruecolorSurvives: zero channels inside an extended color are
+// channel values, not SGR resets — the bug that shredded an agent TUI's dark
+// theme. Both semicolon and colon forms must come back intact.
+func TestTermDarkTruecolorSurvives(t *testing.T) {
+	s := newTestScreen(30, 3)
+	feed(s, "\x1b[38;2;0;0;0mink\x1b[0m\r\n")
+	row := s.Lines()[0]
+	if !strings.Contains(row, "\x1b[38;2;0;0;0m") {
+		t.Errorf("black truecolor mangled: %q", row)
+	}
+
+	s = newTestScreen(30, 3)
+	feed(s, "\x1b[1;38;2;0;10;0mbold dark\x1b[0m\r\n")
+	row = s.Lines()[0]
+	if !strings.Contains(row, "\x1b[1m") || !strings.Contains(row, "\x1b[38;2;0;10;0m") {
+		t.Errorf("bold + dark truecolor mangled: %q", row)
+	}
+
+	s = newTestScreen(30, 3)
+	feed(s, "\x1b[38:2:0:20:40mcolon\x1b[0m\r\n")
+	row = s.Lines()[0]
+	if !strings.Contains(row, "38:2:0:20:40") {
+		t.Errorf("colon-form truecolor mangled: %q", row)
+	}
+
+	// a bare zero still resets
+	s = newTestScreen(30, 3)
+	feed(s, "\x1b[31mred\x1b[0mplain\r\n")
+	row = s.Lines()[0]
+	if strings.Contains(row[strings.Index(row, "red")+3:], "\x1b[31m") {
+		t.Errorf("bare zero failed to reset the pen: %q", row)
+	}
+}
+
+// TestTermWideRunes: emoji and CJK occupy two columns, so a box drawn around
+// them stays aligned — and the plain-text read renders each wide rune once.
+func TestTermWideRunes(t *testing.T) {
+	s := newTestScreen(10, 3)
+	feed(s, "a猫b\r\n")
+	got := screenText(s)
+	if got[0] != "a猫b" {
+		t.Errorf("wide-rune row = %q, want a猫b", got[0])
+	}
+	// the wide rune consumed two columns: the next rune lands at column 3
+	s = newTestScreen(4, 3)
+	feed(s, "猫猫x\r\n") // 2+2 fills the row; x wraps
+	got = screenText(s)
+	if got[0] != "猫猫" || got[1] != "x" {
+		t.Errorf("wide wrap rows = %q, want 猫猫 / x", got)
+	}
+}
+
 // TestTermWrapsAtTheEdge: long lines wrap; an exact-fit line does not eat a
 // blank row (deferred wrap).
 func TestTermWrapsAtTheEdge(t *testing.T) {

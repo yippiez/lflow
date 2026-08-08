@@ -67,7 +67,7 @@ wait_for "pi resumed with: --session-id ${id}" 8
 # ctrl+q: back to the outline, agent still running, tallied in the toolbar
 send C-q
 wait_for "detached · the agent" 5
-wait_for "1 agent running" 5
+wait_for "1 agent" 5
 assert_contains "ᴘɪ ride the mux"
 
 # ⌥m: the quick-reply box, message shipped to the live PTY
@@ -82,7 +82,7 @@ send Escape
 send M-r
 wait_for "you said: hello mux" 8
 send C-q
-wait_for "1 agent running" 5
+wait_for "1 agent" 5
 
 # quit guard: first press warns, second stops the agent and goes
 send C-q

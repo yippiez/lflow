@@ -106,7 +106,7 @@ func TestAgentMuxToolbarCount(t *testing.T) {
 	m := &Model{width: 100, height: 30}
 	fakeAgentSession(t, m, "chip-t", "sleep 30")
 	bar := stripSGR(strings.Join(m.bottomBar(120), "\n"))
-	if !strings.Contains(bar, "1 agent running") {
+	if !strings.Contains(bar, "1 agent working") {
 		t.Fatalf("agents tally missing from bar: %q", bar)
 	}
 }

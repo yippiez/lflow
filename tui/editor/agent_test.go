@@ -634,10 +634,14 @@ func TestAgentRenameReplaces(t *testing.T) {
 	if s := m.agentLoad(chip.ID); s.Name != "flush fix" {
 		t.Fatalf("name = %q, want the typed name alone", s.Name)
 	}
-	// a session you already named opens with that name, ready to edit
-	(agentChipView{}).key(m, it, key("n"))
+	// saving closes the band with the field — it was only the rename's surface
+	if m.focusChip != "" || m.focused {
+		t.Fatal("enter must close the rename band")
+	}
+	// a session you already named reopens with that name, ready to edit
+	m.openAgentRename(chip)
 	if f := m.agentRenameState(chip.ID); f == nil || f.value != "flush fix" {
-		t.Errorf("re-opening the field gave %q, want the custom name", f.value)
+		t.Errorf("re-opening the field gave a wrong value, want the custom name")
 	}
 }
 

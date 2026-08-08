@@ -69,19 +69,30 @@ func (m *Model) muxSize() (cols, rows int) {
 	return clampInt(m.width, 60, 250), clampInt(m.height-2, 20, 100)
 }
 
-// runningAgentCount is how many agent sessions are live — the toolbar's red
-// tally and the quit guard's count. Bash sessions are counted by runningCount.
+// runningAgentCount is how many agent sessions are live — the quit guard's
+// count. Bash sessions are counted by runningCount.
 func (m *Model) runningAgentCount() int {
+	live, _ := m.agentMuxCounts()
+	return live
+}
+
+// agentMuxCounts is the toolbar's read: how many agent sessions are live, and
+// how many of those are actually mid-work — "running" was a lie for an agent
+// sitting at its prompt.
+func (m *Model) agentMuxCounts() (live, working int) {
 	if m.muxm == nil {
-		return 0
+		return 0, 0
 	}
-	n := 0
 	for _, s := range m.muxm.Live() {
-		if s.Agent != "" {
-			n++
+		if s.Agent == "" {
+			continue
+		}
+		live++
+		if s.Status() == multiplexer.StatusWorking {
+			working++
 		}
 	}
-	return n
+	return live, working
 }
 
 // tickMuxStatus advances every live agent session's status machine on the
@@ -140,8 +151,10 @@ func (m *Model) openAgentTerminal(c database.Chip) {
 		return
 	}
 	if sess := m.mux().Get(c.ID); sess != nil && sess.Live() {
-		m.errorFlash("running in multiplexer · stop it before opening elsewhere")
-		return
+		// the window TAKES the conversation: stop the background session first
+		// — one conversation, one process — and let the native resume pick it
+		// up out there
+		m.mux().Drop(c.ID)
 	}
 	if !m.depOK(v.bin) {
 		m.errorFlash("Missing dependency: " + v.bin)

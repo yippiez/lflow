@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 )
 
 // Screen is the screen a session paints — a real (small) VT: a grid of styled
@@ -30,10 +31,13 @@ import (
 // the run bands use.
 
 // cell is one screen cell: its rune plus the SGR pen active when it was
-// written ("" = default). A space with a pen keeps a colored background.
+// written ("" = default). A space with a pen keeps a colored background. cont
+// marks the shadow cell under the right half of a wide rune — rendering skips
+// it, the terminal's own wide glyph covers it.
 type cell struct {
-	r   rune
-	sgr string
+	r    rune
+	sgr  string
+	cont bool
 }
 
 var blankCell = cell{r: ' '}
@@ -194,6 +198,12 @@ func (s *Screen) scanTitle(b []byte) {
 // ── writing ─────────────────────────────────────────────────────────────────
 
 func (s *Screen) print(r rune) {
+	// wide runes occupy two columns — an agent TUI full of emoji and CJK
+	// shears its whole layout if they are laid down as one
+	w := runewidth.RuneWidth(r)
+	if w <= 0 {
+		return // combining marks and other zero-width input: nothing to lay out
+	}
 	if s.wrapNext {
 		s.x = 0
 		s.index()
@@ -205,7 +215,16 @@ func (s *Screen) print(r rune) {
 	if s.x >= s.w {
 		s.x = s.w - 1
 	}
+	if w == 2 && s.x == s.w-1 {
+		// a wide rune does not fit the last column: wrap early, as xterm does
+		s.x = 0
+		s.index()
+	}
 	s.grid[s.y][s.x] = cell{r: r, sgr: s.pen}
+	if w == 2 && s.x+1 < s.w {
+		s.grid[s.y][s.x+1] = cell{r: 0, sgr: s.pen, cont: true}
+		s.x++
+	}
 	s.x++
 	if s.x >= s.w {
 		// xterm's deferred wrap: the cursor stays on the last column until the
@@ -452,34 +471,75 @@ func (s *Screen) csi(cmd ansi.Cmd, params ansi.Params) {
 	}
 }
 
-// setPen updates the current SGR. Params are re-emitted verbatim, so truecolor
-// and every attribute survive without the screen having to model them; a bare
-// reset (or no params) clears the pen entirely.
+// setPen updates the current SGR. Attributes are re-emitted structurally, so
+// truecolor and every attribute survive without the screen having to model
+// them; a bare reset (or no params) clears the pen entirely.
+//
+// The walk is structure-aware on purpose: only a BARE TOP-LEVEL zero is a
+// reset. The old "any zero resets" reading corrupted every dark truecolor —
+// 38;2;0;0;0 carries three zeros that are channel values, not resets — which
+// is exactly what shredded an agent TUI's dark theme. Extended colors consume
+// their arguments as a unit (semicolon form), and colon chains keep their
+// colons, so 4:3 underline styles and 38:2::r:g:b survive as sent.
 func (s *Screen) setPen(params ansi.Params) {
 	if len(params) == 0 {
 		s.pen = ""
 		return
 	}
-	var parts []string
-	reset := false
-	params.ForEach(0, func(_, v int, _ bool) {
-		if v == 0 {
-			reset = true
-			parts = parts[:0]
-			return
+	type tok struct {
+		v    int
+		more bool // the colon chain continues after this token
+	}
+	toks := make([]tok, 0, len(params))
+	params.ForEach(0, func(_, v int, more bool) { toks = append(toks, tok{v, more}) })
+
+	i := 0
+	next := func() []tok { // one group: a lone param, or a whole colon chain
+		start := i
+		for i < len(toks) && toks[i].more {
+			i++
 		}
-		parts = append(parts, fmt.Sprint(v))
-	})
-	if reset && len(parts) == 0 {
-		s.pen = ""
-		return
+		if i < len(toks) {
+			i++
+		}
+		return toks[start:i]
 	}
-	seq := "\x1b[" + strings.Join(parts, ";") + "m"
-	if reset {
-		s.pen = seq // the reset already zeroed what came before it
-		return
+	nums := func(g []tok) []string {
+		out := make([]string, len(g))
+		for j, t := range g {
+			out[j] = fmt.Sprint(t.v)
+		}
+		return out
 	}
-	s.pen += seq // attributes accumulate until a reset, as on a terminal
+	for i < len(toks) {
+		g := next()
+		switch {
+		case len(g) == 1 && g[0].v == 0:
+			s.pen = "" // SGR reset — a bare zero and nothing else
+		case len(g) == 1 && (g[0].v == 38 || g[0].v == 48 || g[0].v == 58):
+			// semicolon-form extended color: the mode and its channels are
+			// separate params that belong to this one attribute
+			parts := nums(g)
+			if i < len(toks) {
+				mode := next()
+				parts = append(parts, nums(mode)...)
+				n := 0
+				if len(mode) == 1 && mode[0].v == 2 {
+					n = 3 // r, g, b
+				} else if len(mode) == 1 && mode[0].v == 5 {
+					n = 1 // palette index
+				}
+				for k := 0; k < n && i < len(toks); k++ {
+					parts = append(parts, nums(next())...)
+				}
+			}
+			s.pen += "\x1b[" + strings.Join(parts, ";") + "m"
+		case len(g) > 1:
+			s.pen += "\x1b[" + strings.Join(nums(g), ":") + "m"
+		default:
+			s.pen += "\x1b[" + strings.Join(nums(g), ";") + "m"
+		}
+	}
 }
 
 func (s *Screen) saveCursor()    { s.saveX, s.saveY, s.savePen = s.x, s.y, s.pen }
@@ -620,6 +680,9 @@ func (s *Screen) GridLines(cursor bool) []string {
 		cx := -1
 		if cursor && !s.cursorHidden && y == s.y {
 			cx = s.x
+			if cx < len(row) && row[cx].cont {
+				cx-- // the cursor sits on a wide rune's right half: mark the rune
+			}
 		}
 		out[y] = renderRowCursor(row, cx)
 	}
@@ -638,6 +701,9 @@ func (s *Screen) GridPlain() []string {
 		}
 		var b strings.Builder
 		for _, c := range row[:end] {
+			if c.cont {
+				continue
+			}
 			r := c.r
 			if r == 0 {
 				r = ' '
@@ -682,6 +748,9 @@ func renderRowCursor(row []cell, cx int) string {
 	var b strings.Builder
 	pen := "\x00" // not any real pen, so the first cell always emits
 	for j, c := range row[:end] {
+		if c.cont {
+			continue // covered by the wide rune to its left
+		}
 		if j == cx {
 			// the cursor cell resets around itself so the reverse video covers
 			// exactly one cell; the next cell re-arms its own pen

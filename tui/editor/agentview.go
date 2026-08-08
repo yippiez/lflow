@@ -97,10 +97,16 @@ func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
 		case "enter":
 			m.agentRename(h.id, f.value)
 			delete(m.nodeStore(h.id), "agentRename")
+			// the band was only ever the rename's surface: close it with the
+			// field rather than falling open onto the trace
+			m.focusChip = ""
+			m.focused = false
 			m.flash = "session renamed"
 			return nil, true
 		case "esc":
 			delete(m.nodeStore(h.id), "agentRename")
+			m.focusChip = ""
+			m.focused = false
 			return nil, true
 		}
 		f.handleKey(k)
@@ -157,7 +163,7 @@ func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string
 	if f := m.agentRenameState(h.id); f != nil {
 		hint := " · enter save · esc cancel"
 		head := "  " + cDim + "name  " + cReset + withCaret(f.value, f.caret) + cDim + hint + cReset
-		return []string{line(head), line(cDim + "  " + tildePath(h.sess.Cwd) + cReset), line(cDim + agentPanelKeys + cReset)}
+		return []string{line(head), line(cDim + "  " + tildePath(h.sess.Cwd) + cReset)}
 	}
 
 	ink := bgOf(color) + contrastInk(color)

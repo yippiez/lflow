@@ -619,14 +619,21 @@ func (m *Model) bottomBar(maxLine int) []string {
 	if n := m.runningCount(); n > 0 {
 		state += fmt.Sprintf(" · "+cRed+"%d bash running"+cDim, n)
 	}
-	// live agent sessions get the same standing tally: they die with the
-	// editor, so the bar owes you the count the whole time they run
-	if n := m.runningAgentCount(); n > 0 {
-		noun := "agent"
-		if n > 1 {
-			noun = "agents"
+	// live agent sessions get a standing tally: they die with the editor, so
+	// the bar owes you the count the whole time they exist — red only while
+	// one is actually mid-work, dim when they sit at their prompts
+	if live, working := m.agentMuxCounts(); live > 0 {
+		noun := func(n int) string {
+			if n == 1 {
+				return "agent"
+			}
+			return "agents"
 		}
-		state += fmt.Sprintf(" · "+cRed+"%d %s running"+cDim, n, noun)
+		if working > 0 {
+			state += fmt.Sprintf(" · "+cRed+"%d %s working"+cDim, working, noun(working))
+		} else {
+			state += fmt.Sprintf(" · %d %s idle", live, noun(live))
+		}
 	}
 	// a proposal waiting on review is worth seeing even when its node is off
 	// screen — it changes nothing until somebody settles it
