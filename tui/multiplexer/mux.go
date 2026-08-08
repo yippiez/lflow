@@ -35,6 +35,17 @@ func (mx *Manager) Get(id string) *Session { return mx.sessions[id] }
 // they mean to.
 func (mx *Manager) Remove(id string) { delete(mx.sessions, id) }
 
+// Drop kills (if needed) and removes a session's record — the "a fresh run
+// replaces whatever was here" path.
+func (mx *Manager) Drop(id string) {
+	if s := mx.sessions[id]; s != nil {
+		if s.Live() {
+			s.Kill()
+		}
+		delete(mx.sessions, id)
+	}
+}
+
 // LiveCount is how many sessions are still running.
 func (mx *Manager) LiveCount() int {
 	n := 0

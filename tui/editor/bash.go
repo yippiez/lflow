@@ -1,16 +1,25 @@
 package editor
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/creack/pty"
+
+	"github.com/lflow/lflow/tui/multiplexer"
 )
+
+// The screen a session paints renders through the multiplexer package now;
+// point its unstyled-cell foreground at the editor's own.
+func init() {
+	multiplexer.Reset = cReset
+	multiplexer.PlainFG = cFG
+}
+
+// clampInt bounds v to [lo, hi] — shared by the sizing and scroll math.
+func clampInt(v, lo, hi int) int { return max(lo, min(v, hi)) }
 
 // outLine is one line of a run band; err marks stderr (rendered red). Line
 // producers (math's LaTeX export writes r.out directly) use these; a SHELL run
@@ -23,7 +32,7 @@ type outLine struct {
 }
 
 // bashLinesMsg carries a BATCH of captured lines onto the run band. Today its
-// one async producer is startBash's PTY-launch-failure path; the type stays the
+// one async producer is forwardMux's launch-failure path; the type stays the
 // seam for any future line producer that streams instead of writing r.out.
 type bashLinesMsg struct {
 	uuid  string
@@ -32,7 +41,7 @@ type bashLinesMsg struct {
 
 // bashBytesMsg carries a BATCH of raw output bytes from a shell run, straight
 // from the PTY into the run's terminal screen. Batching happens in the producer
-// on a ~50ms window (see startBash), so a torrential command costs the UI at most
+// on a ~50ms window (see multiplexer.Session), so a torrential command costs the UI at most
 // ~20 bounded messages a second — one message per read would pin the update loop
 // for the whole run and freeze the editor.
 type bashBytesMsg struct {
@@ -63,13 +72,11 @@ func runShell(m *Model, id, cmd string) tea.Cmd {
 	return m.startShellRun(id, cmd)
 }
 
-// startShellRun is the one launch path for a shell run, keyed by node uuid or cmd
-// chip id: a fresh terminal screen, a PTY sized to the editor's body, and the
-// stream pumping into the update loop.
+// startShellRun is the one launch path for a shell run, keyed by node uuid or
+// cmd chip id: a fresh multiplexer session (PTY + terminal screen) sized to
+// the editor's body, its stream forwarded into the update loop.
 func (m *Model) startShellRun(id, cmd string) tea.Cmd {
-	ctx, cancel := context.WithCancel(context.Background())
 	r := m.ensureRun(id)
-	r.cancel = cancel
 	r.started = time.Now() // the elapsed clock the band shows while it runs
 	r.dropped = 0          // a fresh run starts its drop count over
 	r.cmd = cmd            // what was run — a later edit to the node invalidates its tail
@@ -77,16 +84,57 @@ func (m *Model) startShellRun(id, cmd string) tea.Cmd {
 	// old on-disk output over the incoming stream.
 	r.loaded = true
 	r.out = nil
-	r.scr = newTermScreen(m.runCols(), termRows)
 	dir := m.captureRunPWD(id)
+	// a previous run under this id may still be winding down; a fresh run always
+	// gets a fresh session
+	m.mux().Drop(id)
+	sess := m.mux().Start(id, "", cmd, dir, []string{"bash", "-c", cmd}, m.runCols(), termRows)
+	r.scr = sess.Scr
+	r.cancel = sess.Kill
 	ch := make(chan tea.Msg, 1024)
 	r.ch = ch
-	go startBash(id, cmd, dir, ctx, ch, r.scr.w, r.scr.h)
+	go forwardMux(sess, ch)
 	// start the shimmer IMMEDIATELY, not on the first output byte: a silent
 	// command (`sleep 30`) would otherwise never kick the animation tick and a
 	// running row would sit static. startAnim batches the tick on and keeps it
 	// alive via anyRunning while the command is in flight.
 	return m.startAnim(waitBashCmd(ch))
+}
+
+// forwardMux adapts a session's event stream into the update loop's message
+// vocabulary: output batches become bashBytesMsg, a launch failure becomes a
+// red band line, the end of the stream a bashDoneMsg. Sends select against the
+// session's Done so a canceled run can never strand this goroutine — the
+// editor stops draining after a cancel.
+func forwardMux(s *multiplexer.Session, ch chan tea.Msg) {
+	// closing wakes any reader still blocked in waitBashCmd; the resulting nil
+	// msg is ignored by bubbletea
+	defer close(ch)
+	send := func(msg tea.Msg) bool {
+		select {
+		case ch <- msg:
+			return true
+		case <-s.Done():
+			return false
+		}
+	}
+	for ev := range s.Events() {
+		switch {
+		case ev.Err != nil:
+			if !send(bashLinesMsg{ev.ID, []outLine{{text: ev.Err.Error(), err: true}}}) {
+				return
+			}
+		case ev.Done:
+		case len(ev.Data) > 0:
+			if !send(bashBytesMsg{ev.ID, ev.Data}) {
+				return
+			}
+		}
+		if ev.Done {
+			break
+		}
+	}
+	send(bashDoneMsg{s.ID})
 }
 
 // runCols is the column count a run's terminal gets: the editor's body width less
@@ -192,129 +240,21 @@ func (m *Model) finishRun(uuid string) {
 		r.cancel = nil // no longer running; the band (out) is kept
 		r.ch = nil
 	}
+	// a shell session's record has nothing left to say once the band is
+	// persisted — the screen lives on in runState; agent sessions stay filed
+	if m.muxm != nil {
+		if s := m.muxm.Get(uuid); s != nil && s.Agent == "" {
+			m.muxm.Drop(uuid)
+		}
+	}
 	m.persistRunOut(uuid)
 	m.setCmdPreview(uuid)
 }
 
-// Producer-side batching knobs: a batch ships when the flush window elapses
-// (so a trickle still appears promptly) or when it hits the size cap (so a
-// torrent cannot grow an unbounded transient batch — the capped send then
-// backpressures the reader through the channel).
-const (
-	runFlushEvery = 50 * time.Millisecond
-	runBatchCap   = 64 << 10
-)
-
-// startBash spawns `bash -c <cmd>` ON A PTY and streams its raw output onto ch in
-// time-batched bashBytesMsg chunks, for the run's terminal screen to interpret.
-//
-// The PTY is the point: with a pipe, a program sees "not a terminal" and changes
-// what it prints — no color unless coaxed, no progress bars, no cursor work — so
-// the band could never look like the terminal. On a PTY the command behaves
-// exactly as it would in one, and everything it emits (CR overwrites, clears,
-// cursor moves) means what it means.
-func startBash(uuid, cmd, dir string, ctx context.Context, ch chan tea.Msg, cols, rows int) {
-	// send delivers onto ch unless the run was canceled — the editor stops
-	// draining after a cancel, so an unconditional send on a full buffer would
-	// strand this goroutine forever.
-	send := func(msg tea.Msg) bool {
-		select {
-		case ch <- msg:
-			return true
-		case <-ctx.Done():
-			return false
-		}
-	}
-	// closing wakes any reader still blocked in waitBashCmd; the resulting nil
-	// msg is ignored by bubbletea
-	defer close(ch)
-	c := exec.CommandContext(ctx, "bash", "-c", cmd)
-	// pin the shell to the launch cwd — the very snapshot captureRunPWD stored
-	// for the alt+e header ("" inherits).
-	c.Dir = dir
-	// TERM is what the program keys its capabilities off; the size is passed on
-	// the PTY itself, so COLUMNS/LINES need no faking.
-	c.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
-	ptmx, err := pty.StartWithSize(c, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
-	if err != nil {
-		send(bashLinesMsg{uuid, []outLine{{text: err.Error(), err: true}}})
-		send(bashDoneMsg{uuid})
-		return
-	}
-	// closing the master is what makes the reader below return once the child is
-	// gone (and what unblocks it on a cancel).
-	defer ptmx.Close()
-	go func() {
-		<-ctx.Done()
-		ptmx.Close()
-	}()
-	// a canceled run leaves this function before the Wait at the bottom, so reap
-	// the killed child here or it lingers as a zombie for the editor's lifetime.
-	waited := false
-	defer func() {
-		if !waited {
-			_ = c.Wait()
-		}
-	}()
-
-	chunks := make(chan []byte, 64)
-	go func() {
-		defer close(chunks)
-		buf := make([]byte, 32<<10)
-		for {
-			n, err := ptmx.Read(buf)
-			if n > 0 {
-				b := make([]byte, n)
-				copy(b, buf[:n])
-				select {
-				case chunks <- b:
-				case <-ctx.Done():
-					return
-				}
-			}
-			if err != nil {
-				return // EIO on child exit, or the close above
-			}
-		}
-	}()
-
-	// the batcher: coalesce reads, flush a bounded batch per window
-	var batch []byte
-	flush := func() bool {
-		if len(batch) == 0 {
-			return true
-		}
-		ok := send(bashBytesMsg{uuid, batch})
-		batch = nil
-		return ok
-	}
-	tick := time.NewTicker(runFlushEvery)
-	defer tick.Stop()
-collect:
-	for {
-		select {
-		case b, open := <-chunks:
-			if !open {
-				break collect
-			}
-			batch = append(batch, b...)
-			if len(batch) >= runBatchCap && !flush() {
-				return
-			}
-		case <-tick.C:
-			if !flush() {
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-	flush()
-
-	waited = true
-	_ = c.Wait()
-	send(bashDoneMsg{uuid})
-}
+// The PTY producer itself — spawn, read, coalesce on a ~50ms window — lives in
+// the multiplexer package now (Session), shared with agent sessions. The PTY
+// remains the point: with a pipe, a program sees "not a terminal" and changes
+// what it prints; on a PTY it behaves exactly as it would in one.
 
 // runOutView is the generic inline run-output viewer (alt+e) for runnable
 // node types (mods with a `run` hook): the full captured band, scrollable and

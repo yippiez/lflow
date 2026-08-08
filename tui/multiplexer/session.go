@@ -63,6 +63,10 @@ type Session struct {
 // Events is the session's delivery stream. It is closed after Done.
 func (s *Session) Events() <-chan Event { return s.events }
 
+// Done is closed when the session is killed or its launch context ends — what
+// a forwarding goroutine selects against so it can never strand on a send.
+func (s *Session) Done() <-chan struct{} { return s.ctx.Done() }
+
 // Live reports whether the process is still running.
 func (s *Session) Live() bool { return !s.exited.Load() }
 

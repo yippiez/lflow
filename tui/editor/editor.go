@@ -20,6 +20,7 @@ import (
 	"github.com/lflow/lflow/tui/database"
 	"github.com/lflow/lflow/tui/database/style"
 	"github.com/lflow/lflow/tui/integrations"
+	"github.com/lflow/lflow/tui/multiplexer"
 	"github.com/lflow/lflow/tui/runtime"
 	"github.com/mattn/go-runewidth"
 	"github.com/pkg/errors"
@@ -250,6 +251,11 @@ type Model struct {
 	// NEVER in the DB or synced. One runState per id so every lifecycle event
 	// (cancel/finish/delete) drops all of it atomically — see run/ensureRun.
 	runs map[string]*runState
+
+	// muxm is the multiplexer: every PTY session — a bash run, an agent resumed
+	// in the background — lives here, keyed by the same uuid/chip-id keyspace as
+	// runs. Lazily created (see mux); sessions die with the editor.
+	muxm *multiplexer.Manager
 
 	// Temporary Domain — a scratch outline region (a second root, 7-day retention)
 	tempActive bool
@@ -1456,15 +1462,15 @@ func (m *Model) deleteNode(it *item) {
 // for a running command. All of it is keyed by ONE id (node uuid or cmd-chip id),
 // so dropping a run = delete(m.runs, id) — one atomic delete instead of six.
 type runState struct {
-	out     []outLine    // line producers' output (query, math's LaTeX export)
-	scr     *termScreen  // a SHELL run's terminal screen (see term.go); nil = line band
-	cancel  func()       // cancels the running command; nil once finished
-	ch      chan tea.Msg // stream channel for a running command
-	loaded  bool         // band hydrated from node_output (see runout.go)
-	dropped int          // lines dropped off the band's head (see maxRunLines)
-	pwd     string       // cwd captured when the band was run
-	cmd     string       // the command that was run (see runTails — a changed cmd invalidates its tail)
-	started time.Time    // launch instant; drives the elapsed clock while running
+	out     []outLine           // line producers' output (query, math's LaTeX export)
+	scr     *multiplexer.Screen // a SHELL run's terminal screen; nil = line band
+	cancel  func()              // cancels the running command; nil once finished
+	ch      chan tea.Msg        // stream channel for a running command
+	loaded  bool                // band hydrated from node_output (see runout.go)
+	dropped int                 // lines dropped off the band's head (see maxRunLines)
+	pwd     string              // cwd captured when the band was run
+	cmd     string              // the command that was run (see runTails — a changed cmd invalidates its tail)
+	started time.Time           // launch instant; drives the elapsed clock while running
 }
 
 // lines is the band's content, whatever produced it: a shell run renders its
@@ -1477,7 +1483,12 @@ func (r *runState) lines() []outLine {
 		return nil
 	}
 	if r.scr != nil {
-		return r.scr.lines()
+		rows := r.scr.Lines()
+		out := make([]outLine, len(rows))
+		for i, t := range rows {
+			out[i] = outLine{text: t}
+		}
+		return out
 	}
 	return r.out
 }
@@ -1489,7 +1500,7 @@ func (r *runState) dropCount() int {
 		return 0
 	}
 	if r.scr != nil {
-		return r.scr.dropped
+		return r.scr.Dropped()
 	}
 	return r.dropped
 }
@@ -1506,6 +1517,15 @@ func (r *runState) elapsed() time.Duration {
 // run returns the existing run state for an id, or nil if none — nil-safe for
 // read/comma-ok sites (an absent id reads as "no output, not running").
 func (m *Model) run(id string) *runState { return m.runs[id] }
+
+// mux returns the multiplexer, lazily created (mirrors ensureRun) so every
+// direct-constructed test Model gets one on first touch.
+func (m *Model) mux() *multiplexer.Manager {
+	if m.muxm == nil {
+		m.muxm = multiplexer.NewManager(maxRunLines)
+	}
+	return m.muxm
+}
 
 // ensureRun returns the run state for an id, lazily creating m.runs and the entry.
 // Every write site goes through here (mirrors nodeStore).
