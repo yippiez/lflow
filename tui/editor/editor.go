@@ -2342,14 +2342,11 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
 	// agents mid-work are worth a second look before they die with the editor:
-	// the first quit warns in the toolbar, the next one stops them and goes
-	if n := m.runningAgentCount(); n > 0 && !m.quitWarned {
+	// the first quit warns in the toolbar — which already carries the red
+	// tally — and the next one stops them and goes
+	if m.runningAgentCount() > 0 && !m.quitWarned {
 		m.quitWarned = true
-		noun := "agent"
-		if n > 1 {
-			noun = "agents"
-		}
-		m.errorFlash(fmt.Sprintf("%d %s running · quit again to stop them", n, noun))
+		m.errorFlash("quit again to stop them")
 		return m, nil
 	}
 	if m.muxm != nil {

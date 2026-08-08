@@ -80,7 +80,7 @@ func TestAgentQuitGuard(t *testing.T) {
 	if _, _ = m.quit(); m.quitting {
 		t.Fatal("first quit with a live agent must not quit")
 	}
-	if !m.quitWarned || !m.flashErr || !strings.Contains(m.flash, "1 agent running") {
+	if !m.quitWarned || !m.flashErr || !strings.Contains(m.flash, "quit again") {
 		t.Fatalf("first quit must warn in the toolbar, flash = %q", m.flash)
 	}
 	// any other key withdraws the warning
