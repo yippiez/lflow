@@ -57,6 +57,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key != "esc" {
 		m.escPending = false
 	}
+	// the quit warning stands only while quit is what you're pressing
+	if key != "ctrl+q" && key != "ctrl+c" && key != "esc" {
+		m.quitWarned = false
+	}
 
 	switch m.mode {
 	case modeSlash, modeType, modeStyle, modeTheme, modeComplete, modeTagColor, modeInsert,
@@ -68,6 +72,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleLinkEditKey(k)
 	case modeCmdEdit:
 		return m.handleCmdEditKey(k)
+	case modeMux:
+		return m.handleMuxKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:

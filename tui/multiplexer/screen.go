@@ -611,6 +611,21 @@ func (s *Screen) Lines() []string {
 	return out
 }
 
+// GridLines is the live grid as styled rows, all h of them — the attach
+// view's pane. With cursor set, the cell under a visible cursor is rendered
+// in reverse video, the block cursor a terminal would show.
+func (s *Screen) GridLines(cursor bool) []string {
+	out := make([]string, s.h)
+	for y, row := range s.grid {
+		cx := -1
+		if cursor && !s.cursorHidden && y == s.y {
+			cx = s.x
+		}
+		out[y] = renderRowCursor(row, cx)
+	}
+	return out
+}
+
 // GridPlain is the live grid as unstyled text rows — the detection surface.
 // Deliberately the whole grid and never a user-scrolled view of it: status
 // must not change because somebody scrolled the transcript.
@@ -648,17 +663,43 @@ func rowBlank(row []cell) bool {
 // Unstyled cells are painted in PlainFG rather than left bare: a terminal
 // shows a program's plain output in the normal text color, so the host must
 // too.
-func renderRow(row []cell) string {
+func renderRow(row []cell) string { return renderRowCursor(row, -1) }
+
+// renderRowCursor is renderRow with a block cursor: the cell at cx (-1 for
+// none) renders in reverse video and the row extends to reach it even when the
+// content ends earlier.
+func renderRowCursor(row []cell, cx int) string {
 	end := len(row)
 	for end > 0 && (row[end-1].r == ' ' || row[end-1].r == 0) && row[end-1].sgr == "" {
 		end--
+	}
+	if cx >= 0 && cx+1 > end && cx < len(row) {
+		end = cx + 1
 	}
 	if end == 0 {
 		return ""
 	}
 	var b strings.Builder
 	pen := "\x00" // not any real pen, so the first cell always emits
-	for _, c := range row[:end] {
+	for j, c := range row[:end] {
+		if j == cx {
+			// the cursor cell resets around itself so the reverse video covers
+			// exactly one cell; the next cell re-arms its own pen
+			b.WriteString(Reset + "\x1b[7m")
+			if c.sgr != "" {
+				b.WriteString(c.sgr)
+			} else {
+				b.WriteString(PlainFG)
+			}
+			r := c.r
+			if r == 0 {
+				r = ' '
+			}
+			b.WriteRune(r)
+			b.WriteString(Reset)
+			pen = "\x00"
+			continue
+		}
 		if c.sgr != pen {
 			if c.sgr == "" {
 				b.WriteString(Reset + PlainFG)

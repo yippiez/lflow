@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -20,13 +19,14 @@ import (
 // color, in whatever ink contrasts with that fill, plus a cloud mark when the
 // session is a hosted one.
 //
-// ⌥r hands the terminal over: lflow suspends itself, the CLI takes the screen in
-// the session's pinned working directory, and closing it drops straight back into
-// the outline with the session's id adopted. The first run CREATES the session and
-// every later one RESUMES it, so a chip is a durable handle on one conversation.
-// ⌥e opens a panel beneath the row with a read-only virtual trace loaded from the
-// CLI's store. ⌥o opens a hosted session in the browser, since there is no local process to attach
-// to. /agents lists every session in the outline, live ones first.
+// ⌥r runs the session on the MULTIPLEXER: the CLI resumes on a background PTY
+// in the session's pinned working directory and lflow's full-screen attach
+// view opens on it (ctrl+q detaches, the agent keeps running). The chip
+// shimmers while the agent works. ⌥o opens the session in a new HOST terminal
+// window instead — the native resume, outside lflow. ⌥m sends it a quick
+// message without attaching. ⌥e opens a panel beneath the row with a read-only
+// virtual trace loaded from the CLI's store. /agents lists every session in
+// the outline, live ones first.
 //
 // WARNING (invariant): lflow never copies a conversation into the outline. A chip
 // or Agent node stores only {variant, cwd, session id} plus the name and color it
@@ -422,10 +422,14 @@ type agentClosedMsg struct {
 	err     error
 }
 
-// agentOpen suspends lflow and hands the terminal to the CLI, creating the
-// session on the first open and resuming it on every later one. The editor is
-// released for the whole run and redraws when the CLI exits.
+// agentOpen resumes the CLI on a background multiplexer session and opens the
+// attach view on it — lflow keeps the screen; the agent runs behind it. A chip
+// whose session is already live just re-attaches.
 func (m *Model) agentOpen(v agentVariant, id, cwd string) tea.Cmd {
+	if sess := m.mux().Get(id); sess != nil && sess.Live() {
+		m.muxAttach(id)
+		return nil
+	}
 	if !m.depOK(v.bin) {
 		m.errorFlash("Missing dependency: " + v.bin)
 		return nil
@@ -452,27 +456,21 @@ func (m *Model) agentOpen(v agentVariant, id, cwd string) tea.Cmd {
 	}
 	m.agentSave(id, s)
 
-	// flush pending edits before handing the terminal over: the agent may reach
-	// back into the outline through the lflow CLI while it runs, and it must see
-	// what is on screen here.
+	// flush pending edits before the agent starts: it may reach back into the
+	// outline through the lflow CLI while it runs, and it must see what is on
+	// screen here.
 	_ = m.flushSync()
 
-	c := exec.Command(v.bin, v.args(s.SessionID)...)
-	if s.Cwd != "" {
-		c.Dir = s.Cwd
-	}
-	// tea.ExecProcess releases the terminal for the whole run: the CLI owns the
-	// screen, and the editor repaints from scratch on return.
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return agentClosedMsg{id: id, variant: v.id, err: err}
-	})
+	argv := append([]string{v.bin}, v.args(s.SessionID)...)
+	cols, rows := m.muxSize()
+	sess := m.mux().Start(id, v.id, m.agentTitle(id, v, s), s.Cwd, argv, cols, rows)
+	m.muxAttach(id)
+	return m.startAnim(waitAgentMux(sess))
 }
 
 // handleAgentClosed lands the CLI's exit: run bookkeeping, and the session's
 // current name re-read from the store the CLI may have just renamed it in.
 func (m *Model) handleAgentClosed(msg agentClosedMsg) {
-	// tea.ExecProcess suspended the alt screen for the CLI's run and restores
-	// it on return, repainting the whole screen — no repaint hack needed here.
 	v, ok := agentVariantByID(msg.variant)
 	if !ok {
 		return

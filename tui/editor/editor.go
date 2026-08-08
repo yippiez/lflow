@@ -51,6 +51,7 @@ const (
 	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
 	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
 	modeShortcuts      // /shortcuts: full-page, scrollable shortcut reference
+	modeMux            // the multiplexer attach view: an agent session full-screen, keys forwarded (see muxview.go)
 )
 
 type finderAction int
@@ -389,6 +390,8 @@ type Model struct {
 	needResync  bool
 
 	escPending  bool
+	quitWarned  bool   // quit pressed once with agents running; the next one stops them
+	muxID       string // the chip id attached in the mux view (modeMux)
 	unsaved     bool
 	quitting    bool
 	animTicking bool   // the magic-keyword animation tick is currently scheduled
@@ -936,6 +939,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// special-case clear — just record the new size.
 		m.width = msg.Width
 		m.height = msg.Height
+		m.muxResized() // an attached session stays glued to the frame
 		return m, nil
 	case tea.MouseMsg:
 		m.handleMouse(msg)
@@ -978,6 +982,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleQueryReady(msg)
 	case animTickMsg:
 		animFrame++
+		// the tick doubles as the agent status clock: the working→idle debounce
+		// must advance even when the agent goes silent
+		m.tickMuxStatus()
 		if m.animActive() {
 			return m, animTick() // keep animating while a keyword or paste spinner is live
 		}
@@ -1059,6 +1066,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleAgentClosed(msg)
 		m.refreshRows()
 		return m, nil
+	case agentMuxMsg:
+		return m, m.handleAgentMux(msg)
 	}
 	return m, nil
 }
@@ -2331,6 +2340,20 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
+	// agents mid-work are worth a second look before they die with the editor:
+	// the first quit warns in the toolbar, the next one stops them and goes
+	if n := m.runningAgentCount(); n > 0 && !m.quitWarned {
+		m.quitWarned = true
+		noun := "agent"
+		if n > 1 {
+			noun = "agents"
+		}
+		m.errorFlash(fmt.Sprintf("%d %s running · quit again to stop them", n, noun))
+		return m, nil
+	}
+	if m.muxm != nil {
+		m.muxm.KillAll()
+	}
 	if m.queryLoad != nil {
 		close(m.queryLoad.done)
 		m.queryLoad = nil

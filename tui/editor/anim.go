@@ -172,7 +172,8 @@ func shimmerLabel(s string) string {
 // shimmer and elapsed clock), or a picker still filling from disk (its spinner).
 func (m *Model) animActive() bool {
 	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating() ||
-		m.queryLoad != nil || m.anyRunning() || m.anyPickerFilling()
+		m.queryLoad != nil || m.anyRunning() || m.anyPickerFilling() ||
+		m.runningAgentCount() > 0
 }
 
 // anyPickerFilling reports whether a picker is still reading its rows off the
