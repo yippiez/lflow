@@ -162,27 +162,52 @@ func (quickReplyView) bands(m *Model, it *item, rail string, width, scroll, winH
 	}
 	line := func(s string) string { return clip(rail+cReset+s+cReset, width) }
 
-	head := col + "╭─ " + cReset + v.glyph + " " + m.agentTitle(id, v, sess) + " " + cDim + "· " + status + cReset + " "
-	if fill := w - visibleWidth(head) - 1; fill > 0 {
-		head += col + strings.Repeat("─", fill)
+	// Every row's content is clipped by DISPLAY width before the right border
+	// goes on — a long session title, a wide-rune reply, none of it may push a
+	// corner or a border off the pane. The rounded box stays a rounded box.
+	edge := func(l, content, r string, dash bool) string {
+		s := col + l + cReset + clip(content, w-6) + cReset + " "
+		if dash {
+			if fill := w - visibleWidth(s) - 1; fill > 0 {
+				s += col + strings.Repeat("─", fill)
+			}
+		}
+		return pad(s, w-1) + col + r + cReset
 	}
-	head += col + "╮"
+
+	head := edge("╭─ ", v.glyph+" "+m.agentTitle(id, v, sess)+" "+cDim+"· "+status, "╮", true)
 
 	last := m.agentLastResponse(id)
 	if last == "" {
 		last = "no response yet"
 	}
-	lastRow := col + "│ " + cReset + cDim + "→ " + clipStr(oneLine(last), w-6) + cReset
-	lastRow = pad(lastRow, w-1) + col + "│"
+	lastRow := edge("│ ", cDim+"→ "+oneLine(last), "│", false)
 
-	replyRow := col + "│ " + cReset + cRed + "❯ " + cReset + cFG + withCaret(f.value, f.caret) + cReset
-	replyRow = pad(replyRow, w-1) + col + "│"
+	replyRow := edge("│ ", cRed+"❯ "+cReset+cFG+caretWindow(f.value, f.caret, w-9), "│", false)
 
-	foot := col + "╰─ " + cDim + "enter send · esc close" + cReset + " "
-	if fill := w - visibleWidth(foot) - 1; fill > 0 {
-		foot += col + strings.Repeat("─", fill)
-	}
-	foot += col + "╯"
+	foot := edge("╰─ ", cDim+"enter send · esc close", "╯", true)
 
 	return []string{line(head), line(lastRow), line(replyRow), line(foot)}
+}
+
+// caretWindow renders a one-line input clipped to n runes with the CARET always
+// in view: a reply longer than the box slides left under it — the tail you are
+// typing stays visible — instead of the caret vanishing past the border.
+func caretWindow(value string, caret, n int) string {
+	r := []rune(value)
+	if caret > len(r) {
+		caret = len(r)
+	}
+	if n < 4 || len(r) < n {
+		return withCaret(value, caret)
+	}
+	start := 0
+	if caret > n-2 {
+		start = caret - (n - 2)
+	}
+	out := withCaret(string(r[start:]), caret-start)
+	if start > 0 {
+		out = cDim + "…" + cReset + cFG + out
+	}
+	return out
 }
