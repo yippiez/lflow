@@ -51,6 +51,17 @@ var (
 	PlainFG = "\x1b[0m"
 )
 
+// ReplyFG and ReplyBG are what OSC 10/11 color queries are answered with, in
+// X11 rgb spec form. A TUI asks the terminal for its colors on startup and
+// themes itself off the answer — the host captures its real terminal colors
+// before bubbletea takes the tty and files them here, so a program inside a
+// session paints the SAME background the outer terminal has instead of
+// guessing at one.
+var (
+	ReplyFG = "rgb:d4d4/d4d4/d4d4"
+	ReplyBG = "rgb:0000/0000/0000"
+)
+
 // Screen is the VT state machine plus its grid.
 type Screen struct {
 	w, h       int
@@ -79,6 +90,12 @@ type Screen struct {
 	tState int
 	tBuf   []byte
 
+	// Reply writes an answer back to the program (the session points it at the
+	// PTY master). A real terminal ANSWERS: TUIs query device attributes, the
+	// cursor position, mode states and the terminal colors at startup and start
+	// degraded — or hang out a timeout — when nothing comes back.
+	Reply func([]byte)
+
 	p *ansi.Parser
 }
 
@@ -99,8 +116,24 @@ func NewScreen(w, h, sbCap int) *Screen {
 		Execute:   s.execute,
 		HandleCsi: s.csi,
 		HandleEsc: s.esc,
+		HandleDcs: s.dcs,
 	})
 	return s
+}
+
+// reply sends an answer to the program when the session wired one up.
+func (s *Screen) reply(format string, args ...any) {
+	if s.Reply != nil {
+		s.Reply(fmt.Appendf(nil, format, args...))
+	}
+}
+
+// dcs answers the one DCS query worth answering: XTGETTCAP gets a well-formed
+// "invalid" so the asker stops waiting instead of hanging on silence.
+func (s *Screen) dcs(cmd ansi.Cmd, params ansi.Params, data []byte) {
+	if cmd.Final() == 'q' && cmd.Intermediate() == '+' {
+		s.reply("\x1bP0+r\x1b\\")
+	}
 }
 
 func blankGrid(w, h int) [][]cell {
@@ -143,6 +176,16 @@ func (s *Screen) scanTitle(b []byte) {
 	)
 	finish := func() {
 		t := string(s.tBuf)
+		// OSC 10/11 color QUERIES ride the same scanner: answer with the host
+		// terminal's own colors so the program themes itself to match
+		if t == "10;?" {
+			s.reply("\x1b]10;%s\x07", ReplyFG)
+			return
+		}
+		if t == "11;?" {
+			s.reply("\x1b]11;%s\x07", ReplyBG)
+			return
+		}
 		if rest, ok := strings.CutPrefix(t, "0;"); ok {
 			t = rest
 		} else if rest, ok := strings.CutPrefix(t, "2;"); ok {
@@ -452,6 +495,44 @@ func (s *Screen) csi(cmd ansi.Cmd, params ansi.Params) {
 		s.restoreCursor()
 	case 'm': // SGR — the pen
 		s.setPen(params)
+	case 'n': // DSR — device status / cursor position report
+		switch p(0, 0) {
+		case 5:
+			s.reply("\x1b[0n") // operating
+		case 6:
+			s.reply("\x1b[%d;%dR", s.y+1, s.x+1)
+		}
+	case 'c': // DA — device attributes
+		switch cmd.Prefix() {
+		case 0: // primary: a VT220 that speaks truecolor
+			s.reply("\x1b[?62;22c")
+		case '>': // secondary
+			s.reply("\x1b[>1;10;0c")
+		}
+	case 'p':
+		if cmd.Prefix() == '?' && cmd.Intermediate() == '$' {
+			// DECRQM — report the modes the screen actually models; everything
+			// else is "not recognized", which is an ANSWER, unlike silence
+			mode := p(0, 0)
+			onOff := func(on bool) int {
+				if on {
+					return 1
+				}
+				return 2
+			}
+			switch mode {
+			case 1:
+				s.reply("\x1b[?1;%d$y", onOff(s.appCursor))
+			case 25:
+				s.reply("\x1b[?25;%d$y", onOff(!s.cursorHidden))
+			case 2004:
+				s.reply("\x1b[?2004;%d$y", onOff(s.bracketedPaste))
+			case 1049, 1047, 47:
+				s.reply("\x1b[?%d;%d$y", mode, onOff(s.altOn))
+			default:
+				s.reply("\x1b[?%d;0$y", mode)
+			}
+		}
 	case 'h', 'l':
 		if cmd.Prefix() == '?' {
 			set := cmd.Final() == 'h'

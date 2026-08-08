@@ -23,10 +23,10 @@ import (
 // in the session's pinned working directory and lflow's full-screen attach
 // view opens on it (ctrl+q detaches, the agent keeps running). The chip
 // shimmers while the agent works. ⌥o opens the session in a new HOST terminal
-// window instead — the native resume, outside lflow. ⌥m sends it a quick
-// message without attaching. ⌥e opens a panel beneath the row with a read-only
-// virtual trace loaded from the CLI's store. /agents lists every session in
-// the outline, live ones first.
+// window instead — the native resume, outside lflow (a live mux session is
+// stopped and handed over). ⌥m sends it a quick message without attaching;
+// the box shows the agent's last word. ⌥e opens the session edit page — name
+// and color. /agents lists every session in the outline, live ones first.
 //
 // WARNING (invariant): lflow never copies a conversation into the outline. A chip
 // or Agent node stores only {variant, cwd, session id} plus the name and color it
@@ -585,7 +585,7 @@ func (m *Model) insertAgentChip(cur *item, v agentVariant, attach agentStoreSess
 	m.insertLiteralAt(cur, m.caret, anchor)
 	m.publishAgentLook(id, v)
 	m.refreshAgentChip(id)
-	m.flash = v.label + " · ⌥r opens · ⌥n renames · ⌥c recolors"
+	m.flash = v.label + " · ⌥r runs · ⌥m messages · ⌥e edits"
 }
 
 // agentChipForKeys is what ⌥r / ⌥e / ⌥n / ⌥c act on. It prefers the chip the

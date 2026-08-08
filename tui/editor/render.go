@@ -768,11 +768,11 @@ func renderAgentChip(c database.Chip, caretOn, struck bool) string {
 	}
 	// a WORKING session shimmers its fill — the pill's own color with the
 	// sliding highlight the cmd chip's cell wears, text untouched. The caret
-	// inverts one cell (the glyph) instead of the pill, exactly the cmd chip's
-	// running-caret rule: full reverse video would swallow the pulse.
-	if !struck && agentMuxWorking(c.ID) {
+	// SUSPENDS the shimmer: being able to see where you are beats the pulse,
+	// and the tally already says the agent is busy.
+	if !struck && !caretOn && agentMuxWorking(c.ID) {
 		if base, ok := chipRGB(col); ok {
-			return renderAgentChipShimmer(glyph, label, base, contrastInk(col), caretOn)
+			return renderAgentChipShimmer(glyph, label, base, contrastInk(col))
 		}
 	}
 	var b strings.Builder
@@ -790,28 +790,18 @@ func renderAgentChip(c database.Chip, caretOn, struck bool) string {
 
 // renderAgentChipShimmer paints the working pill: each cell's background is
 // the session color lifted toward white where the highlight band passes.
-func renderAgentChipShimmer(glyph, label string, base [3]int, ink string, caretOn bool) string {
+func renderAgentChipShimmer(glyph, label string, base [3]int, ink string) string {
 	peak := [3]int{lift(base[0]), lift(base[1]), lift(base[2])}
 	runes := []rune(" " + glyph + " " + label + " ")
 	var b strings.Builder
 	b.WriteString(cReset)
+	b.WriteString(ink)
 	bg := ""
 	for j, r := range runes {
 		cr, cg, cb := lerpRGB3(base, peak, shimmerAt(len(runes), j, animFrame))
 		if s := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", cr, cg, cb); s != bg {
 			b.WriteString(s)
 			bg = s
-		}
-		if j == 0 {
-			b.WriteString(ink)
-		}
-		if caretOn && j == 1 {
-			// the caret cell: reset after it and re-arm, so reverse video
-			// covers the glyph cell only
-			b.WriteString(cInvert + string(r) + cReset)
-			bg = ""
-			b.WriteString(ink)
-			continue
 		}
 		b.WriteRune(r)
 	}

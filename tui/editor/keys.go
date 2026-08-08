@@ -74,6 +74,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCmdEditKey(k)
 	case modeMux:
 		return m.handleMuxKey(k)
+	case modeAgentEdit:
+		return m.handleAgentEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:
@@ -675,6 +677,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if c, ok := m.cmdChipAtCaret(cur); ok {
 				m.focusCmdChip(c) // ⌥e on a cmd chip: its run output as an inline band
 				return m, nil
+			} else if c, ok := m.agentChipForKeys(cur); ok {
+				m.openAgentEdit(c) // ⌥e on a session chip: the name+color page
+				return m, nil
 			} else if c, ok := m.linkChipAtCaret(cur); ok {
 				m.openLinkEdit(c) // ⌥e on a link chip edits its name + target
 				return m, nil
@@ -762,15 +767,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil {
 			if c, ok := m.agentChipForKeys(cur); ok {
 				m.openQuickReply(c)
-				return m, nil
-			}
-		}
-		return m, nil
-	case "alt+n":
-		// rename the session chip at the caret, in place
-		if cur := m.cursorItem(); cur != nil {
-			if c, ok := m.agentChipForKeys(cur); ok {
-				m.openAgentRename(c)
 				return m, nil
 			}
 		}

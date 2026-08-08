@@ -52,6 +52,7 @@ const (
 	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
 	modeShortcuts      // /shortcuts: full-page, scrollable shortcut reference
 	modeMux            // the multiplexer attach view: an agent session full-screen, keys forwarded (see muxview.go)
+	modeAgentEdit      // the alt+e session page: name and color together (see agentedit.go)
 )
 
 type finderAction int
@@ -393,6 +394,13 @@ type Model struct {
 	quitWarned  bool   // quit pressed once with agents running; the next one stops them
 	muxID       string // the chip id attached in the mux view (modeMux)
 	quickReply  bool   // the focused chip band is the ⌥m quick-reply box, not the trace
+
+	// the ⌥e session edit page (modeAgentEdit)
+	agentEditID    string
+	agentEditName  string
+	agentEditCaret int
+	agentEditField int // 0 = name, 1 = color
+	agentEditColor int // index into agentColorOptions
 	unsaved     bool
 	quitting    bool
 	animTicking bool   // the magic-keyword animation tick is currently scheduled
@@ -2483,6 +2491,7 @@ func RunFile(ctx runtime.Ctx, nodeUUID string, fs FileSession) error {
 	// The mouse is NOT captured by default — the terminal owns drag-select and
 	// copy-on-select. The "mouse: wheel" setting turns capture on (Init /
 	// handleSettingsKey) so the wheel scrolls the outline instead.
+	captureHostColors() // ask the real terminal its colors while we still own the tty
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {

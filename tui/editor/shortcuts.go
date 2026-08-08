@@ -63,7 +63,7 @@ var shortcutSections = []shortcutSection{
 		{"#", "pick or create a tag"},
 		{":", "pick an icon; query command in query nodes"},
 		{"alt+i", "edit command chip"},
-		{"alt+n", "rename agent session chip"},
+		{"alt+e on agent", "edit session name and color"},
 		{"alt+c on agent", "recolor agent session chip"},
 		{"alt+r on agent", "run in the multiplexer, attached"},
 		{"ctrl+q attached", "detach; the agent keeps running"},

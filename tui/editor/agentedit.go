@@ -8,25 +8,142 @@ import (
 	"github.com/lflow/lflow/tui/database"
 )
 
-// The two edits you can make to a session chip or Agent node:
-//
-//	⌥n  rename it   — the panel's own name field, opened without the panel
-//	⌥c  recolor it  — the shared swatch picker, like a tag chip's
+// ⌥e on a session chip opens the SESSION EDIT PAGE — the link chip's page
+// idiom, never a band under the row: name and color on one small page with a
+// live pill preview. ⌥c still jumps straight to the color picker.
 //
 // Neither touches the row's text: a chip's name and color are its own, stored in
 // LOCAL node_output beside the session id and never written back into the CLI's
-// store. ⌥r opens the session; those three are the whole vocabulary.
+// store. ⌥r runs the session; that is the whole vocabulary.
 
-// openAgentRename focuses the chip and opens its name field straight away, so
-// ⌥n is one keystroke rather than ⌥e then n.
-func (m *Model) openAgentRename(c database.Chip) {
-	m.focusAgentChip(c)
+// openAgentEdit enters the page for the chip at hand.
+func (m *Model) openAgentEdit(c database.Chip) {
+	if _, ok := agentVariantByID(c.Value); !ok {
+		m.errorFlash("unknown agent: " + c.Value)
+		return
+	}
 	s := m.agentLoad(c.ID)
+	m.mode = modeAgentEdit
+	m.agentEditID = c.ID
 	// a session still wearing its imported name opens an EMPTY field: typing
 	// replaces rather than appends, and empty already means "the imported title"
-	f := &textField{value: s.Name}
-	f.caret = len([]rune(f.value))
-	m.nodeStore(c.ID)["agentRename"] = f
+	m.agentEditName = s.Name
+	m.agentEditCaret = len([]rune(s.Name))
+	m.agentEditField = 0
+	m.agentEditColor = 0
+	for i, opt := range agentColorOptions() {
+		if opt == s.Color {
+			m.agentEditColor = i
+		}
+	}
+}
+
+// saveAgentEdit writes the page back to the chip's local session record.
+func (m *Model) saveAgentEdit() {
+	s := m.agentLoad(m.agentEditID)
+	s.Name = strings.TrimSpace(m.agentEditName)
+	opts := agentColorOptions()
+	s.Color = ""
+	if m.agentEditColor > 0 && m.agentEditColor < len(opts) {
+		s.Color = opts[m.agentEditColor]
+	}
+	m.agentSave(m.agentEditID, s)
+	m.refreshAgentChip(m.agentEditID)
+	if v, ok := agentVariantByID(s.Variant); ok {
+		m.publishAgentLook(m.agentEditID, v)
+	}
+	m.flash = "session updated"
+}
+
+// handleAgentEditKey: the name row edits like every text field; the color row
+// cycles swatches with ←/→; tab and ↑/↓ switch rows; enter saves both.
+func (m *Model) handleAgentEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.mode = modeOutline
+		return m, nil
+	case "enter":
+		m.saveAgentEdit()
+		m.mode = modeOutline
+		m.refreshRows()
+		return m, nil
+	case "tab", "shift+tab", "up", "down":
+		m.agentEditField = 1 - m.agentEditField
+		return m, nil
+	}
+	if m.agentEditField == 1 {
+		n := len(agentColorOptions())
+		switch k.String() {
+		case "left":
+			m.agentEditColor = (m.agentEditColor + n - 1) % n
+		case "right":
+			m.agentEditColor = (m.agentEditColor + 1) % n
+		}
+		return m, nil
+	}
+	f := textField{value: m.agentEditName, caret: m.agentEditCaret}
+	if f.handleKey(k) {
+		m.agentEditName = f.value
+		m.agentEditCaret = f.caret
+	}
+	return m, nil
+}
+
+// viewAgentEdit draws the page: preview pill, name field, swatch row.
+func (m *Model) viewAgentEdit(maxLine int) []string {
+	c, ok := m.chips[m.agentEditID]
+	if !ok {
+		m.mode = modeOutline
+		return nil
+	}
+	v, _ := agentVariantByID(c.Value)
+	s := m.agentLoad(m.agentEditID)
+
+	opts := agentColorOptions()
+	col := v.colorSGR()
+	if m.agentEditColor > 0 && m.agentEditColor < len(opts) {
+		if sgr := agentColorSGR(opts[m.agentEditColor]); sgr != "" {
+			col = sgr
+		}
+	}
+	name := strings.TrimSpace(m.agentEditName)
+	if name == "" {
+		name = m.agentTitle(m.agentEditID, v, agentSession{Title: s.Title, SessionID: s.SessionID})
+	}
+	pill := bgOf(col) + contrastInk(col) + " " + v.glyph + " " + name + " " + cReset
+
+	nameLbl, colorLbl := cDim, cDim
+	field := m.agentEditName
+	if m.agentEditField == 0 {
+		field = withCaret(field, m.agentEditCaret)
+		nameLbl = cAccent
+	} else {
+		colorLbl = cAccent
+	}
+
+	var sw strings.Builder
+	for i, opt := range opts {
+		dot := agentColorSGR(opt)
+		if i == 0 {
+			dot = v.colorSGR() // "default" wears the agent's own color
+		}
+		glyph := "·"
+		if i == m.agentEditColor {
+			glyph = "●"
+		}
+		sw.WriteString(dot + glyph + cReset + " ")
+	}
+
+	var lines []string
+	lines = append(lines, clip(cDim+" edit session"+cReset, maxLine))
+	lines = append(lines, clip(" "+pill, maxLine))
+	lines = append(lines, "")
+	lines = append(lines, clip(nameLbl+" name   "+cReset+cFG+field+cReset, maxLine))
+	lines = append(lines, clip(colorLbl+" color  "+cReset+sw.String(), maxLine))
+	lines = append(lines, "")
+	lines = append(lines, clip(cDim+" tab switch · ←→ color · enter save · esc cancel"+cReset, maxLine))
+	m.pageRows = len(lines) // no status bar here — the whole frame is main region
+	return lines
 }
 
 // --- ⌥c: the session's color -----------------------------------------------

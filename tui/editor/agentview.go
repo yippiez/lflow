@@ -3,21 +3,16 @@ package editor
 import (
 	"encoding/json"
 	"os"
-	"strconv"
 	"strings"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mattn/go-runewidth"
-
-	"github.com/lflow/lflow/tui/database"
 )
 
-// alt+e on a session chip or Agent node opens the same local panel. Its header
-// identifies the session; beneath it, the CLI transcript is rendered as fixed,
-// read-only virtual rows. The records are read on demand and never copied into
-// the outline or sync state.
+// The read-only trace readers: the CLI's own transcript, parsed tolerantly
+// into one-line events. The quick-reply box reads the LAST assistant line
+// here; nothing is ever copied into the outline or sync state. (The alt+e
+// trace band these once rendered is gone — the chip's surfaces are ⌥r, ⌥m,
+// ⌥o and the ⌥e edit page.)
 
-type agentChipView struct{}
+const agentTraceCap = 4 << 20
 
 type agentHandle struct {
 	id   string
@@ -28,209 +23,6 @@ type agentHandle struct {
 type agentTrace struct {
 	kind string
 	text string
-}
-
-func agentChipHandle(m *Model) (agentHandle, bool) {
-	c, ok := m.chips[m.focusChip]
-	if !ok || c.Kind != chipKindAgent {
-		return agentHandle{}, false
-	}
-	v, ok := agentVariantByID(c.Value)
-	if !ok {
-		return agentHandle{}, false
-	}
-	return agentHandle{id: c.ID, v: v, sess: m.agentLoad(c.ID)}, true
-}
-
-func (m *Model) focusAgentChip(c database.Chip) {
-	m.focusChip = c.ID
-	m.focused = true
-	m.focusScroll = 0
-	if h, ok := agentChipHandle(m); ok {
-		m.refreshAgentTrace(h)
-	}
-}
-
-func (agentChipView) enter(m *Model, it *item) bool { return m.focusChip != "" }
-
-func (agentChipView) leave(m *Model, it *item) {
-	if m.focusChip != "" {
-		delete(m.nodeStore(m.focusChip), "agentRename")
-	}
-	m.focusChip = ""
-}
-
-func (agentChipView) lines(m *Model, it *item, width int) int {
-	h, ok := agentChipHandle(m)
-	if !ok {
-		return 0
-	}
-	return len(m.agentBandContent(h, "", width))
-}
-
-func (agentChipView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
-	h, ok := agentChipHandle(m)
-	if !ok {
-		return nil, false
-	}
-	return m.agentViewKey(h, k)
-}
-
-func (agentChipView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
-	h, ok := agentChipHandle(m)
-	if !ok {
-		return nil
-	}
-	return WindowBands(m.agentBandContent(h, rail, width), scroll, winH)
-}
-
-func (m *Model) agentRenameState(id string) *textField {
-	f, _ := m.nodeStore(id)["agentRename"].(*textField)
-	return f
-}
-
-// agentViewKey drives both session surfaces. Plain navigation explores the
-// trace; r re-reads records that moved while the panel was open.
-func (m *Model) agentViewKey(h agentHandle, k tea.KeyMsg) (tea.Cmd, bool) {
-	if f := m.agentRenameState(h.id); f != nil {
-		switch k.String() {
-		case "enter":
-			m.agentRename(h.id, f.value)
-			delete(m.nodeStore(h.id), "agentRename")
-			// the band was only ever the rename's surface: close it with the
-			// field rather than falling open onto the trace
-			m.focusChip = ""
-			m.focused = false
-			m.flash = "session renamed"
-			return nil, true
-		case "esc":
-			delete(m.nodeStore(h.id), "agentRename")
-			m.focusChip = ""
-			m.focused = false
-			return nil, true
-		}
-		f.handleKey(k)
-		return nil, true
-	}
-	switch k.String() {
-	case "down", "j":
-		m.focusScroll++
-		return nil, true
-	case "up", "k":
-		m.focusScroll = max(0, m.focusScroll-1)
-		return nil, true
-	case "pgdown":
-		m.focusScroll += 10
-		return nil, true
-	case "pgup":
-		m.focusScroll = max(0, m.focusScroll-10)
-		return nil, true
-	case "home", "g":
-		m.focusScroll = 0
-		return nil, true
-	case "end", "G":
-		m.focusScroll = 1 << 30
-		return nil, true
-	case "r":
-		m.refreshAgentTrace(h)
-		m.flash = "session trace refreshed"
-		return nil, true
-	case "n", "alt+n":
-		f := &textField{value: h.sess.Name}
-		f.caret = len([]rune(f.value))
-		m.nodeStore(h.id)["agentRename"] = f
-		return nil, true
-	case "alt+r":
-		cwd := h.sess.Cwd
-		if cwd == "" {
-			cwd = processCWD()
-		}
-		return m.agentOpen(h.v, h.id, cwd), true
-	case "alt+c":
-		m.openAgentColorID(h.id)
-		return nil, true
-	}
-	return nil, false
-}
-
-func (m *Model) agentBandContent(h agentHandle, rail string, width int) []string {
-	if width <= 0 {
-		width = 1 << 20
-	}
-	color := m.agentColorFor(h.id, h.v, h.sess)
-	line := func(s string) string { return clip(rail+cReset+s, width) }
-
-	if f := m.agentRenameState(h.id); f != nil {
-		hint := " · enter save · esc cancel"
-		head := "  " + cDim + "name  " + cReset + withCaret(f.value, f.caret) + cDim + hint + cReset
-		return []string{line(head), line(cDim + "  " + tildePath(h.sess.Cwd) + cReset)}
-	}
-
-	ink := bgOf(color) + contrastInk(color)
-	body := width - 6
-	if body < 8 {
-		body = 8
-	}
-	var content []string
-	for i, chunk := range wrapPlain(h.v.glyph+" "+m.agentTitle(h.id, h.v, h.sess), body) {
-		pad := ""
-		if i > 0 {
-			pad = strings.Repeat(" ", runewidth.StringWidth(h.v.glyph)+1)
-		}
-		content = append(content, line("  "+ink+" "+pad+chunk+" "+cReset))
-	}
-	if h.sess.Cwd != "" {
-		content = append(content, line(cDim+"  "+tildePath(h.sess.Cwd)+cReset))
-	}
-
-	traces := m.agentTraces(h)
-	if len(traces) == 0 {
-		content = append(content, line(cDim+"  traces · no readable records"+cReset))
-	} else {
-		content = append(content, line(cDim+"  traces · "+strconv.Itoa(len(traces))+" events · fixed local view"+cReset))
-		for i, tr := range traces {
-			branch := "├─"
-			if i == len(traces)-1 {
-				branch = "└─"
-			}
-			mark, label, style := agentTraceLook(tr.kind)
-			prefix := "  " + branch + " " + style + mark + " " + label + cReset + " "
-			continuation := "     " + strings.Repeat(" ", runewidth.StringWidth(mark+" "+label+" "))
-			traceWidth := max(8, width-runewidth.StringWidth(stripSGR(rail+prefix)))
-			chunks := wrapPlain(tr.text, traceWidth)
-			if len(chunks) == 0 {
-				chunks = []string{"·"}
-			}
-			for j, chunk := range chunks {
-				p := prefix
-				if j > 0 {
-					p = continuation
-				}
-				content = append(content, line(p+chunk+cReset))
-			}
-		}
-	}
-	return append(content, line(cDim+agentPanelKeys+cReset))
-}
-
-const agentPanelKeys = "  ↑↓ trace · r refresh · alt+r open · alt+n rename · alt+c color · esc close"
-const agentTraceCap = 4 << 20
-
-func agentTraceLook(kind string) (mark, label, style string) {
-	switch kind {
-	case "user":
-		return "◆", "you", cYellow
-	case "assistant":
-		return "→", "agent", cFG
-	case "tool":
-		return "$", "tool", cMagenta
-	case "result":
-		return "·", "result", cDim
-	case "thinking":
-		return "·", "thinking", cDim
-	default:
-		return "·", kind, cDim
-	}
 }
 
 func (m *Model) refreshAgentTrace(h agentHandle) {

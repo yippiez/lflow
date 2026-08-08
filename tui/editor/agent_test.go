@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mattn/go-runewidth"
 
 	"github.com/lflow/lflow/tui/database"
 )
@@ -426,26 +425,17 @@ func TestAgentOpenRefusesGoneCwd(t *testing.T) {
 
 // TestAgentPanelShowsTrace: alt+e shows the identity plus virtual transcript
 // rows read from the CLI store. Nothing from those rows is copied into nodes.
-func TestAgentPanelShowsTrace(t *testing.T) {
-	id := claudeStore(t, recSummary, recUser)
-	claudeRegistry(t, id, "flush-resume", "cli")
+// TestAgentLastResponse: the quick-reply box's one-liner is the store's last
+// assistant message when no live session holds a fresher title.
+func TestAgentLastResponse(t *testing.T) {
+	id := claudeStore(t, recSummary, recUser,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"pinned the flake to a race"}]}}`)
 	c := variant(t, "claude")
 	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, cwd: "/home/dev/repo"})
-	m.focusAgentChip(chip)
 
-	bands := (agentChipView{}).bands(m, m.tree.byUUID["note"], "", 200, 0, 20, true)
-	joined := stripSGR(strings.Join(bands, "\n"))
-	for _, want := range []string{"✽ flush-resume", "/home/dev/repo", "traces · 1 events", "◆ you", "the sync test is flaky", "alt+r open", "alt+n rename", "alt+c color"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("panel is missing %q:\n%s", want, joined)
-		}
-	}
-	// Nothing is invented from incomplete cross-CLI metadata.
-	for _, unwanted := range []string{"idle", "opened", "live", "tokens", "turns", "branch", "model"} {
-		if strings.Contains(joined, unwanted) {
-			t.Errorf("panel says %q — it does not know that:\n%s", unwanted, joined)
-		}
+	if got := m.agentLastResponse(chip.ID); got != "pinned the flake to a race" {
+		t.Fatalf("last response = %q, want the store's last assistant line", got)
 	}
 }
 
@@ -523,62 +513,23 @@ func TestAgentNodeTypeRetired(t *testing.T) {
 	}
 }
 
-// TestAgentPanelWrapsLongName: a session named by its first prompt is a
-// sentence. The panel shows all of it, wrapped, because clipping is what makes
-// two sessions look alike.
-func TestAgentPanelWrapsLongName(t *testing.T) {
-	long := "add a retry backoff to the sync flush so a dropped feed reconnects and resyncs wholesale"
-	id := claudeStore(t, `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"`+long+`"}]}}`)
-	c := variant(t, "claude")
-	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
-	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id, cwd: "/home/dev/repo"})
-	m.focusAgentChip(chip)
-
-	bands := (agentChipView{}).bands(m, m.tree.byUUID["note"], "", 48, 0, 20, true)
-	joined := stripSGR(strings.Join(bands, "\n"))
-	if len(bands) < 4 {
-		t.Fatalf("a long name did not wrap; panel is %d lines:\n%s", len(bands), joined)
-	}
-	flat := strings.Join(strings.Fields(joined), " ")
-	if !strings.Contains(flat, long) {
-		t.Errorf("the name was clipped instead of wrapped:\n%s", joined)
-	}
-	for _, b := range bands {
-		if w := runewidth.StringWidth(stripSGR(b)); w > 48 {
-			t.Errorf("line is %d wide, over the panel's 48:\n%s", w, stripSGR(b))
-		}
-	}
-}
-
-// TestAgentRenameInPanel: n opens the rename field, enter commits it, esc leaves
-// the name alone.
-func TestAgentRenameInPanel(t *testing.T) {
+// TestAgentEditEscCancels: esc leaves the page without touching the record.
+func TestAgentEditEscCancels(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser)
 	c := variant(t, "claude")
 	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id})
-	m.focusAgentChip(chip)
-	it := m.tree.byUUID["note"]
 
-	(agentChipView{}).key(m, it, key("n"))
-	if m.agentRenameState(chip.ID) == nil {
-		t.Fatal("n did not open the rename field")
+	m.openAgentEdit(chip)
+	for _, r := range "discarded" {
+		m.handleAgentEditKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	for _, r := range "retry fix" {
-		(agentChipView{}).key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	m.handleAgentEditKey(key("esc"))
+	if m.mode != modeOutline {
+		t.Fatal("esc must leave the page")
 	}
-	(agentChipView{}).key(m, it, key("enter"))
-	if s := m.agentLoad(chip.ID); !strings.HasSuffix(s.Name, "retry fix") {
-		t.Fatalf("committed name = %q", s.Name)
-	}
-	if m.agentRenameState(chip.ID) != nil {
-		t.Error("the field must close on enter")
-	}
-
-	(agentChipView{}).key(m, it, key("n"))
-	(agentChipView{}).key(m, it, key("esc"))
-	if m.agentRenameState(chip.ID) != nil {
-		t.Error("esc must close the field")
+	if s := m.agentLoad(chip.ID); s.Name != "" {
+		t.Fatalf("esc wrote the name anyway: %q", s.Name)
 	}
 }
 
@@ -613,35 +564,40 @@ func TestAgentSessionDataStaysLocal(t *testing.T) {
 	}
 }
 
-// TestAgentRenameReplaces: n on a session still wearing the CLI's own name opens
-// an EMPTY field, so typing replaces the name instead of appending to it.
-func TestAgentRenameReplaces(t *testing.T) {
+// TestAgentEditPage: ⌥e's page opens a session still wearing the CLI's own
+// name with an EMPTY field (typing replaces), saves name and color together,
+// and reopens prefilled with the custom name.
+func TestAgentEditPage(t *testing.T) {
 	id := claudeStore(t, recSummary, recUser)
 	c := variant(t, "claude")
 	m, _ := dbModel(t, database.Node{UUID: "note", Name: "notes "})
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id})
-	m.focusAgentChip(chip)
-	it := m.tree.byUUID["note"]
 
-	(agentChipView{}).key(m, it, key("n"))
-	if f := m.agentRenameState(chip.ID); f == nil || f.value != "" {
-		t.Fatalf("the field opened with %q, want it empty", f.value)
+	m.openAgentEdit(chip)
+	if m.mode != modeAgentEdit || m.agentEditName != "" {
+		t.Fatalf("page opened with name %q, want it empty", m.agentEditName)
 	}
 	for _, r := range "flush fix" {
-		(agentChipView{}).key(m, it, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m.handleAgentEditKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	(agentChipView{}).key(m, it, key("enter"))
-	if s := m.agentLoad(chip.ID); s.Name != "flush fix" {
+	// down to the color row, one step right off the default
+	m.handleAgentEditKey(key("down"))
+	m.handleAgentEditKey(key("right"))
+	m.handleAgentEditKey(key("enter"))
+	if m.mode != modeAgentEdit && m.mode != modeOutline {
+		t.Fatalf("enter left the page in mode %v", m.mode)
+	}
+	s := m.agentLoad(chip.ID)
+	if s.Name != "flush fix" {
 		t.Fatalf("name = %q, want the typed name alone", s.Name)
 	}
-	// saving closes the band with the field — it was only the rename's surface
-	if m.focusChip != "" || m.focused {
-		t.Fatal("enter must close the rename band")
+	if s.Color != agentColorOptions()[1] {
+		t.Fatalf("color = %q, want %q", s.Color, agentColorOptions()[1])
 	}
 	// a session you already named reopens with that name, ready to edit
-	m.openAgentRename(chip)
-	if f := m.agentRenameState(chip.ID); f == nil || f.value != "flush fix" {
-		t.Errorf("re-opening the field gave a wrong value, want the custom name")
+	m.openAgentEdit(chip)
+	if m.agentEditName != "flush fix" || m.agentEditColor != 1 {
+		t.Errorf("re-opened page gave %q color %d, want the custom name and color", m.agentEditName, m.agentEditColor)
 	}
 }
 

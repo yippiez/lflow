@@ -116,6 +116,28 @@ func TestScreenOSCTitle(t *testing.T) {
 	}
 }
 
+// TestTerminalQueryReplies: a program that asks its terminal for device
+// attributes, the cursor position and the background color gets ANSWERS back
+// through the PTY — what keeps a real TUI from starting degraded.
+func TestTerminalQueryReplies(t *testing.T) {
+	mx := NewManager(100)
+	script := `printf '\033[c'; IFS= read -rsn9 -t 3 da; printf 'da:%s\n' "$(printf '%s' "$da" | tr -d '\033')"
+printf '\033[6n'; IFS= read -rsd R -t 3 pos; printf 'pos:%sR\n' "$(printf '%s' "$pos" | tr -d '\033')"
+printf '\033]11;?\007'; IFS= read -rsd $'\a' -t 3 bg; printf 'bg:%s\n' "$(printf '%s' "$bg" | tr -d '\033')"`
+	s := mx.Start("q1", "", "queries", "", []string{"bash", "-c", script}, 60, 10)
+	drain(t, s, 10*time.Second)
+	text := strings.Join(s.Scr.GridPlain(), "\n")
+	if !strings.Contains(text, "da:[?62;22c") {
+		t.Errorf("DA1 reply missing:\n%s", text)
+	}
+	if !strings.Contains(text, "pos:[") || !strings.Contains(text, "R") {
+		t.Errorf("cursor position reply missing:\n%s", text)
+	}
+	if !strings.Contains(text, "bg:]11;rgb:") {
+		t.Errorf("OSC 11 background reply missing:\n%s", text)
+	}
+}
+
 // TestScreenModes pins DECSET tracking: bracketed paste, app cursor, cursor
 // visibility.
 func TestScreenModes(t *testing.T) {

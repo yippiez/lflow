@@ -31,10 +31,23 @@ func OpenTerminalWindow(dir string, argv []string) (string, error) {
 	}
 
 	if isWSL() {
-		// wsl.exe re-enters this distro; --cd takes the Linux path as-is
-		inner := append([]string{"--cd", dir, "-e"}, argv...)
+		// wsl.exe re-enters THIS distro by name — the default distro may be a
+		// different one (docker-desktop) — and the command runs through a login
+		// interactive bash: `wsl -e <bin>` alone gets the bare default PATH,
+		// which is missing ~/.local/bin and every version manager, so the CLI
+		// dies before its window can even open.
+		inner := []string{}
+		if d := os.Getenv("WSL_DISTRO_NAME"); d != "" {
+			inner = append(inner, "-d", d)
+		}
+		inner = append(inner, "--cd", dir, "-e", "bash", "-lic", "exec "+shellQuoteAll(argv))
 		if _, err := exec.LookPath("wt.exe"); err == nil {
-			return launch("wt.exe", append([]string{"wsl.exe"}, inner...)...)
+			// wt reads ";" as its pane separator anywhere in its argv
+			args := append([]string{"wsl.exe"}, inner...)
+			for i, a := range args {
+				args[i] = strings.ReplaceAll(a, ";", `\;`)
+			}
+			return launch("wt.exe", args...)
 		}
 		if cmd, err := exec.LookPath("cmd.exe"); err == nil {
 			return launch(cmd, append([]string{"/c", "start", "wsl.exe"}, inner...)...)

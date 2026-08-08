@@ -142,6 +142,9 @@ func (mx *Manager) start(s *Session, argv []string, cols, rows int) {
 		return
 	}
 	s.ptmx = ptmx
+	// the screen answers the program's terminal queries through the PTY —
+	// device attributes, cursor position, colors — the way a real terminal does
+	s.Scr.Reply = func(b []byte) { _, _ = ptmx.Write(b) }
 
 	go func() {
 		// closing the master is what makes the reader return once the child is

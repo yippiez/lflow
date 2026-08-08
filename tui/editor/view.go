@@ -46,6 +46,8 @@ func (m *Model) View() string {
 		lines = m.viewCmdEdit(maxLine)
 	} else if m.mode == modeMux {
 		lines = m.viewMux(maxLine)
+	} else if m.mode == modeAgentEdit {
+		lines = m.viewAgentEdit(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
