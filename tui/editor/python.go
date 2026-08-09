@@ -48,7 +48,8 @@ var PythonSpec = LangSpec{
 // first-class nodes, everything else is a python statement node, nesting by
 // indentation. Rendering re-indents to 4 spaces per level — a first save
 // normalizes, after which parse→render round-trips byte-identically. Blank
-// lines are empty spacer nodes under the previous line, so spacing survives.
+// lines are empty spacer nodes in the block the FOLLOWING line belongs to, so
+// spacing survives without turning the line above into a block header.
 type pythonCodec struct{}
 
 func init() {
@@ -102,6 +103,18 @@ func (pythonCodec) Parse(src string) ([]*SrcNode, error) {
 	var triple string
 	var open *SrcNode
 
+	// pending counts blank lines still waiting for a block to belong to. A
+	// blank line carries no indentation of its own, so what it separates is
+	// decided by the line AFTER it: the gap between two top-level defs is a
+	// document-level spacer, not a child of the deeply nested last statement
+	// of the first def. Placing it is therefore deferred until the next real
+	// line has popped the stack to its own level. Hanging a spacer off the
+	// line above instead makes that line read as a block header — its
+	// `· n lines` tail counts the blanks — and a statement added beside the
+	// spacer is born one level deeper: `import sys` indented under
+	// `import os`, which is not python any more.
+	pending := 0
+
 	for _, raw := range strings.Split(strings.TrimRight(src, "\n"), "\n") {
 		if triple != "" {
 			open.Text += "\n" + raw
@@ -114,13 +127,15 @@ func (pythonCodec) Parse(src string) ([]*SrcNode, error) {
 		line := strings.TrimRight(raw, " \t")
 		w, trimmed := indentWidth(line)
 		if trimmed == "" {
-			// blank: an empty node under the previous line, renders back in
-			// place ("" at any depth) without ending the block
-			stack[len(stack)-1].n.Kid(&SrcNode{Type: database.TypeEmpty})
+			pending++
 			continue
 		}
 		for len(stack) > 1 && stack[len(stack)-1].indent >= w {
 			stack = stack[:len(stack)-1]
+		}
+		// the spacers first, into the block this line lands in
+		for ; pending > 0; pending-- {
+			stack[len(stack)-1].n.Kid(&SrcNode{Type: database.TypeEmpty})
 		}
 		n := stack[len(stack)-1].n.Kid(classifyPython(trimmed))
 		stack = append(stack, ent{n: n, indent: w})
@@ -128,6 +143,9 @@ func (pythonCodec) Parse(src string) ([]*SrcNode, error) {
 			triple, open = d, n
 		}
 	}
+	// blanks left pending are the file's trailing whitespace-only lines, which
+	// render trims off every save — keeping them would draw editor rows that no
+	// save could ever put back.
 	return root.Kids, nil
 }
 

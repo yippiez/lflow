@@ -295,16 +295,68 @@ func TestPythonTodoAndFallback(t *testing.T) {
 }
 
 // TestPythonBlanksAreEmpty: a blank line is an empty spacer node — not an
-// empty statement row, which would draw a bare bullet in the editor.
+// empty statement row, which would draw a bare bullet in the editor — and it
+// is a SIBLING of the line above, not its child (same shape as rust).
 func TestPythonBlanksAreEmpty(t *testing.T) {
 	doc, err := (pythonCodec{}).Parse("a = 1\n\nb = 2\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(doc) != 2 || len(doc[0].Kids) != 1 || doc[0].Kids[0].Type != database.TypeEmpty {
+	if len(doc) != 3 || doc[1].Type != database.TypeEmpty || len(doc[0].Kids) != 0 {
 		t.Fatalf("blank: %+v", doc)
 	}
 	roundTrip(t, pythonCodec{}, "a = 1\n\nb = 2\n", "a = 1\n\nb = 2\n")
+}
+
+// TestPythonBlankBelongsToTheLineAfterIt: a blank line carries no indentation,
+// so the line FOLLOWING it decides which block it sits in. The gap between two
+// top-level defs is a document-level spacer even though the statement above it
+// is nested three levels deep — parking it in that deep block would make a
+// statement typed beside it land inside the previous function.
+func TestPythonBlankBelongsToTheLineAfterIt(t *testing.T) {
+	doc, err := (pythonCodec{}).Parse(
+		"def f():\n    with x:\n        return 1\n\n\ndef g():\n    a = 1\n\n    b = 2\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc) != 4 {
+		t.Fatalf("want [f, blank, blank, g] at top level: %+v", doc)
+	}
+	if doc[1].Type != database.TypeEmpty || doc[2].Type != database.TypeEmpty {
+		t.Fatalf("the gap between the defs is not top-level: %+v", doc)
+	}
+	with := doc[0].Kids[0]
+	if len(with.Kids) != 1 || len(with.Kids[0].Kids) != 0 {
+		t.Fatalf("a spacer sank into the previous def's innermost block: %+v", with)
+	}
+	// and a gap INSIDE a body stays in that body, beside its neighbours
+	g := doc[3]
+	if len(g.Kids) != 3 || g.Kids[1].Type != database.TypeEmpty {
+		t.Fatalf("in-body blank: %+v", g.Kids)
+	}
+}
+
+// TestPythonLineAddedBesideBlankStaysAtItsLevel: the corruption the shape
+// above prevents — a statement added as the spacer's sibling (what Enter on a
+// blank row does in the editor) must render at the spacer's own level, not
+// indented under the line that preceded it.
+func TestPythonLineAddedBesideBlankStaysAtItsLevel(t *testing.T) {
+	doc, err := (pythonCodec{}).Parse("import os\n\n\ndef f():\n    return 1\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// insert `import sys` right after the first spacer, as the editor would
+	doc = append(doc[:2:2], append([]*SrcNode{
+		{Type: database.TypePython, Text: "import sys"},
+	}, doc[2:]...)...)
+	out, err := (pythonCodec{}).Render(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "import os\n\nimport sys\n\ndef f():\n    return 1\n"
+	if out != want {
+		t.Fatalf("added line drifted:\n got %q\nwant %q", out, want)
+	}
 }
 
 // TestPythonEmptyNodeRendersBlank: a TypeEmpty node serializes as a bare
