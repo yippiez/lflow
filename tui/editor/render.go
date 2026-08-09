@@ -198,18 +198,15 @@ func connector(r row) string {
 
 // emptyLine renders an empty node: a divider stripped of its rule — a blank
 // row of pure vertical breathing room. The connector rail is kept so the tree
-// stays continuous through the gap. There is no glyph or rule to turn red, so
-// under the cursor a single red · centered in the row marks the selection.
-func emptyLine(r row, maxLine int, selected bool) string {
-	prefix := " " + cDim + connector(r) + cReset + "  "
+// stays continuous through the gap. There is no text and no rule, so it stays
+// fully blank until the cursor lands on it — then it shows the same open
+// bullet glyph, red, that any other selected row's glyph column would carry.
+func emptyLine(r row, selected bool) string {
+	prefix := " " + cDim + connector(r) + cReset
 	if !selected {
-		return prefix
+		return prefix + "  "
 	}
-	lead := (maxLine - visibleWidth(prefix)) / 2
-	if lead < 0 {
-		lead = 0
-	}
-	return prefix + strings.Repeat(" ", lead) + cRed + "·" + cReset
+	return prefix + cRed + glyphOpen + cReset + " "
 }
 
 // dividerLine renders a divider node as a single horizontal rule. The glyph
@@ -333,7 +330,7 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 	// an empty node is a blank spacer row: no glyph, no rule, no text — the
 	// cursor cue is a single red · (see emptyLine). It still hangs a note.
 	if it.typ == database.TypeEmpty {
-		group = []string{emptyLine(r, maxLine, o.selected && m.mode != modeFlash)}
+		group = []string{emptyLine(r, o.selected && m.mode != modeFlash)}
 		bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 		if o.interactive {
 			bands = append(bands, m.suggestBlockLines(r, o.below, maxLine)...)
