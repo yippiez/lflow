@@ -471,6 +471,16 @@ func (m *Model) buildQueryCtxMemory(q *item, now time.Time) *qCtx {
 		if it == q || it.mirrorOf != "" {
 			continue
 		}
+		// An ephemeral row is a vault's cleartext, on screen only because its key
+		// is held right now. A query hit materializes a PERSISTED mirror, so
+		// matching one would write the vault's contents — a uuid that exists in no
+		// table, standing for a secret — straight back into the outline. This is
+		// the same absence the Encrypted Query node exists to work around, and it
+		// has to hold whether the vault is open or sealed: a search must not mean
+		// something different depending on what happens to be unlocked.
+		if it.ephemeral {
+			continue
+		}
 		parent := ""
 		if it.parent != nil {
 			parent = it.parent.uuid

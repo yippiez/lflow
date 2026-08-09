@@ -52,6 +52,7 @@ const (
 	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
 	modeShortcuts      // /shortcuts: full-page, scrollable shortcut reference
 	modeAgentEdit      // the alt+e session page: name and color together (see agentedit.go)
+	modeVaultKey       // the Encrypted node's key prompt: password / keyfile / hardware key (see vaultkey.go)
 )
 
 type finderAction int
@@ -392,6 +393,12 @@ type Model struct {
 	escPending bool
 	escAt      time.Time // when the pending esc landed — split alt-chord window
 
+	// Encrypted nodes (see encrypted.go). vaults holds one SESSION KEY per open
+	// vault: secret, in-memory only, never persisted, synced or logged, and
+	// dropped on quit. vaultKey is the key prompt's page state (see vaultkey.go).
+	vaults   map[string]*vaultSession
+	vaultKey vaultKeyPrompt
+
 	// the ⌥e session edit page (modeAgentEdit)
 	agentEditID    string
 	agentEditName  string
@@ -451,6 +458,13 @@ func (m *Model) refreshAncestors() {
 // focused, and returns the total nodes written. Temp is a real persisted subtree
 // now, so it must be written alongside the main outline.
 func (m *Model) saveAll() (int, error) {
+	// Every open vault is re-sealed and its row swapped back to garble BEFORE the
+	// writer runs, and restored after. This is where the encryption's central
+	// promise is kept: the nodes table is only ever shown the noise, whether or
+	// not a vault happens to be unlocked on screen (see sealVaults).
+	restoreVaults := m.sealVaults()
+	defer restoreVaults()
+
 	main, temp := m.tree, m.tempTree
 	if m.tempActive {
 		main, temp = m.mainStash.tree, m.tree
@@ -714,6 +728,10 @@ func (m *Model) restoreUndoState(st undoState) {
 }
 
 func (m *Model) refreshRows() {
+	// where a row SITS decides whether it is cleartext, so that verdict is
+	// recomputed on every outline change rather than maintained by hand in each
+	// structural operation (see reconcileVaultMembership)
+	m.reconcileVaultMembership()
 	m.rows = m.tree.visibleRows(m.viewRoot(), m.hideCompleted, m.unroll)
 	m.clampCursor()
 	// publish the look of every visible coding session (color + status tail) for
@@ -1188,6 +1206,11 @@ func (m *Model) editTargetOf(cur *item) *item {
 	if src == nil || src.readonly || !typeOf(src.typ).inlineEditable {
 		return nil
 	}
+	// a sealed vault's text is its garble, which stands in for the title stored
+	// inside the envelope. Typing into it would edit neither.
+	if m.vaultLocked(src) {
+		return nil
+	}
 	return src
 }
 
@@ -1197,6 +1220,22 @@ func (m *Model) editTargetOf(cur *item) *item {
 // is the run band, which belonged to the type being left behind.
 func (m *Model) setNodeType(it *item, typ string) {
 	if it == nil || it.typ == typ {
+		return
+	}
+	// Retyping a SEALED vault into something else would strand its envelope: the
+	// row would keep the garble as its name and nothing would ever open it
+	// again. Unlock first — then the contents are on the table and the change is
+	// reversible. (Retyping an OPEN vault is fine: its cleartext children become
+	// ordinary rows through reconcileVaultMembership.)
+	if it.typ == database.TypeEncrypted && m.vaultLocked(it) {
+		m.errorFlash("unlock the vault before changing its type")
+		return
+	}
+	// Nesting a vault inside a vault would need a second envelope, and a vault's
+	// children have no row to hang one on — the blob is keyed by node uuid and
+	// these nodes are not in the table at all.
+	if typ == database.TypeEncrypted && it.ephemeral {
+		m.errorFlash("a vault cannot hold another vault")
 		return
 	}
 	// a command still running under the old type is stopped: its output would
@@ -2355,6 +2394,10 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 	if m.tempActive {
 		m.exitTemp() // back to the main tree so save persists it, not the scratch
 	}
+	// Seal every vault BEFORE the final save and before the exit render: Run
+	// prints the finished outline into the terminal's scrollback, and scrollback
+	// is forever (see lockAllVaults).
+	m.lockAllVaults()
 	if m.err == nil {
 		written, err := m.saveAll()
 		if err != nil {
@@ -2370,6 +2413,7 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	m.ForgetAllVaults() // lockAllVaults dropped them one by one; this is the backstop
 	m.quitting = true
 	return m, tea.Quit
 }

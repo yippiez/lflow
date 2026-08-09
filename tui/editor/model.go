@@ -26,6 +26,12 @@ type item struct {
 	priority        string // /priority: incoming nodes land on top ("up") or at the bottom ("down"/"")
 	addedOn         int64  // creation time (UnixNano); shown by the log node's time chip
 	isNew           bool
+	// ephemeral marks a row that has no place in the nodes table and never will:
+	// the cleartext children an unlocked vault materializes (see encrypted.go)
+	// and an Encrypted Query's hits. save() refuses to descend into one, which is
+	// the mechanical guarantee behind the encryption — not a policy the write
+	// paths are asked to remember, but a subtree the writer cannot reach.
+	ephemeral bool
 }
 
 // lockMode joins the independent in-memory lock flags for persistence in the
@@ -115,6 +121,7 @@ func cloneItem(src, parent *item) *item {
 		priority:        src.priority,
 		addedOn:         src.addedOn,
 		isNew:           src.isNew,
+		ephemeral:       src.ephemeral,
 		parent:          parent,
 	}
 	for _, ch := range src.children {
@@ -959,6 +966,14 @@ func (t *tree) save() (int, error) {
 
 	var walk func(it *item, parentUUID string, rank int) error
 	walk = func(it *item, parentUUID string, rank int) error {
+		// An ephemeral row — a vault's decrypted child, an Encrypted Query hit —
+		// is not a node. It has no row to update and must never gain one: writing
+		// it here would put the very cleartext the vault exists to hide into the
+		// nodes table, where FTS would then index it. Stop before the subtree, not
+		// just before this row: everything under it is cleartext too.
+		if it.ephemeral {
+			return nil
+		}
 		s, existed := t.snapshots[it.uuid]
 		structChanged := !existed || s.parentUUID != parentUUID || s.rank != rank
 
@@ -1080,6 +1095,13 @@ func (t *tree) refreshSnapshots() {
 	t.snapshots = map[string]snapshot{}
 	var walk func(it *item, parentUUID string, rank int)
 	walk = func(it *item, parentUUID string, rank int) {
+		// save() never wrote an ephemeral row, so it has no database state to
+		// snapshot. Recording one would be worse than useless: the row would look
+		// saved, and if it were later moved out of its vault the next save would
+		// see "no change" and drop it on the floor.
+		if it.ephemeral {
+			return
+		}
 		it.isNew = false
 		t.snapshots[it.uuid] = snapshot{
 			parentUUID:      parentUUID,

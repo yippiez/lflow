@@ -10,10 +10,12 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/mattn/go-sqlite3 v1.14.32
+	github.com/muesli/termenv v0.16.0
 	github.com/pkg/errors v0.9.1
 	github.com/rivo/uniseg v0.4.7
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/pflag v1.0.10
+	golang.org/x/crypto v0.42.0
 	golang.org/x/sys v0.46.0
 )
 
@@ -31,7 +33,6 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/text v0.31.0 // indirect
 )

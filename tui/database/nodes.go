@@ -117,6 +117,23 @@ const (
 	// attachments, annotations and notes pulled in beneath it as a locked
 	// subtree (see editor/zoteroitem.go and tui/integrations).
 	TypeZotero = "zotero"
+
+	// TypeEncrypted is a vault: a bullet in every structural respect — it takes
+	// children of any type and imposes no meaning on them — whose subtree is
+	// SEALED rather than stored. Its nodes row carries nothing but garble; the
+	// real title, note and whole subtree live encrypted in its node_blobs
+	// envelope and exist in the clear only in memory, only while the session
+	// holds its key. alt+e prompts for that key (see editor/encrypted.go and
+	// tui/crypto).
+	TypeEncrypted = "encrypted"
+	// TypeEncQuery is the Query node's counterpart for vaults. TypeQuery scans
+	// the nodes table, which by construction has never seen a vault's contents,
+	// so no ordinary query can ever hit one. This type opens the vaults whose
+	// keys the session already holds and searches the cleartext inside them.
+	// Its hits are ephemeral rows: they are never written back to the nodes
+	// table, because writing a hit down would be a plaintext leak. See
+	// editor/encquery.go.
+	TypeEncQuery = "encquery"
 )
 
 // Priority values for a node: where incoming nodes land among its children.
@@ -145,6 +162,8 @@ var TypeOrder = []string{
 	TypeJSON,
 	TypeBash,
 	TypeQuery,
+	TypeEncrypted,
+	TypeEncQuery,
 	TypeWeb,
 	TypeVoice,
 	TypeImage,

@@ -83,6 +83,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCmdEditKey(k)
 	case modeAgentEdit:
 		return m.handleAgentEditKey(k)
+	case modeVaultKey:
+		return m.handleVaultKeyKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:

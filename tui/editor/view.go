@@ -44,6 +44,8 @@ func (m *Model) View() string {
 		lines = m.viewCmdEdit(maxLine)
 	} else if m.mode == modeAgentEdit {
 		lines = m.viewAgentEdit(maxLine)
+	} else if m.mode == modeVaultKey {
+		lines = m.viewVaultKey(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}

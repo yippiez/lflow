@@ -70,7 +70,9 @@ func (m *Model) existingTags() []string {
 	if m.tree != nil {
 		cur := m.cursorItem() // skip the node being typed, so its in-progress "#be" is not a tag
 		for _, it := range m.tree.byUUID {
-			if it == cur {
+			// a tag that exists only inside an open vault stays there: suggesting it
+			// out here is how a secret gets typed into a public row by accident
+			if it == cur || it.ephemeral {
 				continue
 			}
 			for _, t := range tagsIn(it.name) {

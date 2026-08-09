@@ -67,6 +67,12 @@ var shortcutSections = []shortcutSection{
 		{"alt+c on agent", "recolor agent session chip"},
 		{"alt+o on agent", "copy the session's open command"},
 	}},
+	{"Encrypted nodes", [][2]string{
+		{"alt+e on a vault", "unlock it, or seal it again"},
+		{"alt+r on a vault", "change its password, keyfile or hardware key"},
+		{"alt+r on enc query", "search inside every vault your key opens"},
+		{"alt+p at the prompt", "reveal what you have typed"},
+	}},
 	{"Leave", [][2]string{
 		{"esc", "close a page, picker, selection or focused view"},
 		{"esc esc", "save and quit from the outline"},
