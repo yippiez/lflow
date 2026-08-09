@@ -1879,6 +1879,12 @@ func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.mode = modeOutline
 		return m, nil
+	case "q":
+		if !text {
+			m.mode = modeOutline
+			return m, nil
+		}
+		m.settingEdit.handleKey(k)
 	case "enter":
 		if text {
 			m.setSetting(d.key, strings.TrimSpace(m.settingEdit.value))
@@ -1997,7 +2003,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		cur.readonly = !cur.readonly
 		m.unsaved = true
 		if cur.readonly {
-			m.flash = "locked · /lock to unlock"
+			m.flash = "locked"
 		} else {
 			m.flash = "unlocked"
 		}
@@ -2059,7 +2065,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		if m.db != nil {
 			_ = database.SetAddedOn(m.db, cur.uuid, cur.addedOn)
 		}
-		m.flash = "reborn · created_at reset to now"
+		m.flash = "reborn · creation date reset to now"
 	case "/duplicate":
 		// Deep-copy every selected root (subtrees ride along), or just the cursor
 		// node when no row selection is live. The whole operation is one undo step.

@@ -387,7 +387,7 @@ func (m *Model) viewOverlays(lay viewLayout, maxLine int) []string {
 			// so reserve their width plus the fixed " delete " prefix and quotes,
 			// then elide the middle of the name to fit whatever room is left.
 			prefix := " " + cRed + "delete " + cReset
-			suffix := cDim + fmt.Sprintf(" - %s - enter delete - esc keep", nodeNoun(subtreeSize(cur))) + cReset
+			suffix := cDim + fmt.Sprintf(" · %s · enter delete · esc keep", nodeNoun(subtreeSize(cur))) + cReset
 			room := maxLine - visibleWidth(prefix) - visibleWidth(suffix) - 2 // 2 for the quotes
 			name := elideMiddle(displayAnchors(m.tree.displayName(cur), m.chips), room)
 			line := prefix + cYellow + fmt.Sprintf("%q", name) + cReset + suffix
@@ -468,6 +468,9 @@ func (m *Model) viewSettings(maxLine int) []string {
 	} else if d.fixed {
 		// a fixed row's hint: the value is detected, alt+c copies it
 		lines = append(lines, clip(cDim+"alt+c copies the path"+cReset, maxLine))
+	} else {
+		// an option row's hint: left/right (or space) cycles the value
+		lines = append(lines, clip(cDim+"←/→ cycle · esc close"+cReset, maxLine))
 	}
 	return lines
 }

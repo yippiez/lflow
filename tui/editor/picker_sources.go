@@ -575,7 +575,12 @@ func (completerSource) items(m *Model, q string) []pickerItem {
 	return out
 }
 
-func (completerSource) header(*Model, *listPicker) string { return "" }
+func (s completerSource) header(m *Model, p *listPicker) string {
+	if len(s.items(m, p.query)) == 0 {
+		return " " + cDim + "no matches" + cReset
+	}
+	return ""
+}
 func (completerSource) initialSel(*Model) int             { return 0 }
 
 func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
