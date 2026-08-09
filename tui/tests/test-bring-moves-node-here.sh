@@ -32,7 +32,7 @@ wait_for "Move another node here"
 send Enter
 
 # the finder is open in /move:here mode — its hint line is unique to this action
-wait_for "enter · Move that node here" 5
+wait_for "enter move that node here" 5
 type "gamma"
 send Enter
 wait_for "brought here" 5

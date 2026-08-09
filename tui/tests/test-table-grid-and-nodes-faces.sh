@@ -86,7 +86,7 @@ assert_contains "│ task"
 
 send M-e
 wait_for "table · 1 × 1"
-assert_contains "⇥ cell"
+assert_contains "tab cell"
 
 assert_no_crash
 pass

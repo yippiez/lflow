@@ -1425,8 +1425,10 @@ func (m *Model) toggleComplete(it *item) {
 	}
 	if it.completedAt > 0 {
 		it.completedAt = 0
+		m.flash = "reopened"
 	} else {
 		it.completedAt = time.Now().Unix()
+		m.flash = "completed"
 	}
 	m.unsaved = true
 	if m.hideCompleted {

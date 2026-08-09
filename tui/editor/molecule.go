@@ -603,7 +603,7 @@ func (v moleculeView) state(m *Model, it *item, innerW int) (string, []string) {
 		lines = []string{cRed + "  " + err.Error() + cReset}
 	} else {
 		lines = renderMolecule(g, innerW)
-		info = fmt.Sprintf("molecule · %s · %s · MW %.2f · %d atoms · %d bonds · esc",
+		info = fmt.Sprintf("molecule · %s · %s · MW %.2f · %d atoms · %d bonds · esc close",
 			g.format, g.formula(), g.weight(), len(g.atoms), len(g.bonds))
 	}
 	d["molKey"] = key

@@ -1048,7 +1048,8 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 
 // renderJSONPreview renders a json node as a one-line entry: a {} marker plus a
 // whitespace-collapsed, truncated preview of the JSON. Invalid JSON turns the {}
-// marker red and appends a red " · JSON parsing failed". Editing happens only in
+// marker red and appends a red " · invalid" (the same word the alt+e editor's own
+// status chip uses). Editing happens only in
 // the alt+e editor, so this is never an inline edit surface.
 func renderJSONPreview(name string) string {
 	trimmed := strings.TrimSpace(name)
@@ -1059,7 +1060,7 @@ func renderJSONPreview(name string) string {
 		return cDim + "{}" + cReset + " " + cFG + jsonPreview(name, 50) + cReset
 	}
 	return cRed + "{}" + cReset + " " + cFG + jsonPreview(name, 50) + cReset +
-		cRed + " · JSON parsing failed" + cReset
+		cRed + " · invalid" + cReset
 }
 
 // jsonPreview collapses whitespace and truncates to n display runes.

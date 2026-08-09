@@ -164,7 +164,7 @@ func (agentStartSource) header(m *Model, p *listPicker) string {
 	if p.query != "" {
 		return " " + cDim + "agent: " + cReset + cFG + p.query + cReset + mark
 	}
-	return " " + cDim + "search your coding sessions · enter files one here" + cReset + mark
+	return " " + cDim + "agent: " + cReset + cDim + "type to search" + cReset + mark
 }
 
 func (agentStartSource) initialSel(*Model) int { return 0 }

@@ -25,7 +25,7 @@ var shortcutSections = []shortcutSection{
 		{"shift+← / shift+→", "select letters"},
 		{"ctrl+shift+← / →", "select words (alt+shift also works)"},
 		{"alt+↑ / alt+↓", "fold / unfold (ctrl also works)"},
-		{"alt+← / alt+→", "zoom out / into a node"},
+		{"alt+← / alt+→", "zoom out of / into a node"},
 	}},
 	{"Edit the outline", [][2]string{
 		{"enter", "split node or make a sibling"},

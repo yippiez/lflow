@@ -618,7 +618,11 @@ func (m *Model) bottomBar(maxLine int) []string {
 	// live shell runs: a red count, like the suggestions tally — a long command
 	// may sit silent for minutes, and the bar says it is still going
 	if n := m.runningCount(); n > 0 {
-		state += fmt.Sprintf(" · "+cRed+"%d bash running"+cDim, n)
+		noun := "bash chip"
+		if n > 1 {
+			noun = "bash chips"
+		}
+		state += fmt.Sprintf(" · "+cRed+"%d %s running"+cDim, n, noun)
 	}
 	// a proposal waiting on review is worth seeing even when its node is off
 	// screen — it changes nothing until somebody settles it

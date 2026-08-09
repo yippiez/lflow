@@ -75,7 +75,7 @@ func (slashSource) items(m *Model, q string) []pickerItem {
 // no way back into the menu. Enter commits the literal text; esc strips it.
 func (slashSource) header(m *Model, p *listPicker) string {
 	if p.query != "" && len(m.filteredSlash(p.query)) == 0 {
-		return " " + cDim + "no matches · enter keeps the text · esc cancels" + cReset
+		return " " + cDim + "no matches · enter keep text · esc cancel" + cReset
 	}
 	return ""
 }
@@ -146,7 +146,7 @@ var insertKinds = []struct{ value, label, desc string }{
 	{"cmd", "Bash", "a runnable $ command chip (or type $$)"},
 	{"date", "Date", "today as a date chip"},
 	{"icon", "Icon", "an icon or emoji via shortcode"},
-	{"link", "Link", "a link chip"},
+	{"link", "Link", "a link chip (or type [[)"},
 	{"molecule", "Molecule", "a ⌬ molecule chip"},
 	{"tag", "Tag", "a #tag chip"},
 }
