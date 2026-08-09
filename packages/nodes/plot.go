@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/lflow/lflow/packages/database"
 	"github.com/lflow/lflow/packages/editor"
 )
@@ -23,15 +25,104 @@ import (
 // every cell aligned inside its parent's span and labelled in place. A tree of
 // any depth plots, because level nine is just band nine, and bands appear only
 // under the bars that actually have children.
+//
+// The chart is the node's alt+e face, not an always-on band: at rest the node
+// is one line wearing a count and a total, like the Image node's row. An
+// outline full of plots stays an outline you can read, and the one you are
+// looking at opens.
 func init() {
 	editor.RegisterNodePlugin(editor.NodePlugin{
 		Key:            database.TypePlot,
 		Label:          "Plot",
 		InlineEditable: true,
 		Glyph:          func() (string, string) { return "▚", editor.NodeTheme().Cyan },
-		Preview:        plotBands,
+		BodyTail:       plotTail,
+		View:           plotView{},
 	})
 }
+
+// plotTail is the resting face: what the plot would show, said in a few dim
+// characters after the node's own text. It runs on the Model-free render path,
+// where a ref carries structure and raw names only — enough, because a bar's
+// value is parsed out of its own text.
+func plotTail(n editor.NodeRef) string {
+	bars := n.Children()
+	if len(bars) == 0 {
+		return ""
+	}
+	t := editor.NodeTheme()
+	return t.Dim + fmt.Sprintf("  ▪ %s · %s · ⌥e", plotCount(len(bars), "bar"), plotNum(plotValue(n))) + t.Reset
+}
+
+// plotCount pluralizes a count for the two faces' summaries.
+func plotCount(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return strconv.Itoa(n) + " " + unit + "s"
+}
+
+// plotView is the alt+e face: the chart itself, in bands beneath the node.
+// Stateless — every number is derived from the subtree on each render, so an
+// edit to any descendant is reflected the next time it is drawn.
+type plotView struct{}
+
+// Enter declines when there is nothing to plot, so alt+e on an empty plot node
+// leaves the cursor where it is instead of opening a blank band.
+func (plotView) Enter(h editor.NodeHost, n editor.NodeRef) bool { return len(n.Children()) > 0 }
+
+func (plotView) Leave(h editor.NodeHost, n editor.NodeRef) {}
+
+// Lines is the band height: the header plus a row per bar and per level.
+func (plotView) Lines(h editor.NodeHost, n editor.NodeRef, width int) int {
+	return 1 + len(plotLines(n, "", width))
+}
+
+// Key captures nothing: there is no text to edit and no state to move, so
+// arrows and esc fall through to the editor's own scroll and defocus.
+func (plotView) Key(h editor.NodeHost, n editor.NodeRef, k tea.KeyMsg) (tea.Cmd, bool) {
+	return nil, false
+}
+
+// Bands renders the header and the chart, self-windowed to [scroll, scroll+winH).
+func (plotView) Bands(h editor.NodeHost, n editor.NodeRef, rail string, width, scroll, winH int, focused bool) []string {
+	t := editor.NodeTheme()
+	lines := plotLines(n, rail, width)
+	if len(lines) == 0 {
+		return []string{rail + t.Dim + "  plot · nothing to draw · esc close" + t.Reset}
+	}
+	bars := n.Children()
+	head := fmt.Sprintf("  plot · %s · %s · %s · esc close",
+		plotCount(len(bars), "bar"), plotNum(plotValue(n)),
+		plotCount(plotTreeDepth(n), "level"))
+	out := append([]string{rail + t.Dim + head + t.Reset}, lines...)
+
+	if scroll < 0 {
+		scroll = 0
+	}
+	if scroll > len(out) {
+		scroll = len(out)
+	}
+	out = out[scroll:]
+	if winH > 0 && len(out) > winH {
+		out = out[:winH]
+	}
+	return out
+}
+
+// plotTreeDepth is how many levels the plot actually draws, for the header.
+func plotTreeDepth(n editor.NodeRef) int {
+	d := 0
+	for _, k := range n.Children() {
+		if kd := plotDepth(k) + 1; kd > d {
+			d = kd
+		}
+	}
+	return d
+}
+
+// plotNum formats a value the way both faces show it.
+func plotNum(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
 // plotMaxBarW caps the bar field so a wide terminal does not stretch a
 // three-bar plot across the whole window.
@@ -213,9 +304,10 @@ func plotHue(i int) (int, int, int) {
 	return 200, 200, 200
 }
 
-// plotBands draws the whole plot beneath the node: a bar per child, and under
-// each bar one icicle band per level of its subtree.
-func plotBands(h editor.NodeHost, n editor.NodeRef, rail string, maxLine int, focused bool) []string {
+// plotLines draws the chart: a bar per child, and under each bar one icicle
+// band per level of its subtree. Pure over the subtree and the space it is
+// given, so both faces and the tests can call it.
+func plotLines(n editor.NodeRef, rail string, maxLine int) []string {
 	bars := n.Children()
 	if len(bars) == 0 {
 		return nil

@@ -206,8 +206,7 @@ var plotSGR = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // one band per level beneath the bars that have depth. The bars must line up in
 // a single column, which is the thing that makes the values comparable.
 func TestPlotBandsRenderDepth(t *testing.T) {
-	h := newFakeHost(t)
-	lines := plotBands(h, plotTree(), "  ", 80, false)
+	lines := plotLines(plotTree(), "  ", 80)
 	if len(lines) == 0 {
 		t.Fatal("no lines rendered")
 	}
@@ -248,14 +247,123 @@ func TestPlotBandsRenderDepth(t *testing.T) {
 // TestPlotBandsTooNarrow: below a usable bar width the plot draws nothing
 // rather than a misleading one-cell bar.
 func TestPlotBandsTooNarrow(t *testing.T) {
-	if got := plotBands(newFakeHost(t), plotTree(), "  ", 20, false); got != nil {
+	if got := plotLines(plotTree(), "  ", 20); got != nil {
 		t.Errorf("expected no plot in a 20-column window, got %d lines", len(got))
 	}
 }
 
 // TestPlotBandsNoChildren: a plot node with nothing under it renders nothing.
 func TestPlotBandsNoChildren(t *testing.T) {
-	if got := plotBands(newFakeHost(t), &fakeNode{text: "Empty"}, "  ", 80, false); got != nil {
+	if got := plotLines(&fakeNode{text: "Empty"}, "  ", 80); got != nil {
 		t.Errorf("expected no lines for a childless plot, got %v", got)
+	}
+}
+
+// TestPlotTailRestingFace: at rest the node is one line — the chart is not
+// drawn until alt+e, so an outline full of plots stays an outline. The tail
+// runs on the Model-free path where a ref yields raw names, which is exactly
+// where a total computed from child text could silently come out zero.
+func TestPlotTailRestingFace(t *testing.T) {
+	got := plotSGR.ReplaceAllString(plotTail(plotTree()), "")
+	for _, want := range []string{"3 bars", "3450"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("resting tail %q is missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "█") {
+		t.Errorf("resting tail draws bars, so the node is not a single line: %q", got)
+	}
+	if strings.Count(got, "\n") != 0 {
+		t.Errorf("resting tail spans more than one line: %q", got)
+	}
+	// singular reads right for one bar, and a childless plot says nothing at all
+	one := plotSGR.ReplaceAllString(plotTail(&fakeNode{text: "Solo", kids: []*fakeNode{{text: "a 1"}}}), "")
+	if !strings.Contains(one, "1 bar ") {
+		t.Errorf("one-bar tail = %q, want a singular 'bar'", one)
+	}
+	if got := plotTail(&fakeNode{text: "Empty"}); got != "" {
+		t.Errorf("childless plot tail = %q, want nothing", got)
+	}
+}
+
+// TestPlotViewOpensToTheChart: alt+e is the face that draws. It declines to
+// open when there is nothing to plot, and what it renders is the header plus
+// every line of the chart.
+func TestPlotViewOpensToTheChart(t *testing.T) {
+	h, v := newFakeHost(t), plotView{}
+	tree := plotTree()
+
+	if !v.Enter(h, tree) {
+		t.Error("Enter declined a plot that has bars to draw")
+	}
+	if v.Enter(h, &fakeNode{text: "Empty"}) {
+		t.Error("Enter opened a blank band for a plot with no children")
+	}
+
+	const width = 80
+	bands := v.Bands(h, tree, "  ", width, 0, 40, true)
+	body := plotLines(tree, "  ", width)
+	if len(bands) != len(body)+1 {
+		t.Fatalf("view rendered %d lines, want %d (header + %d chart lines)", len(bands), len(body)+1, len(body))
+	}
+	if head := plotSGR.ReplaceAllString(bands[0], ""); !strings.Contains(head, "3 bars") ||
+		!strings.Contains(head, "esc close") {
+		t.Errorf("view header = %q, want the count and the way out", head)
+	}
+	if want := v.Lines(h, tree, width); want != len(bands) {
+		t.Errorf("Lines said %d but Bands rendered %d — the editor would clip or gap the view", want, len(bands))
+	}
+}
+
+// TestPlotViewWindowsToItsViewport: Bands self-windows to [scroll, scroll+winH),
+// so a plot taller than the space it is given scrolls instead of overrunning
+// the rows beneath it.
+func TestPlotViewWindowsToItsViewport(t *testing.T) {
+	h, v := newFakeHost(t), plotView{}
+	tree := plotTree()
+	full := v.Bands(h, tree, "  ", 80, 0, 99, true)
+
+	if got := v.Bands(h, tree, "  ", 80, 0, 3, true); len(got) != 3 {
+		t.Errorf("winH=3 rendered %d lines, want 3", len(got))
+	}
+	got := v.Bands(h, tree, "  ", 80, 2, 99, true)
+	if len(got) != len(full)-2 {
+		t.Errorf("scroll=2 rendered %d lines, want %d", len(got), len(full)-2)
+	}
+	if len(got) > 0 && got[0] != full[2] {
+		t.Error("scroll=2 did not start at the third line")
+	}
+	// scrolling past the end empties out rather than panicking
+	if got := v.Bands(h, tree, "  ", 80, len(full)+50, 99, true); len(got) != 0 {
+		t.Errorf("scrolling past the end rendered %d lines, want 0", len(got))
+	}
+}
+
+// TestPlotCountPluralizes: both faces count out loud, and "1 levels" in a
+// header is the kind of thing that reads as a half-finished feature.
+func TestPlotCountPluralizes(t *testing.T) {
+	for _, c := range []struct {
+		n    int
+		unit string
+		want string
+	}{
+		{0, "bar", "0 bars"},
+		{1, "bar", "1 bar"},
+		{2, "bar", "2 bars"},
+		{1, "level", "1 level"},
+		{5, "level", "5 levels"},
+	} {
+		if got := plotCount(c.n, c.unit); got != c.want {
+			t.Errorf("plotCount(%d, %q) = %q, want %q", c.n, c.unit, got, c.want)
+		}
+	}
+	// and the header actually uses it
+	flat := &fakeNode{text: "Flat", kids: []*fakeNode{{text: "only 1"}}}
+	for _, k := range flat.kids {
+		k.parent = flat
+	}
+	head := plotSGR.ReplaceAllString(plotView{}.Bands(newFakeHost(t), flat, "  ", 80, 0, 9, true)[0], "")
+	if !strings.Contains(head, "1 bar ") || !strings.Contains(head, "1 level") {
+		t.Errorf("header = %q, want singular units", head)
 	}
 }
