@@ -369,6 +369,73 @@ func TestEncryptedQueryPromptsForSealedVaultsAndCountsRefusals(t *testing.T) {
 	}
 }
 
+// The exit render is pasted into the terminal's scrollback, which no key
+// protects — so every route by which vault cleartext can be on screen at quit
+// has to be closed, not just the vault's own subtree. An Encrypted Query's
+// results are the other route, and they leaked past the seal until this.
+func TestQuittingClearsEncryptedQueryResultsToo(t *testing.T) {
+	// the search TERM is an ordinary node the user typed in the open outline and
+	// is not a secret; the secret is the value the hit drags out of the vault, so
+	// the term and the payload are deliberately different words here
+	m, vault := newVaultModel(t, "bank", "passport TR-X4471209")
+	seal(t, m, vault, "hunter2")
+
+	q, err := m.tree.newItem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.typ = database.TypeEncQuery
+	q.name = "passport"
+	q.parent = m.tree.root
+	m.tree.root.children = append(m.tree.root.children, q)
+	runEncQuery(m, q)
+	if len(q.children) != 1 {
+		t.Fatalf("the search found %d hits, wanted 1 to then hide", len(q.children))
+	}
+	if !strings.Contains(strings.Join(m.finalView(100), "\n"), "TR-X4471209") {
+		t.Fatal("the hit was never on screen — the test proves nothing")
+	}
+
+	m.quit()
+	if len(q.children) != 0 {
+		t.Error("the decrypted search results survived the quit")
+	}
+	dump := strings.Join(m.finalView(100), "\n")
+	for _, secret := range []string{"bank", "TR-X4471209"} {
+		if strings.Contains(dump, secret) {
+			t.Errorf("the exit render leaks %q from a search result into scrollback", secret)
+		}
+	}
+}
+
+// Sealing a vault while a search is still displaying what it found inside is
+// not sealing it.
+func TestLockingAVaultClearsWhatASearchFoundInIt(t *testing.T) {
+	m, vault := newVaultModel(t, "bank", "iban TR00")
+	seal(t, m, vault, "hunter2")
+
+	q, err := m.tree.newItem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.typ = database.TypeEncQuery
+	q.name = "iban"
+	q.parent = m.tree.root
+	m.tree.root.children = append(m.tree.root.children, q)
+	runEncQuery(m, q)
+	if len(q.children) != 1 {
+		t.Fatalf("the search found %d hits, wanted 1", len(q.children))
+	}
+
+	m.lockVault(vault)
+	if len(q.children) != 0 {
+		t.Error("locking the vault left its contents on screen under the query")
+	}
+	if _, ok := q.encQueryStats(); ok {
+		t.Error("the query still claims a tally for results it no longer shows")
+	}
+}
+
 func TestQuittingSealsAnOpenVaultBeforeTheScrollbackDump(t *testing.T) {
 	m, vault := newVaultModel(t, "bank", "iban TR00")
 	seal(t, m, vault, "hunter2")

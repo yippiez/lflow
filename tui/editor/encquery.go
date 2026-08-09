@@ -174,7 +174,7 @@ func (m *Model) searchVaults(q *item, s crypto.Secrets) {
 // the corpora and the count that stayed shut.
 func (m *Model) gatherVaults(s crypto.Secrets) (corpora []vaultCorpus, sealed int) {
 	for _, uuid := range m.vaultUUIDs() {
-		if it := m.tree.byUUID[uuid]; it != nil && m.vaultOpen(uuid) {
+		if it := m.vaultItem(uuid); it != nil && m.vaultOpen(uuid) {
 			corpora = append(corpora, vaultCorpus{uuid: uuid, content: m.vaultContentOf(it)})
 			continue
 		}
@@ -200,14 +200,36 @@ func (m *Model) gatherVaults(s crypto.Secrets) (corpora []vaultCorpus, sealed in
 	return corpora, sealed
 }
 
+// vaultTrees is where a vault item can be found. The stash matters: inside the
+// Temporary Domain m.tree IS the scratch tree, and a search run from there
+// would otherwise see none of the outline's vaults — and, worse, would treat an
+// OPEN one as sealed and ask for a key it already holds.
+func (m *Model) vaultTrees() []*tree { return []*tree{m.tree, m.mainStash.tree} }
+
+// vaultItem finds a vault's live item in whichever tree currently holds it.
+func (m *Model) vaultItem(uuid string) *item {
+	for _, t := range m.vaultTrees() {
+		if t == nil {
+			continue
+		}
+		if it := t.byUUID[uuid]; it != nil {
+			return it
+		}
+	}
+	return nil
+}
+
 // vaultUUIDs is every encrypted node worth trying, in a stable order: the ones
 // in the loaded tree plus every other one in the outline, so a search covers
 // vaults that are not currently on screen.
 func (m *Model) vaultUUIDs() []string {
 	seen := map[string]bool{}
 	var out []string
-	if m.tree != nil {
-		for uuid, it := range m.tree.byUUID {
+	for _, t := range m.vaultTrees() {
+		if t == nil {
+			continue
+		}
+		for uuid, it := range t.byUUID {
 			if it.typ == database.TypeEncrypted && !seen[uuid] {
 				seen[uuid] = true
 				out = append(out, uuid)
@@ -284,7 +306,7 @@ func (m *Model) appendEncQueryHit(q *item, n database.Node, vaultUUID string) {
 		it.typ = database.TypeBullets
 	}
 	it.style = n.Style
-	if v := m.tree.byUUID[vaultUUID]; v != nil {
+	if v := m.vaultItem(vaultUUID); v != nil {
 		m.nodeStore(it.uuid)["encQueryVault"] = v.name
 	}
 	q.children = append(q.children, it)

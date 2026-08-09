@@ -319,6 +319,9 @@ func (m *Model) lockVault(it *item) {
 	it.name, it.note = garble, ""
 	it.collapsed = false
 	m.forgetVault(it.uuid)
+	// a search that reached into this vault is still displaying what it found;
+	// sealing the row while its contents sit two rows below is not sealing
+	m.dropEncQueryResults()
 	m.unsaved = true
 	m.refreshRows()
 	m.flash = "vault sealed"
@@ -366,12 +369,18 @@ func (m *Model) dropVaultChildren(t *tree, it *item) {
 	it.children = nil
 }
 
-// lockAllVaults seals every open vault for real — key dropped, cleartext gone,
-// rows back to noise. Quit calls it BEFORE the final save, and that ordering is
-// the point: the editor prints the outline to the terminal's scrollback on the
-// way out, and scrollback is forever. A vault that was merely re-sealed in the
-// database while its cleartext stayed on the screen would be pasted, in full,
-// into a buffer no key protects.
+// lockAllVaults takes every piece of vault cleartext off the screen: each open
+// vault is sealed — key dropped, subtree gone, row back to noise — and every
+// Encrypted Query's results are dropped, because a result row is vault
+// cleartext too and it is sitting in the outline under a perfectly ordinary
+// bullet.
+//
+// Quit calls this BEFORE the final save, and that ordering is the point: the
+// editor prints the finished outline into the terminal's scrollback on the way
+// out, and scrollback is forever. A vault that was merely re-sealed in the
+// database while its contents stayed on screen — or a query still showing what
+// it found inside one — would be pasted, in full, into a buffer no key
+// protects. This was a real leak: the search results survived the seal.
 func (m *Model) lockAllVaults() {
 	seen := map[*item]bool{} // the three trees may be the same tree twice
 	for _, t := range []*tree{m.tree, m.tempTree, m.mainStash.tree} {
@@ -387,20 +396,58 @@ func (m *Model) lockAllVaults() {
 			for _, c := range it.children {
 				walk(c)
 			}
-			if it.typ != database.TypeEncrypted || !m.vaultOpen(it.uuid) {
-				return
+			switch {
+			case it.typ == database.TypeEncQuery:
+				m.clearEncQuery(t, it)
+			case it.typ == database.TypeEncrypted && m.vaultOpen(it.uuid):
+				garble, err := m.sealVault(it)
+				if err != nil {
+					m.errorFlash("vault: " + err.Error())
+					return
+				}
+				m.dropVaultChildren(t, it)
+				it.name, it.note = garble, ""
+				m.forgetVault(it.uuid)
 			}
-			garble, err := m.sealVault(it)
-			if err != nil {
-				m.errorFlash("vault: " + err.Error())
-				return
-			}
-			m.dropVaultChildren(t, it)
-			it.name, it.note = garble, ""
-			m.forgetVault(it.uuid)
 		}
 		walk(t.root)
 	}
+}
+
+// dropEncQueryResults clears every Encrypted Query's hits across the session.
+// Locking ANY vault clears ALL of them: a result set can span several vaults,
+// and there is no honest way to show a partial one — "these three rows are
+// still readable but that one is not" is a worse answer than re-running the
+// search. It is one alt+r to get them back.
+func (m *Model) dropEncQueryResults() {
+	seen := map[*item]bool{}
+	for _, t := range []*tree{m.tree, m.tempTree, m.mainStash.tree} {
+		if t == nil || t.root == nil {
+			continue
+		}
+		var walk func(it *item)
+		walk = func(it *item) {
+			if seen[it] {
+				return
+			}
+			seen[it] = true
+			for _, c := range it.children {
+				walk(c)
+			}
+			if it.typ == database.TypeEncQuery {
+				m.clearEncQuery(t, it)
+			}
+		}
+		walk(t.root)
+	}
+}
+
+// clearEncQuery drops one query's decrypted rows and forgets its tally, so the
+// row goes back to saying it has not run rather than claiming hits it is no
+// longer showing.
+func (m *Model) clearEncQuery(t *tree, it *item) {
+	m.dropVaultChildren(t, it)
+	delete(encQueryRuns, it.uuid)
 }
 
 // ── cleartext ⇄ items ───────────────────────────────────────────────────────
