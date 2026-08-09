@@ -293,6 +293,18 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 	return cDim + string(cells)
 }
 
+// quoteContinuationPrefix is continuationPrefix with the trailing space cell
+// swapped for the accent-colored quote bar, so a wrapped quote's bar runs the
+// full height of the block instead of stopping after the line it started on.
+func quoteContinuationPrefix(r row, subtreeBelow bool) string {
+	prefix := continuationPrefix(r, subtreeBelow)
+	runes := []rune(prefix)
+	if len(runes) == 0 {
+		return prefix
+	}
+	return string(runes[:len(runes)-1]) + cAccent + glyphQuoteBar + cReset
+}
+
 // rowOpts is the per-call context renderRow needs beyond the row itself. The
 // three row loops — viewRenderRows (interactive), finalView (the quit dump) and
 // readonlyRegionLines (the temp panel + the stashed main outline) — differ only
@@ -443,7 +455,11 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 	if flash {
 		line += o.flashSuffix
 	}
-	group = wrapLine(line, maxLine, continuationPrefix(r, o.below))
+	prefix := continuationPrefix(r, o.below)
+	if it.typ == database.TypeQuote {
+		prefix = quoteContinuationPrefix(r, o.below)
+	}
+	group = wrapLine(line, maxLine, prefix)
 
 	bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 	// runnable nodes (bash/query) hang their ephemeral output beneath them. the

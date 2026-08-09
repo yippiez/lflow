@@ -541,6 +541,24 @@ func TestRenderBodyQuoteBar(t *testing.T) {
 	}
 }
 
+// TestQuoteBarCarriesThroughWrappedLines is the reported regression: a quote
+// node wide enough to wrap used to show its ▎ bar only on the first visual
+// line, leaving continuation lines looking like a plain unmarked paragraph.
+func TestQuoteBarCarriesThroughWrappedLines(t *testing.T) {
+	m := newTestModel(20, "aaaa bbbb cccc dddd eeee ffff")
+	m.tree.root.children[0].typ = database.TypeQuote
+
+	lines := m.finalView(m.width - 1)
+	if len(lines) < 2 {
+		t.Fatalf("expected the quote to wrap to >=2 lines, got %v", lines)
+	}
+	for i, l := range lines {
+		if !strings.Contains(l, glyphQuoteBar) {
+			t.Errorf("line %d missing the quote bar: %q", i, stripSGR(l))
+		}
+	}
+}
+
 func TestGlyphForHeadingDigits(t *testing.T) {
 	cases := []struct {
 		typ  string
