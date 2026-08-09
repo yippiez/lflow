@@ -1,6 +1,10 @@
 package editor
 
-import "github.com/lflow/lflow/packages/database/style"
+import (
+	"fmt"
+
+	"github.com/lflow/lflow/packages/database/style"
+)
 
 // A node's visual styling — set by /color, /bold, /italic and /underline — is
 // stored as a comma-separated token list in item.style, e.g. "bold,color:blue".
@@ -27,6 +31,25 @@ var styleColorCode = map[string]string{
 	"purple":      "\x1b[38;2;168;85;199m",  // #a855c7
 	"lightpurple": "\x1b[38;2;197;134;192m", // #c586c0
 	"gray":        "\x1b[38;2;122;122;122m", // #7a7a7a
+}
+
+// NodeColorNames is the /color vocabulary in picker order, for a plugin that
+// cycles the palette rather than asking the user to color every node.
+func NodeColorNames() []string { return append([]string(nil), styleColorOrder...) }
+
+// NodeColorRGB returns the ACTIVE theme's channels for a /color name, so a
+// plugin can build a background as well as a foreground from the one locked
+// palette the picker uses — every swatch is a 38;2 triple, and a theme entry
+// that somehow is not reports ok=false rather than painting a wrong color.
+func NodeColorRGB(name string) (r, g, b int, ok bool) {
+	code, has := styleColorCode[name]
+	if !has {
+		return 0, 0, 0, false
+	}
+	if _, err := fmt.Sscanf(code, "\x1b[38;2;%d;%d;%dm", &r, &g, &b); err != nil {
+		return 0, 0, 0, false
+	}
+	return r, g, b, true
 }
 
 // The token-list helpers live in packages/style; these thin aliases keep the

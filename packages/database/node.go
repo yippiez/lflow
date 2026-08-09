@@ -86,6 +86,13 @@ const (
 	// moves when a node becomes a table — it is a reading, so any node converts and
 	// the grid ⇄ nodes toggle is lossless. See editor/table.go.
 	TypeTable = "table"
+	// TypePlot is a bar plot composed AS an outline: each child is a bar, and a
+	// bar's value is its own trailing number when the text carries one, else the
+	// sum of its subtree. Depth draws as icicle bands under the bar — one band
+	// per level, each cell aligned inside its parent's span — so a tree of any
+	// depth plots without the glyph or color budget running out. See
+	// nodes/plot.go.
+	TypePlot = "plot"
 	// TypeThinking is a plain muted-gray marker node — Claude Code's thinking
 	// glyph and nothing else (no special editor behavior).
 	TypeThinking = "thinking"
@@ -153,6 +160,7 @@ var TypeOrder = []string{
 	TypeComment,
 	TypeText,
 	TypeTable,
+	TypePlot,
 	TypeMol,
 	TypeWF,
 	TypeThinking,
