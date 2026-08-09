@@ -32,7 +32,7 @@ import (
 func init() {
 	registerType(nodeType{
 		key:            database.TypeNLPCompute,
-		label:          "NLPCompute",
+		label:          "NLP Compute",
 		inlineEditable: true, // the prose face: edit the instruction inline
 		autoFocus:      true, // the code face: rest the cursor on it to edit, like Code
 		blockFaces:     true, // alt+e toggles prose ⇄ code (never enters an editor)

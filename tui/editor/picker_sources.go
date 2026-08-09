@@ -429,10 +429,13 @@ func (styleSource) header(m *Model, p *listPicker) string {
 		// a horizontal selection narrows the target to that run of the text
 		return " " + cDim + "enter style the selected text" + cReset
 	}
-	if p.query != "" {
-		return " " + cDim + "style: " + cReset + cFG + p.query + cReset
+	query := p.query
+	if query == "" {
+		query = cDim + "type to search" + cReset
+	} else {
+		query = cFG + query + cReset
 	}
-	return " " + cDim + "enter to apply the first part · shift+←/→ styles a portion · type to filter" + cReset
+	return " " + cDim + "style: " + cReset + query
 }
 
 func (styleSource) initialSel(m *Model) int {

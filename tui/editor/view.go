@@ -299,7 +299,7 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 		// the dotted glyph that says WHICH region you are in, and an empty one
 		// that borrowed the main outline's line lost that
 		if m.tempActive {
-			lines = append(lines, " "+cDim+glyphDotted+" empty temp space - type to add one"+cReset)
+			lines = append(lines, " "+cDim+glyphDotted+" empty temp space - type to add a node"+cReset)
 		} else {
 			lines = append(lines, cDim+" empty - type to add a node"+cReset)
 		}
