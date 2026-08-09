@@ -134,8 +134,8 @@ func TestServiceLinkRenamedLikeAHyperlink(t *testing.T) {
 	m.insertLinkChip("https://docs.google.com/presentation/d/1abc/edit", "Slides")
 
 	m.feed(altRune('e'))
-	if m.mode != modeLinkEdit {
-		t.Fatalf("⌥e did not open the link editor: mode=%v", m.mode)
+	if !m.focused || m.focusChip == "" {
+		t.Fatalf("⌥e did not open the link editor: focused=%v focusChip=%q", m.focused, m.focusChip)
 	}
 	for range []rune(m.linkEditName) {
 		m.feed(tea.KeyMsg{Type: tea.KeyBackspace})

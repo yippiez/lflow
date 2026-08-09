@@ -248,8 +248,8 @@ func TestLinkEditViaAltE(t *testing.T) {
 	m.insertLinkChip("https://old.com", "Old")
 
 	m.feed(altRune('e'))
-	if m.mode != modeLinkEdit {
-		t.Fatalf("alt+e did not open the link editor: mode=%v", m.mode)
+	if !m.focused || m.focusChip == "" {
+		t.Fatalf("alt+e did not open the link editor: focused=%v focusChip=%q", m.focused, m.focusChip)
 	}
 	if m.linkEditName != "Old" || m.linkEditTarget != "https://old.com" {
 		t.Fatalf("editor seeded wrong: name=%q target=%q", m.linkEditName, m.linkEditTarget)
@@ -264,8 +264,8 @@ func TestLinkEditViaAltE(t *testing.T) {
 	m.feed(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("www.new.com")})
 	m.feed(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if m.mode != modeOutline {
-		t.Fatalf("enter did not close the editor: mode=%v", m.mode)
+	if m.focused || m.focusChip != "" {
+		t.Fatalf("enter did not close the editor: focused=%v focusChip=%q", m.focused, m.focusChip)
 	}
 	c, _ := linkChipOf(m)
 	if c.Label != "Old!" {

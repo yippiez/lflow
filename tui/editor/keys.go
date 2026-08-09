@@ -77,12 +77,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
-	case modeLinkEdit:
-		return m.handleLinkEditKey(k)
 	case modeCmdEdit:
 		return m.handleCmdEditKey(k)
-	case modeAgentEdit:
-		return m.handleAgentEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:

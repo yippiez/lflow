@@ -38,12 +38,8 @@ func (m *Model) View() string {
 		lines = m.viewShortcuts(maxLine)
 	} else if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
-	} else if m.mode == modeLinkEdit {
-		lines = m.viewLinkEdit(maxLine)
 	} else if m.mode == modeCmdEdit {
 		lines = m.viewCmdEdit(maxLine)
-	} else if m.mode == modeAgentEdit {
-		lines = m.viewAgentEdit(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}

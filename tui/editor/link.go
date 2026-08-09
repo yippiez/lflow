@@ -306,11 +306,14 @@ func (m *Model) pasteLinkOverSelection(k tea.KeyMsg) bool {
 	return true
 }
 
-// ── alt+e link editor (modeLinkEdit) ───────────────────────────────────────
+// ── alt+e link editor (linkEditView, a band beneath the row) ───────────────
 
-// openLinkEdit enters the two-field editor for a link chip's name and target.
+// openLinkEdit focuses the two-field editor for a link chip's name and
+// target — the same focusChip/focused mechanism a cmd chip's run output uses,
+// so it renders as a band under the row instead of taking the whole screen.
 func (m *Model) openLinkEdit(c database.Chip) {
-	m.mode = modeLinkEdit
+	m.focusChip = c.ID
+	m.focused = true
 	m.linkEditID = c.ID
 	m.linkEditName = c.Label
 	m.linkEditTarget = c.Value
@@ -360,7 +363,8 @@ func (m *Model) saveLinkEdit() {
 func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
-		m.mode = modeOutline
+		m.focusChip = ""
+		m.focused = false
 		return m, nil
 	case "tab", "shift+tab", "up", "down":
 		m.linkEditField = 1 - m.linkEditField
@@ -368,7 +372,8 @@ func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		m.saveLinkEdit()
-		m.mode = modeOutline
+		m.focusChip = ""
+		m.focused = false
 		m.refreshRows()
 		return m, nil
 	}
@@ -382,7 +387,32 @@ func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) viewLinkEdit(maxLine int) []string {
+// linkEditView is the alt+e link editor's inline view: name and target fields
+// render as a band beneath the chip's own row, the same surface a cmd chip's
+// run output (cmdChipView) uses — never a separate full-screen page. Stateless
+// like every nodeView; the working copy lives in m.linkEdit*, focused via
+// m.focusChip exactly like cmdChipView.
+type linkEditView struct{}
+
+func (linkEditView) enter(m *Model, it *item) bool { return m.focusChip != "" }
+
+// leave only drops focus — esc is a cancel, not a save (enter is the only save
+// path; see handleLinkEditKey).
+func (linkEditView) leave(m *Model, it *item) { m.focusChip = "" }
+
+func (linkEditView) lines(m *Model, it *item, width int) int { return 4 }
+
+// Key delegates to the field-editing vocabulary shared with every alt+e
+// editor; it always swallows (the editor owns every key while it is up, same
+// as before this became a band).
+func (linkEditView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+	_, cmd := m.handleLinkEditKey(k)
+	return cmd, true
+}
+
+// Bands renders the two-field editor, self-windowed to [scroll, scroll+winH)
+// like every other band even though its 4 lines never scroll in practice.
+func (linkEditView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	name := m.linkEditName
 	target := m.linkEditTarget
 	nameLbl, targetLbl := cDim, cDim
@@ -393,12 +423,19 @@ func (m *Model) viewLinkEdit(maxLine int) []string {
 		target = withCaret(target, m.linkEditCaret)
 		targetLbl = cAccent
 	}
-	var lines []string
-	lines = append(lines, clip(cDim+" edit link"+cReset, maxLine))
-	lines = append(lines, clip(nameLbl+" name   "+cReset+cFG+name+cReset, maxLine))
-	lines = append(lines, clip(targetLbl+" target "+cReset+cFG+target+cReset, maxLine))
-	lines = append(lines, "")
-	lines = append(lines, clip(cDim+" tab switch field · enter save · esc cancel"+cReset, maxLine))
-	m.pageRows = len(lines) // no status bar here — the whole frame is main region
-	return lines
+	pad := rail + cReset + "  "
+	content := []string{
+		clip(pad+cDim+"edit link"+cReset, width),
+		clip(pad+nameLbl+"name   "+cReset+cFG+name+cReset, width),
+		clip(pad+targetLbl+"target "+cReset+cFG+target+cReset, width),
+		clip(pad+cDim+"tab switch field · enter save · esc cancel"+cReset, width),
+	}
+	if scroll > len(content) {
+		scroll = len(content)
+	}
+	end := scroll + winH
+	if end > len(content) {
+		end = len(content)
+	}
+	return content[scroll:end]
 }

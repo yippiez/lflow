@@ -434,8 +434,8 @@ func TestAgentEditEscCancels(t *testing.T) {
 		m.handleAgentEditKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	m.handleAgentEditKey(key("esc"))
-	if m.mode != modeOutline {
-		t.Fatal("esc must leave the page")
+	if m.focused || m.focusChip != "" {
+		t.Fatal("esc must leave the editor")
 	}
 	if s := m.agentLoad(chip.ID); s.Name != "" {
 		t.Fatalf("esc wrote the name anyway: %q", s.Name)
@@ -483,7 +483,7 @@ func TestAgentEditPage(t *testing.T) {
 	chip := chipOn(t, m, "note", c, agentStoreSession{variant: c.id, id: id})
 
 	m.openAgentEdit(chip)
-	if m.mode != modeAgentEdit || m.agentEditName != "" {
+	if !m.focused || m.focusChip != chip.ID || m.agentEditName != "" {
 		t.Fatalf("page opened with name %q, want it empty", m.agentEditName)
 	}
 	for _, r := range "flush fix" {
@@ -493,8 +493,8 @@ func TestAgentEditPage(t *testing.T) {
 	m.handleAgentEditKey(key("down"))
 	m.handleAgentEditKey(key("right"))
 	m.handleAgentEditKey(key("enter"))
-	if m.mode != modeAgentEdit && m.mode != modeOutline {
-		t.Fatalf("enter left the page in mode %v", m.mode)
+	if m.focused || m.focusChip != "" {
+		t.Fatalf("enter left the editor focused: focused=%v focusChip=%q", m.focused, m.focusChip)
 	}
 	s := m.agentLoad(chip.ID)
 	if s.Name != "flush fix" {

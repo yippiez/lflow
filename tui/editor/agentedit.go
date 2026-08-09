@@ -8,22 +8,24 @@ import (
 	"github.com/lflow/lflow/tui/database"
 )
 
-// ⌥e on a session chip opens the SESSION EDIT PAGE — the link chip's page
-// idiom, never a band under the row: name and color on one small page with a
-// live pill preview. ⌥c still jumps straight to the color picker.
+// ⌥e on a session chip opens the SESSION EDITOR — name and color together with
+// a live pill preview, rendered as a band beneath the chip's own row (the same
+// focusChip/focused surface a cmd chip's run output uses), never a separate
+// full-screen page. ⌥c still jumps straight to the color picker.
 //
 // Neither touches the row's text: a chip's name and color are its own, stored in
 // LOCAL node_output beside the session id and never written back into the CLI's
 // store. ⌥o copies the session's open command; that is the whole vocabulary.
 
-// openAgentEdit enters the page for the chip at hand.
+// openAgentEdit focuses the editor for the chip at hand.
 func (m *Model) openAgentEdit(c database.Chip) {
 	if _, ok := agentVariantByID(c.Value); !ok {
 		m.errorFlash("unknown agent: " + c.Value)
 		return
 	}
 	s := m.agentLoad(c.ID)
-	m.mode = modeAgentEdit
+	m.focusChip = c.ID
+	m.focused = true
 	m.agentEditID = c.ID
 	// a session still wearing its imported name opens an EMPTY field: typing
 	// replaces rather than appends, and empty already means "the imported title"
@@ -60,11 +62,13 @@ func (m *Model) saveAgentEdit() {
 func (m *Model) handleAgentEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
-		m.mode = modeOutline
+		m.focusChip = ""
+		m.focused = false
 		return m, nil
 	case "enter":
 		m.saveAgentEdit()
-		m.mode = modeOutline
+		m.focusChip = ""
+		m.focused = false
 		m.refreshRows()
 		return m, nil
 	case "tab", "shift+tab", "up", "down":
@@ -89,12 +93,39 @@ func (m *Model) handleAgentEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// viewAgentEdit draws the page: preview pill, name field, swatch row.
-func (m *Model) viewAgentEdit(maxLine int) []string {
+// agentEditView is the alt+e session editor's inline view: a live pill
+// preview, name field and color swatches render as a band beneath the chip's
+// own row — the same surface a cmd chip's run output (cmdChipView) uses,
+// never a separate full-screen page. Stateless like every nodeView; the
+// working copy lives in m.agentEdit*, focused via m.focusChip exactly like
+// cmdChipView and linkEditView.
+type agentEditView struct{}
+
+func (agentEditView) enter(m *Model, it *item) bool { return m.focusChip != "" }
+
+// leave only drops focus — esc is a cancel, not a save (enter is the only save
+// path; see handleAgentEditKey).
+func (agentEditView) leave(m *Model, it *item) { m.focusChip = "" }
+
+func (agentEditView) lines(m *Model, it *item, width int) int { return 5 }
+
+// Key delegates to the field-editing vocabulary shared with every alt+e
+// editor; it always swallows (the editor owns every key while it is up, same
+// as before this became a band).
+func (agentEditView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+	_, cmd := m.handleAgentEditKey(k)
+	return cmd, true
+}
+
+// Bands renders the preview pill, name field and swatch row, self-windowed to
+// [scroll, scroll+winH) like every other band even though its 5 lines never
+// scroll in practice.
+func (agentEditView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+	pad := rail + cReset + "  "
 	c, ok := m.chips[m.agentEditID]
 	if !ok {
-		m.mode = modeOutline
-		return nil
+		m.focusChip = ""
+		return []string{clip(pad+cDim+"session gone"+cReset, width)}
 	}
 	v, _ := agentVariantByID(c.Value)
 	s := m.agentLoad(m.agentEditID)
@@ -134,16 +165,21 @@ func (m *Model) viewAgentEdit(maxLine int) []string {
 		sw.WriteString(dot + glyph + cReset + " ")
 	}
 
-	var lines []string
-	lines = append(lines, clip(cDim+" edit session"+cReset, maxLine))
-	lines = append(lines, clip(" "+pill, maxLine))
-	lines = append(lines, "")
-	lines = append(lines, clip(nameLbl+" name   "+cReset+cFG+field+cReset, maxLine))
-	lines = append(lines, clip(colorLbl+" color  "+cReset+sw.String(), maxLine))
-	lines = append(lines, "")
-	lines = append(lines, clip(cDim+" tab switch · ←→ color · enter save · esc cancel"+cReset, maxLine))
-	m.pageRows = len(lines) // no status bar here — the whole frame is main region
-	return lines
+	content := []string{
+		clip(pad+cDim+"edit session"+cReset, width),
+		clip(pad+pill, width),
+		clip(pad+nameLbl+"name   "+cReset+cFG+field+cReset, width),
+		clip(pad+colorLbl+"color  "+cReset+sw.String(), width),
+		clip(pad+cDim+"tab switch · ←→ color · enter save · esc cancel"+cReset, width),
+	}
+	if scroll > len(content) {
+		scroll = len(content)
+	}
+	end := scroll + winH
+	if end > len(content) {
+		end = len(content)
+	}
+	return content[scroll:end]
 }
 
 // --- ⌥c: the session's color -----------------------------------------------

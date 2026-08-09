@@ -39,7 +39,6 @@ const (
 	modeTheme          // the /theme picker: choose a color palette
 	modeSettings       // the /settings picker: global preferences (theme, image preview, …)
 	modeComplete       // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit       // the alt+e link-chip editor: edit a link's name and target
 	modeFlash          // flash jump/act: every visible row's actions get a typed label (see flash.go)
 	modeTagColor       // the alt+e tag color picker: assign a pill color to a tag
 	modeInsert         // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
@@ -51,7 +50,6 @@ const (
 	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
 	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
 	modeShortcuts      // /shortcuts: full-page, scrollable shortcut reference
-	modeAgentEdit      // the alt+e session page: name and color together (see agentedit.go)
 )
 
 type finderAction int
@@ -195,7 +193,8 @@ type Model struct {
 	// and returns to note editing when the nested picker closes.
 	noteRich bool
 
-	// alt+e link-chip editor (modeLinkEdit)
+	// alt+e link-chip editor: an inline band under the row (linkEditView), keyed
+	// through focusChip like the cmd chip's output band
 	linkEditID     string // chip id being edited
 	linkEditName   string // working copy of the link's display name
 	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
@@ -207,9 +206,10 @@ type Model struct {
 	cmdEditValue string // working copy of the command
 	cmdEditCaret int    // caret inside the field
 
-	// the focused cmd chip (alt+e): its output renders as an inline band beneath
-	// the node — the same surface as a focused bash node — keyed by this chip id.
-	// A focused SESSION chip uses the same field, with the transcript as its band.
+	// the focused chip (alt+e): its inline view renders as a band beneath the
+	// node — the same surface a focused bash node uses — keyed by this chip id.
+	// A cmd chip's band is its run output; a link or session chip's is its
+	// editor (linkEditView / agentEditView); activeView dispatches on chip kind.
 	focusChip string
 
 	// the agentic coding session pickers (/agent, /agents). agentStore is the
@@ -392,7 +392,7 @@ type Model struct {
 	escPending bool
 	escAt      time.Time // when the pending esc landed — split alt-chord window
 
-	// the ⌥e session edit page (modeAgentEdit)
+	// the ⌥e session editor: an inline band under the row (agentEditView)
 	agentEditID    string
 	agentEditName  string
 	agentEditCaret int
