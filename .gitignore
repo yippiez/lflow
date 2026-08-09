@@ -14,3 +14,7 @@ tmp
 # local secrets
 .env
 /lflow
+
+# python bytecode (importing scripts/ansishot.py leaves this behind)
+__pycache__/
+*.pyc
