@@ -151,7 +151,7 @@ func (m *Model) dropRunOut(uuid string) {
 	r.dropped = 0
 	r.pwd = ""
 	m.persistRunOut(uuid) // an empty band deletes the row
-	m.setCmdPreview(uuid)
+	m.setBashChipPreview(uuid)
 }
 
 // persistRunOut writes a node's accumulated run band to node_output (overwriting

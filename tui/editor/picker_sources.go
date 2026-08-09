@@ -266,8 +266,8 @@ func (m *Model) insertChip(kind string) (tea.Model, tea.Cmd) {
 	case "cmd":
 		// an empty $ chip, filled in with alt+i — the same shape "$$" lands by
 		// typing. There is no draft: a "$" is literal everywhere now, so /insert
-		// and "$$" are the two ways a cmd chip forms.
-		if anchor := m.createChip(chipKindCmd, ""); anchor != "" {
+		// and "$$" are the two ways a bash chip forms.
+		if anchor := m.createChip(chipKindBash, ""); anchor != "" {
 			m.insertLiteralAt(cur, m.caret, anchor)
 			m.flash = "empty $ chip · alt+i edits the command"
 		}

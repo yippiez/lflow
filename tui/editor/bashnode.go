@@ -109,12 +109,12 @@ func bashPreview(it *item, chips map[string]database.Chip) string {
 	return bashCompose(it, func(s string) string { return displayAnchors(s, chips) })
 }
 
-// bashGlyph marks the row with the same red "$" the cmd chip wears — the two
+// bashGlyph marks the row with the same red "$" the bash chip wears — the two
 // shell surfaces are one thing, and a Bash node is only the tree form of it. The
 // glyph never changes: not on a fold, not while the run's terminal is open.
 func bashGlyph(*item) (string, string) { return glyphBashPrompt, cRed }
 
-// bashBodyTail is the row's "→" section, and it is the SAME surface a cmd chip's
+// bashBodyTail is the row's "→" section, and it is the SAME surface a bash chip's
 // tail is — a bash node is only the tree form of that chip, so the two must read
 // alike (see runTails):
 //
@@ -182,7 +182,7 @@ func bashSpanColor(it *item, runes []rune) map[int]string {
 
 // runBashNode (alt+r) composes this node's subtree and runs it, streaming into
 // the node's own run band. A second alt+r (or alt+x) stops it — runShell owns
-// that toggle, exactly as a cmd chip does.
+// that toggle, exactly as a bash chip does.
 func runBashNode(m *Model, it *item) tea.Cmd {
 	cmd := m.bashCommand(it)
 	if strings.TrimSpace(cmd) == "" {
@@ -193,7 +193,7 @@ func runBashNode(m *Model, it *item) tea.Cmd {
 }
 
 // bashFlashActions names the alt+r action "run $" in the flash bar, matching the
-// verb a cmd chip uses.
+// verb a bash chip uses.
 func bashFlashActions(m *Model, it *item) []flashAction {
 	return []flashAction{{verb: "run $", color: cGreen, do: runBashNode}}
 }

@@ -9,7 +9,7 @@ import (
 
 func cmdChipOf(m *Model) (database.Chip, bool) {
 	for _, c := range m.chips {
-		if c.Kind == chipKindCmd {
+		if c.Kind == chipKindBash {
 			return c, true
 		}
 	}
@@ -24,7 +24,7 @@ func typeCmdChip(t *testing.T, m *Model) database.Chip {
 	m.press("$")
 	c, ok := cmdChipOf(m)
 	if !ok {
-		t.Fatal("$$ did not create a cmd chip")
+		t.Fatal("$$ did not create a bash chip")
 	}
 	return c
 }
@@ -40,7 +40,7 @@ func setCmdChipValue(m *Model, id, value string) {
 	}
 }
 
-// TestCmdChipCreateViaDoubleDollar: typing "$$" lands an EMPTY cmd chip — the
+// TestCmdChipCreateViaDoubleDollar: typing "$$" lands an EMPTY bash chip — the
 // two-stroke trigger. A single "$" stays literal (no chip), and the empty chip
 // is the blank to fill in with alt+i.
 func TestCmdChipCreateViaDoubleDollar(t *testing.T) {
@@ -50,13 +50,13 @@ func TestCmdChipCreateViaDoubleDollar(t *testing.T) {
 
 	m.press("$") // single $: literal, never a chip
 	if _, ok := cmdChipOf(m); ok {
-		t.Fatal("a single $ must not create a cmd chip")
+		t.Fatal("a single $ must not create a bash chip")
 	}
 	m.press("$") // second $: lands the empty chip
 
 	c, ok := cmdChipOf(m)
 	if !ok {
-		t.Fatal("$$ did not create a cmd chip")
+		t.Fatal("$$ did not create a bash chip")
 	}
 	if c.Value != "" {
 		t.Errorf("$$ should land an EMPTY chip, value=%q", c.Value)
@@ -81,7 +81,7 @@ func TestCmdChipMidSentence(t *testing.T) {
 	m.press("$")
 
 	if _, ok := cmdChipOf(m); !ok {
-		t.Fatal("no cmd chip created")
+		t.Fatal("no bash chip created")
 	}
 	if got := displayAnchors(m.tree.byUUID["edit"].name, m.chips); got != "run $ " {
 		t.Errorf("rendered = %q, want %q", got, "run $ ")
@@ -117,12 +117,12 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 	c := typeCmdChip(t, m)
 	setCmdChipValue(m, c.ID, "ls") // what alt+i would save
 	m.ensureRun(c.ID).out = []outLine{{text: "file-a"}, {text: "file-b"}}
-	m.setCmdPreview(c.ID)
+	m.setBashChipPreview(c.ID)
 
 	if got := chipDisplay(m.chips[c.ID]); got != "$ ls → file-a" {
 		t.Errorf("chip display = %q, want %q", got, "$ ls → file-a")
 	}
-	rendered := renderCmdChip(m.chips[c.ID], false)
+	rendered := renderBashChip(m.chips[c.ID], false)
 	preview := cDim + " → file-a"
 	if !strings.Contains(rendered, bgCode+cRed+"$ "+cFG+"ls"+cReset+preview) {
 		t.Errorf("preview should be muted after a background reset, got %q", rendered)
@@ -138,7 +138,7 @@ func TestCmdChipPreviewIsEphemeral(t *testing.T) {
 }
 
 // TestCmdChipPreviewRehydratesOnOpen: after a run is persisted to node_output,
-// a fresh Model with only LoadChips + hydrateCmdPreviews rebuilds → chrome
+// a fresh Model with only LoadChips + hydrateBashChipPreviews rebuilds → chrome
 // without re-running and without writing the chip row.
 func TestCmdChipPreviewRehydratesOnOpen(t *testing.T) {
 	m, db := dbModel(t, database.Node{UUID: "edit", Name: ""})
@@ -148,7 +148,7 @@ func TestCmdChipPreviewRehydratesOnOpen(t *testing.T) {
 	setCmdChipValue(m, c.ID, "ls")
 	m.ensureRun(c.ID).out = []outLine{{text: "  "}, {text: "file-a"}, {text: "file-b"}}
 	m.persistRunOut(c.ID)
-	m.setCmdPreview(c.ID)
+	m.setBashChipPreview(c.ID)
 	if got := m.chips[c.ID].Label; got != "file-a" {
 		t.Fatalf("seed label = %q, want file-a", got)
 	}
@@ -162,7 +162,7 @@ func TestCmdChipPreviewRehydratesOnOpen(t *testing.T) {
 		t.Fatalf("LoadChips label = %q, want empty", chips[c.ID].Label)
 	}
 	reopened := &Model{ctx: m.ctx, chips: chips}
-	reopened.hydrateCmdPreviews()
+	reopened.hydrateBashChipPreviews()
 
 	if got := reopened.chips[c.ID].Label; got != "file-a" {
 		t.Errorf("rehydrated label = %q, want file-a", got)
@@ -207,7 +207,7 @@ func TestCmdChipNotInBashNode(t *testing.T) {
 	}
 }
 
-// TestCmdChipAltEFocusesInlineBand: alt+e on a cmd chip focuses its inline
+// TestCmdChipAltEFocusesInlineBand: alt+e on a bash chip focuses its inline
 // output band (the bash-node surface) instead of a separate page — the editor
 // stays in modeOutline — and alt+e (or esc) defocuses it again.
 func TestCmdChipAltEFocusesInlineBand(t *testing.T) {
@@ -215,7 +215,7 @@ func TestCmdChipAltEFocusesInlineBand(t *testing.T) {
 	cursorOn(m, "edit")
 	m.caret = 0
 	c := typeCmdChip(t, m)
-	// park the caret right after the chip anchor so cmdChipAtCaret finds it
+	// park the caret right after the chip anchor so bashChipAtCaret finds it
 	spans := anchorSpans([]rune(m.tree.byUUID["edit"].name))
 	if len(spans) != 1 {
 		t.Fatalf("want 1 anchor span, got %d", len(spans))
@@ -236,8 +236,8 @@ func TestCmdChipAltEFocusesInlineBand(t *testing.T) {
 	}
 }
 
-// TestCmdChipAltIEditsCommand: alt+i on a cmd chip opens the one-field command
-// editor (modeCmdEdit) — the chip's only edit, since alt+e is its run band and
+// TestCmdChipAltIEditsCommand: alt+i on a bash chip opens the one-field command
+// editor (chipEditView) — the chip's only edit, since alt+e is its run band and
 // delete would drop the whole chip — and enter saves the new command back to the
 // chip, dropping the stale run band so the old result does not read as this
 // command's output.
@@ -248,32 +248,32 @@ func TestCmdChipAltIEditsCommand(t *testing.T) {
 	c := typeCmdChip(t, m)
 	// a finished run sits on the chip (stale once the command changes)
 	m.ensureRun(c.ID).out = []outLine{{text: "file-a"}}
-	m.setCmdPreview(c.ID)
+	m.setBashChipPreview(c.ID)
 
 	spans := anchorSpans([]rune(m.tree.byUUID["edit"].name))
 	m.caret = spans[0].end
 
 	m.press("alt+i")
-	if m.mode != modeCmdEdit {
-		t.Fatalf("alt+i should open the command editor, mode=%v", m.mode)
+	if !m.focused || m.focusChip != c.ID || !m.focusChipEditing {
+		t.Fatalf("alt+i should open the command editor: focused=%v focusChip=%q editing=%v", m.focused, m.focusChip, m.focusChipEditing)
 	}
 	// the working copy starts empty ($$ lands an empty chip); type the command
 	for _, r := range "date +%s" {
 		m.press("" + string(r))
 	}
-	if m.cmdEditValue != "date +%s" {
-		t.Fatalf("cmdEditValue = %q, want the edited command", m.cmdEditValue)
+	if m.chipEditValue != "date +%s" {
+		t.Fatalf("chipEditValue = %q, want the edited command", m.chipEditValue)
 	}
 	m.press("enter")
-	if m.mode != modeOutline {
-		t.Fatalf("enter should close the editor, mode=%v", m.mode)
+	if m.focused || m.focusChip != "" {
+		t.Fatalf("enter should close the editor: focused=%v focusChip=%q", m.focused, m.focusChip)
 	}
 	got, _ := cmdChipOf(m)
 	if got.Value != "date +%s" {
 		t.Errorf("chip value = %q, want the saved command", got.Value)
 	}
 	// the stale run band is gone — the preview no longer reads "file-a"
-	m.setCmdPreview(got.ID)
+	m.setBashChipPreview(got.ID)
 	if got.Label != "" {
 		t.Errorf("stale preview survived a command edit: %q", got.Label)
 	}

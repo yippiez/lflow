@@ -280,7 +280,7 @@ func markupOnType(m *Model, it *item) {
 			return
 		}
 	}
-	m.openCmdEdit(c)
+	m.openChipEdit(c)
 }
 
 // ── serialization: subtree → markup ────────────────────────────────────────

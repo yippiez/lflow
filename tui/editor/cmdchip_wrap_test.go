@@ -7,7 +7,7 @@ import (
 	"github.com/lflow/lflow/tui/database"
 )
 
-// TestCmdChipWrapKeepsColor: a cmd chip wider than the line wraps, and every
+// TestCmdChipWrapKeepsColor: a bash chip wider than the line wraps, and every
 // continuation line must re-open the chip's colors (the gray code tint) —
 // including when the caret sits on the chip, where the cursor's reverse video
 // is dropped at the break but the colors must carry.

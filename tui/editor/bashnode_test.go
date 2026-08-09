@@ -87,7 +87,7 @@ func TestBashComposeSkipsCompleted(t *testing.T) {
 // previews in its compact display form — no sentinels leak into either.
 func TestBashCommandResolvesChips(t *testing.T) {
 	m := &Model{chips: map[string]database.Chip{
-		"c1": {ID: "c1", Kind: chipKindCmd, Value: "date +%s"},
+		"c1": {ID: "c1", Kind: chipKindBash, Value: "date +%s"},
 	}}
 	it := bnode("echo", bnode(chipAnchor("c1")))
 
@@ -135,7 +135,7 @@ func TestRunBashNodeEmptyIsNoop(t *testing.T) {
 	}
 }
 
-// TestBashRowLook: the row wears the cmd chip's red "$" — always, fold or no
+// TestBashRowLook: the row wears the bash chip's red "$" — always, fold or no
 // fold — a parent hangs the composed command dim after its text, and a leaf
 // hangs nothing (its text IS the command).
 func TestBashRowLook(t *testing.T) {
@@ -182,7 +182,7 @@ func bashRunRow(t *testing.T, running bool, out ...string) (*Model, *item) {
 	return m, it
 }
 
-// TestBashRowStreamsInItsTail: a bash node is the cmd chip's tree form, so it
+// TestBashRowStreamsInItsTail: a bash node is the bash chip's tree form, so it
 // streams the same way — the run's headline replaces the row's "→" section
 // (newest line while running, first line once settled) and NOTHING hangs beneath
 // the row. The composed-command preview is what a row with no run falls back to.
@@ -329,7 +329,7 @@ func TestBashRunningCountInToolbar(t *testing.T) {
 	r1 := m.ensureRun(m.rows[0].it.uuid)
 	r1.cancel = func() {}
 	r1.started = time.Now().Add(-3 * time.Second)
-	// a second live run on another id (a cmd chip id, say)
+	// a second live run on another id (a bash chip id, say)
 	r2 := m.ensureRun("chip-1")
 	r2.cancel = func() {}
 	r2.started = time.Now().Add(-3 * time.Second)

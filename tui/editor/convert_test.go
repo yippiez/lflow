@@ -23,7 +23,7 @@ func TestDollarSignChipsEvenEmpty(t *testing.T) {
 	}
 	c, ok := cmdChipOf(m)
 	if !ok {
-		t.Fatal("$$ must commit an empty cmd chip")
+		t.Fatal("$$ must commit an empty bash chip")
 	}
 	if c.Value != "" {
 		t.Fatalf("empty chip value = %q, want \"\"", c.Value)

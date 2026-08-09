@@ -309,7 +309,7 @@ func (m *Model) pasteLinkOverSelection(k tea.KeyMsg) bool {
 // ── alt+e link editor (linkEditView, a band beneath the row) ───────────────
 
 // openLinkEdit focuses the two-field editor for a link chip's name and
-// target — the same focusChip/focused mechanism a cmd chip's run output uses,
+// target — the same focusChip/focused mechanism a bash chip's run output uses,
 // so it renders as a band under the row instead of taking the whole screen.
 func (m *Model) openLinkEdit(c database.Chip) {
 	m.focusChip = c.ID
@@ -388,10 +388,10 @@ func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // linkEditView is the alt+e link editor's inline view: name and target fields
-// render as a band beneath the chip's own row, the same surface a cmd chip's
-// run output (cmdChipView) uses — never a separate full-screen page. Stateless
+// render as a band beneath the chip's own row, the same surface a bash chip's
+// run output (bashChipView) uses — never a separate full-screen page. Stateless
 // like every nodeView; the working copy lives in m.linkEdit*, focused via
-// m.focusChip exactly like cmdChipView.
+// m.focusChip exactly like bashChipView.
 type linkEditView struct{}
 
 func (linkEditView) enter(m *Model, it *item) bool { return m.focusChip != "" }

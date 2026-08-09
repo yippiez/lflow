@@ -70,7 +70,7 @@ func TestSavedSummaryResolvesChipAnchors(t *testing.T) {
 // TestChipVisualRowsOversizedChipTerminates pins the freeze fix: a chip whose
 // display is wider than the whole line is atomic and can never fit — the wrap
 // walk must consume it (clipped by the renderer), not re-emit the same line
-// start forever. Cursor-on-node hung the editor on long cmd chips before.
+// start forever. Cursor-on-node hung the editor on long bash chips before.
 func TestChipVisualRowsOversizedChipTerminates(t *testing.T) {
 	chips := map[string]database.Chip{
 		"c1": {ID: "c1", Kind: "cmd", Value: "rg '^\\s*processing_' " + strings.Repeat("/long/path", 12)},

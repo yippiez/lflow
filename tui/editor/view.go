@@ -16,9 +16,9 @@ func (m *Model) View() string {
 	}
 	maxLine := width - 1 // never touch the last column: deferred-wrap desync
 
-	// per-frame paint state: which cmd chips are mid-run (the shimmer) and the
+	// per-frame paint state: which bash chips are mid-run (the shimmer) and the
 	// headline each running node row hangs after its "→"
-	m.syncLiveCmdRuns()
+	m.syncLiveBashChipRuns()
 	m.syncRunTails()
 
 	if m.quitting {
@@ -38,8 +38,6 @@ func (m *Model) View() string {
 		lines = m.viewShortcuts(maxLine)
 	} else if m.mode == modeFinder {
 		lines = m.viewFinder(maxLine)
-	} else if m.mode == modeCmdEdit {
-		lines = m.viewCmdEdit(maxLine)
 	} else {
 		lines = m.viewOutline(maxLine)
 	}

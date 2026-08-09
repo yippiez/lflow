@@ -15,7 +15,7 @@ import (
 //
 // It stays inside the outline: no alt-screen, no separate mode plumbing beyond
 // modeFlash. Two actions are universal (jump onto a row; fold a row with
-// children); inline affordances that normally run via alt+r (cmd chips and
+// children); inline affordances that normally run via alt+r (bash chips and
 // Workflowy handles) contribute actions from the row content; the rest
 // are contributed BY THE NODE TYPE via the registry's flashActions hook — so a
 // type declares its own labelled actions (verb, color, handler) in one place, and
@@ -44,7 +44,7 @@ type flashTarget struct {
 
 // flashActionsFor returns content-driven alt+r actions plus node-type-contributed
 // actions for an item. A type with a flashActions hook controls only its
-// type-specific list; cmd chips and Workflowy handles are cross-cutting
+// type-specific list; bash chips and Workflowy handles are cross-cutting
 // row content and are still offered. Otherwise actions are inferred from run /
 // view / expand hooks, so existing types need no changes. (jump and fold are
 // added universally in enterFlash, not here.)
@@ -83,12 +83,12 @@ func (m *Model) flashInlineRunActions(it *item) []flashAction {
 	var out []flashAction
 	for _, sp := range anchorSpans([]rune(it.name)) {
 		c, ok := m.chips[sp.id]
-		if !ok || c.Kind != chipKindCmd {
+		if !ok || c.Kind != chipKindBash {
 			continue
 		}
 		chip := c
 		out = append(out, flashAction{verb: "run $", color: cGreen, do: func(m *Model, it *item) tea.Cmd {
-			return m.runCmdChip(chip)
+			return m.runBashChip(chip)
 		}})
 	}
 	return out

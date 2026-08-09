@@ -8,13 +8,13 @@ import (
 	"github.com/lflow/lflow/tui/database"
 )
 
-// A cmd chip is inline runnable shell: "$$" lands an empty $ chip anywhere (a
+// A bash chip is inline runnable shell: "$$" lands an empty $ chip anywhere (a
 // single "$" is always literal — $i, $(…), $HOME are shell syntax, never a
 // chip), and /insert → cmd is the other way in. The command lives in the chip
 // value (persisted); its run band is local-only in node_output (keyed by chip id
 // — never synced, exactly like a bash node). alt+i edits the command, alt+r
 // runs the chip the caret sits on; the chip then renders "$ cmd → <first line>"
-// from an in-memory label rehydrated on open via hydrateCmdPreviews; alt+e
+// from an in-memory label rehydrated on open via hydrateBashChipPreviews; alt+e
 // expands the full band.
 
 // bashLiteralRow reports whether this row is a Bash node — one whose text IS a
@@ -26,24 +26,24 @@ func bashLiteralRow(it *item) bool {
 	return it != nil && it.typ == database.TypeBash
 }
 
-// cmdChipAtCaret returns the cmd chip the caret sits on (its anchor begins at the
+// bashChipAtCaret returns the bash chip the caret sits on (its anchor begins at the
 // caret, or ends exactly at it), or ok=false.
-func (m *Model) cmdChipAtCaret(cur *item) (database.Chip, bool) {
-	return m.chipAtCaret(cur, chipKindCmd)
+func (m *Model) bashChipAtCaret(cur *item) (database.Chip, bool) {
+	return m.chipAtCaret(cur, chipKindBash)
 }
 
-// runCmdChip runs (or cancels a running) cmd chip: the exact toggle and launch
+// runBashChip runs (or cancels a running) bash chip: the exact toggle and launch
 // path a Bash node takes (runShell — a PTY + a terminal screen), keyed by chip
 // id instead of node uuid. The previous run's → tail would otherwise sit there
 // looking like this run's result until the first line arrives; refresh it, the
 // shimmer says "working".
-func (m *Model) runCmdChip(c database.Chip) tea.Cmd {
+func (m *Model) runBashChip(c database.Chip) tea.Cmd {
 	cmd := runShell(m, c.ID, c.Value)
-	m.setCmdPreview(c.ID)
+	m.setBashChipPreview(c.ID)
 	return cmd
 }
 
-// setCmdPreview refreshes a cmd chip's inline preview — its in-memory label. A
+// setBashChipPreview refreshes a bash chip's inline preview — its in-memory label. A
 // finished band settles on its FIRST non-blank line (the run's headline); a band
 // still running shows its NEWEST non-blank line instead, so a long-running
 // command streams its progress in place on the row. The label is mutated in
@@ -51,9 +51,9 @@ func (m *Model) runCmdChip(c database.Chip) tea.Cmd {
 // → chrome does not (WARNING (invariant): run output is never synced). The full
 // band lives in local node_output; ensureRunOutLoaded rehydrates it so a reopen
 // can rebuild this label without re-running.
-func (m *Model) setCmdPreview(id string) {
+func (m *Model) setBashChipPreview(id string) {
 	c, ok := m.chips[id]
-	if !ok || c.Kind != chipKindCmd {
+	if !ok || c.Kind != chipKindBash {
 		return
 	}
 	m.ensureRunOutLoaded(id)
@@ -102,50 +102,50 @@ func collapseSpaces(s string) string {
 
 // ── live run feedback ────────────────────────────────────────────────────────
 
-// liveCmdRuns is the render-time set of cmd chips with a command in flight, so a
+// liveBashChipRuns is the render-time set of bash chips with a command in flight, so a
 // running chip can be painted with the shimmering code cell. It is a render-time
-// global for the same reason animFrame is: renderBody/renderCmdChip are pure
+// global for the same reason animFrame is: renderBody/renderBashChip are pure
 // functions of (item, name, chips) reached from several surfaces (outline, temp
 // panel, final frame, tests), and threading a model handle through all of them
-// just to answer "is this chip running" would touch every caller. syncLiveCmdRuns
+// just to answer "is this chip running" would touch every caller. syncLiveBashChipRuns
 // refreshes it once per frame, and both it and the readers run on bubbletea's
 // single event-loop goroutine, so no synchronization is needed.
-var liveCmdRuns map[string]bool
+var liveBashChipRuns map[string]bool
 
-// syncLiveCmdRuns snapshots which cmd chips are running, for this frame's render.
-func (m *Model) syncLiveCmdRuns() {
+// syncLiveBashChipRuns snapshots which bash chips are running, for this frame's render.
+func (m *Model) syncLiveBashChipRuns() {
 	live := map[string]bool{}
 	for id, r := range m.runs {
 		if r.cancel == nil {
 			continue
 		}
-		if c, ok := m.chips[id]; ok && c.Kind == chipKindCmd {
+		if c, ok := m.chips[id]; ok && c.Kind == chipKindBash {
 			live[id] = true
 		}
 	}
-	liveCmdRuns = live
+	liveBashChipRuns = live
 }
 
-// cmdChipRunning reports whether a chip id is mid-run for this frame's render.
-func cmdChipRunning(id string) bool { return liveCmdRuns[id] }
+// bashChipRunning reports whether a chip id is mid-run for this frame's render.
+func bashChipRunning(id string) bool { return liveBashChipRuns[id] }
 
-// A running cmd chip claims NO space under its row: a collapsed chip streams
+// A running bash chip claims NO space under its row: a collapsed chip streams
 // entirely on the row itself — the shimmering cell says it is working and the →
 // tail carries the newest line — and the output band belongs to the expanded view
-// (alt+e, cmdChipView), which streams the same live feed. So a run never pushes
+// (alt+e, bashChipView), which streams the same live feed. So a run never pushes
 // the outline around, and the row's height is the same whether it is running or
 // idle.
 
-// hydrateCmdPreviews rebuilds every cmd chip's in-memory → preview from local
-// node_output (via setCmdPreview). Called after LoadChips — on editor open and
+// hydrateBashChipPreviews rebuilds every bash chip's in-memory → preview from local
+// node_output (via setBashChipPreview). Called after LoadChips — on editor open and
 // after an aux reload that replaces m.chips — so reopening a client restores
 // last-run chrome without re-running and without writing the chip row.
-func (m *Model) hydrateCmdPreviews() {
+func (m *Model) hydrateBashChipPreviews() {
 	for id, c := range m.chips {
-		if c.Kind != chipKindCmd {
+		if c.Kind != chipKindBash {
 			continue
 		}
-		m.setCmdPreview(id)
+		m.setBashChipPreview(id)
 	}
 }
 
@@ -173,29 +173,32 @@ func stripSGR(s string) string {
 	return b.String()
 }
 
-// ── alt+i: the cmd-chip editor (modeCmdEdit) ──────────────────────────────
+// ── alt+i: the chip-field editor (chipEditView) ─────────────────────────────
 
-// A cmd chip is "$ command" — one editable field: the command. alt+e shows the
-// run output, alt+i edits the command itself, the one edit a $ chip allows (a
-// chip's anchors make inline editing impossible, and delete would drop the whole
-// chip — the user has to be able to change what a "$" runs).
-func (m *Model) openCmdEdit(c database.Chip) {
-	if c.Kind != chipKindCmd && c.Kind != chipKindElement {
+// A bash chip is "$ command" and an element chip is "<tag attrs>" — either way
+// one editable field. alt+e shows a bash chip's run output, alt+i edits the
+// field itself, the one edit either chip allows (a chip's anchors make inline
+// editing impossible, and delete would drop the whole chip — the user has to
+// be able to change what a "$" runs or what an element's tag/attrs are).
+func (m *Model) openChipEdit(c database.Chip) {
+	if c.Kind != chipKindBash && c.Kind != chipKindElement {
 		return
 	}
-	m.mode = modeCmdEdit
-	m.cmdEditID = c.ID
-	m.cmdEditValue = c.Value
-	m.cmdEditCaret = len([]rune(c.Value))
+	m.focusChip = c.ID
+	m.focusChipEditing = true
+	m.focused = true
+	m.chipEditID = c.ID
+	m.chipEditValue = c.Value
+	m.chipEditCaret = len([]rune(c.Value))
 }
 
-// saveCmdEdit writes the edited command back to the chip row and store.
-func (m *Model) saveCmdEdit() {
-	c, ok := m.chips[m.cmdEditID]
+// saveChipEdit writes the edited command back to the chip row and store.
+func (m *Model) saveChipEdit() {
+	c, ok := m.chips[m.chipEditID]
 	if !ok {
 		return
 	}
-	c.Value = strings.TrimSpace(m.cmdEditValue)
+	c.Value = strings.TrimSpace(m.chipEditValue)
 	if c.Kind == chipKindElement {
 		c.Label = elementChipLabel(c.Value)
 	}
@@ -206,57 +209,98 @@ func (m *Model) saveCmdEdit() {
 	// the command changed: drop the stale run band AND its in-memory preview so
 	// the old result does not read as this command's output
 	m.deleteRunOut(c.ID)
-	m.setCmdPreview(c.ID)
+	m.setBashChipPreview(c.ID)
 	m.unsaved = true
 }
 
-// handleCmdEditKey edits the command with the same caret vocabulary as the
+// handleChipEditKey edits the command with the same caret vocabulary as the
 // outline editor, exactly like the link-chip editor.
-func (m *Model) handleCmdEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleChipEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
-		m.mode = modeOutline
+		m.focusChip = ""
+		m.focusChipEditing = false
+		m.focused = false
 		return m, nil
 	case "enter":
-		m.saveCmdEdit()
-		m.mode = modeOutline
+		m.saveChipEdit()
+		m.focusChip = ""
+		m.focusChipEditing = false
+		m.focused = false
 		m.refreshRows()
 		return m, nil
 	}
-	f := textField{value: m.cmdEditValue, caret: m.cmdEditCaret}
+	f := textField{value: m.chipEditValue, caret: m.chipEditCaret}
 	if f.handleKey(k) {
-		m.cmdEditValue = f.value
-		m.cmdEditCaret = f.caret
+		m.chipEditValue = f.value
+		m.chipEditCaret = f.caret
 	}
 	return m, nil
 }
 
-func (m *Model) viewCmdEdit(maxLine int) []string {
-	title, mark := " edit command", " $ "
-	if c, ok := m.chips[m.cmdEditID]; ok && c.Kind == chipKindElement {
-		title, mark = " edit element · tag and attributes", " <> "
+// chipEditView renders the alt+i field editor — a bash chip's command or an
+// element chip's tag/attrs — as a band beneath the chip's own row, the same
+// surface a bash chip's run output (bashChipView) uses, never a separate
+// full-screen page. Stateless like every nodeView; the working copy lives in
+// m.chipEdit*, focused via m.focusChip + m.focusChipEditing (the flag that
+// tells activeView this is the field editor, not a bash chip's output band).
+type chipEditView struct{}
+
+func (chipEditView) enter(m *Model, it *item) bool { return m.focusChip != "" }
+
+// leave only drops focus — esc is a cancel, not a save (enter is the only save
+// path; see handleChipEditKey).
+func (chipEditView) leave(m *Model, it *item) {
+	m.focusChip = ""
+	m.focusChipEditing = false
+}
+
+func (chipEditView) lines(m *Model, it *item, width int) int { return 3 }
+
+// Key delegates to the field-editing vocabulary shared with every alt+e/alt+i
+// editor; it always swallows (the editor owns every key while it is up, same
+// as before this became a band).
+func (chipEditView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+	_, cmd := m.handleChipEditKey(k)
+	return cmd, true
+}
+
+// Bands renders the one-field editor, self-windowed to [scroll, scroll+winH)
+// like every other band even though its 2 lines never scroll in practice.
+func (chipEditView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+	title, mark := "edit command", " $ "
+	if c, ok := m.chips[m.chipEditID]; ok && c.Kind == chipKindElement {
+		title, mark = "edit element · tag and attributes", " <> "
 	}
-	var lines []string
-	lines = append(lines, clip(cDim+title+cReset, maxLine))
-	lines = append(lines, clip(cAccent+mark+cReset+cFG+withCaret(m.cmdEditValue, m.cmdEditCaret)+cReset, maxLine))
-	lines = append(lines, "")
-	lines = append(lines, clip(cDim+" enter save · esc cancel"+cReset, maxLine))
-	m.pageRows = len(lines) // no status bar here — the whole frame is main region
-	return lines
+	pad := rail + cReset + "  "
+	content := []string{
+		clip(pad+cDim+title+cReset, width),
+		clip(pad+cAccent+mark+cReset+cFG+withCaret(m.chipEditValue, m.chipEditCaret)+cReset, width),
+		clip(pad+cDim+"enter save · esc cancel"+cReset, width),
+	}
+	if scroll > len(content) {
+		scroll = len(content)
+	}
+	end := scroll + winH
+	if end > len(content) {
+		end = len(content)
+	}
+	return content[scroll:end]
 }
 
 // ── alt+e inline cmd-output view ─────────────────────────────────────────────
 
-// cmdChipView is a cmd chip's inline expanded output viewer: the same
+// bashChipView is a bash chip's inline expanded output viewer: the same
 // band-beneath-the-node surface as a focused bash node (see runOutView), keyed
 // by the focused chip id (m.focusChip) instead of the node uuid. Stateless like
 // every nodeView; it is reached through m.activeView, never the type registry —
 // the chip lives inside a plain text node whose type has no view of its own.
-type cmdChipView struct{}
+type bashChipView struct{}
 
-// focusCmdChip focuses the chip's inline output band (alt+e on a cmd chip).
-func (m *Model) focusCmdChip(c database.Chip) {
+// focusBashChip focuses the chip's inline output band (alt+e on a bash chip).
+func (m *Model) focusBashChip(c database.Chip) {
 	m.focusChip = c.ID
+	m.focusChipEditing = false
 	m.focused = true
 	m.focusScroll, m.focusFollow = 0, true // open at the tail, following output
 	m.ensureRunOutLoaded(c.ID)
@@ -272,26 +316,32 @@ func (m *Model) activeView(it *item) nodeView {
 			return linkEditView{}
 		case chipKindAgent:
 			return agentEditView{}
+		case chipKindElement:
+			return chipEditView{} // an element chip only ever opens its field editor
+		case chipKindBash:
+			if m.focusChipEditing {
+				return chipEditView{} // alt+i: the command field
+			}
+			return bashChipView{} // alt+e: the run output
 		}
-		return cmdChipView{}
 	}
 	return nodeViewOf(it)
 }
 
-func (cmdChipView) enter(m *Model, it *item) bool { return m.focusChip != "" }
+func (bashChipView) enter(m *Model, it *item) bool { return m.focusChip != "" }
 
-func (cmdChipView) leave(m *Model, it *item) { m.focusChip, m.focusFollow = "", false }
+func (bashChipView) leave(m *Model, it *item) { m.focusChip, m.focusFollow = "", false }
 
-func (cmdChipView) lines(m *Model, it *item, width int) int {
+func (bashChipView) lines(m *Model, it *item, width int) int {
 	return runViewLines(m, m.focusChip)
 }
 
 // Key scrolls the band; alt+r re-runs (or cancels) the chip in place; esc/alt+e
 // fall through to central defocus.
-func (cmdChipView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
+func (bashChipView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 	if k.String() == "alt+r" {
-		if c, ok := m.chips[m.focusChip]; ok && c.Kind == chipKindCmd {
-			return m.runCmdChip(c), true
+		if c, ok := m.chips[m.focusChip]; ok && c.Kind == chipKindBash {
+			return m.runBashChip(c), true
 		}
 	}
 	return runViewKey(m, k)
@@ -299,7 +349,7 @@ func (cmdChipView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 
 // Bands renders the chip's terminal: the same shared surface a Bash node's
 // expanded view uses, headed by the command itself.
-func (cmdChipView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
+func (bashChipView) bands(m *Model, it *item, rail string, width, scroll, winH int, focused bool) []string {
 	m.ensureRunOutLoaded(m.focusChip)
 	r := m.run(m.focusChip) // non-nil after ensureRunOutLoaded
 	cmd := ""

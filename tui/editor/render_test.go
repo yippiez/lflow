@@ -266,7 +266,7 @@ func TestNoteBandRendersRichChips(t *testing.T) {
 		"tag":   {ID: "tag", Kind: chipKindTag, Value: "qol"},
 		"date":  {ID: "date", Kind: chipKindDate, Value: "2026-08-01"},
 		"link":  {ID: "link", Kind: chipKindLink, Value: "https://example.com", Label: "site"},
-		"cmd":   {ID: "cmd", Kind: chipKindCmd, Value: "go test"},
+		"cmd":   {ID: "cmd", Kind: chipKindBash, Value: "go test"},
 		"icon":  {ID: "icon", Kind: chipKindIcon, Value: "→", Label: "rarrow"},
 		"agent": {ID: "agent", Kind: chipKindAgent, Value: "pi", Label: "session"},
 		"mol":   {ID: "mol", Kind: chipKindMol, Value: "CCO", Label: "ethanol"},
@@ -352,7 +352,7 @@ func TestNoteEditorInsertsChipsThroughGesturesAndMenu(t *testing.T) {
 	for _, sp := range anchorSpans([]rune(note)) {
 		kinds[m.chips[sp.id].Kind] = true
 	}
-	for _, want := range []string{chipKindTag, chipKindCmd, chipKindDate} {
+	for _, want := range []string{chipKindTag, chipKindBash, chipKindDate} {
 		if !kinds[want] {
 			t.Fatalf("note missing %s chip after real editor gestures: %q (%v)", want, note, kinds)
 		}

@@ -516,7 +516,7 @@ func (m *Model) agentRename(id, name string) {
 // ── the chip ───────────────────────────────────────────────────────────────
 
 // agentChipAtCaret returns the session chip the caret sits on (its anchor begins
-// at the caret or ends exactly at it), like cmdChipAtCaret.
+// at the caret or ends exactly at it), like bashChipAtCaret.
 func (m *Model) agentChipAtCaret(cur *item) (database.Chip, bool) {
 	return m.chipAtCaret(cur, chipKindAgent)
 }
@@ -582,7 +582,7 @@ func anchorChipID(anchor string) string {
 // refreshAgentChip refreshes a chip's inline label — the name the pill shows:
 // the user's own name for the session when it has one, else the title imported
 // when the session was picked. A hosted
-// session's label carries the cloud mark. Like the cmd chip's run preview the
+// session's label carries the cloud mark. Like the bash chip's run preview the
 // label is mutated IN MEMORY only and never written to the chips table: the
 // variant persists, the session's chrome does not (it is local to this machine).
 func (m *Model) refreshAgentChip(id string) {

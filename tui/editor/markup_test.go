@@ -271,8 +271,8 @@ func TestMarkupOnTypeReservesTheSlot(t *testing.T) {
 	if !ok {
 		t.Fatal("no element chip was reserved")
 	}
-	if m.mode != modeCmdEdit || m.cmdEditID != c.ID {
-		t.Errorf("the element field did not open: mode=%v id=%q", m.mode, m.cmdEditID)
+	if !m.focused || m.chipEditID != c.ID {
+		t.Errorf("the element field did not open: focused=%v id=%q", m.focused, m.chipEditID)
 	}
 	// the element is the row's HEAD; the words already there stay as its text
 	if !strings.HasPrefix(it.name, chipAnchor(c.ID)) {
@@ -283,8 +283,8 @@ func TestMarkupOnTypeReservesTheSlot(t *testing.T) {
 	}
 
 	// filling it in makes the row an element
-	m.cmdEditValue = "div class=card"
-	m.saveCmdEdit()
+	m.chipEditValue = "div class=card"
+	m.saveChipEdit()
 	el := m.markupParse(it)
 	if el.tag != "div" || len(el.attrs) != 1 || el.attrs[0].value != "card" {
 		t.Errorf("parsed element = %+v", el)

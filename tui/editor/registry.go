@@ -99,7 +99,7 @@ type nodeType struct {
 	bodyTail func(it *item, chips map[string]database.Chip) string
 	// runInTail says this type's run lives in the row's bodyTail — the streaming
 	// headline after its "→" — and so claims NO output band beneath the row. The
-	// Bash type sets it to read exactly like the cmd chip it is the tree form of:
+	// Bash type sets it to read exactly like the bash chip it is the tree form of:
 	// the row streams, alt+e opens the terminal, nothing hangs in between.
 	runInTail bool
 }

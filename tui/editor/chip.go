@@ -157,7 +157,7 @@ const (
 	chipKindTag  = "tag"
 	chipKindDate = "date"
 	chipKindLink = "link"
-	chipKindCmd  = "cmd"
+	chipKindBash  = "cmd"
 	chipKindIcon = "icon" // painted service glyph; value=glyph, label=shortcode
 	// an agentic coding session inline: value=the CLI variant id ("claude"), the
 	// session itself in local node_output keyed by the chip id. alt+r opens or
@@ -197,11 +197,11 @@ var chipKinds = map[string]chipKind{
 		display: func(v string) string { return "→" + v },
 		expand:  func(v string) string { return v },
 	},
-	// a cmd chip is inline runnable shell: value is the command, run on alt+r.
+	// a bash chip is inline runnable shell: value is the command, run on alt+r.
 	// display/expand below are value-only fallbacks — chipDisplay special-cases
 	// cmd to append the session-local output preview held in the chip label.
-	chipKindCmd: {
-		key:     chipKindCmd,
+	chipKindBash: {
+		key:     chipKindBash,
 		color:   cYellow,
 		display: func(v string) string { return "$ " + v },
 		expand:  func(v string) string { return v },
@@ -296,8 +296,8 @@ func chipDisplay(c database.Chip) string {
 	if c.Kind == chipKindZotero {
 		return zoteroMark + " " + zoteroChipLabel(c)
 	}
-	if c.Kind == chipKindCmd {
-		// the label holds the run preview (set by setCmdPreview / hydrateCmdPreviews;
+	if c.Kind == chipKindBash {
+		// the label holds the run preview (set by setBashChipPreview / hydrateBashChipPreviews;
 		// never written to the chips table). show "$ cmd → preview" when a band
 		// is in memory or was rehydrated from local node_output.
 		// "$ " mirrors the bash node's prompt — renderBody paints it as a code cell.
@@ -319,8 +319,8 @@ func chipDisplay(c database.Chip) string {
 // breaks at an ordinary space. NBSP measures one cell and the terminal draws it
 // as a space, so nothing about the row's geometry changes.
 //
-// A cmd chip is the exception and never comes through here: it is a whole shell
-// command, long by nature, and renderCmdChip already carries its tint across a
+// A bash chip is the exception and never comes through here: it is a whole shell
+// command, long by nature, and renderBashChip already carries its tint across a
 // wrap.
 func nonBreaking(s string) string { return strings.ReplaceAll(s, " ", "\u00a0") }
 
@@ -519,7 +519,7 @@ func (m *Model) chipDB() *database.DB {
 }
 
 // chipSidecars snapshots the local node_output row behind every current chip: a
-// cmd chip's run band, a session chip's session pointer. They are keyed by chip
+// bash chip's run band, a session chip's session pointer. They are keyed by chip
 // id and deleted with the chip, so an undo that restores only the chip RECORD
 // brings back an agent chip that has forgotten its session, its name and its
 // color — and cannot be renamed back, because there is no session under it to

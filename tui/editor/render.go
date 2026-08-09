@@ -136,7 +136,7 @@ const (
 	// straight, and only this row's own text shifts by however wide the mark
 	// draws. Always muted gray, whatever /color says.
 	glyphThinking = "※"
-	// a Bash node wears the cmd chip's prompt, always (see bashGlyph)
+	// a Bash node wears the bash chip's prompt, always (see bashGlyph)
 	glyphBashPrompt = "$"
 )
 
@@ -492,7 +492,7 @@ const runBandCap = 3
 
 // runOutTail renders the tail of a run band as rail-prefixed rows: an optional
 // "⋯ N more" head line, then the newest capN lines with the program's own
-// colors. (A running cmd chip shows no band — its tail lives in the chip label —
+// colors. (A running bash chip shows no band — its tail lives in the chip label —
 // so this serves the runnable-node band alone.)
 func runOutTail(rail string, rs *runState, capN, maxLine int) []string {
 	var lines []string
@@ -517,7 +517,7 @@ func runOutTail(rail string, rs *runState, capN, maxLine int) []string {
 // band is hydrated from its on-disk cache on first render (see runout.go) so it
 // survives a restart, but it never enters the DB or sync.
 func (m *Model) runBandLines(r row, subtreeBelow bool, maxLine int) []string {
-	// a type whose run lives in its row tail (Bash, reading like the cmd chip)
+	// a type whose run lives in its row tail (Bash, reading like the bash chip)
 	// never hangs a band: the "→" headline is the signal, alt+e is the terminal
 	if typeOf(r.it.typ).runInTail {
 		return nil
@@ -683,13 +683,13 @@ func inlineSpans(runes []rune) []spanFlags {
 	return flags
 }
 
-// renderCmdChip paints a committed cmd chip. The prompt+command sits on a gray
+// renderBashChip paints a committed bash chip. The prompt+command sits on a gray
 // code cell; the output preview (in-memory label, rehydrated from node_output)
 // is muted text after the cell, with no background, so "$ ls" reads as the
 // runnable part and "→ result" as last-run chrome.
 //
-// While the command is RUNNING (cmdChipRunning, refreshed per frame by
-// syncLiveCmdRuns) that flat code cell becomes a shimmer: the same cell colors
+// While the command is RUNNING (bashChipRunning, refreshed per frame by
+// syncLiveBashChipRuns) that flat code cell becomes a shimmer: the same cell colors
 // with a soft highlight sliding across the background, text untouched. Only
 // colors change — the chip's display width stays chipDisplay's, which the caret
 // and wrap math depend on.
@@ -699,11 +699,11 @@ func inlineSpans(runes []rune) []spanFlags {
 // video would swallow the pulse (dark text on a bright block). A running chip
 // under the caret therefore inverts ONE cell, its "$" prompt, the same one-cell
 // cursor the rest of the editor draws, and shimmers the rest.
-func renderCmdChip(c database.Chip, caretOn bool) string {
+func renderBashChip(c database.Chip, caretOn bool) string {
 	var b strings.Builder
 	b.WriteString(cReset)
 	switch {
-	case cmdChipRunning(c.ID):
+	case bashChipRunning(c.ID):
 		runes := []rune("$ " + c.Value)
 		bg, fg := "", ""
 		for j, r := range runes {
@@ -746,7 +746,7 @@ func renderCmdChip(c database.Chip, caretOn bool) string {
 // renderAgentChip draws a session chip as a filled PILL: the agent's glyph and
 // the session's name on the session's own color, near-black ink on top. A hosted
 // session carries the cloud mark inside the pill (see refreshAgentChip). Like
-// the cmd chip this owns its whole look, so the generic chip-color path in
+// the bash chip this owns its whole look, so the generic chip-color path in
 // renderBody steps aside for it.
 //
 // struck carries the completed row's strikethrough INTO the pill. The pill keeps
@@ -910,20 +910,20 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 		// a chip anchor renders collapsed: the chip kind's color + compact display,
 		// atomic. The caret only ever sits at its boundaries (see snapCaret).
 		if sp := spanStartingAt(chipsp, i); sp != nil {
-			// a cmd chip is a code cell: "$ cmd" on the gray code tint — "$"
+			// a bash chip is a code cell: "$ cmd" on the gray code tint — "$"
 			// red, the command in the normal text color — while the run-output
 			// preview after the → is muted gray outside the background. The
 			// caret-on-chip cursor adds reverse video ON TOP of those colors: the
 			// wrap machinery drops cInvert (a cursor never spans lines) but carries
 			// the colors, so a chip that wraps stays tinted on every continuation.
-			if c, ok := chips[sp.id]; ok && c.Kind == chipKindCmd {
-				b.WriteString(renderCmdChip(c, caret == sp.start))
+			if c, ok := chips[sp.id]; ok && c.Kind == chipKindBash {
+				b.WriteString(renderBashChip(c, caret == sp.start))
 				cur = ""
 				i = sp.end
 				continue
 			}
 			// a session chip is a filled pill in the agent's (or the session's)
-			// own color — it owns its whole look, like the cmd chip's code cell.
+			// own color — it owns its whole look, like the bash chip's code cell.
 			// The row's strike is the one attribute that carries into it: a chip
 			// in a finished row is a finished session.
 			if c, ok := chips[sp.id]; ok && c.Kind == chipKindAgent {

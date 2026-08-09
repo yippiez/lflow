@@ -10,7 +10,7 @@ import (
 	"github.com/lflow/lflow/tui/database"
 )
 
-// liveCmdChip builds a model whose one node carries a cmd chip, with a run in
+// liveCmdChip builds a model whose one node carries a bash chip, with a run in
 // flight holding the given output lines. It returns the chip and the row the chip
 // sits on, ready for the band/render assertions below.
 func liveCmdChip(t *testing.T, cmd string, out ...string) (*Model, database.Chip, row) {
@@ -27,7 +27,7 @@ func liveCmdChip(t *testing.T, cmd string, out ...string) (*Model, database.Chip
 	for _, l := range out {
 		m.appendRunOut(c.ID, outLine{text: l})
 	}
-	m.setCmdPreview(c.ID) // what the stream wiring does after every batch
+	m.setBashChipPreview(c.ID) // what the stream wiring does after every batch
 	m.refreshRows()
 	return m, c, m.rows[m.cursor]
 }
@@ -38,7 +38,7 @@ func liveCmdChip(t *testing.T, cmd string, out ...string) (*Model, database.Chip
 func TestCmdChipPreviewStreamsTailWhileRunning(t *testing.T) {
 	m, c, _ := liveCmdChip(t, "build", "step 1", "step 2")
 
-	m.setCmdPreview(c.ID)
+	m.setBashChipPreview(c.ID)
 	if got := m.chips[c.ID].Label; got != "step 2" {
 		t.Errorf("streaming label = %q, want the newest line %q", got, "step 2")
 	}
@@ -46,7 +46,7 @@ func TestCmdChipPreviewStreamsTailWhileRunning(t *testing.T) {
 	// never blanking the preview)
 	m.appendRunOut(c.ID, outLine{text: "step 3"})
 	m.appendRunOut(c.ID, outLine{text: "   "})
-	m.setCmdPreview(c.ID)
+	m.setBashChipPreview(c.ID)
 	if got := m.chips[c.ID].Label; got != "step 3" {
 		t.Errorf("streaming label = %q, want %q", got, "step 3")
 	}
@@ -64,7 +64,7 @@ func TestCmdChipPreviewStreamsTailWhileRunning(t *testing.T) {
 // "grill-me         neural_netwo…" line reading as "grill-me neural_netwo…".
 func TestCmdChipPreviewCollapsesSpaces(t *testing.T) {
 	m, c, _ := liveCmdChip(t, "ls", "grill-me         neural_netwo…")
-	m.setCmdPreview(c.ID)
+	m.setBashChipPreview(c.ID)
 	if got := m.chips[c.ID].Label; got != "grill-me neural_netwo…" {
 		t.Errorf("preview = %q, want spaces collapsed", got)
 	}
@@ -85,14 +85,14 @@ func TestCmdChipRunClearsStalePreview(t *testing.T) {
 		t.Fatal("expected a settled preview to seed the test")
 	}
 
-	cmd := m.runCmdChip(m.chips[c.ID]) // the real launch path
+	cmd := m.runBashChip(m.chips[c.ID]) // the real launch path
 	defer func() {
 		if r := m.run(c.ID); r != nil && r.cancel != nil {
 			r.cancel()
 		}
 	}()
 	if cmd == nil {
-		t.Fatal("runCmdChip returned no stream command")
+		t.Fatal("runBashChip returned no stream command")
 	}
 	if got := m.chips[c.ID].Label; got != "" {
 		t.Errorf("label = %q at launch, want cleared", got)
@@ -108,11 +108,11 @@ func TestCmdChipRunClearsStalePreview(t *testing.T) {
 // follows the tail, the way a terminal scrolls itself.
 func TestExpandedViewHeightNeverMoves(t *testing.T) {
 	m, c, _ := liveCmdChip(t, "build")
-	m.focusCmdChip(m.chips[c.ID])
+	m.focusBashChip(m.chips[c.ID])
 	it := m.cursorItem()
 
 	const winH = 8
-	empty := (cmdChipView{}).bands(m, it, "", 80, 0, winH, true)
+	empty := (bashChipView{}).bands(m, it, "", 80, 0, winH, true)
 	if len(empty) != winH {
 		t.Fatalf("an empty run drew %d rows, want the full %d-row pane", len(empty), winH)
 	}
@@ -120,7 +120,7 @@ func TestExpandedViewHeightNeverMoves(t *testing.T) {
 		for len(m.run(c.ID).out) < n {
 			m.appendRunOut(c.ID, outLine{text: fmt.Sprintf("line %d", len(m.run(c.ID).out)+1)})
 		}
-		got := (cmdChipView{}).bands(m, it, "", 80, 0, winH, true)
+		got := (bashChipView{}).bands(m, it, "", 80, 0, winH, true)
 		if len(got) != winH {
 			t.Errorf("step %d (%d lines): pane is %d rows, want a fixed %d", i, n, len(got), winH)
 		}
@@ -132,7 +132,7 @@ func TestExpandedViewHeightNeverMoves(t *testing.T) {
 	}
 	// scrolling up stops the follow and shows the head — still the same height
 	m.focusFollow = false
-	top := (cmdChipView{}).bands(m, it, "", 80, 0, winH, true)
+	top := (bashChipView{}).bands(m, it, "", 80, 0, winH, true)
 	if len(top) != winH {
 		t.Errorf("scrolled pane is %d rows, want %d", len(top), winH)
 	}
@@ -160,8 +160,8 @@ func TestRunningChipClaimsNoBand(t *testing.T) {
 	}
 
 	// alt+e is where the output lives, streaming the same feed
-	m.focusCmdChip(m.chips[c.ID])
-	view := strings.Join((cmdChipView{}).bands(m, m.cursorItem(), "", 80, 0, 20, true), "\n")
+	m.focusBashChip(m.chips[c.ID])
+	view := strings.Join((bashChipView{}).bands(m, m.cursorItem(), "", 80, 0, 20, true), "\n")
 	for _, want := range []string{"one", "two", "three", "four", "running…", "4s", "⌥r stop"} {
 		if !strings.Contains(stripSGR(view), want) {
 			t.Errorf("expanded band missing %q:\n%s", want, stripSGR(view))
@@ -175,7 +175,7 @@ func TestRunningChipClaimsNoBand(t *testing.T) {
 // on. The block cursor wins over the shimmer when it sits on the chip.
 func TestRunningChipShimmers(t *testing.T) {
 	m, c, _ := liveCmdChip(t, "make test")
-	m.syncLiveCmdRuns()
+	m.syncLiveBashChipRuns()
 	live := m.chips[c.ID]
 
 	// the highlight sweeps in waves, so some frames rest at the flat cell color —
@@ -185,7 +185,7 @@ func TestRunningChipShimmers(t *testing.T) {
 	lifted, moved, prev := false, false, ""
 	for f := 0; f < 60; f++ {
 		animFrame = f
-		got := renderCmdChip(live, false)
+		got := renderBashChip(live, false)
 		// a background sequence other than the resting cell means the band is passing
 		for _, seq := range strings.Split(got, "\x1b[48;2;")[1:] {
 			if end := strings.IndexByte(seq, 'm'); end >= 0 && "\x1b[48;2;"+seq[:end+1] != bgCode {
@@ -207,7 +207,7 @@ func TestRunningChipShimmers(t *testing.T) {
 	// caret: it keeps shimmering, with the caret drawn as one inverted cell ("$")
 	// rather than reverse video over the whole pulse.
 	animFrame = 12
-	onCaret := renderCmdChip(live, true)
+	onCaret := renderBashChip(live, true)
 	if !strings.Contains(onCaret, cInvert+"$"+cReset) {
 		t.Errorf("running chip under the caret lost its one-cell cursor: %q", onCaret)
 	}
@@ -218,19 +218,19 @@ func TestRunningChipShimmers(t *testing.T) {
 		t.Errorf("caret-on running chip width = %d, want %d", visibleWidth(onCaret), visibleWidth(chipDisplay(live)))
 	}
 	// a settled chip under the caret still inverts as a whole, as before
-	liveCmdRuns = nil
-	if settled := renderCmdChip(live, true); !strings.Contains(settled, cInvert+bgCode) {
+	liveBashChipRuns = nil
+	if settled := renderBashChip(live, true); !strings.Contains(settled, cInvert+bgCode) {
 		t.Errorf("settled chip under the caret lost its inverted code cell: %q", settled)
 	}
-	m.syncLiveCmdRuns()
+	m.syncLiveBashChipRuns()
 
 	// width invariant: painting must not change how wide the chip is
 	want := visibleWidth(chipDisplay(live))
 	for _, name := range []string{"running", "settled"} {
 		if name == "settled" {
-			liveCmdRuns = nil
+			liveBashChipRuns = nil
 		}
-		if got := visibleWidth(renderCmdChip(live, false)); got != want {
+		if got := visibleWidth(renderBashChip(live, false)); got != want {
 			t.Errorf("%s chip width = %d, want %d (caret/wrap math reads chipDisplay)", name, got, want)
 		}
 	}

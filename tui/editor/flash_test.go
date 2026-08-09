@@ -86,7 +86,7 @@ func TestFlashJumpFires(t *testing.T) {
 
 // A runnable type offers its run action straight from the registry — no
 // per-type wiring in flash. Query carries run; the legacy bash type is gone
-// (falls back to bullets), so it only offers run when the row has a cmd chip.
+// (falls back to bullets), so it only offers run when the row has a bash chip.
 func TestFlashOffersRegistryActions(t *testing.T) {
 	m := newTestModel(80, "note", "grep foo")
 	m.tree.root.children[1].typ = database.TypeQuery
@@ -118,7 +118,7 @@ func TestFlashOffersRegistryActions(t *testing.T) {
 // Content-sensitive alt+r actions are also surfaced in flash.
 func TestFlashOffersInlineRunActions(t *testing.T) {
 	m := newTestModel(80, "note", "")
-	cmdAnchor := m.createChip(chipKindCmd, "echo hi")
+	cmdAnchor := m.createChip(chipKindBash, "echo hi")
 	m.tree.root.children[1].name = "run " + cmdAnchor
 	m.refreshRows()
 	m.cursor = 0
@@ -131,7 +131,7 @@ func TestFlashOffersInlineRunActions(t *testing.T) {
 		}
 	}
 	if !verbs["run $"] {
-		t.Fatalf("cmd chip should offer a flash run action, got %v", verbs)
+		t.Fatalf("bash chip should offer a flash run action, got %v", verbs)
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 
 // ⌥e on a session chip opens the SESSION EDITOR — name and color together with
 // a live pill preview, rendered as a band beneath the chip's own row (the same
-// focusChip/focused surface a cmd chip's run output uses), never a separate
+// focusChip/focused surface a bash chip's run output uses), never a separate
 // full-screen page. ⌥c still jumps straight to the color picker.
 //
 // Neither touches the row's text: a chip's name and color are its own, stored in
@@ -95,10 +95,10 @@ func (m *Model) handleAgentEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // agentEditView is the alt+e session editor's inline view: a live pill
 // preview, name field and color swatches render as a band beneath the chip's
-// own row — the same surface a cmd chip's run output (cmdChipView) uses,
+// own row — the same surface a bash chip's run output (bashChipView) uses,
 // never a separate full-screen page. Stateless like every nodeView; the
 // working copy lives in m.agentEdit*, focused via m.focusChip exactly like
-// cmdChipView and linkEditView.
+// bashChipView and linkEditView.
 type agentEditView struct{}
 
 func (agentEditView) enter(m *Model, it *item) bool { return m.focusChip != "" }

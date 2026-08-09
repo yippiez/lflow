@@ -103,7 +103,7 @@ func ShineText(s string) string {
 // ── run shimmer ─────────────────────────────────────────────────────────────
 
 // A command in flight animates what is already on screen instead of adding
-// chrome: a running cmd chip's code cell gets a soft lighter band sliding across
+// chrome: a running bash chip's code cell gets a soft lighter band sliding across
 // its BACKGROUND (the text never moves, so the row stays readable), and the
 // "running…" line under the node shimmers on its FOREGROUND in the same rhythm.
 // Both read the shared animFrame, so every busy surface pulses together — and
@@ -181,7 +181,7 @@ func (m *Model) anyPickerFilling() bool {
 	return m.zoteroFill.running() || m.agentFill.running()
 }
 
-// anyRunning reports whether any run band has a command in flight — a cmd chip
+// anyRunning reports whether any run band has a command in flight — a bash chip
 // or a runnable node. Keeps the shimmer sliding and the elapsed clock ticking
 // even for a command that prints nothing for minutes.
 func (m *Model) anyRunning() bool {

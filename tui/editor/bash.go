@@ -61,7 +61,7 @@ type bashDoneMsg struct {
 const termRows = 24
 
 // runShell is the run-or-cancel toggle for an arbitrary shell command, keyed by
-// node uuid (the Bash node) or chip id (the cmd chip, runCmdChip). Output lands
+// node uuid (the Bash node) or chip id (the bash chip, runBashChip). Output lands
 // on a terminal screen, not a line list.
 func runShell(m *Model, id, cmd string) tea.Cmd {
 	if r := m.run(id); r != nil && r.cancel != nil {
@@ -73,7 +73,7 @@ func runShell(m *Model, id, cmd string) tea.Cmd {
 }
 
 // startShellRun is the one launch path for a shell run, keyed by node uuid or
-// cmd chip id: a fresh multiplexer session (PTY + terminal screen) sized to
+// bash chip id: a fresh multiplexer session (PTY + terminal screen) sized to
 // the editor's body, its stream forwarded into the update loop.
 func (m *Model) startShellRun(id, cmd string) tea.Cmd {
 	r := m.ensureRun(id)
@@ -207,8 +207,8 @@ type runTail struct {
 }
 
 // runTails is the render-time map of node uuid → the headline its row hangs,
-// the node-side twin of a cmd chip's Label. Same render-time global discipline
-// as liveCmdRuns and animFrame: the bodyTail hook is a pure
+// the node-side twin of a bash chip's Label. Same render-time global discipline
+// as liveBashChipRuns and animFrame: the bodyTail hook is a pure
 // func(item, chips) reached from every render surface, and this is the one bit
 // of run state it needs. syncRunTails refreshes it once per frame, and both it
 // and the readers run on bubbletea's single goroutine.
@@ -248,7 +248,7 @@ func (m *Model) finishRun(uuid string) {
 		}
 	}
 	m.persistRunOut(uuid)
-	m.setCmdPreview(uuid)
+	m.setBashChipPreview(uuid)
 }
 
 // The PTY producer itself — spawn, read, coalesce on a ~50ms window — lives in
@@ -297,8 +297,8 @@ func (runOutView) bands(m *Model, it *item, rail string, width, scroll, winH int
 //
 // It also FOLLOWS the output like a terminal does: a fresh focus sits at the
 // bottom and stays there as lines arrive, until you scroll up (which stops the
-// follow); end/G resumes it. runOutView and cmdChipView share both halves so the
-// Bash node and the cmd chip behave identically.
+// follow); end/G resumes it. runOutView and bashChipView share both halves so the
+// Bash node and the bash chip behave identically.
 
 // runViewLines is the CONTENT height both expanded run views report — one
 // header plus every output line. It is what the central loop clamps scrolling

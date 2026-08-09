@@ -48,7 +48,6 @@ const (
 	modeCharacterPick  // the alt+e character picker on a Line node: pick or write a character
 	modeCharacterColor // the character picker's recolor key: assign a pill color to a character
 	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
-	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
 	modeShortcuts      // /shortcuts: full-page, scrollable shortcut reference
 )
 
@@ -194,23 +193,30 @@ type Model struct {
 	noteRich bool
 
 	// alt+e link-chip editor: an inline band under the row (linkEditView), keyed
-	// through focusChip like the cmd chip's output band
+	// through focusChip like the bash chip's output band
 	linkEditID     string // chip id being edited
 	linkEditName   string // working copy of the link's display name
 	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
 	linkEditField  int    // 0 = name field, 1 = target field
 	linkEditCaret  int    // caret inside the active field — same movement keys as the outline
 
-	// alt+e cmd-chip editor (modeCmdEdit): the command inside a $ chip, one field.
-	cmdEditID    string // chip id being edited
-	cmdEditValue string // working copy of the command
-	cmdEditCaret int    // caret inside the field
+	// alt+i chip-field editor: the command inside a $ (bash) chip, or the
+	// tag+attributes inside a <> (element) chip — one field, shared by both
+	// kinds. An inline band under the row (chipEditView), keyed through
+	// focusChip/focusChipEditing like every other alt+e/alt+i editor.
+	chipEditID    string // chip id being edited
+	chipEditValue string // working copy of the field
+	chipEditCaret int    // caret inside the field
 
-	// the focused chip (alt+e): its inline view renders as a band beneath the
-	// node — the same surface a focused bash node uses — keyed by this chip id.
-	// A cmd chip's band is its run output; a link or session chip's is its
-	// editor (linkEditView / agentEditView); activeView dispatches on chip kind.
-	focusChip string
+	// the focused chip (alt+e/alt+i): its inline view renders as a band beneath
+	// the node — the same surface a focused bash node uses — keyed by this chip
+	// id. A bash chip's alt+e band is its run output (bashChipView) UNLESS
+	// focusChipEditing is set, in which case alt+i put it in chipEditView
+	// instead; a link or session chip's band is always its editor
+	// (linkEditView / agentEditView). activeView dispatches on chip kind (and,
+	// for a bash chip, focusChipEditing).
+	focusChip        string
+	focusChipEditing bool
 
 	// the agentic coding session pickers (/agent, /agents). agentStore is the
 	// sessions discovered in the CLIs' own stores when the start/attach picker
@@ -1002,11 +1008,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, l := range msg.lines {
 			m.appendRunOut(msg.uuid, l)
 		}
-		// a cmd chip's inline → tail tracks the newest line as it arrives, so a
+		// a bash chip's inline → tail tracks the newest line as it arrives, so a
 		// long-running command streams in place instead of staying blank until it
-		// exits (setCmdPreview is a no-op for a node uuid). startAnim keeps the
+		// exits (setBashChipPreview is a no-op for a node uuid). startAnim keeps the
 		// shimmer sliding for the rest of the run.
-		m.setCmdPreview(msg.uuid)
+		m.setBashChipPreview(msg.uuid)
 		return m, m.startAnim(waitBashCmd(r.ch))
 	case bashBytesMsg:
 		r := m.run(msg.uuid)
@@ -1018,7 +1024,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// raw PTY bytes go to the run's terminal screen, which interprets them the
 		// way a terminal would (overwrites, clears, cursor moves) — see term.go
 		r.scr.Write(msg.data)
-		m.setCmdPreview(msg.uuid)
+		m.setBashChipPreview(msg.uuid)
 		return m, m.startAnim(waitBashCmd(r.ch))
 	case bashDoneMsg:
 		m.finishRun(msg.uuid) // cache the finished band so it survives a restart
@@ -2292,7 +2298,7 @@ func (m *Model) handleNoteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case typed == "$" && m.noteRuneBefore('$'):
 			m.removeNoteRuneBeforeCaret()
-			if anchor := m.createChip(chipKindCmd, ""); anchor != "" {
+			if anchor := m.createChip(chipKindBash, ""); anchor != "" {
 				m.insertLiteralAt(cur, m.caret, anchor)
 				m.flash = "empty $ chip · alt+i edits the command"
 			}
@@ -2448,7 +2454,7 @@ func RunFile(ctx runtime.Ctx, nodeUUID string, fs FileSession) error {
 		onSave:       onSave,
 		allowedTypes: allowedTypes,
 	}
-	m.hydrateCmdPreviews() // rebuild → chrome from local node_output (chip label is never stored)
+	m.hydrateBashChipPreviews() // rebuild → chrome from local node_output (chip label is never stored)
 	m.hydrateRunTails()    // and the same for runnable NODES, whose rows hang a → tail
 	m.hydrateAgentChips()  // same for session chips: the label is the session's live title
 	m.startFeed()          // subscribe to external changes; Init retries if it failed

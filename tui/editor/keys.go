@@ -77,8 +77,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleListMode(k, m.listSource())
 	case modeFinder:
 		return m.finder.handleKey(m, k, nodeFinderBackend{})
-	case modeCmdEdit:
-		return m.handleCmdEditKey(k)
 	case modeNote:
 		return m.handleNoteKey(k)
 	case modeConfirm:
@@ -649,18 +647,18 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+i":
-		// edit the command inside a cmd chip at the caret — the one edit a $ chip
-		// allows (see modeCmdEdit). alt+e on a cmd chip is its run output, so the
+		// edit the command inside a bash chip at the caret — the one edit a $ chip
+		// allows (see chipEditView). alt+e on a bash chip is its run output, so the
 		// command itself gets this key instead.
 		if cur := m.cursorItem(); cur != nil {
-			if c, ok := m.cmdChipAtCaret(cur); ok {
-				m.openCmdEdit(c)
+			if c, ok := m.bashChipAtCaret(cur); ok {
+				m.openChipEdit(c)
 				return m, nil
 			}
 			// on a markup row, ⌥i edits the RESERVED element — the same gesture,
 			// the same meaning: change the structured thing this row is built on
 			if c, ok := m.markupElementChip(cur); ok {
-				m.openCmdEdit(c)
+				m.openChipEdit(c)
 				return m, nil
 			}
 		}
@@ -677,8 +675,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.focused = true
 					m.focusScroll = 0
 				}
-			} else if c, ok := m.cmdChipAtCaret(cur); ok {
-				m.focusCmdChip(c) // ⌥e on a cmd chip: its run output as an inline band
+			} else if c, ok := m.bashChipAtCaret(cur); ok {
+				m.focusBashChip(c) // ⌥e on a bash chip: its run output as an inline band
 				return m, nil
 			} else if c, ok := m.agentChipForKeys(cur); ok {
 				m.openAgentEdit(c) // ⌥e on a session chip: the name+color page
@@ -704,8 +702,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if zoteroMirrored(cur) {
 				return m, runZoteroPull(m, cur)
 			}
-			if c, ok := m.cmdChipAtCaret(cur); ok {
-				return m, m.runCmdChip(c) // an inline cmd chip runs on its own
+			if c, ok := m.bashChipAtCaret(cur); ok {
+				return m, m.runBashChip(c) // an inline bash chip runs on its own
 			}
 			// running a link chip IS opening it — the browser for a URL (a Google
 			// Sheets/Docs chip lands in the host browser), a jump for a node link.
@@ -806,7 +804,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.runSlash("/type")
 	case "alt+c":
 		// color: a session chip under the caret takes the key for its own color,
-		// the way ⌥k goes to a cmd chip's band before the node's. Everywhere else
+		// the way ⌥k goes to a bash chip's band before the node's. Everywhere else
 		// this opens the style picker (same as /style) — c for colors; alt+y is
 		// the yank key, so the picker moved off it.
 		if cur := m.cursorItem(); cur != nil {
@@ -818,11 +816,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.runSlash("/style")
 	case "alt+k":
 		// kill: stop a running command, keeping what was captured; when nothing is
-		// running, clear the output band. A cmd chip under the caret takes the
+		// running, clear the output band. A bash chip under the caret takes the
 		// key (its band is keyed by chip id); otherwise the node's own band.
 		if cur := m.cursorItem(); cur != nil {
 			id := cur.uuid
-			if c, ok := m.cmdChipAtCaret(cur); ok {
+			if c, ok := m.bashChipAtCaret(cur); ok {
 				id = c.ID
 			}
 			r := m.run(id)
@@ -835,7 +833,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				r.dropped = 0
 				r.pwd = ""
 				m.persistRunOut(id) // an empty band deletes the row
-				m.setCmdPreview(id)
+				m.setBashChipPreview(id)
 			}
 		}
 		return m, nil
@@ -1131,7 +1129,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// "$$" lands an empty cmd chip: the second "$" drops the first and splices
+		// "$$" lands an empty bash chip: the second "$" drops the first and splices
 		// a blank $ chip to fill in (alt+i edits its command). A single "$" is
 		// always literal — "$i", "$(seq …)" and "$HOME" are shell syntax that type
 		// normally in a bash node, never a chip. There is no cancel path, matching
@@ -1143,7 +1141,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			tgt.name = string(runes[:m.caret-1]) + string(runes[m.caret:])
 			m.caret--
 			m.unsaved = true
-			if anchor := m.createChip(chipKindCmd, ""); anchor != "" {
+			if anchor := m.createChip(chipKindBash, ""); anchor != "" {
 				m.insertLiteralAt(cur, m.caret, anchor)
 				m.flash = "empty $ chip · alt+i edits the command"
 			}
@@ -1211,7 +1209,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.boundCaret(len([]rune(cur.name)))
 
 		// typing a space commits a #tag / date token before it into a chip. A "$"
-		// command never auto-chips: "$$" is the only way a cmd chip forms by
+		// command never auto-chips: "$$" is the only way a bash chip forms by
 		// typing (a single "$" is literal everywhere — $i, $(…), $HOME), and a
 		// bash node's whole row is shell syntax anyway (bashLiteralRow).
 		if text == " " && !k.Paste {
