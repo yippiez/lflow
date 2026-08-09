@@ -293,16 +293,14 @@ func continuationPrefix(r row, subtreeBelow bool) string {
 	return cDim + string(cells)
 }
 
-// quoteContinuationPrefix is continuationPrefix with the trailing space cell
-// swapped for the accent-colored quote bar, so a wrapped quote's bar runs the
-// full height of the block instead of stopping after the line it started on.
+// quoteContinuationPrefix carries the quote bar onto every wrapped
+// continuation line. The first line's text starts after the rail indent plus
+// renderBody's own "▎ " prefix; continuation lines get the same rail indent
+// from continuationPrefix with "▎ " appended after it (not swapped into its
+// trailing cell), so the text column lines up under the first line instead
+// of drifting one column left.
 func quoteContinuationPrefix(r row, subtreeBelow bool) string {
-	prefix := continuationPrefix(r, subtreeBelow)
-	runes := []rune(prefix)
-	if len(runes) == 0 {
-		return prefix
-	}
-	return string(runes[:len(runes)-1]) + cAccent + glyphQuoteBar + cReset
+	return continuationPrefix(r, subtreeBelow) + cAccent + glyphQuoteBar + cReset + " "
 }
 
 // rowOpts is the per-call context renderRow needs beyond the row itself. The

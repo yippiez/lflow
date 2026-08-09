@@ -559,6 +559,42 @@ func TestQuoteBarCarriesThroughWrappedLines(t *testing.T) {
 	}
 }
 
+// TestQuoteBarAlignsWithFirstLineIndent guards the follow-up regression: the
+// bar was carried onto continuation lines by swapping it into the rail
+// prefix's trailing cell, which ate the space renderBody puts between the
+// bar and the text on the first line — every continuation line's text then
+// landed one column left of where the first line's text started.
+func TestQuoteBarAlignsWithFirstLineIndent(t *testing.T) {
+	m := newTestModel(30, "aaaa bbbb cccc dddd eeee ffff")
+	m.tree.root.children[0].typ = database.TypeQuote
+
+	lines := m.finalView(m.width - 1)
+	if len(lines) < 2 {
+		t.Fatalf("expected the quote to wrap to >=2 lines, got %v", lines)
+	}
+	var textCol int
+	for i, l := range lines {
+		plain := stripSGR(l)
+		byteIdx := strings.Index(plain, glyphQuoteBar)
+		if byteIdx < 0 {
+			t.Fatalf("line %d missing the quote bar: %q", i, plain)
+		}
+		runes := []rune(plain)
+		barIdx := len([]rune(plain[:byteIdx]))
+		if barIdx+1 >= len(runes) || runes[barIdx+1] != ' ' {
+			t.Fatalf("line %d bar not followed by a single space: %q", i, plain)
+		}
+		col := barIdx + 2 // past "▎ "
+		if i == 0 {
+			textCol = col
+			continue
+		}
+		if col != textCol {
+			t.Errorf("line %d text starts at column %d, want %d (aligned with the first line)", i, col, textCol)
+		}
+	}
+}
+
 func TestGlyphForHeadingDigits(t *testing.T) {
 	cases := []struct {
 		typ  string
