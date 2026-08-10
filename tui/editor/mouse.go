@@ -149,7 +149,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	switch msg.Action {
 	case tea.MouseActionMotion, tea.MouseActionRelease:
 		// Only the toolbar reacts to a bare pointer, so only a crumb is tracked:
-		// underlining whatever row the mouse happened to cross would turn every
+		// lighting up whatever row the mouse happened to cross would turn every
 		// pointer move into a repaint of the outline for no information.
 		m.mouse.hover = 0
 		if z, ok := m.mouse.at(msg.X, msg.Y); ok && z.kind == hitCrumb {

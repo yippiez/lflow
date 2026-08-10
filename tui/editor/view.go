@@ -711,7 +711,11 @@ func (m *Model) bottomBar(maxLine int) []string {
 			col += 3
 		}
 		if clickable && m.mouse.hover == i+1 {
-			title += cReset + cFG + cUnderline + c.label + cReset + cDim
+			// the hovered crumb lifts out of the bar's dim gray into the ordinary
+			// text gray, and nothing else changes: no underline, no fill. The bar
+			// is one quiet strip of gray, and a segment that brightens inside it
+			// says "this one" without turning the toolbar into a widget.
+			title += cReset + cFG + c.label + cReset + cDim
 		} else {
 			title += c.label
 		}

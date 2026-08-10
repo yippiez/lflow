@@ -161,8 +161,9 @@ func TestClickBreadcrumbWalksBackToThatNode(t *testing.T) {
 }
 
 // TestHoverLightsOneBreadcrumbSegment: a crumb has to read as clickable before
-// it is clicked, so the segment under the pointer lifts out of the bar's gray —
-// and only that one does.
+// it is clicked, so the segment under the pointer lifts out of the bar's dim
+// gray into the ordinary text gray — and only that one does. The lift is the
+// WHOLE cue: no underline, no fill.
 func TestHoverLightsOneBreadcrumbSegment(t *testing.T) {
 	m := newTestModelWithChildren(100, "parent", "kid")
 	m.zoomInto(m.tree.root.children[0])
@@ -174,11 +175,14 @@ func TestHoverLightsOneBreadcrumbSegment(t *testing.T) {
 		t.Fatalf("hover = %d, want the second crumb (2)", m.mouse.hover)
 	}
 	bar := strings.Join(m.bottomBar(99), "\n")
-	if !strings.Contains(bar, cUnderline+"parent") {
-		t.Fatalf("hovered crumb is not lit:\n%q", bar)
+	if !strings.Contains(bar, cFG+"parent") {
+		t.Fatalf("hovered crumb is not lifted to the lighter gray:\n%q", bar)
 	}
-	if strings.Contains(bar, cUnderline+"untitled") {
+	if strings.Contains(bar, cFG+"untitled") {
 		t.Fatalf("only the hovered crumb may light up:\n%q", bar)
+	}
+	if strings.Contains(bar, cUnderline) {
+		t.Fatalf("the hover is a lighter gray, not an underline:\n%q", bar)
 	}
 
 	// off the bar, the highlight goes away
@@ -187,7 +191,7 @@ func TestHoverLightsOneBreadcrumbSegment(t *testing.T) {
 	if m.mouse.hover != 0 {
 		t.Fatalf("hover = %d, want none (0) once the pointer leaves the crumbs", m.mouse.hover)
 	}
-	if strings.Contains(strings.Join(m.bottomBar(99), "\n"), cUnderline) {
+	if strings.Contains(strings.Join(m.bottomBar(99), "\n"), cFG+"parent") {
 		t.Fatal("no crumb should be lit with the pointer off the bar")
 	}
 }

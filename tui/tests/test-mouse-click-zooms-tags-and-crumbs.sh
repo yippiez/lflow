@@ -34,13 +34,26 @@ assert_contains "○ mouse.go #mouse"
 
 # ── the breadcrumb: hover lights the segment, a click walks the view there ──
 read -r _ by <<< "$(cell_of "› editor ·")"
+# The whole bar is the dim gray; a hovered crumb lifts to the ordinary text gray
+# and nothing else. That is invisible in a plain-text pane, so read the styled
+# capture — before and after, so the assertion is the CHANGE and not a color that
+# happened to be somewhere on the line already.
+LIGHT_GRAY=$'\033[38;2;212;212;212m'
+bar_style() { tmux capture-pane -t "${SESSION}" -p -e | sed -n "$(( by + 1 ))p"; }
+before="$(bar_style)"
 mouse move 1 "${by}"
-# the hovered crumb is underlined (SGR 4) — the plain-text pane cannot show that,
-# so read the styled capture
-styled="$(tmux capture-pane -t "${SESSION}" -p -e | sed -n "$(( by + 1 ))p")"
-if [[ "${styled}" != *$'\033[4m'* ]]; then
-    LAST_PANE="${styled}"
-    fail "hovering the first crumb did not light it up"
+after="$(bar_style)"
+if [[ "${before}" == *"${LIGHT_GRAY}"* ]]; then
+    LAST_PANE="${before}"
+    fail "no crumb should be lit before the pointer reaches the bar"
+fi
+if [[ "${after}" != *"${LIGHT_GRAY}"* ]]; then
+    LAST_PANE="${after}"
+    fail "hovering the first crumb did not lift it to the lighter gray"
+fi
+if [[ "${after}" == *$'\033[4m'* ]]; then
+    LAST_PANE="${after}"
+    fail "the hover must be a lighter gray, not an underline"
 fi
 
 mouse click 1 "${by}"
