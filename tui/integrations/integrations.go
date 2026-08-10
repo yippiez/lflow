@@ -8,6 +8,11 @@
 //     query goes exactly where they pointed it and nowhere else, its JSON
 //     output is a real contract rather than scraped markup, and it needs no
 //     account and no API key.
+//   - Google Books (googlebooks*.go) — the volumes API behind the books node
+//     type. It asks Google for a query and hands back volumes (title, byline,
+//     year, publisher, ISBN, the book's page). Unlike SearxNG there is nothing
+//     to point it at and nothing to sign up for: the endpoint answers anonymous
+//     queries, and the optional api_key only raises the per-IP quota.
 //   - Zotero (zotero*.go) — reads the local Zotero library (the desktop
 //     app's zotero.sqlite) and turns its entries into citable references
 //     (the editor's zotero chip) and mirrored subtrees (the zotero node).

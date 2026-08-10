@@ -1039,6 +1039,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case webDoneMsg:
 		m.handleWebDone(msg)
 		return m, nil
+	case booksDoneMsg:
+		m.handleBooksDone(msg)
+		return m, nil
 	case imagePastedMsg:
 		m.setImagePasting(msg.uuid, false)
 		switch {

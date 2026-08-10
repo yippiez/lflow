@@ -113,6 +113,16 @@ const (
 	// and tui/integrations.
 	TypeWebResult = "webresult"
 
+	// TypeBooks is the web node's bibliographic sibling: the name is a book
+	// search, alt+r asks Google Books (see tui/integrations) and the volumes
+	// hang under it as TypeBookResult rows.
+	TypeBooks = "books"
+	// TypeBookResult is one volume: a generated row a books node hangs under it
+	// (a link chip to the book's page, then its byline and year). It is
+	// generated, so it never appears in the /type picker; a re-run replaces the
+	// rows by type. See editor/booksnode.go.
+	TypeBookResult = "bookresult"
+
 	// TypeZotero is a mirrored Zotero entry: one node per library item, its
 	// attachments, annotations and notes pulled in beneath it as a locked
 	// subtree (see editor/zoteroitem.go and tui/integrations).
@@ -146,6 +156,7 @@ var TypeOrder = []string{
 	TypeBash,
 	TypeQuery,
 	TypeWeb,
+	TypeBooks,
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
@@ -167,6 +178,7 @@ var TypeOrder = []string{
 	TypeLine,
 	TypeAgent,
 	TypeWebResult,
+	TypeBookResult,
 	TypeZotero,
 }
 
