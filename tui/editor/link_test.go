@@ -280,6 +280,97 @@ func TestLinkEditViaAltE(t *testing.T) {
 	}
 }
 
+// TestLinkColorViaAltE: the ⌥e editor's third row colors THIS link chip. The
+// color persists, the render path paints it, and "default" hands the link back
+// to the link.color preference.
+func TestLinkColorViaAltE(t *testing.T) {
+	defer func() { linkColors = map[string]string{} }()
+	m, db := dbModel(t, database.Node{UUID: "here", Name: "x"})
+	cursorOn(m, "here")
+	m.caret = 0
+	m.insertLinkChip("https://old.com", "Old")
+	c, _ := linkChipOf(m)
+
+	m.feed(altRune('e'))
+	// tab twice: name → target → color
+	m.feed(tea.KeyMsg{Type: tea.KeyTab})
+	m.feed(tea.KeyMsg{Type: tea.KeyTab})
+	if m.linkEditField != linkFieldColor {
+		t.Fatalf("two tabs land on field %d, want the color row", m.linkEditField)
+	}
+	// → steps off "default" onto the first palette color
+	m.feed(tea.KeyMsg{Type: tea.KeyRight})
+	if got := linkColorOptions()[m.linkEditColor]; got != "red" {
+		t.Fatalf("→ picked %q, want red (the first palette color)", got)
+	}
+	// typing on the color row must not leak into the name
+	m.feed(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	if m.linkEditName != "Old" {
+		t.Fatalf("a rune on the color row edited the name: %q", m.linkEditName)
+	}
+	m.feed(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if linkColors[c.ID] != "red" {
+		t.Fatalf("linkColors = %v, want red for %s", linkColors, c.ID)
+	}
+	saved, err := database.AllLinkColors(db)
+	if err != nil || saved[c.ID] != "red" {
+		t.Fatalf("persisted colors = %v (%v)", saved, err)
+	}
+	cur := m.cursorItem()
+	body := renderBody(cur, cur.name, -1, false, m.chips)
+	if !strings.Contains(body, "[38;2;244;71;71m") {
+		t.Fatalf("the link chip must render red, got %q", body)
+	}
+
+	// reopening seeds the row with the color it already wears, and "default"
+	// clears the assignment
+	m.feed(altRune('e'))
+	if got := linkColorOptions()[m.linkEditColor]; got != "red" {
+		t.Fatalf("reopened on %q, want the assigned red", got)
+	}
+	m.feed(tea.KeyMsg{Type: tea.KeyTab})
+	m.feed(tea.KeyMsg{Type: tea.KeyTab})
+	m.feed(tea.KeyMsg{Type: tea.KeyLeft})
+	if got := linkColorOptions()[m.linkEditColor]; got != "default" {
+		t.Fatalf("← from red picked %q, want default", got)
+	}
+	m.feed(tea.KeyMsg{Type: tea.KeyEnter})
+	if _, ok := linkColors[c.ID]; ok {
+		t.Fatal("default must clear the in-memory color")
+	}
+	if saved, _ := database.AllLinkColors(db); len(saved) != 0 {
+		t.Fatalf("default must clear the persisted color, got %v", saved)
+	}
+	if linkChipColorSGR(c.ID) != "" {
+		t.Fatal("a cleared link must fall back to the link.color default")
+	}
+}
+
+// TestLinkColorBeatsServiceHue: a service link wears its service's muted hue by
+// default, and an explicit ⌥e color takes it over.
+func TestLinkColorBeatsServiceHue(t *testing.T) {
+	defer func() { linkColors = map[string]string{} }()
+	m, _ := dbModel(t, database.Node{UUID: "here", Name: "x"})
+	cursorOn(m, "here")
+	m.caret = 0
+	m.insertLinkChip("https://docs.google.com/spreadsheets/d/abc/edit", "Q3 budget")
+	c, _ := linkChipOf(m)
+
+	cur := m.cursorItem()
+	if body := renderBody(cur, cur.name, -1, false, m.chips); !strings.Contains(body, serviceColors["sheets"]) {
+		t.Fatalf("an uncolored Sheets link must wear the service hue, got %q", body)
+	}
+	m.setLinkColor(c.ID, "cyan")
+	body := renderBody(cur, cur.name, -1, false, m.chips)
+	if strings.Contains(body, serviceColors["sheets"]) {
+		t.Fatalf("an assigned color must beat the service hue, got %q", body)
+	}
+	if !strings.Contains(body, styleColorCode["cyan"]) {
+		t.Fatalf("the link must render cyan, got %q", body)
+	}
+}
+
 // TestNodeLinkURIRoundTrip is a small unit guard on the target encoding.
 func TestNodeLinkURIRoundTrip(t *testing.T) {
 	uuid, ok := nodeLinkUUID(nodeLinkURI("abc-123"))

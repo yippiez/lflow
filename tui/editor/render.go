@@ -974,6 +974,11 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 					if svc, ok := linkService(c); ok {
 						col = serviceChipColor(svc)
 					}
+					// a color assigned in the ⌥e editor beats both: it is this
+					// chip's own, chosen for this link (see link.go)
+					if s := linkChipColorSGR(c.ID); s != "" {
+						col = s
+					}
 					if _, isNode := nodeLinkUUID(c.Value); !isNode {
 						osc8 = c.Value
 					}

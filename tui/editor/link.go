@@ -12,8 +12,9 @@ import (
 
 // A link chip points at a node or a website. Its target is stored in the chip
 // value — "lflow://node/<uuid>" for a node, a URL otherwise — and its arbitrary
-// display name in the chip label. Create one with "[[" (or /insert → Link),
-// follow it with alt+g or alt+r. A target pointing at a known service (Google
+// display name in the chip label. Its color, when it has been given one, lives
+// beside it in link_colors. Create one with "[[" (or /insert → Link), edit all
+// three with alt+e, follow it with alt+g or alt+r. A target pointing at a known service (Google
 // Sheets/Docs/…) renders as that service's branded chip; see service.go.
 //
 // A bare URL — or a pasted "lflow://node/<uuid>" link, as /link copies it —
@@ -306,35 +307,102 @@ func (m *Model) pasteLinkOverSelection(k tea.KeyMsg) bool {
 	return true
 }
 
+// ── manual per-link color ──────────────────────────────────────────────────
+
+// Manual per-link colors: the ⌥e editor's third field assigns a color to THIS
+// link chip. Default is no color — the link.color preference, or the service's
+// own muted hue. Assignments live in the link_colors table and, like tagColors,
+// hydrate into a package var so the hot render path stays Model-free.
+
+// linkColors is link chip id → style color name.
+var linkColors = map[string]string{}
+
+// linkColorOptions is the color row's order: "default" (whatever the link would
+// wear on its own) first, then the shared style palette — the same list a tag
+// and a session chip offer.
+func linkColorOptions() []string {
+	return append([]string{"default"}, styleColorOrder...)
+}
+
+// linkChipColorSGR returns the SGR for a link chip's assigned color — the color
+// as the foreground, still underlined so a link stays visually a link — or ""
+// when the chip has none. Built from styleColorCode at call time so /theme
+// switches carry over.
+func linkChipColorSGR(id string) string {
+	name, ok := linkColors[id]
+	if !ok || name == "" {
+		return ""
+	}
+	code, ok := styleColorCode[name]
+	if !ok {
+		return ""
+	}
+	return code + cUnderline
+}
+
+// setLinkColor records a chip's color ("" = back to the default) in both the
+// package var and the store.
+func (m *Model) setLinkColor(id, color string) {
+	if color == "" {
+		delete(linkColors, id)
+	} else {
+		linkColors[id] = color
+	}
+	if db := m.chipDB(); db != nil {
+		_ = database.SetLinkColor(db, id, color)
+	}
+}
+
 // ── alt+e link editor (modeLinkEdit) ───────────────────────────────────────
 
-// openLinkEdit enters the two-field editor for a link chip's name and target.
+// the editor's fields, in tab order: name, target, color.
+const (
+	linkFieldName = iota
+	linkFieldTarget
+	linkFieldColor
+	linkFieldCount
+)
+
+// openLinkEdit enters the three-field editor for a link chip's name, target and
+// color.
 func (m *Model) openLinkEdit(c database.Chip) {
 	m.mode = modeLinkEdit
 	m.linkEditID = c.ID
 	m.linkEditName = c.Label
 	m.linkEditTarget = c.Value
-	m.linkEditField = 0
+	m.linkEditField = linkFieldName
 	m.linkEditCaret = len([]rune(c.Label))
+	m.linkEditColor = 0
+	for i, opt := range linkColorOptions() {
+		if opt == linkColors[c.ID] {
+			m.linkEditColor = i
+		}
+	}
 }
 
-// linkEditActive returns the active field's text; set writes it back.
+// linkEditActive returns the active text field's content; set writes it back.
+// The color row is not text — it reads as empty and swallows writes.
 func (m *Model) linkEditActive() string {
-	if m.linkEditField == 0 {
+	switch m.linkEditField {
+	case linkFieldName:
 		return m.linkEditName
+	case linkFieldTarget:
+		return m.linkEditTarget
 	}
-	return m.linkEditTarget
+	return ""
 }
 
 func (m *Model) setLinkEditActive(s string) {
-	if m.linkEditField == 0 {
+	switch m.linkEditField {
+	case linkFieldName:
 		m.linkEditName = s
-	} else {
+	case linkFieldTarget:
 		m.linkEditTarget = s
 	}
 }
 
-// saveLinkEdit writes the edited name/target back to the chip store.
+// saveLinkEdit writes the edited name/target back to the chip store, and the
+// picked color to the link color store.
 func (m *Model) saveLinkEdit() {
 	c, ok := m.chips[m.linkEditID]
 	if !ok {
@@ -351,25 +419,45 @@ func (m *Model) saveLinkEdit() {
 	if m.ctx.DB != nil {
 		_ = database.UpsertChip(m.ctx.DB, c)
 	}
+	color := ""
+	if opts := linkColorOptions(); m.linkEditColor > 0 && m.linkEditColor < len(opts) {
+		color = opts[m.linkEditColor]
+	}
+	m.setLinkColor(c.ID, color)
 	m.unsaved = true
 }
 
 // handleLinkEditKey edits the active field with the same caret vocabulary as
 // the outline editor: ←/→, ctrl+←/→ word jumps, ctrl+backspace word delete,
-// home/end — text editing is consistent everywhere.
+// home/end — text editing is consistent everywhere. The color row is not text:
+// there ←/→ cycle swatches instead, the way the session page's color row does.
 func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
 		m.mode = modeOutline
 		return m, nil
-	case "tab", "shift+tab", "up", "down":
-		m.linkEditField = 1 - m.linkEditField
+	case "tab", "down":
+		m.linkEditField = (m.linkEditField + 1) % linkFieldCount
+		m.linkEditCaret = len([]rune(m.linkEditActive()))
+		return m, nil
+	case "shift+tab", "up":
+		m.linkEditField = (m.linkEditField + linkFieldCount - 1) % linkFieldCount
 		m.linkEditCaret = len([]rune(m.linkEditActive()))
 		return m, nil
 	case "enter":
 		m.saveLinkEdit()
 		m.mode = modeOutline
 		m.refreshRows()
+		return m, nil
+	}
+	if m.linkEditField == linkFieldColor {
+		n := len(linkColorOptions())
+		switch k.String() {
+		case "left":
+			m.linkEditColor = (m.linkEditColor + n - 1) % n
+		case "right":
+			m.linkEditColor = (m.linkEditColor + 1) % n
+		}
 		return m, nil
 	}
 	// within-a-field editing is the same primitive as the /note editor: wrap
@@ -382,23 +470,77 @@ func (m *Model) handleLinkEditKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// linkEditDefaultColor is what this link wears with no assignment — its
+// service's hue, else the link.color preference. It is both the "default"
+// swatch and the preview's color while "default" is picked. The target field is
+// live here, so retargeting the chip at Google Sheets recolors the preview
+// before the edit is even saved.
+func (m *Model) linkEditDefaultColor() string {
+	c := database.Chip{ID: m.linkEditID, Kind: chipKindLink, Value: strings.TrimSpace(m.linkEditTarget)}
+	if svc, ok := linkService(c); ok {
+		return serviceChipColor(svc)
+	}
+	return linkChipColorCode()
+}
+
+// linkEditPreviewColor is the SGR the previewed chip wears: the picked swatch,
+// or — on "default" — whatever the link would wear in the outline right now.
+func (m *Model) linkEditPreviewColor() string {
+	opts := linkColorOptions()
+	if m.linkEditColor > 0 && m.linkEditColor < len(opts) {
+		if code, ok := styleColorCode[opts[m.linkEditColor]]; ok {
+			return code + cUnderline
+		}
+	}
+	return m.linkEditDefaultColor()
+}
+
 func (m *Model) viewLinkEdit(maxLine int) []string {
 	name := m.linkEditName
 	target := m.linkEditTarget
-	nameLbl, targetLbl := cDim, cDim
-	if m.linkEditField == 0 {
+	nameLbl, targetLbl, colorLbl := cDim, cDim, cDim
+	switch m.linkEditField {
+	case linkFieldName:
 		name = withCaret(name, m.linkEditCaret)
 		nameLbl = cAccent
-	} else {
+	case linkFieldTarget:
 		target = withCaret(target, m.linkEditCaret)
 		targetLbl = cAccent
+	default:
+		colorLbl = cAccent
 	}
+
+	// the preview is the chip itself, in the color it will wear — the same "→name"
+	// the outline draws, not a swatch standing in for it
+	previewName := strings.TrimSpace(m.linkEditName)
+	if previewName == "" {
+		previewName = strings.TrimSpace(m.linkEditTarget)
+	}
+	preview := m.linkEditPreviewColor() + nonBreaking("→"+clipStr(previewName, 40)) + cReset
+
+	opts := linkColorOptions()
+	var sw strings.Builder
+	for i, opt := range opts {
+		dot := styleColorCode[opt]
+		if i == 0 {
+			dot = m.linkEditDefaultColor() // "default" wears the link's own color
+		}
+		glyph := "·"
+		if i == m.linkEditColor {
+			glyph = "●"
+		}
+		sw.WriteString(dot + glyph + cReset + " ")
+	}
+
 	var lines []string
 	lines = append(lines, clip(cDim+" edit link"+cReset, maxLine))
+	lines = append(lines, clip(" "+preview, maxLine))
+	lines = append(lines, "")
 	lines = append(lines, clip(nameLbl+" name   "+cReset+cFG+name+cReset, maxLine))
 	lines = append(lines, clip(targetLbl+" target "+cReset+cFG+target+cReset, maxLine))
+	lines = append(lines, clip(colorLbl+" color  "+cReset+sw.String(), maxLine))
 	lines = append(lines, "")
-	lines = append(lines, clip(cDim+" tab switch field · enter save · esc cancel"+cReset, maxLine))
+	lines = append(lines, clip(cDim+" tab switch field · ←→ color · enter save · esc cancel"+cReset, maxLine))
 	m.pageRows = len(lines) // no status bar here — the whole frame is main region
 	return lines
 }

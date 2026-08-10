@@ -49,7 +49,7 @@ var shortcutSections = []shortcutSection{
 		{"alt+enter", "complete / reopen node"},
 		{"alt+g", "goto a node (follows links/Zotero)"},
 		{"alt+r", "run node or chip (never automatic)"},
-		{"alt+e", "expand/view; edit link or tag color"},
+		{"alt+e", "expand/view; edit link (name/target/color) or tag color"},
 		{"alt+o", "open in host app or alternate Zotero target"},
 		{"alt+k", "stop a run or clear its output"},
 		{"alt+s", "label visible row actions"},

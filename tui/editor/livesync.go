@@ -432,6 +432,9 @@ func (m *Model) reloadAux() {
 	if tc, err := database.AllTagColors(m.db); err == nil {
 		tagColors = tc
 	}
+	if lkc, err := database.AllLinkColors(m.db); err == nil {
+		linkColors = lkc
+	}
 	if sp, err := database.AllNodeSpans(m.db); err == nil {
 		nodeSpans = sp
 	}
