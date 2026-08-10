@@ -39,7 +39,7 @@ const (
 	modeTheme          // the /theme picker: choose a color palette
 	modeSettings       // the /settings picker: global preferences (theme, image preview, …)
 	modeComplete       // the inline completer: "#" tags, ":" query commands
-	modeLinkEdit       // the alt+e link-chip editor: edit a link's name and target
+	modeLinkEdit       // the alt+e link-chip editor: edit a link's name, target and color
 	modeFlash          // flash jump/act: every visible row's actions get a typed label (see flash.go)
 	modeTagColor       // the alt+e tag color picker: assign a pill color to a tag
 	modeInsert         // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
@@ -195,12 +195,13 @@ type Model struct {
 	// and returns to note editing when the nested picker closes.
 	noteRich bool
 
-	// alt+e link-chip editor (modeLinkEdit)
+	// alt+e link-chip editor (modeLinkEdit): name, target and color
 	linkEditID     string // chip id being edited
 	linkEditName   string // working copy of the link's display name
 	linkEditTarget string // working copy of the link's target (URL or lflow://node/<uuid>)
-	linkEditField  int    // 0 = name field, 1 = target field
+	linkEditField  int    // which row is active: linkFieldName / Target / Color
 	linkEditCaret  int    // caret inside the active field — same movement keys as the outline
+	linkEditColor  int    // index into linkColorOptions() — 0 = default (the link's own color)
 
 	// alt+e cmd-chip editor (modeCmdEdit): the command inside a $ chip, one field.
 	cmdEditID    string // chip id being edited
@@ -2365,6 +2366,7 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 			// edits, or nodes tombstoned this session)
 			if m.ctx.DB != nil {
 				_ = database.GCChips(m.ctx.DB)
+				_ = database.GCLinkColors(m.ctx.DB)  // …and the link colors those chips owned
 				_ = database.GCBlobs(m.ctx.DB)       // drop image blobs whose node is gone
 				_ = database.GCZoteroNodes(m.ctx.DB) // drop mirror bindings whose node is gone
 			}
@@ -2422,6 +2424,9 @@ func RunFile(ctx runtime.Ctx, nodeUUID string, fs FileSession) error {
 
 	if tc, err := database.AllTagColors(ctx.DB); err == nil {
 		tagColors = tc // package var, like linkColorMode: the render path is Model-free
+	}
+	if lkc, err := database.AllLinkColors(ctx.DB); err == nil {
+		linkColors = lkc // per-link ⌥e colors, same deal
 	}
 	if sp, err := database.AllNodeSpans(ctx.DB); err == nil {
 		nodeSpans = sp // styled text runs (see spans.go)

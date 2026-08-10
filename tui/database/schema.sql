@@ -62,6 +62,10 @@ CREATE TABLE tag_colors (
 			tag text PRIMARY KEY,
 			color text NOT NULL DEFAULT ''
 		);
+CREATE TABLE link_colors (
+			chip_id text PRIMARY KEY,
+			color text NOT NULL DEFAULT ''
+		);
 CREATE TABLE node_spans (
 			node_uuid text NOT NULL,
 			start integer NOT NULL,
