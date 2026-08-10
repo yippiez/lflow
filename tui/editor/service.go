@@ -25,7 +25,9 @@ import (
 //
 // The hues are spread so the services stay apart at a glance, and each sits
 // where its own brand does: Sheets green, Drive light blue, Colab amber,
-// Claude clay, Gemini orchid, ChatGPT teal.
+// Claude clay, Gemini orchid. ChatGPT is the exception that proves the rule: its
+// own brand is monochrome, so it takes a neutral gray rather than borrowing a hue
+// it does not have.
 //
 // This is the one palette /theme does not reseed (see theme.go's invariant on
 // what a theme owns): the hue identifies the service, so Sheets is green in
@@ -39,7 +41,10 @@ var serviceColors = map[string]string{
 	"gmail":   fg(181, 127, 122), // #b57f7a brick
 	"claude":  fg(198, 129, 103), // #c68167 clay
 	"gemini":  fg(181, 143, 196), // #b58fc4 orchid
-	"chatgpt": fg(111, 160, 140), // #6fa08c teal
+	// an explicit gray, not the absent-entry fallback: the fallback follows the
+	// theme and the /settings link.color preference, and this hue must stay put
+	// like every other service's does
+	"chatgpt": fg(154, 154, 154), // #9a9a9a gray
 	// huggingface wears the muted saffron its own brand orange (and the yellow
 	// mark) suggest; GitHub has no hue and keeps the plain link gray
 	"huggingface": fg(206, 152, 72), // #ce9848 saffron

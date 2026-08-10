@@ -233,10 +233,14 @@ var services = []Service{
 	{Key: "gmail", Label: "Mail", Glyph: "✉", hosts: []string{"mail.google.com"}},
 	// the assistants: a shared conversation is a link worth spotting, and each
 	// takes the mark its own logo suggests — Claude's petal (the same ✽ the icon
-	// catalog uses), Gemini's spark, a spoked star for ChatGPT
+	// catalog uses), Gemini's spark, and for ChatGPT the benzene ring its knotted
+	// logo reads as. The ring is deliberately NOT the ✳ asterisk: that codepoint
+	// carries emoji presentation, so terminals paint it wide and in color, which
+	// is both the wrong weight for a quiet link chip and Claude Code's own idle
+	// glyph (see multiplexer/detect.go). ⌬ is text-presentation and monochrome.
 	{Key: "claude", Label: "Claude", Glyph: "✽", hosts: []string{"claude.ai", "claude.com"}},
 	{Key: "gemini", Label: "Gemini", Glyph: "✦", hosts: []string{"gemini.google.com"}},
-	{Key: "chatgpt", Label: "ChatGPT", Glyph: "✳", hosts: []string{"chatgpt.com", "chat.openai.com"}},
+	{Key: "chatgpt", Label: "ChatGPT", Glyph: "⌬", hosts: []string{"chatgpt.com", "chat.openai.com"}},
 	// code-and-data hosts name their resource from the path — the hugging face
 	// mark is the actual logo (there is no monochrome codepoint for it), and
 	// GitHub, having no mark at all, stays name-only (see ServiceDisplay's guard)
