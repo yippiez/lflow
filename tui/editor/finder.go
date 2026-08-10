@@ -145,19 +145,19 @@ func (nodeFinderBackend) queryAffordance(m *Model, query string) string {
 func (nodeFinderBackend) label(m *Model) string {
 	switch m.finder.act {
 	case actMirrorHere:
-		return "/mirror:from"
+		return "mirror"
 	case actMirrorFrom:
-		return "/mirror:to"
+		return "mirror"
 	case actMoveTo:
-		return "/move:to"
+		return "move"
 	case actGoto:
-		return "/goto"
+		return "goto"
 	case actBringHere:
-		return "/move:here"
+		return "move"
 	case actLinkInsert:
 		return "[[ link"
 	case actBacklinks:
-		return "/backlinks"
+		return "backlinks"
 	case actQueryScope:
 		return ":in:"
 	}
@@ -167,21 +167,21 @@ func (nodeFinderBackend) label(m *Model) string {
 func (nodeFinderBackend) hint(m *Model) string {
 	switch m.finder.act {
 	case actMirrorHere:
-		return "enter · Mirror that node here"
+		return "enter mirror that node here"
 	case actMirrorFrom:
-		return "enter · Mirror this node there"
+		return "enter mirror this node there"
 	case actMoveTo:
-		return "enter · Move this node there"
+		return "enter move this node there"
 	case actGoto:
-		return "enter · Open"
+		return "enter open"
 	case actBringHere:
-		return "enter · Move that node here"
+		return "enter move that node here"
 	case actLinkInsert:
-		return "enter · Link to node, or type a URL"
+		return "enter link to node, or type a URL"
 	case actBacklinks:
-		return "enter · Open · mirrors and [[ links to this node"
+		return "enter open · mirrors and [[ links to this node"
 	case actQueryScope:
-		return "enter · Search this node and its subtree"
+		return "enter search this node and its subtree"
 	}
 	return ""
 }

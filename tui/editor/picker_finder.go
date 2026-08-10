@@ -172,7 +172,7 @@ func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
 			star = cDim + "★ " + cReset
 		}
 		label := base + styleAttrs(r.node.Style) + fmt.Sprintf("%-28s", name) + cReset
-		line := mark + star + label + cDim + fmt.Sprintf(" %d nodes", r.count) + cReset
+		line := mark + star + label + cDim + " " + nodeNoun(r.count) + cReset
 		lines = append(lines, clip(line, maxLine))
 	}
 	if overflow > 0 {
@@ -183,7 +183,7 @@ func (f *bodyFinder) view(m *Model, be finderBackend, maxLine int) []string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, clip(cDim+" "+be.hint(m)+" · esc · Back to Outline"+cReset, maxLine))
+	lines = append(lines, clip(cDim+" "+be.hint(m)+" · esc back to outline"+cReset, maxLine))
 	m.pageRows = len(lines) // page bg covers everything above the status bar
 	lines = append(lines, m.bottomBar(maxLine)...)
 
