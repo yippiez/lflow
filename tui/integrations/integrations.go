@@ -8,6 +8,13 @@
 //     query goes exactly where they pointed it and nowhere else, its JSON
 //     output is a real contract rather than scraped markup, and it needs no
 //     account and no API key.
+//   - archive.org (archiveorg.go) — the search backend behind the archive
+//     node type. It asks the Internet Archive's advanced-search API about the
+//     archive's own ITEMS (scanned books, recordings, films, software) and
+//     hands back the same plain (title, url) pairs, each url an item's
+//     /details/ page. Deliberately not the Wayback Machine: a search node
+//     starts from words, not from a URL the user already has. One public
+//     host, no account and no key, so nothing is configured.
 //   - Zotero (zotero*.go) — reads the local Zotero library (the desktop
 //     app's zotero.sqlite) and turns its entries into citable references
 //     (the editor's zotero chip) and mirrored subtrees (the zotero node).

@@ -1119,6 +1119,14 @@ func (m *Model) typeSuffix(r row) string {
 			parts = append(parts, "updated "+relTime(ts))
 		}
 	}
+	if it.typ == database.TypeArchive {
+		if n := archiveResultCount(it); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d results", n))
+		}
+		if ts := m.archiveUpdatedAt(it.uuid); ts > 0 {
+			parts = append(parts, "updated "+relTime(ts))
+		}
+	}
 	// a markup row wears its language's mark and, after it, the document it
 	// composes — truncated, because the row is a glance and ⌥e is the reading
 	if mark := markupMark(it.typ); mark != "" {

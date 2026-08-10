@@ -25,9 +25,14 @@ const (
 	// operator (| && || ;) or a wrapper ($() ()) that composes them — so a long
 	// pipeline is written as a readable tree instead of one wide line. alt+r runs
 	// the composed subtree. See editor/bashnode.go.
-	TypeBash    = "bash"
-	TypeQuery   = "query"
-	TypeWeb     = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see tui/integrations)
+	TypeBash  = "bash"
+	TypeQuery = "query"
+	TypeWeb   = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see tui/integrations)
+	// TypeArchive is the web node's sibling aimed at archive.org: the name is the
+	// query, alt+r searches the Internet Archive's own ITEMS (books, recordings,
+	// films, software) — not the Wayback Machine's page snapshots. See
+	// editor/archivenode.go and tui/integrations.
+	TypeArchive = "archive"
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
@@ -112,6 +117,10 @@ const (
 	// the /type picker; a re-run replaces the rows by type. See editor/webnode.go
 	// and tui/integrations.
 	TypeWebResult = "webresult"
+	// TypeArchiveResult is one archive.org search hit: the generated link row an
+	// archive node hangs under it (item title + /details/ link chip). Generated
+	// like TypeWebResult, so it never appears in the /type picker.
+	TypeArchiveResult = "archiveresult"
 
 	// TypeZotero is a mirrored Zotero entry: one node per library item, its
 	// attachments, annotations and notes pulled in beneath it as a locked
@@ -146,6 +155,7 @@ var TypeOrder = []string{
 	TypeBash,
 	TypeQuery,
 	TypeWeb,
+	TypeArchive,
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
@@ -167,6 +177,7 @@ var TypeOrder = []string{
 	TypeLine,
 	TypeAgent,
 	TypeWebResult,
+	TypeArchiveResult,
 	TypeZotero,
 }
 
