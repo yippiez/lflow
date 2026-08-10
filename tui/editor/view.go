@@ -143,9 +143,10 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 	for i, r := range rows {
 		selected := i == m.cursor
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
-		flashSuffix := ""
+		flashSuffix, flashGlyph := "", ""
 		if m.mode == modeFlash {
 			flashSuffix = m.flashRowSuffix(i)
+			flashGlyph = m.flashGlyphCell(i)
 		}
 		o := rowOpts{
 			selected: selected,
@@ -157,6 +158,7 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			dashed:      m.tempActive,
 			interactive: true,
 			flashSuffix: flashSuffix,
+			flashGlyph:  flashGlyph,
 			below:       below,
 			maxLine:     maxLine,
 		}

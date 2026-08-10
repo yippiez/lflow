@@ -114,10 +114,11 @@ func codeBlockCode(m *Model, it *item, focused bool) (string, int, bool) {
 // blockGroupLines wraps borderless block content into a node's group lines: the
 // tree connector AND the node's bullet glyph sit on the first line (the ○ stays
 // visible so a code block still reads as a node), the hanging rail on every
-// continuation, so the block hangs at the node's indent. glyph is the pre-styled
-// glyph cell (color + glyph + reset) built by the caller like a normal row.
-func (m *Model) blockGroupLines(r row, content []string, below bool, glyph string) []string {
-	first := " " + cDim + connector(r) + glyph + " "
+// continuation, so the block hangs at the node's indent. cell is the pre-styled
+// two-column bullet gutter (glyph + separator space) built by the caller through
+// rowOpts.glyphCell, exactly as a normal row builds it.
+func (m *Model) blockGroupLines(r row, content []string, below bool, cell string) []string {
+	first := " " + cDim + connector(r) + cell
 	cont := continuationPrefix(r, below)
 	out := make([]string, len(content))
 	for i, c := range content {

@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lflow/lflow/tui/database"
 )
 
 // Flash is a flash.nvim-style "jump / act without moving the cursor": alt+s
@@ -12,6 +14,11 @@ import (
 // one. Labels are a single letter for the common case, two letters (e.g. "hj")
 // once a screen overflows the alphabet. Typing a label narrows live — the matched
 // prefix grays out while the rest stays lit — and a completed label fires.
+//
+// Most labels hang off the end of their row as "label verb" chips. Zoom does
+// not: its label is drawn ON the row's ○ bullet, because zooming is moving INTO
+// that node and the bullet is where the node begins. A label with a place of its
+// own needs no word beside it, which keeps one chip off every line.
 //
 // It stays inside the outline: no alt-screen, no separate mode plumbing beyond
 // modeFlash. Two actions are universal (jump onto a row; fold a row with
@@ -40,6 +47,10 @@ type flashTarget struct {
 	verb  string // short word shown beside the label (jump / run / expand / fold …)
 	color string // chip color (SGR)
 	do    func(m *Model, it *item) tea.Cmd
+	// glyphSlot draws this label ON the row's bullet cell instead of in the
+	// end-of-row chip run — the position carries the meaning, so the verb word
+	// is not drawn (see flashGlyphCell).
+	glyphSlot bool
 }
 
 // flashActionsFor returns content-driven alt+r actions plus node-type-contributed
@@ -206,8 +217,9 @@ func (m *Model) enterFlash() {
 			ts = append(ts, flashTarget{row: i, verb: a.verb, color: a.color, do: a.do})
 		}
 		// zoom into the row is universal (alt+right), offered on every row
-		// including the one under the cursor.
-		ts = append(ts, flashTarget{row: i, verb: "zoom", color: cYellow, do: flashZoom})
+		// including the one under the cursor. Its label rides the bullet when the
+		// row has one to ride.
+		ts = append(ts, flashTarget{row: i, verb: "zoom", color: cYellow, do: flashZoom, glyphSlot: hasGlyphCell(it)})
 		if len(m.tree.childItems(it)) > 0 {
 			verb := "fold"
 			if it.collapsed || r.cycled {
@@ -309,17 +321,54 @@ func (m *Model) fireFlash(t flashTarget) (tea.Model, tea.Cmd) {
 // flashRowSuffix renders the labelled actions hanging off the end of row i. Each
 // chip shows its label then its verb; a label still matching the typed prefix
 // lights the to-type tail (the matched prefix grays), one that no longer matches
-// fades out whole — the flash.nvim narrowing read.
+// fades out whole — the flash.nvim narrowing read. Slotted labels (zoom, on the
+// bullet) are drawn in place by flashGlyphCell and skipped here.
 func (m *Model) flashRowSuffix(i int) string {
 	var b strings.Builder
 	for j := range m.flashTargets {
 		t := m.flashTargets[j]
-		if t.row != i || t.label == "" {
+		if t.row != i || t.label == "" || t.glyphSlot {
 			continue
 		}
 		b.WriteString(" " + flashChip(t, m.flashInput))
 	}
 	return b.String()
+}
+
+// hasGlyphCell reports whether a row draws a bullet cell a label can sit on. An
+// empty node is a blank spacer and a divider is a full-width rule — neither has
+// a glyph, so their zoom label falls back to an end-of-row chip.
+func hasGlyphCell(it *item) bool {
+	return it.typ != database.TypeEmpty && it.typ != database.TypeDivider
+}
+
+// flashGlyphCell renders row i's bullet cell as the zoom label, or "" when the
+// row has no reachable slotted label (the caller then draws the ordinary
+// bullet). The cell is ALWAYS two columns — exactly what glyph + separator space
+// takes — so putting a label there shifts nothing: a one-letter label keeps the
+// space beside it, a two-letter one eats it. A label the typed prefix has ruled
+// out gives the bullet back, so the row visibly drops out of the running.
+func (m *Model) flashGlyphCell(i int) string {
+	for j := range m.flashTargets {
+		t := m.flashTargets[j]
+		if t.row != i || !t.glyphSlot || t.label == "" {
+			continue
+		}
+		in := m.flashInput
+		if !strings.HasPrefix(t.label, in) {
+			return ""
+		}
+		s := cReset
+		if in != "" {
+			s += cDim + in + cReset // matched prefix is spent — grayed
+		}
+		s += t.color + cInvert + cBold + t.label[len(in):] + cReset
+		if len(t.label) == 1 {
+			s += " "
+		}
+		return s
+	}
+	return ""
 }
 
 // flashChip styles one label+verb against the current typed prefix. The whole

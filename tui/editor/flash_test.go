@@ -192,6 +192,90 @@ func TestFlashZoomsIntoRow(t *testing.T) {
 	}
 }
 
+// The zoom label has a place of its own: it is drawn ON the row's bullet (the ○
+// is gone while flash is up) and no "zoom" word trails the line.
+func TestFlashZoomLabelRidesTheBullet(t *testing.T) {
+	m := newTestModel(80, "alpha", "beta", "gamma")
+	m.cursor = 0
+	m.enterFlash()
+	label := ""
+	for _, tg := range m.flashTargets {
+		if tg.verb == "zoom" && tg.row == 1 {
+			label = tg.label
+		}
+	}
+	if label == "" {
+		t.Fatal("no zoom label for row 1")
+	}
+	groups, _ := m.viewRenderRows(80)
+	line := stripSGR(groups[1][0])
+	if strings.Contains(line, glyphOpen) {
+		t.Errorf("the label should stand in for the bullet, got %q", line)
+	}
+	if strings.Contains(line, "zoom") {
+		t.Errorf("a slotted label needs no verb beside it, got %q", line)
+	}
+	// one-letter labels keep the separator space, two-letter ones eat it
+	want := label + " " + "beta"
+	if len(label) == 2 {
+		want = label + "beta"
+	}
+	if !strings.Contains(line, want) {
+		t.Errorf("label %q not in the bullet cell of %q", label, line)
+	}
+}
+
+// Taking the bullet cell over must not move the text: the cell is two columns
+// wide whatever the label, so a flashed row is exactly as wide as a plain one.
+func TestFlashZoomLabelKeepsRowWidth(t *testing.T) {
+	names := make([]string, 30) // enough targets to force two-letter labels
+	for i := range names {
+		names[i] = "row"
+	}
+	m := newTestModel(80, names...)
+	m.cursor = 0
+	plain, _ := m.viewRenderRows(80)
+	m.enterFlash()
+	flashed, _ := m.viewRenderRows(80)
+
+	long := -1 // a row whose zoom label needs two letters
+	for _, tg := range m.flashTargets {
+		if tg.verb == "zoom" && len(tg.label) == 2 {
+			long = tg.row
+			break
+		}
+	}
+	if long < 0 {
+		t.Fatal("expected a two-letter zoom label among 30 rows")
+	}
+	for _, i := range []int{0, long} {
+		got := visibleWidth(stripSGR(flashed[i][0]))
+		// the chips hanging off the end are the only legitimate difference
+		got -= visibleWidth(stripSGR(m.flashRowSuffix(i)))
+		if want := visibleWidth(stripSGR(plain[i][0])); got != want {
+			t.Errorf("row %d width = %d, want %d (bullet cell must stay two columns)", i, got, want)
+		}
+	}
+}
+
+// A divider is a full-width rule with no bullet to sit on, so its zoom label
+// falls back to an end-of-row chip rather than vanishing.
+func TestFlashZoomFallsBackWithoutABullet(t *testing.T) {
+	m := newTestModel(80, "alpha", "beta")
+	m.tree.root.children[1].typ = database.TypeDivider
+	m.refreshRows()
+	m.cursor = 0
+	m.enterFlash()
+	for _, tg := range m.flashTargets {
+		if tg.row == 1 && tg.verb == "zoom" && tg.glyphSlot {
+			t.Fatal("a divider row has no bullet cell to slot a label into")
+		}
+	}
+	if !strings.Contains(stripSGR(m.flashRowSuffix(1)), "zoom") {
+		t.Error("an unslotted zoom must still be offered as a chip")
+	}
+}
+
 // Esc cancels flash mode without moving the cursor.
 func TestFlashEscCancels(t *testing.T) {
 	m := newTestModel(80, "alpha", "beta")

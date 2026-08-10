@@ -310,8 +310,21 @@ type rowOpts struct {
 	// dim for or a review surface to open, so these must not leak into them.
 	interactive bool
 	flashSuffix string // pre-rendered flash-mode action chips for this row (viewRenderRows only — needs the row's index into m.flashTargets, which only that loop has)
+	flashGlyph  string // pre-rendered flash-mode bullet cell (the zoom label sitting on the ○); "" keeps the row's own glyph. Same index-bound reason as flashSuffix
 	below       bool   // a visible child follows — the rail carries a │ down through the glyph column
 	maxLine     int
+}
+
+// glyphCell builds a row's bullet gutter: the styled glyph plus the single space
+// that separates it from the body — two columns, the width every row's content
+// hangs off. In flash mode a slotted label takes the whole cell over (the zoom
+// label rides the ○, see flashGlyphCell), which is why the two faces that draw a
+// bullet — the ordinary row and the code block — both build it here.
+func (o rowOpts) glyphCell(glyph, glyphColor string) string {
+	if o.flashGlyph != "" {
+		return o.flashGlyph
+	}
+	return glyphColor + glyph + cReset + " "
 }
 
 // renderRow renders one visible row to its group lines (the node's own line(s),
@@ -379,7 +392,7 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 			if o.redGlyph {
 				glyphColor = cRed
 			}
-			group = m.blockGroupLines(r, content, o.below, glyphColor+glyph+cReset)
+			group = m.blockGroupLines(r, content, o.below, o.glyphCell(glyph, glyphColor))
 			bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 			// runnable nodes (bash/query) hang their ephemeral output beneath them,
 			// block-faced ones included
@@ -438,7 +451,7 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 		body = cDim + stripSGR(body) + cReset
 		suffix = cDim + stripSGR(suffix) + cReset
 	}
-	line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
+	line := " " + cDim + connector(r) + o.glyphCell(glyph, glyphColor) + body + suffix
 	// flash mode hangs each row's action labels off the end of the line
 	if flash {
 		line += o.flashSuffix
