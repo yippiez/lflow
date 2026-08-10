@@ -106,7 +106,7 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Result,
 		limit = DefaultLimit
 	}
 	endpoint, configured := c.instance()
-	body, err := c.fetch(ctx, endpoint, query)
+	body, err := c.fetch(ctx, endpoint, query, "")
 	if err != nil {
 		if !configured && ctx.Err() == nil {
 			// nothing was named and nothing answered on the local port: the user
@@ -125,9 +125,14 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Result,
 	return hits, nil
 }
 
-// fetch POSTs the query to the instance and asks for its JSON output.
-func (c *Client) fetch(ctx context.Context, endpoint, query string) (string, error) {
+// fetch POSTs the query to the instance and asks for its JSON output. engines
+// narrows the search to a comma-separated engine list (the scholar node asks
+// for google_scholar alone); "" leaves the instance's own default set in charge.
+func (c *Client) fetch(ctx context.Context, endpoint, query, engines string) (string, error) {
 	form := url.Values{"q": {query}, "format": {"json"}}
+	if engines != "" {
+		form.Set("engines", engines)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", errors.Wrap(err, "building the search request")

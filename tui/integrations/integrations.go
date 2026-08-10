@@ -7,7 +7,10 @@
 //     the user's own metasearch — self-hosted or one they trust — so the
 //     query goes exactly where they pointed it and nowhere else, its JSON
 //     output is a real contract rather than scraped markup, and it needs no
-//     account and no API key.
+//     account and no API key. The same instance is how lflow reaches Google
+//     Scholar (scholar.go, behind the scholar node type): the search is
+//     narrowed to its google_scholar engine and the hits come back as papers,
+//     citation and all.
 //   - Zotero (zotero*.go) — reads the local Zotero library (the desktop
 //     app's zotero.sqlite) and turns its entries into citable references
 //     (the editor's zotero chip) and mirrored subtrees (the zotero node).

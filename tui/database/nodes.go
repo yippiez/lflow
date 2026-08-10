@@ -25,9 +25,14 @@ const (
 	// operator (| && || ;) or a wrapper ($() ()) that composes them — so a long
 	// pipeline is written as a readable tree instead of one wide line. alt+r runs
 	// the composed subtree. See editor/bashnode.go.
-	TypeBash    = "bash"
-	TypeQuery   = "query"
-	TypeWeb     = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see tui/integrations)
+	TypeBash  = "bash"
+	TypeQuery = "query"
+	TypeWeb   = "web" // a web-search node: the name is the query, alt+r searches SearxNG (see tui/integrations)
+	// TypeScholar is the web node pointed at the literature: the same shape (the
+	// name is the query, alt+r searches), asked of SearxNG's google_scholar
+	// engine instead of the general web, so the hits are papers and each row
+	// carries its citation. See editor/scholarnode.go.
+	TypeScholar = "scholar"
 	TypeVoice   = "voice"
 	TypeImage   = "image"
 	TypeDivider = "divider"
@@ -113,6 +118,12 @@ const (
 	// and tui/integrations.
 	TypeWebResult = "webresult"
 
+	// TypeScholarResult is one Google Scholar hit: a generated row a scholar node
+	// hangs under it — a link chip to the paper, then its citation as a muted
+	// tail. Generated, so it never appears in the /type picker; a re-run replaces
+	// the rows by type. See editor/scholarnode.go.
+	TypeScholarResult = "scholarresult"
+
 	// TypeZotero is a mirrored Zotero entry: one node per library item, its
 	// attachments, annotations and notes pulled in beneath it as a locked
 	// subtree (see editor/zoteroitem.go and tui/integrations).
@@ -146,6 +157,7 @@ var TypeOrder = []string{
 	TypeBash,
 	TypeQuery,
 	TypeWeb,
+	TypeScholar,
 	TypeVoice,
 	TypeImage,
 	TypeNLPCompute,
@@ -167,6 +179,7 @@ var TypeOrder = []string{
 	TypeLine,
 	TypeAgent,
 	TypeWebResult,
+	TypeScholarResult,
 	TypeZotero,
 }
 
