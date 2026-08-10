@@ -30,12 +30,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// after the key to track cursor moves for the next render.
 	m.reconcileAutoFocus()
 
-	// page keys pin the viewport; every other key leaves pin mode. Cursor-follow
-	// then prefers the last window (see viewWindow) so typing after a page does
-	// not yank the view back.
-	if key != "pgup" && key != "pgdown" {
-		m.scrolling = false
-	}
+	// Keyboard movement follows the cursor. The scrolling pin is reserved for
+	// mouse-wheel reading, and is cleared by the next real key.
+	m.scrolling = false
 
 	// esc-esc quits from outline mode — but not while a focused inline view is up
 	// (there esc defocuses; handled in the focused block below)
@@ -263,17 +260,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "pgdown", "pgup":
-		// scroll the body half a viewport without moving the cursor — for reading a
-		// long note/subtree that runs past the footer. Half-page keeps enough context
-		// that consecutive pages stay oriented.
+		// Repeat visual-line movement so a page advances the cursor as well as the
+		// viewport. This keeps wrapped rows, caret columns, and node boundaries
+		// identical to pressing the corresponding arrow repeatedly.
 		step := m.viewRows / 2
 		if step < 1 {
 			step = 1
 		}
 		if key == "pgup" {
-			step = -step
+			for range step {
+				m.moveCursorVertical(-1)
+			}
+		} else {
+			for range step {
+				m.moveCursorVertical(1)
+			}
 		}
-		m.scrollBody(step)
 		return m, nil
 	case "ctrl+q", "ctrl+c":
 		return m.quit()
@@ -863,47 +865,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.expandStep() // open the cursor node, one cycle level at a time
 		return m, nil
 	case "up":
-		starts := m.selectedVisualRows()
-		line := caretVisualLine(starts, m.caret)
-		if line > 0 {
-			// walk up one visual line of the wrapped node first
-			goal := m.caretColumn(starts, line)
-			m.caret = m.caretAtColumn(starts, line-1, goal)
-		} else if m.atTopOfTempList() {
-			// at the top of the temp list: go back up into the main outline
-			m.exitTemp()
-		} else if m.cursor > 0 {
-			// from the first visual line, cross to the previous node and land
-			// on its last visual line, keeping the horizontal column
-			goal := m.caretColumn(starts, 0)
-			m.cursor--
-			prev := m.selectedVisualRows()
-			m.caret = m.caretAtColumn(prev, len(prev)-1, goal)
-			m.clampCaret()
-		}
+		m.moveCursorVertical(-1)
 		return m, nil
 	case "down":
-		starts := m.selectedVisualRows()
-		line := caretVisualLine(starts, m.caret)
-		if line < len(starts)-1 {
-			// walk down one visual line of the wrapped node first
-			goal := m.caretColumn(starts, line)
-			m.caret = m.caretAtColumn(starts, line+1, goal)
-		} else if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(m.caretText(cur))) {
-			// on the last visual line: snap the caret to the end of this node's
-			// text first — the next down press crosses to the next node
-			m.caret = len([]rune(m.caretText(cur)))
-		} else if m.cursor < len(m.rows)-1 {
-			// from the last visual line, cross to the next node and land on its
-			// first visual line, keeping the horizontal column
-			goal := m.caretColumn(starts, line)
-			m.cursor++
-			m.caret = m.caretAtColumn(m.selectedVisualRows(), 0, goal)
-			m.clampCaret()
-		} else if !m.tempActive {
-			// past the last node of the main outline: drop into the Temporary Domain
-			m.enterTemp()
-		}
+		m.moveCursorVertical(1)
 		return m, nil
 	case "left":
 		if m.caret > 0 {
@@ -1239,13 +1204,49 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// moveCursorVertical moves one visual line, crossing node boundaries when the
+// caret reaches an edge. Page movement uses this same path repeatedly.
+func (m *Model) moveCursorVertical(direction int) {
+	starts := m.selectedVisualRows()
+	line := caretVisualLine(starts, m.caret)
+	if direction < 0 {
+		if line > 0 {
+			goal := m.caretColumn(starts, line)
+			m.caret = m.caretAtColumn(starts, line-1, goal)
+		} else if m.atTopOfTempList() {
+			m.exitTemp()
+		} else if m.cursor > 0 {
+			goal := m.caretColumn(starts, 0)
+			m.cursor--
+			prev := m.selectedVisualRows()
+			m.caret = m.caretAtColumn(prev, len(prev)-1, goal)
+			m.clampCaret()
+		}
+		return
+	}
+
+	if line < len(starts)-1 {
+		goal := m.caretColumn(starts, line)
+		m.caret = m.caretAtColumn(starts, line+1, goal)
+	} else if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(m.caretText(cur))) {
+		m.caret = len([]rune(m.caretText(cur)))
+	} else if m.cursor < len(m.rows)-1 {
+		goal := m.caretColumn(starts, line)
+		m.cursor++
+		m.caret = m.caretAtColumn(m.selectedVisualRows(), 0, goal)
+		m.clampCaret()
+	} else if !m.tempActive {
+		m.enterTemp()
+	}
+}
+
 // wheelStep is how many body rows one mouse-wheel notch scrolls — the small
-// sibling of the half-viewport pgup/pgdown step.
+// step used for reading without moving the cursor.
 const wheelStep = 3
 
 // scrollBody pins the viewport (entering scroll mode from what is currently on
-// screen) and moves it delta rows — the shared engine behind pgup/pgdown and
-// the mouse wheel. The upper bound is clamped by viewWindow.
+// screen) and moves it delta rows for mouse-wheel reading. The upper bound is
+// clamped by viewWindow.
 func (m *Model) scrollBody(delta int) {
 	if !m.scrolling {
 		m.scrolling = true
@@ -1257,7 +1258,8 @@ func (m *Model) scrollBody(delta int) {
 	}
 }
 
-// handleMouse: the wheel scrolls the body like pgup/pgdown but in small steps.
+// handleMouse: the wheel scrolls the body in small steps without moving the
+// cursor.
 // When the wheel is over the read-only Temporary Domain panel (bottom of the
 // screen, unfocused), it scrolls that panel's window instead of the main body.
 // Everything else (clicks, motion) is ignored — the mouse is captured only so

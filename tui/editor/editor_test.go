@@ -215,40 +215,41 @@ func key(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
 
-// TestPageDownKeepsViewOnType: after pgdown peeks past the cursor, typing must
-// not yank the window back to pin the cursor at the bottom — sticky follow keeps
-// the paged viewTop when the cursor is still on screen.
-func TestPageDownKeepsViewOnType(t *testing.T) {
+// TestPageMovementMovesCursor: page keys repeat visual-line movement by half a
+// viewport, so the cursor and viewport advance together.
+func TestPageMovementMovesCursor(t *testing.T) {
 	names := make([]string, 40)
 	for i := range names {
 		names[i] = fmt.Sprintf("node-%02d", i)
 	}
 	m := newTestModel(80, names...)
 	m.height = 12
-	// park the cursor near the bottom of the initial window so a page peeks below
+	// Start at the end of a row so every page step crosses to the next row.
 	m.cursor = 8
+	m.caret = len([]rune(names[m.cursor]))
 	_ = m.View() // seed viewTop/viewRows
-	before := m.viewTop
+	before := m.cursor
+	step := m.viewRows / 2
+	if step < 1 {
+		step = 1
+	}
 
 	m.handleKey(key("pgdown"))
 	_ = m.View()
-	paged := m.viewTop
-	if paged <= before {
-		t.Fatalf("pgdown did not advance viewTop: before=%d after=%d", before, paged)
-	}
-	// cursor still on screen in the paged window
-	if m.cursor < 0 {
-		t.Fatal("cursor lost")
-	}
-
-	// typing clears the pin; sticky follow must keep the paged window
-	m.handleKey(key("x"))
-	_ = m.View()
-	if m.viewTop != paged {
-		t.Fatalf("typing after pgdown moved viewTop from %d to %d", paged, m.viewTop)
+	if m.cursor != before+step {
+		t.Fatalf("pgdown moved cursor from %d to %d, want %d", before, m.cursor, before+step)
 	}
 	if m.scrolling {
-		t.Fatal("typing should clear scrolling pin")
+		t.Fatal("pgdown should follow the cursor, not pin the viewport")
+	}
+
+	m.handleKey(key("pgup"))
+	_ = m.View()
+	if m.cursor != before {
+		t.Fatalf("pgup moved cursor back to %d, want %d", m.cursor, before)
+	}
+	if m.scrolling {
+		t.Fatal("pgup should follow the cursor, not pin the viewport")
 	}
 }
 
