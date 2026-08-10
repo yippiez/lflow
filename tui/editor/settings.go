@@ -80,13 +80,18 @@ var settingDefs = []settingDef{
 		// select: the terminal owns the mouse — native drag-select works (and
 		// copy-on-select where the terminal offers it); the wheel scrolls the
 		// terminal, pgup/pgdn scroll the outline. wheel: lflow captures the
-		// mouse so the wheel scrolls the outline; hold shift to select text.
+		// mouse so the wheel scrolls the outline. click: the page itself answers
+		// the mouse — a row's circle zooms in, a #tag opens /goto searching it, a
+		// breadcrumb walks the view back (see mouse.go). Both captured modes need
+		// shift held for native text selection, which is why "select" stays on
+		// offer at all.
 		key: "mouse", label: "Mouse",
 		options: []settingOption{
 			{"select", "select · native text selection"},
 			{"wheel", "wheel · scrolls the outline, shift to select"},
+			{"click", "click · circles zoom, tags search, crumbs walk"},
 		},
-		def: "select",
+		def: "click",
 	},
 	{
 		// where the local Zotero library was found — READ-ONLY: the path is

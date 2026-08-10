@@ -119,13 +119,15 @@ func TestScrollTempPanelHitTest(t *testing.T) {
 	m := seedTemp(newTestModel(120, "main"), 12)
 	m.tempTop, m.tempHeight = 20, maxTempPanelLines
 
-	if !m.scrollTempPanel(wheelStep, 21) {
-		t.Fatal("wheel over the panel region should scroll the temp panel")
+	// a bubbletea mouse Y is 0-based, like the screen rows: tempTop is the
+	// panel's FIRST row, and the row above it belongs to the status bar.
+	if !m.scrollTempPanel(wheelStep, 20) {
+		t.Fatal("wheel on the panel's first row should scroll the temp panel")
 	}
 	if m.tempScroll != wheelStep {
 		t.Fatalf("tempScroll = %d, want %d", m.tempScroll, wheelStep)
 	}
-	if m.scrollTempPanel(-wheelStep, 20) { // bottom edge is exclusive
+	if m.scrollTempPanel(-wheelStep, 19) {
 		t.Fatal("wheel just above the panel must not scroll it")
 	}
 	if m.scrollTempPanel(wheelStep, 40) {

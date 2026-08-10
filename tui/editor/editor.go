@@ -375,8 +375,12 @@ type Model struct {
 	redoStack []undoState
 	undoMark  string
 
-	// breadcrumb names above the loaded root, from the forest root down
-	ancestors []string
+	// breadcrumb segments above the loaded root, from the forest root down
+	ancestors []ancestor
+
+	// mouse (see mouse.go): the hit zones the last frame recorded and the
+	// breadcrumb segment the pointer is over.
+	mouse mouseState
 
 	// live sync (see livesync.go): the daemon connection, its subscribe feed,
 	// and the deferred-apply queue for events arriving while a modal surface
@@ -421,7 +425,15 @@ type Model struct {
 
 func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
 
-// refreshAncestors recomputes the breadcrumb names above the loaded root by
+// ancestor is one breadcrumb segment above the loaded root: the display name the
+// toolbar shows, and the node it names — the tree is not loaded around it, so
+// clicking that crumb has to reopen there (see followCrumb).
+type ancestor struct {
+	name string
+	uuid string
+}
+
+// refreshAncestors recomputes the breadcrumb segments above the loaded root by
 // walking the db parent chain up to the forest root.
 func (m *Model) refreshAncestors() {
 	m.ancestors = nil
@@ -442,7 +454,7 @@ func (m *Model) refreshAncestors() {
 		if name == "" {
 			name = "untitled"
 		}
-		m.ancestors = append([]string{name}, m.ancestors...)
+		m.ancestors = append([]ancestor{{name: name, uuid: puuid}}, m.ancestors...)
 		puuid = n.ParentUUID
 	}
 }
@@ -922,12 +934,10 @@ func (m *Model) persistCollapsed(it *item) {
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
 	cmd := m.startAnim(nil)
-	// mouse capture follows the preference: only the wheel mode grabs the
+	// mouse capture follows the preference: the wheel and click modes grab the
 	// mouse (native selection then needs shift); select mode leaves the mouse
 	// to the terminal so drag-select and copy-on-select just work.
-	if m.setting("mouse") == "wheel" {
-		cmd = tea.Batch(cmd, tea.EnableMouseCellMotion)
-	}
+	cmd = tea.Batch(cmd, mouseCapture(m.setting("mouse")))
 	switch {
 	case m.liveFeed != nil:
 		return tea.Batch(cmd, waitDaemonEv(m.liveFeed))
@@ -947,8 +957,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 	case tea.MouseMsg:
-		m.handleMouse(msg)
-		return m, nil
+		return m, m.handleMouse(msg)
 	case tea.KeyMsg:
 		_, cmd := m.handleKey(msg)
 		// track the cursor onto/off an auto-focus block (Code): enter it for
@@ -1924,10 +1933,8 @@ func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setSetting(d.key, cycleSetting(d, m.setting(d.key), dir))
 			// mouse capture toggles live with the preference
 			if d.key == "mouse" {
-				if m.setting("mouse") == "wheel" {
-					return m, tea.EnableMouseCellMotion
-				}
-				return m, tea.DisableMouse
+				m.mouse.hover = 0 // the crumbs stop lighting up when clicks go off
+				return m, mouseCapture(m.setting("mouse"))
 			}
 		}
 	default:

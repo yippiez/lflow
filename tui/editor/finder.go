@@ -17,6 +17,15 @@ func (m *Model) openFinder(act finderAction) {
 	m.finder.open(m, act, nodeFinderBackend{})
 }
 
+// openFinderQuery opens the node finder with its query already typed — the
+// mouse's path in: clicking a #tag opens /goto searching that tag, so the answer
+// to "what else is filed under this?" is one click, not a key and a word.
+func (m *Model) openFinderQuery(act finderAction, query string) {
+	m.openFinder(act)
+	m.finder.query = query
+	m.finder.refresh(m, nodeFinderBackend{})
+}
+
 // nodeFinderBackend is the finderBackend that fronts the outline's nodes: it
 // searches the DB (plus the Temporary Domain for /move:here), commits a pick via
 // runFinder, and links a URL query straight to a website for "[[".
@@ -68,6 +77,11 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 
 	q := strings.ToLower(strings.TrimSpace(query))
 	counts := m.finderCounts() // one read for the whole search, not one per row
+	// A bare "#tag" is a STRICT tag search, the way it is everywhere else in the
+	// app (see tags.go): the LIKE/FTS/chip passes all match substrings, so "#log"
+	// would otherwise drag in "#logic" too. Filtering here rather than teaching
+	// the SQL about tags keeps one definition of what a tag is.
+	strictTag, tagOnly := tagQuery(query)
 	var rows []finderRow
 	for _, h := range hits {
 		// the node being acted on is never a valid target
@@ -90,6 +104,9 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 			// Every other picker hides empty nodes and mirror rows (a pick on a
 			// mirror resolves to its original, so listing both has no value).
 			if h.Name == "" || h.MirrorOf != "" {
+				continue
+			}
+			if tagOnly && !nodeHasTag(displayAnchors(h.Name, m.chips), strictTag) {
 				continue
 			}
 		}

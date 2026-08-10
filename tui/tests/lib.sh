@@ -33,8 +33,11 @@
 #   send <keys...>   named tmux keys (Enter, Tab, BSpace, Up, Down, Left,
 #                    Right, End, M-r, M-e, C-s, Escape, ...).
 #   type "<text>"    literal text.
+#   mouse <click|move|wheel-up|wheel-down> <x> <y>   an SGR mouse report.
+#   cell_of "<sub>"  echo "<x> <y>" of where <sub> starts on screen.
 #   snapshot         echo the pane plain-text.
 #   wait_for "<sub>" [timeout_s]   poll until pane contains <sub> (5s default).
+#   wait_gone "<sub>" [timeout_s]  poll until <sub> is gone from the pane.
 #   assert_contains / assert_not_contains / assert_no_crash
 #   pass / fail "<msg>"
 #
@@ -155,6 +158,51 @@ type() {
 }
 
 # ---------------------------------------------------------------------------
+# mouse <click|move|wheel-up|wheel-down> <x> <y>: send an SGR (1006) mouse
+# report into the pane. tmux send-keys cannot name a click, but the editor reads
+# nothing but bytes, so the report goes in as a literal escape. Coordinates are
+# 0-based screen cells — the same frame a bubbletea MouseMsg arrives in — and the
+# wire protocol is 1-based, hence the +1. 35 is motion with no button held, which
+# is what the breadcrumb hover reads; 64/65 are the wheel.
+# ---------------------------------------------------------------------------
+mouse() {
+    local what="$1" x=$(( $2 + 1 )) y=$(( $3 + 1 ))
+    case "${what}" in
+        click)
+            tmux send-keys -t "${SESSION}" -l -- "$(printf '\033[<0;%d;%dM' "${x}" "${y}")"
+            tmux send-keys -t "${SESSION}" -l -- "$(printf '\033[<0;%d;%dm' "${x}" "${y}")"
+            ;;
+        move)       tmux send-keys -t "${SESSION}" -l -- "$(printf '\033[<35;%d;%dM' "${x}" "${y}")" ;;
+        wheel-up)   tmux send-keys -t "${SESSION}" -l -- "$(printf '\033[<64;%d;%dM' "${x}" "${y}")" ;;
+        wheel-down) tmux send-keys -t "${SESSION}" -l -- "$(printf '\033[<65;%d;%dM' "${x}" "${y}")" ;;
+        *) fail "mouse: unknown gesture '${what}'" ;;
+    esac
+    sleep 0.12
+}
+
+# ---------------------------------------------------------------------------
+# cell_of "<sub>": echo "<x> <y>" — the 0-based screen cell where <sub> starts.
+# Every glyph the editor paints is one column wide, so the column is a CHARACTER
+# count of the text before it; the tr strips UTF-8 continuation bytes so the
+# remaining byte count is that character count, without depending on the
+# machine's locale.
+# ---------------------------------------------------------------------------
+cell_of() {
+    local sub="$1" line pre x y=0
+    LAST_PANE="$(tmux capture-pane -t "${SESSION}" -p)"
+    while IFS= read -r line; do
+        if [[ "${line}" == *"${sub}"* ]]; then
+            pre="${line%%"${sub}"*}"
+            x="$(printf '%s' "${pre}" | LC_ALL=C tr -d '\200-\277' | wc -c)"
+            printf '%s %s\n' "$(( x ))" "${y}"
+            return 0
+        fi
+        y=$(( y + 1 ))
+    done <<< "${LAST_PANE}"
+    fail "cell_of: not on screen: ${sub}"
+}
+
+# ---------------------------------------------------------------------------
 # snapshot: echo the pane plain-text (no SGR escapes).
 # ---------------------------------------------------------------------------
 snapshot() {
@@ -178,6 +226,28 @@ wait_for() {
         fi
         if (( $(date +%s%N) > deadline )); then
             fail "timed out waiting for: ${sub}"
+        fi
+        sleep 0.08
+    done
+}
+
+# ---------------------------------------------------------------------------
+# wait_gone "<sub>" [timeout_s]: the mirror of wait_for — poll until <sub> is no
+# longer on screen. For the states that are asserted by their DISAPPEARANCE (the
+# "unsaved" marker clearing after a save), where wait_for has nothing to watch.
+# ---------------------------------------------------------------------------
+wait_gone() {
+    local sub="$1"
+    local timeout="${2:-5}"
+    local deadline
+    deadline=$(( $(date +%s%N) + timeout * 1000000000 ))
+    while :; do
+        LAST_PANE="$(tmux capture-pane -t "${SESSION}" -p)"
+        if [[ "${LAST_PANE}" != *"${sub}"* ]]; then
+            return 0
+        fi
+        if (( $(date +%s%N) > deadline )); then
+            fail "timed out waiting for this to go away: ${sub}"
         fi
         sleep 0.08
     done

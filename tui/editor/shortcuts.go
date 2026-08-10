@@ -67,6 +67,14 @@ var shortcutSections = []shortcutSection{
 		{"alt+c on agent", "recolor agent session chip"},
 		{"alt+o on agent", "copy the session's open command"},
 	}},
+	{"Mouse", [][2]string{
+		{"click a ○", "zoom into that node"},
+		{"click a #tag", "goto, already searching that tag"},
+		{"click a breadcrumb", "walk the view back to that node"},
+		{"click a row", "put the cursor on it"},
+		{"wheel", "scroll the outline or the temp panel"},
+		{"/settings · Mouse", "click, wheel-only, or hand the mouse back"},
+	}},
 	{"Leave", [][2]string{
 		{"esc", "close a page, picker, selection or focused view"},
 		{"esc esc", "save and quit from the outline"},

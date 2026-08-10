@@ -600,22 +600,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "alt+right":
 		// zoom into the cursor node — leaves too: the view starts empty
-		// and typing adds the first child
-		if cur := m.cursorItem(); cur != nil {
-			// a mirror carries no children in memory; zoom into its source so the
-			// original's children render — see mirrorContext, "zoom"
-			if cur.mirrorOf != "" {
-				src, ok := m.tree.byUUID[m.tree.sourceUUID(cur)]
-				if !ok {
-					return m, nil
-				}
-				cur = src
-			}
-			m.viewStack = append(m.viewStack, cur)
-			m.cursor = 0
-			m.caret = 0
-			m.refreshRows()
-		}
+		// and typing adds the first child. A click on the row's glyph is the
+		// same gesture with the mouse (see zoomInto).
+		m.zoomInto(m.cursorItem())
 		return m, nil
 	case "alt+left", "alt+backspace":
 		// zoom back out
@@ -1257,31 +1244,6 @@ func (m *Model) scrollBody(delta int) {
 	}
 }
 
-// handleMouse: the wheel scrolls the body like pgup/pgdown but in small steps.
-// When the wheel is over the read-only Temporary Domain panel (bottom of the
-// screen, unfocused), it scrolls that panel's window instead of the main body.
-// Everything else (clicks, motion) is ignored — the mouse is captured only so
-// the terminal reports wheel events (hold shift to select text natively).
-// Wheel events bypass handleKey, so they never clear the scroll pin; the next
-// real key does, exactly like after a pgup.
-func (m *Model) handleMouse(msg tea.MouseMsg) {
-	if m.mode != modeOutline || msg.Action != tea.MouseActionPress {
-		return
-	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		if m.scrollTempPanel(-wheelStep, msg.Y) {
-			return
-		}
-		m.scrollBody(-wheelStep)
-	case tea.MouseButtonWheelDown:
-		if m.scrollTempPanel(wheelStep, msg.Y) {
-			return
-		}
-		m.scrollBody(wheelStep)
-	}
-}
-
 // scrollTempPanel wheels the read-only temp panel (when visible and unfocused) if
 // the event is over its region, returning true when it handled the scroll. The
 // offset is clamped to zero here; the upper bound is clamped by
@@ -1290,7 +1252,7 @@ func (m *Model) scrollTempPanel(delta, y int) bool {
 	if m.tempActive || m.tempHeight < 1 {
 		return false
 	}
-	row := y - 1 // mouse Y is 1-based, screen rows are 0-based
+	row := y // a bubbletea mouse Y is already 0-based, like the screen rows
 	if row < m.tempTop || row >= m.tempTop+m.tempHeight {
 		return false
 	}

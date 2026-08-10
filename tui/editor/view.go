@@ -21,6 +21,12 @@ func (m *Model) View() string {
 	m.syncLiveCmdRuns()
 	m.syncRunTails()
 
+	// the mouse's hit zones belong to the frame that painted them: drop the
+	// previous one's before anything records into it (see mouse.go). Only the
+	// outline path records and merges, so a click never lands on a stale zone
+	// left behind by a mode that has since taken the whole body.
+	m.mouse.reset()
+
 	if m.quitting {
 		if m.err != nil {
 			return ""
@@ -307,6 +313,18 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 	maxRows := lay.maxRows
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
+	// owner[i] is the m.rows index the flat line i renders, -1 for the root note
+	// and the hanging bands; first[i] marks a group's opening line, the one
+	// carrying the glyph. The mouse only ever sees screen lines, so this is what
+	// lets a click find the row — and the glyph — behind the line it hit.
+	var owner []int
+	var first []bool
+	mark := func(n int, idx int, opening bool) {
+		for i := 0; i < n; i++ {
+			owner = append(owner, idx)
+			first = append(first, opening && i == 0)
+		}
+	}
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
 	// as a band at the top of the view — the same band a row would hang below it.
 	rootNote := m.noteBandLines(m.tree, row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
@@ -316,6 +334,7 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 		}
 	}
 	flat = append(flat, rootNote...)
+	mark(len(rootNote), -1, false)
 	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)
@@ -329,7 +348,9 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 			}
 		}
 		flat = append(flat, groups[i]...)
+		mark(len(groups[i]), i, true)
 		flat = append(flat, bands[i]...)
+		mark(len(bands[i]), -1, false)
 	}
 	start := 0
 	if m.scrolling {
@@ -366,7 +387,16 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 	if end > len(flat) {
 		end = len(flat)
 	}
+	base := len(lines) // the empty-outline placeholder can already hold a line
 	lines = append(lines, flat[start:end]...)
+	if m.mouseClicks() {
+		for j := start; j < end; j++ {
+			if owner[j] < 0 {
+				continue
+			}
+			m.recordBodyZones(base+j-start, owner[j], rows[owner[j]], first[j], flat[j], maxLine)
+		}
+	}
 	return lines
 }
 
@@ -508,6 +538,13 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 		// scroll it (the mouse handler runs before the next frame renders)
 		m.tempTop = len(mainLines) + len(bar)
 		m.tempHeight = len(tempLines)
+		// the focused region's body is on top when main has focus, below the bar
+		// when temp does — that offset is what the recorded zones were missing
+		bodyTop := 0
+		if m.tempActive {
+			bodyTop = m.tempTop
+		}
+		m.mouse.merge(bodyTop, len(mainLines))
 		// NOTE: the page background never adds filler rows — the layout (where
 		// the divider sits) must be identical across themes; gray paints
 		// exactly the rows the main region already has, edge to edge.
@@ -543,6 +580,7 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 	}
 
 	m.pageRows = len(body) // page bg covers everything above the status bar
+	m.mouse.merge(0, len(body))
 	body = append(body, bar...)
 
 	return body
@@ -658,16 +696,31 @@ func (m *Model) bottomBar(maxLine int) []string {
 		}
 	}
 	// breadcrumb: the forest path down to the current view root (main outline,
-	// even while the Temporary Domain holds focus)
-	parts := append([]string(nil), ancestors...)
-	for _, v := range viewStack {
-		name := displayAnchors(dispTree.displayName(v), m.chips) // resolve chip anchors
-		if name == "" {
-			name = "untitled"
+	// even while the Temporary Domain holds focus). Each segment is its own mouse
+	// target — clicking one walks the view there, and the one under the pointer
+	// lifts out of the bar's gray so it reads as clickable first (see mouse.go).
+	// While temp holds the focus the crumbs are describing a region the user is
+	// not in, so they are inert there and never light up.
+	clickable := m.mouseClicks() && !m.tempActive
+	m.mouse.bar = nil
+	crumbs := breadcrumbs(dispTree, m.chips, ancestors, viewStack)
+	title, col := "", 1 // the bar opens with one leading space
+	for i, c := range crumbs {
+		if i > 0 {
+			title += " › "
+			col += 3
 		}
-		parts = append(parts, name)
+		if clickable && m.mouse.hover == i+1 {
+			title += cReset + cFG + cUnderline + c.label + cReset + cDim
+		} else {
+			title += c.label
+		}
+		w := visibleWidth(c.label)
+		if clickable {
+			m.mouse.bar = append(m.mouse.bar, hitZone{kind: hitCrumb, row: 0, x0: col, x1: col + w, idx: i})
+		}
+		col += w
 	}
-	title := strings.Join(parts, " › ")
 	if title == "" {
 		title = "untitled"
 	}
@@ -680,7 +733,22 @@ func (m *Model) bottomBar(maxLine int) []string {
 		}
 	}
 	bar += state
-	return wrapSGR(cDim+bar+cReset, maxLine)
+	out := wrapSGR(cDim+bar+cReset, maxLine)
+	// The bar wraps rather than truncating, and a crumb past the first line's cut
+	// is no longer at the column it was recorded at — drop those instead of
+	// mis-placing a click. Only the tail of a very long path can be affected: the
+	// breadcrumb opens the bar.
+	if clickable && len(out) > 0 {
+		w := visibleWidth(out[0])
+		kept := m.mouse.bar[:0]
+		for _, z := range m.mouse.bar {
+			if z.x1 <= w {
+				kept = append(kept, z)
+			}
+		}
+		m.mouse.bar = kept
+	}
+	return out
 }
 
 // cwdShort renders a working directory for the status bar: the last two path

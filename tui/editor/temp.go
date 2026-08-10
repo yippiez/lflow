@@ -16,7 +16,7 @@ type tempStash struct {
 	cursor    int
 	caret     int
 	viewStack []*item
-	ancestors []string
+	ancestors []ancestor
 }
 
 // ensureTempTree creates the scratch tree if absent and guarantees it always has
@@ -87,7 +87,7 @@ func (m *Model) crossToNotes(cur *item) {
 
 	m.undoStack = nil // the active tree changes; cross-tree undo would corrupt
 	m.redoStack = nil
-	m.exitTemp()      // back to the notes, with the moved node now in them
+	m.exitTemp() // back to the notes, with the moved node now in them
 	if r := m.rowIndexOf(cur); r >= 0 {
 		m.cursor = r
 	}
