@@ -47,10 +47,7 @@ var settingDefs = []settingDef{
 	},
 	{
 		key: "link.color", label: "Link color",
-		options: []settingOption{
-			{"gray", "gray · dim, underlined"},
-			{"blue", "blue · accent, underlined"},
-		},
+		options: []settingOption{{"gray", "gray"}, {"blue", "blue"}},
 		def:     "gray",
 		apply:   func(m *Model, v string) { linkColorMode = v },
 	},
@@ -123,23 +120,10 @@ var settingLabelWidth = func() int {
 
 // themeOptions derives the theme setting's options from the theme registry so
 // there is a single source of truth.
-// themeDesc gives each theme a one-line description for the /settings row,
-// matching the "value · description" shape every other option list uses.
-var themeDesc = map[string]string{
-	"system":  "the default palette",
-	"gray":    "a gray page behind the outline",
-	"nord":    "cool blue-gray",
-	"gruvbox": "warm retro",
-}
-
 func themeOptions() []settingOption {
 	out := make([]settingOption, len(themes))
 	for i, t := range themes {
-		label := t.name
-		if d, ok := themeDesc[t.name]; ok {
-			label += " · " + d
-		}
-		out[i] = settingOption{t.name, label}
+		out[i] = settingOption{t.name, t.name}
 	}
 	return out
 }

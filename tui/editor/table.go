@@ -295,7 +295,7 @@ type tableSel struct{ col, row, caret int }
 func (m *Model) tableLines(it *item, width int, sel *tableSel) (lines []string, selLine int) {
 	g := tableOf(m, it)
 	if len(g.cols) == 0 {
-		return []string{cDim + "  empty table · alt+e opens the grid, alt+n adds a column" + cReset}, 0
+		return []string{cDim + "  empty table · ⌥e opens the grid, ⌥n adds a column" + cReset}, 0
 	}
 	if width < 8 {
 		width = 8
@@ -595,10 +595,10 @@ func (m *Model) tableHint(it *item) string {
 	shape := fmt.Sprintf("%d × %d", len(g.cols), g.rows)
 	if armed, _ := m.nodeStore(it.uuid)["tblArm"].(string); armed != "" {
 		return cReset + cDim + "  table · " + shape + " · " + cReset + cRed +
-			"alt+d again deletes this row" + cReset
+			"⌥d again deletes this row" + cReset
 	}
 	return cReset + cDim + "  table · " + shape +
-		" · tab cell · enter row · alt+n column · alt+d drop row · alt+→ open cell · esc done" + cReset
+		" · ⇥ cell · ⏎ row · ⌥n column · ⌥d drop row · ⌥→ open cell · esc done" + cReset
 }
 
 // Key drives the grid: arrows and tab walk the cells, typing edits the cell

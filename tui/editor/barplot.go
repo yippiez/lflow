@@ -202,7 +202,7 @@ func barplotFillColor(b barplotBar, plotColor string) string {
 func (m *Model) barplotLines(it *item, width int) []string {
 	bars := m.barplotBars(it)
 	if len(bars) == 0 {
-		return []string{cDim + "  empty bar plot · ctrl+space unfolds, add a child node as a bar" + cReset}
+		return []string{cDim + "  empty plot · unfold to add bars" + cReset}
 	}
 	if width < 16 {
 		width = 16
