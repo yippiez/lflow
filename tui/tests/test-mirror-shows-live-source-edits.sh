@@ -51,8 +51,8 @@ send "/"
 type "mirror:from"
 wait_for "/mirror:from"
 send Enter
-# the fuzzy finder opens in /mirror:from mode — wait for its label to appear
-wait_for "/mirror:from" 5
+# the fuzzy finder opens in mirror mode — wait for its label to appear
+wait_for "enter mirror that node here" 5
 # "source" is the only saved node; select it with Enter
 send Enter
 # wait for the mirror glyph to appear

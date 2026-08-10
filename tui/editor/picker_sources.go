@@ -75,7 +75,7 @@ func (slashSource) items(m *Model, q string) []pickerItem {
 // no way back into the menu. Enter commits the literal text; esc strips it.
 func (slashSource) header(m *Model, p *listPicker) string {
 	if p.query != "" && len(m.filteredSlash(p.query)) == 0 {
-		return " " + cDim + "no matches · enter keeps the text · esc cancels" + cReset
+		return " " + cDim + "no matches · enter keep text · esc cancel" + cReset
 	}
 	return ""
 }
@@ -146,7 +146,7 @@ var insertKinds = []struct{ value, label, desc string }{
 	{"cmd", "Bash", "a runnable $ command chip (or type $$)"},
 	{"date", "Date", "today as a date chip"},
 	{"icon", "Icon", "an icon or emoji via shortcode"},
-	{"link", "Link", "a link chip"},
+	{"link", "Link", "a link chip (or type [[)"},
 	{"molecule", "Molecule", "a ⌬ molecule chip"},
 	{"tag", "Tag", "a #tag chip"},
 }
@@ -429,10 +429,13 @@ func (styleSource) header(m *Model, p *listPicker) string {
 		// a horizontal selection narrows the target to that run of the text
 		return " " + cDim + "enter style the selected text" + cReset
 	}
-	if p.query != "" {
-		return " " + cDim + "style: " + cReset + cFG + p.query + cReset
+	query := p.query
+	if query == "" {
+		query = cDim + "type to search" + cReset
+	} else {
+		query = cFG + query + cReset
 	}
-	return " " + cDim + "enter to apply the first part · shift+←/→ styles a portion · type to filter" + cReset
+	return " " + cDim + "style: " + cReset + query
 }
 
 func (styleSource) initialSel(m *Model) int {
@@ -572,7 +575,12 @@ func (completerSource) items(m *Model, q string) []pickerItem {
 	return out
 }
 
-func (completerSource) header(*Model, *listPicker) string { return "" }
+func (s completerSource) header(m *Model, p *listPicker) string {
+	if len(s.items(m, p.query)) == 0 {
+		return " " + cDim + "no matches" + cReset
+	}
+	return ""
+}
 func (completerSource) initialSel(*Model) int             { return 0 }
 
 func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {

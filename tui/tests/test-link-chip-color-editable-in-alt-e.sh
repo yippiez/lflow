@@ -28,7 +28,7 @@ launch
 # finder opens on the second bracket keystroke
 type "["
 type "["
-wait_for "Link to node"
+wait_for "link to node"
 type "https://example.com"
 send Enter
 wait_for "→example.com"

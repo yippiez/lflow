@@ -348,7 +348,7 @@ func (zoteroSource) header(m *Model, p *listPicker) string {
 	if _, ok := m.zoteroLibrary(); !ok && !m.zoteroFill.running() {
 		return " " + cDim + label + cReset + cRed + m.zoteroErr + cReset
 	}
-	query := cDim + "search your Zotero library" + cReset
+	query := cDim + "type to search" + cReset
 	if p.query != "" {
 		query = cFG + p.query + cReset
 	}

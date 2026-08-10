@@ -337,7 +337,7 @@ func TestBashRunningCountInToolbar(t *testing.T) {
 		t.Fatalf("runningCount = %d, want 2", n)
 	}
 	bar := stripSGR(strings.Join(m.bottomBar(79), "\n"))
-	if !strings.Contains(bar, "2 bash running") {
-		t.Errorf("bar = %q, want a 2 bash running tally", bar)
+	if !strings.Contains(bar, "2 bash chips running") {
+		t.Errorf("bar = %q, want a 2 bash chips running tally", bar)
 	}
 }
