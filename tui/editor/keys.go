@@ -1199,6 +1199,12 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m.pasteFanOut(cur, lines)
 			} else if len(lines) == 1 {
 				text = lines[0]
+				// one line can still carry a shape ("## Findings", "- [x] ship
+				// it", "$ make test"): on an EMPTY row it becomes that node,
+				// anywhere else it stays text inserted at the caret
+				if pasteShapesRow(cur, text) {
+					return m.pasteInto(cur, text)
+				}
 			} else {
 				text = ""
 			}

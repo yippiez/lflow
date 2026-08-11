@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/lflow/lflow/tui/database"
 )
 
 // Yank and cut: y/x act once a horizontal or row selection exists. alt+y and
@@ -173,14 +175,60 @@ func (m *Model) cutNodes(roots []*item) bool {
 // per level, with chips expanded to their full value. A mirror carries its
 // source's children, so the walk tracks the uuids on its own path — a mirror
 // nested under its own source stops instead of recursing forever.
+//
+// A node whose TYPE is not a plain bullet writes itself in the plain-text
+// spelling of that type — "- [x] done", "# Title", "> quoted", "$ make" — the
+// markers the paste parser reads back (see pasteparse.go). That is the whole
+// clipboard contract: no private format, just text that says what it is and
+// that Slack, a commit message and another lflow all understand.
 func (m *Model) nodesAsText(roots []*item) string {
 	var b strings.Builder
 	m.walkSubtrees(roots, func(it *item, depth int) {
-		b.WriteString(strings.Repeat("  ", depth))
-		b.WriteString(expandAnchors(m.tree.displayName(it), m.chips))
-		b.WriteByte('\n')
+		pad := strings.Repeat("  ", depth)
+		for _, l := range nodeTextLines(it, expandAnchors(m.tree.displayName(it), m.chips)) {
+			b.WriteString(pad)
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
 	})
 	return b.String()
+}
+
+// nodeTextLines spells one node as clipboard text. Bullets stay bare (a copied
+// outline reads as an outline, not as markdown), and a multi-line body — code,
+// a JSON document — goes out FENCED, so its lines cannot be mistaken for the
+// nodes that follow it.
+func nodeTextLines(it *item, name string) []string {
+	switch it.typ {
+	case database.TypeTodo:
+		box := "[ ]"
+		if it.completedAt > 0 {
+			box = "[x]"
+		}
+		return []string{"- " + box + " " + name}
+	case database.TypeH1, database.TypeH2, database.TypeH3:
+		return []string{strings.Repeat("#", headingLevels[it.typ]) + " " + name}
+	case database.TypeQuote:
+		return []string{"> " + name}
+	case database.TypeDivider:
+		if name == "" {
+			return []string{"---"}
+		}
+		return []string{"--- " + name + " ---"}
+	case database.TypeComment:
+		return []string{"<!-- " + name + " -->"}
+	case database.TypeBash:
+		return []string{"$ " + name}
+	case database.TypeCode, database.TypeJSON:
+		lang := it.note
+		if it.typ == database.TypeJSON {
+			lang = "json"
+		}
+		out := []string{"```" + lang}
+		out = append(out, strings.Split(name, "\n")...)
+		return append(out, "```")
+	}
+	return strings.Split(name, "\n")
 }
 
 // countNodes phrases the roots (and their subtrees) for the status line.

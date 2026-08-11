@@ -1303,59 +1303,16 @@ func sanitizeName(text string) string {
 // node below it. LEADING SPACES ARE DEPTH — a line indented past the one above
 // it lands as its child — so an indented list, or a subtree copied out with
 // alt+y (see clipboard.go), comes back as a tree instead of rows whose names
-// start with spaces. Lines are already sanitized by pasteLines; a line that
-// sanitized to empty (only C0/DEL bytes) creates no node so the paste never
-// leaves a ghost empty-named node between two real lines.
+// start with spaces.
+//
+// The reading itself belongs to the paste parser (pasteparse.go), which sees
+// the lines back as one text: indentation is only ONE of the depth signals it
+// has, and the node types it detects live in markers (bullets, checkboxes,
+// fences) that no single line carries on its own. Lines are already sanitized
+// by pasteLines; a line that sanitized to empty (only C0/DEL bytes) creates no
+// node, so the paste never leaves a ghost empty-named node between two real ones.
 func (m *Model) pasteFanOut(cur *item, lines []string) (tea.Model, tea.Cmd) {
-	runes := []rune(cur.name)
-	m.boundCaret(len(runes))
-	cur.name = string(runes[:m.caret]) + strings.TrimLeft(lines[0], " ") + string(runes[m.caret:])
-
-	// one entry per open indent level, holding the last node landed at it; the
-	// base is the pasted-into row itself, so an unindented paste is all siblings
-	type pasteLevel struct {
-		indent int
-		it     *item
-	}
-	stack := []pasteLevel{{it: cur}}
-	last := cur
-	for _, l := range lines[1:] {
-		text := strings.TrimLeft(l, " ")
-		if text == "" {
-			continue
-		}
-		indent := len(l) - len(text)
-		for len(stack) > 1 && indent < stack[len(stack)-1].indent {
-			stack = stack[:len(stack)-1]
-		}
-		top := stack[len(stack)-1]
-		var it *item
-		var err error
-		if indent > top.indent {
-			// first child at a new level; later lines at this level are its siblings
-			if it, err = m.tree.insertFirstChild(top.it); err == nil {
-				stack = append(stack, pasteLevel{indent: indent, it: it})
-			}
-		} else {
-			if it, err = m.tree.insertSiblingAfter(top.it); err == nil {
-				stack[len(stack)-1].it = it
-			}
-		}
-		if err != nil {
-			// a locked parent takes no children: keep what landed, say why
-			m.errorFlash(err.Error())
-			break
-		}
-		it.name = text
-		last = it
-	}
-
-	m.unsaved = true
-	m.refreshRows()
-	m.cursor = m.rowIndexOf(last)
-	m.caret = len([]rune(last.name))
-	m.maybeLinkToMirror(last)
-	return m, nil
+	return m.pasteInto(cur, strings.Join(lines, "\n"))
 }
 
 var mirrorLinkRe = regexp.MustCompile(`^lflow://node/([0-9a-fA-F-]{6,})$`)

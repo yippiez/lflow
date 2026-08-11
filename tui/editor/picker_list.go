@@ -228,7 +228,7 @@ func (p *listPicker) handleKey(m *Model, k tea.KeyMsg, src pickerSource) (consum
 				m.finishRichPicker()
 			}
 		} else if p.searchable {
-			p.query += string(k.Runes)
+			p.query += pasteFlat(string(k.Runes)) // one line, whatever was pasted
 			p.sel = 0
 		}
 		return true, m, nil

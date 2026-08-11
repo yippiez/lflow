@@ -317,9 +317,11 @@ func (v ncView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 			buf = string(rl[:caret]) + " " + string(rl[caret:])
 			caret++
 		case k.Type == tea.KeyRunes && !k.Alt:
-			s := string(k.Runes)
+			// the instruction is a multi-line buffer, so a paste keeps its
+			// breaks (and loses the escape noise) — see pasteBlock
+			s := pasteRunes(k)
 			buf = string(rl[:caret]) + s + string(rl[caret:])
-			caret += len(k.Runes)
+			caret += len([]rune(s))
 		default:
 			return nil, false // esc, alt+e, ctrl+c … → central
 		}

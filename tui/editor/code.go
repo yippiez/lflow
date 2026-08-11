@@ -338,7 +338,10 @@ func (v codeView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 			}
 			buf, caret = jsonIns(buf, caret, " ")
 		case k.Type == tea.KeyRunes && !k.Alt:
-			buf, caret = jsonIns(buf, caret, string(k.Runes))
+			// a paste keeps its newlines and indentation here — this buffer is
+			// multi-line, and code pasted out of a terminal drags CR and escape
+			// noise along that would otherwise land in the block verbatim
+			buf, caret = jsonIns(buf, caret, pasteRunes(k))
 		default:
 			return nil, false // esc, ctrl+c … → central
 		}

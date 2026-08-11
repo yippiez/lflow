@@ -693,7 +693,9 @@ func (v tableView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 		case k.Type == tea.KeySpace && !k.Alt:
 			m.tableInsert(it, &s, " ")
 		case k.Type == tea.KeyRunes && !k.Alt:
-			m.tableInsert(it, &s, string(k.Runes))
+			// a cell is one line: a multi-line paste joins with spaces rather
+			// than losing its breaks to the control-byte filter
+			m.tableInsert(it, &s, pasteFlat(string(k.Runes)))
 		default:
 			return nil, false // esc, ctrl+c … → central handling
 		}

@@ -31,9 +31,11 @@ func (f *textField) runes() []rune {
 }
 
 // insert splices s (sanitized like a node name — C0/DEL and bracketed-paste
-// markers stripped) at the caret.
+// markers stripped) at the caret. A field is one line: a multi-line paste
+// arrives with its breaks turned into spaces rather than deleted, so pasting
+// two lines into a note reads as two words and not one welded together.
 func (f *textField) insert(s string) {
-	ins := []rune(sanitizeName(s))
+	ins := []rune(pasteFlat(s))
 	r := f.runes()
 	f.value = string(r[:f.caret]) + string(ins) + string(r[f.caret:])
 	f.caret += len(ins)

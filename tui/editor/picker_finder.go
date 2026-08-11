@@ -121,7 +121,9 @@ func (f *bodyFinder) handleKey(m *Model, k tea.KeyMsg, be finderBackend) (tea.Mo
 		k.Type, k.Runes = tea.KeyRunes, []rune{' '}
 	}
 	if k.Type == tea.KeyRunes && !k.Alt {
-		f.query += string(k.Runes)
+		// a query is one line — a pasted URL or a multi-line snippet arrives
+		// flattened rather than smuggling breaks and escapes into the search
+		f.query += pasteFlat(string(k.Runes))
 		f.refresh(m, be)
 	}
 	return m, nil

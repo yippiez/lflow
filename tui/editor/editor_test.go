@@ -105,7 +105,9 @@ func TestPasteFanOutSkipsEmptySanitizedLines(t *testing.T) {
 // TestNoteKeySanitizesControlBytes is the F16 regression: pasting text with an
 // embedded ESC sequence into note mode must strip the control bytes the same way
 // node-name input does, so an ESC[H cursor-home never reaches the terminal and
-// recolors the note on render. The literal printable text survives.
+// recolors the note on render. The literal printable text survives — and since
+// the field went through the paste normalizer (pasteFlat), the WHOLE escape
+// goes, not just its ESC byte: no "[H" residue is left in the note either.
 func TestNoteKeySanitizesControlBytes(t *testing.T) {
 	m := newTestModel(80, "root")
 	cur := m.tree.root.children[0]
@@ -116,9 +118,12 @@ func TestNoteKeySanitizesControlBytes(t *testing.T) {
 
 	m.handleNoteKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("BEFORE\x1b[HAFTER")})
 
-	want := "BEFORE[HAFTER"
+	want := "BEFOREAFTER"
 	if cur.note != want {
 		t.Fatalf("note = %q, want %q", cur.note, want)
+	}
+	if strings.Contains(cur.note, "[H") {
+		t.Fatalf("note kept the escape's printable tail: %q", cur.note)
 	}
 	if strings.ContainsAny(cur.note, "\x1b\x00\x7f") {
 		t.Fatalf("note retained control bytes: %q", cur.note)

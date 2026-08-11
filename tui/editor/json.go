@@ -93,7 +93,9 @@ func (v jsonView) key(m *Model, it *item, k tea.KeyMsg) (tea.Cmd, bool) {
 		case k.Type == tea.KeySpace && !k.Alt:
 			buf, caret = jsonIns(buf, caret, " ")
 		case k.Type == tea.KeyRunes && !k.Alt:
-			buf, caret = jsonIns(buf, caret, string(k.Runes))
+			// a pasted document keeps its line breaks: this buffer is the whole
+			// JSON, not a name (see pasteBlock)
+			buf, caret = jsonIns(buf, caret, pasteRunes(k))
 		default:
 			return nil, false // not ours (esc, ctrl+c, …) → central
 		}
