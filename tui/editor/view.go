@@ -295,14 +295,8 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 	var lines []string
 	rows := m.rows
 	if len(rows) == 0 {
-		// the temp panel keeps its own voice when it is the focused region: it is
-		// the dotted glyph that says WHICH region you are in, and an empty one
-		// that borrowed the main outline's line lost that
-		if m.tempActive {
-			lines = append(lines, " "+cDim+glyphDotted+" empty temp space - type to add a node"+cReset)
-		} else {
-			lines = append(lines, cDim+" empty - type to add a node"+cReset)
-		}
+		// Preserve the empty view's row without adding placeholder text.
+		lines = append(lines, "")
 	}
 	maxRows := lay.maxRows
 	cursorStart, cursorEnd := 0, 0

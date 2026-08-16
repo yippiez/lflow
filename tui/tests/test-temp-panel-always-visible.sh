@@ -3,10 +3,9 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 
 # The Temporary Domain is a bottom panel reached by pressing Down past the last
-# main node (not a window swap). It is ALWAYS on screen — an empty one draws a
-# dim "◌ empty temp space" hint rather than a blank void, so the region always
-# signals itself. Both regions stay on screen together (main on top, panel
-# below).
+# main node (not a window swap). It is ALWAYS on screen — an empty one stays
+# literally blank rather than showing placeholder text. Both regions stay on
+# screen together (main on top, panel below).
 
 setup; launch
 
@@ -14,8 +13,8 @@ setup; launch
 type "only node"
 wait_for "○ only node"
 
-# The panel is there before you ever enter it, and says it is empty.
-assert_contains "◌ empty temp space"
+# The panel is there before you ever enter it, but contains no placeholder text.
+assert_not_contains "empty temp space"
 
 # Step 2: Down enters the Temporary Domain panel (no window swap).
 send Down

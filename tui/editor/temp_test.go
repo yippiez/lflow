@@ -26,8 +26,8 @@ func seedTemp(m *Model, n int) *Model {
 }
 
 // TestEmptyTempPanelShowsNode: the scratch tree is seeded with one empty node on
-// first use so the persistent panel is never a blank void, and a tree with no
-// visible rows at all still renders a dim hint line instead of going blank.
+// first use so the persistent panel has an editable row, and a tree with no
+// visible rows at all renders a literal blank line.
 func TestEmptyTempPanelShowsNode(t *testing.T) {
 	m := newTestModel(120, "main")
 	m.ensureTempTree()
@@ -39,11 +39,11 @@ func TestEmptyTempPanelShowsNode(t *testing.T) {
 		t.Fatalf("empty temp panel should show the one seeded node line, got %q", lines)
 	}
 
-	// a tree with no rows at all still signals itself instead of going blank
+	// a tree with no rows at all keeps its footprint with no placeholder text
 	m.tempTree.root.children = nil
 	lines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, maxTempPanelLines, 119, true, 0)
-	if !strings.Contains(lines[0], "empty temp space") {
-		t.Fatalf("blank temp tree should render the hint, got %q", lines[0])
+	if lines[0] != "" {
+		t.Fatalf("blank temp tree should render a literal blank line, got %q", lines[0])
 	}
 }
 
