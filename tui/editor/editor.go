@@ -173,6 +173,9 @@ type Model struct {
 	// the status bar. A theme's page background (bgPage) paints exactly these;
 	// the bar (divider) and the temp panel below it always stay transparent.
 	pageRows int
+	// mouseFrame is rebuilt from the exact wrapped and windowed frame. Mouse
+	// input never repeats layout arithmetic against the underlying outline.
+	mouseFrame mouseFrame
 
 	mode mode
 
@@ -375,7 +378,8 @@ type Model struct {
 	undoMark  string
 
 	// breadcrumb names above the loaded root, from the forest root down
-	ancestors []string
+	ancestors     []string
+	ancestorUUIDs []string
 
 	// live sync (see livesync.go): the daemon connection, its subscribe feed,
 	// and the deferred-apply queue for events arriving while a modal surface
@@ -424,6 +428,7 @@ func (m *Model) viewRoot() *item { return m.viewStack[len(m.viewStack)-1] }
 // walking the db parent chain up to the forest root.
 func (m *Model) refreshAncestors() {
 	m.ancestors = nil
+	m.ancestorUUIDs = nil
 	base := m.viewStack[0]
 	if m.db == nil || base == nil || base.uuid == "" || base.uuid == database.RootUUID {
 		return
@@ -442,6 +447,7 @@ func (m *Model) refreshAncestors() {
 			name = "untitled"
 		}
 		m.ancestors = append([]string{name}, m.ancestors...)
+		m.ancestorUUIDs = append([]string{n.UUID}, m.ancestorUUIDs...)
 		puuid = n.ParentUUID
 	}
 }
@@ -920,13 +926,7 @@ func (m *Model) persistCollapsed(it *item) {
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
-	cmd := m.startAnim(nil)
-	// mouse capture follows the preference: only the wheel mode grabs the
-	// mouse (native selection then needs shift); select mode leaves the mouse
-	// to the terminal so drag-select and copy-on-select just work.
-	if m.setting("mouse") == "wheel" {
-		cmd = tea.Batch(cmd, tea.EnableMouseCellMotion)
-	}
+	cmd := tea.Batch(m.startAnim(nil), tea.EnableMouseCellMotion)
 	switch {
 	case m.liveFeed != nil:
 		return tea.Batch(cmd, waitDaemonEv(m.liveFeed))
@@ -946,8 +946,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 	case tea.MouseMsg:
-		m.handleMouse(msg)
-		return m, nil
+		return m, m.handleMouse(msg)
 	case tea.KeyMsg:
 		_, cmd := m.handleKey(msg)
 		// track the cursor onto/off an auto-focus block (Code): enter it for
@@ -1929,13 +1928,6 @@ func (m *Model) handleSettingsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				dir = -1
 			}
 			m.setSetting(d.key, cycleSetting(d, m.setting(d.key), dir))
-			// mouse capture toggles live with the preference
-			if d.key == "mouse" {
-				if m.setting("mouse") == "wheel" {
-					return m, tea.EnableMouseCellMotion
-				}
-				return m, tea.DisableMouse
-			}
 		}
 	default:
 		if text {
@@ -2477,11 +2469,10 @@ func RunFile(ctx runtime.Ctx, nodeUUID string, fs FileSession) error {
 	// scrollback. bubbletea restores the normal screen on exit, discarding
 	// whatever was last drawn there — the styled outline below is what
 	// actually reaches the normal screen, printed once after Run returns.
-	// The mouse is NOT captured by default — the terminal owns drag-select and
-	// copy-on-select. The "mouse: wheel" setting turns capture on (Init /
-	// handleSettingsKey) so the wheel scrolls the outline instead.
+	// Mouse reporting is part of the program from its first frame. lflow restores
+	// terminal-style drag selection itself and also handles wheel/click actions.
 	multiplexer.CaptureHostColors() // ask the real terminal its colors while we still own the tty
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	final, err := p.Run()
 	if err != nil {
 		return errors.Wrap(err, "running editor")

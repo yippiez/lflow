@@ -12,11 +12,12 @@ import (
 // outline, but is gone when you quit.
 
 type tempStash struct {
-	tree      *tree
-	cursor    int
-	caret     int
-	viewStack []*item
-	ancestors []string
+	tree          *tree
+	cursor        int
+	caret         int
+	viewStack     []*item
+	ancestors     []string
+	ancestorUUIDs []string
 }
 
 // ensureTempTree creates the scratch tree if absent and guarantees it always has
@@ -42,10 +43,11 @@ func (m *Model) ensureTempTree() {
 // Down at the bottom of the main outline — no shortcut, no divider.
 func (m *Model) enterTemp() {
 	m.ensureTempTree()
-	m.mainStash = tempStash{tree: m.tree, cursor: m.cursor, caret: m.caret, viewStack: m.viewStack, ancestors: m.ancestors}
+	m.mainStash = tempStash{tree: m.tree, cursor: m.cursor, caret: m.caret, viewStack: m.viewStack, ancestors: m.ancestors, ancestorUUIDs: m.ancestorUUIDs}
 	m.tree = m.tempTree
 	m.viewStack = []*item{m.tempTree.root}
 	m.ancestors = nil
+	m.ancestorUUIDs = nil
 	m.tempActive = true
 	m.refreshRows()
 	m.cursor = 0
@@ -87,7 +89,7 @@ func (m *Model) crossToNotes(cur *item) {
 
 	m.undoStack = nil // the active tree changes; cross-tree undo would corrupt
 	m.redoStack = nil
-	m.exitTemp()      // back to the notes, with the moved node now in them
+	m.exitTemp() // back to the notes, with the moved node now in them
 	if r := m.rowIndexOf(cur); r >= 0 {
 		m.cursor = r
 	}
@@ -102,6 +104,7 @@ func (m *Model) exitTemp() {
 	m.tree = s.tree
 	m.viewStack = s.viewStack
 	m.ancestors = s.ancestors
+	m.ancestorUUIDs = s.ancestorUUIDs
 	m.cursor = s.cursor
 	m.caret = s.caret
 	m.tempActive = false

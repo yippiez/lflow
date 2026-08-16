@@ -1258,30 +1258,33 @@ func (m *Model) scrollBody(delta int) {
 	}
 }
 
-// handleMouse: the wheel scrolls the body in small steps without moving the
-// cursor.
+// handleMouse routes wheel events without changing their established behavior,
+// and delegates presses/drags to the hit map retained from the rendered frame.
 // When the wheel is over the read-only Temporary Domain panel (bottom of the
 // screen, unfocused), it scrolls that panel's window instead of the main body.
-// Everything else (clicks, motion) is ignored — the mouse is captured only so
-// the terminal reports wheel events (hold shift to select text natively).
 // Wheel events bypass handleKey, so they never clear the scroll pin; the next
 // real key does, exactly like after a pgup.
-func (m *Model) handleMouse(msg tea.MouseMsg) {
-	if m.mode != modeOutline || msg.Action != tea.MouseActionPress {
-		return
+func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
+	if m.mode != modeOutline {
+		return nil
 	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		if m.scrollTempPanel(-wheelStep, msg.Y) {
-			return
+	if msg.Action == tea.MouseActionPress {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if m.scrollTempPanel(-wheelStep, msg.Y) {
+				return nil
+			}
+			m.scrollBody(-wheelStep)
+			return nil
+		case tea.MouseButtonWheelDown:
+			if m.scrollTempPanel(wheelStep, msg.Y) {
+				return nil
+			}
+			m.scrollBody(wheelStep)
+			return nil
 		}
-		m.scrollBody(-wheelStep)
-	case tea.MouseButtonWheelDown:
-		if m.scrollTempPanel(wheelStep, msg.Y) {
-			return
-		}
-		m.scrollBody(wheelStep)
 	}
+	return m.handleFrameMouse(msg)
 }
 
 // scrollTempPanel wheels the read-only temp panel (when visible and unfocused) if

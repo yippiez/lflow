@@ -10,6 +10,8 @@ import (
 
 // View implements tea.Model.
 func (m *Model) View() string {
+	drag := m.mouseFrame.drag
+	m.mouseFrame = mouseFrame{drag: drag}
 	width := m.width
 	if width <= 0 {
 		width = 80
@@ -47,7 +49,6 @@ func (m *Model) View() string {
 	} else {
 		lines = m.viewOutline(maxLine)
 	}
-
 	// The inline renderer (no alt screen) can only move the cursor back over the
 	// lines of the previous frame — it cannot reach into scrollback. A frame
 	// taller than the terminal therefore strands its top lines: on the next
@@ -57,6 +58,11 @@ func (m *Model) View() string {
 	if m.height > 0 && len(lines) > m.height {
 		lines = lines[:m.height]
 	}
+	if len(m.mouseFrame.lines) > len(lines) {
+		m.mouseFrame.lines = m.mouseFrame.lines[:len(lines)]
+	}
+	m.finishMouseFrame(lines)
+	lines = m.paintMouseDrag(lines)
 
 	// Erase the line before drawing it, not after. The inline renderer rewrites
 	// lines in place without clearing, so a frame that grows after a shrink would
@@ -117,7 +123,14 @@ func (m *Model) viewOutline(maxLine int) []string {
 	lay := m.viewBudgets(len(bar), maxLine)
 	m.viewFocusedBand(groups, bands, lay, maxLine)
 	body := m.viewWindow(groups, bands, lay, maxLine)
-	body = append(body, m.viewOverlays(lay, maxLine)...)
+	for len(m.mouseFrame.lines) < len(body) {
+		m.mouseFrame.lines = append(m.mouseFrame.lines, mouseLine{row: -1})
+	}
+	overlays := m.viewOverlays(lay, maxLine)
+	body = append(body, overlays...)
+	for range overlays {
+		m.mouseFrame.lines = append(m.mouseFrame.lines, mouseLine{row: -1})
+	}
 	return m.viewFrame(body, bar, lay, maxLine)
 }
 
@@ -301,6 +314,7 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 	maxRows := lay.maxRows
 	cursorStart, cursorEnd := 0, 0
 	var flat []string
+	var hits []mouseLine
 	// the zoomed-in (view-root) node has no row of its own, so surface its note
 	// as a band at the top of the view — the same band a row would hang below it.
 	rootNote := m.noteBandLines(m.tree, row{it: m.viewRoot(), depth: 0}, maxLine, false, -1)
@@ -310,6 +324,9 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 		}
 	}
 	flat = append(flat, rootNote...)
+	for range rootNote {
+		hits = append(hits, mouseLine{row: -1})
+	}
 	for i := range groups {
 		if i == m.cursor {
 			cursorStart = len(flat)
@@ -322,8 +339,14 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 				cursorEnd += len(bands[i])
 			}
 		}
-		flat = append(flat, groups[i]...)
-		flat = append(flat, bands[i]...)
+		for j, line := range groups[i] {
+			flat = append(flat, line)
+			hits = append(hits, m.mouseLineForRow(i, line, j == 0, true))
+		}
+		for _, line := range bands[i] {
+			flat = append(flat, line)
+			hits = append(hits, m.mouseLineForRow(i, line, false, false))
+		}
 	}
 	start := 0
 	if m.scrolling {
@@ -361,6 +384,7 @@ func (m *Model) viewWindow(groups, bands [][]string, lay viewLayout, maxLine int
 		end = len(flat)
 	}
 	lines = append(lines, flat[start:end]...)
+	m.mouseFrame.lines = append(m.mouseFrame.lines, hits[start:end]...)
 	return lines
 }
 
@@ -476,6 +500,13 @@ func (m *Model) viewSettings(maxLine int) []string {
 // m.pageRows. body is the windowed body (viewWindow + viewOverlays); bar is
 // m.bottomBar(...).
 func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []string {
+	bodyHits := append([]mouseLine(nil), m.mouseFrame.lines...)
+	if len(bodyHits) > len(body) {
+		bodyHits = bodyHits[:len(body)]
+	}
+	for len(bodyHits) < len(body) {
+		bodyHits = append(bodyHits, mouseLine{row: -1})
+	}
 	// Assemble the body: main notes, then the status bar (which doubles as the
 	// divider), then the Temporary Domain panel below it. `body` here is the
 	// focused region's body (no modal menus are open in showTemp modes). The frame
@@ -496,10 +527,17 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 			}
 			mainLines = m.readonlyRegionLines(m.mainStash.tree, mainRoot, m.mainStash.cursor, lay.mainBudget, maxLine, false, -1)
 			tempLines = focused // live, focused temp
+			// The active rows were rendered in focused-region coordinates; on the
+			// final frame they begin below the read-only main region and status bar.
+			bodyHits = bodyHits[:min(len(bodyHits), len(focused))]
+			m.mouseFrame.lines = invalidMouseLines(len(mainLines) + len(bar))
+			m.mouseFrame.lines = append(m.mouseFrame.lines, bodyHits...)
 		} else {
 			mainLines = focused // live, focused main
 			// read-only temp panel: the dashed-glyph Temporary Domain look
 			tempLines = m.readonlyRegionLines(m.tempTree, m.tempTree.root, 0, lay.tempBudget, maxLine, true, m.tempScroll)
+			bodyHits = bodyHits[:min(len(bodyHits), len(mainLines))]
+			m.mouseFrame.lines = append(bodyHits, invalidMouseLines(len(bar)+len(tempLines))...)
 		}
 		// remember where the temp panel landed so the wheel can hit-test it and
 		// scroll it (the mouse handler runs before the next frame renders)
@@ -515,9 +553,11 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 		total := lay.rowBudget + len(bar) // main + status + temp, fixed for a stable frame
 		for len(out) < total {
 			out = append(out, "")
+			m.mouseFrame.lines = append(m.mouseFrame.lines, mouseLine{row: -1})
 		}
 		if len(out) > total {
 			out = out[:total]
+			m.mouseFrame.lines = m.mouseFrame.lines[:min(len(m.mouseFrame.lines), total)]
 		}
 		return out
 	}
@@ -541,8 +581,17 @@ func (m *Model) viewFrame(body, bar []string, lay viewLayout, maxLine int) []str
 
 	m.pageRows = len(body) // page bg covers everything above the status bar
 	body = append(body, bar...)
+	m.mouseFrame.lines = append(bodyHits, invalidMouseLines(len(bar))...)
 
 	return body
+}
+
+func invalidMouseLines(n int) []mouseLine {
+	lines := make([]mouseLine, n)
+	for i := range lines {
+		lines[i].row = -1
+	}
+	return lines
 }
 
 // errorFlash is the one way the editor reports a failure in the bottom bar: it
