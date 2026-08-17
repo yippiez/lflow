@@ -161,6 +161,35 @@ func TestNCProseFace(t *testing.T) {
 	}
 }
 
+// TestNCRenderCaret: the prose row carries the block cursor like any editable
+// row — at caret within the instruction the cell inverts, past the end a trailing
+// block cell marks the insertion point, and caret -1 (unselected, note/flash
+// mode) draws none.
+func TestNCRenderCaret(t *testing.T) {
+	m := ncTestModel(t, nil)
+	it := &item{uuid: "cell1", typ: database.TypeNLPCompute, name: "sum inputs"}
+	ncSave(m, "cell1", ncData{Code: "b = 1", Lang: "python"})
+
+	if got := ncRender(m, it, -1); strings.Contains(got, "\x1b[7m") {
+		t.Fatalf("caret -1 must draw no cursor: %q", got)
+	}
+	if got := ncRender(m, it, 2); !strings.Contains(got, "su\x1b[7mm") {
+		t.Fatalf("caret inside the instruction must invert that cell: %q", got)
+	}
+	if got := ncRender(m, it, len([]rune("sum inputs"))); !strings.Contains(got, "\x1b[7m ") {
+		t.Fatalf("caret past the end must draw a trailing block cell: %q", got)
+	}
+	if !strings.Contains(ncRender(m, it, 3), cDim+"{python}") {
+		t.Fatal("the {lang} chip must survive the caret")
+	}
+	st := ncStateOf(m, "cell1")
+	st.busy = true
+	if got := ncRender(m, it, 3); !strings.Contains(got, "\x1b[38;2;") {
+		t.Fatalf("busy render must keep shining, not the caret: %q", got)
+	}
+	st.busy = false
+}
+
 // TestNCRenderShineAndFlag: while generating the instruction shines (colored, no
 // "computing…" trace) and the animating flag is raised so the shine tick lives;
 // idle it is plain red; completion drops the flag.
@@ -174,7 +203,7 @@ func TestNCRenderShineAndFlag(t *testing.T) {
 	if a, _ := m.nodeStore("cell1")["animating"].(bool); !a {
 		t.Fatal("run must raise the animating flag")
 	}
-	shown := ncRender(m, it)
+	shown := ncRender(m, it, -1)
 	if strings.Contains(shown, "computing") || strings.Contains(shown, "⋯") {
 		t.Fatalf("busy render must not show an agent trace: %q", shown)
 	}

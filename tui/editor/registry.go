@@ -26,7 +26,11 @@ type nodeType struct {
 	sign           string                             // inline prefix sign, e.g. "$ "; "" = none
 	glyph          func(it *item) (string, string)    // per-type glyph+color; nil → default ○/●
 	render         func(it *item, name string) string // stateless inline-body override; nil → default
-	renderM        func(m *Model, it *item) string    // Model-aware inline-body override (voice waveform)
+	// renderM is the Model-aware inline-body override (voice waveform). caret is
+	// the block-cursor rune index of the selected row (-1 draws none) — the
+	// override owns the caret just like renderBody does, so an editable type
+	// (nlpcompute) can keep it visible.
+	renderM func(m *Model, it *item, caret int) string
 	inlineEditable bool                               // false → typing/backspace/enter is a no-op
 	autoFocus      bool                               // resting the cursor here auto-enters its view (thin caret, type directly) — no alt+e; see reconcileAutoFocus
 	blockFaces     bool                               // alt+e toggles the Render (prose) face ⇄ the BlockCode (code) face instead of entering an editor (nlpcompute); see toggleBlockFace

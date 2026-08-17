@@ -33,7 +33,7 @@ func init() {
 	registerType(nodeType{
 		key:          database.TypeImage,
 		label:        "Image",
-		renderM:      func(m *Model, it *item) string { return m.imageRender(it) },
+		renderM:      func(m *Model, it *item, _ int) string { return m.imageRender(it) },
 		run:          runImagePaste,
 		view:         imageView{},   // alt+e: scrollable half-block render
 		openHost:     imageOpenHost, // alt+o: the host's image viewer

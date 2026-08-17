@@ -22,7 +22,7 @@ func init() {
 		key:          database.TypeVoice,
 		label:        "Voice",
 		cliDeps:      []string{"ffmpeg"},
-		renderM:      func(m *Model, it *item) string { return m.voiceRender(it) },
+		renderM:      func(m *Model, it *item, _ int) string { return m.voiceRender(it) },
 		run:          runVoice,
 		expand:       playVoice,
 		flashActions: voiceFlashActions, // name them: "record" (toggle) and "play"

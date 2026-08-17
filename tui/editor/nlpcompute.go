@@ -195,21 +195,46 @@ func peelCodeFence(text string) (code, lang string) {
 // ncRender is the NLP version's inline body — the whole instruction is red. While
 // generating it SHINES (the ultraloop slide) with no agent trace; otherwise plain
 // red. When code exists the block replaces the row (ncBlockCode), so the trailing
-// {lang} chip is only ever seen off the main outline (the temp panel).
-func ncRender(m *Model, it *item) string {
+// {lang} chip is only ever seen off the main outline (the temp panel). caret is
+// the selected row's block cursor (renderRow hands it down; -1 draws none) —
+// renderBody's cursor would otherwise be lost when this override replaces it.
+func ncRender(m *Model, it *item, caret int) string {
 	st := ncStateOf(m, it.uuid)
 	name := it.name
 	if st.busy {
 		return ShineText(name)
 	}
+	label := ""
 	if d := ncLoad(m, it.uuid); d.Code != "" {
-		label := "{code}"
+		label = "{code}"
 		if d.Lang != "" {
 			label = "{" + d.Lang + "}"
 		}
-		return cRed + name + cReset + " " + cDim + label + cReset
+		label = " " + cDim + label + cReset
 	}
-	return cRed + name + cReset
+	if caret < 0 {
+		return cRed + name + cReset + label
+	}
+	return cRed + ncCaretText(name, caret) + cReset + label
+}
+
+// ncCaretText paints the red instruction with the same block cursor renderBody
+// draws: the cell under the caret inverts, and past the last rune one trailing
+// block cell marks the insertion point.
+func ncCaretText(name string, caret int) string {
+	runes := []rune(name)
+	var b strings.Builder
+	for i, r := range runes {
+		if i == caret {
+			b.WriteString(cInvert + string(r) + cReset + cRed)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if caret >= len(runes) {
+		b.WriteString(cReset + cRed + cInvert + " ")
+	}
+	return b.String()
 }
 
 // ncBlockCode makes the node render AS the borderless code block once a snippet

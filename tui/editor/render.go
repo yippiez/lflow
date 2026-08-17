@@ -427,7 +427,7 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 	}
 	body := renderBody(shown, name, caret, o.selected, m.chips)
 	if rm := typeOf(shown.typ).renderM; rm != nil {
-		body = rm(m, shown) // Model-aware override (voice waveform)
+		body = rm(m, shown, caret) // Model-aware override (voice waveform)
 	}
 	if o.interactive && it.queryGenerated() {
 		if it.readonly {
