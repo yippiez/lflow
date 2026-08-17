@@ -1228,7 +1228,9 @@ func (m *Model) moveCursorVertical(direction int) {
 	if line < len(starts)-1 {
 		goal := m.caretColumn(starts, line)
 		m.caret = m.caretAtColumn(starts, line+1, goal)
-	} else if cur := m.cursorItem(); cur != nil && m.caret < len([]rune(m.caretText(cur))) {
+	} else if cur := m.cursorItem(); cur != nil && m.cursor == len(m.rows)-1 && !m.tempActive && m.caret < len([]rune(m.caretText(cur))) {
+		// only the viewer's end node (before the Temporary Domain) snaps to the
+		// node end first; everywhere else Down crosses straight to the next node
 		m.caret = len([]rune(m.caretText(cur)))
 	} else if m.cursor < len(m.rows)-1 {
 		goal := m.caretColumn(starts, line)

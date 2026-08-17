@@ -9,7 +9,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$DIR/lib.sh"
 #   1. write notes.md with a heading and a todo; launch `file open notes.md`
 #   2. the outline shows the heading with the todo nested under it
 #   3. add a new item, ctrl+s
-#   4. the file on disk gains "- new item" under the section
+#   4. the file on disk gains "- [ ] new item" under the section (Down crosses
+#      straight onto the todo, so the sibling inherits its todo type)
 
 setup
 
@@ -45,7 +46,7 @@ case "${content}" in
     *) fail "todo missing from written file: ${content}" ;;
 esac
 case "${content}" in
-    *"- new item"*) : ;;
+    *"- [ ] new item"*) : ;;
     *) fail "new item not written back: ${content}" ;;
 esac
 

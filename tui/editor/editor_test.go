@@ -281,17 +281,10 @@ func TestDownWalksWrappedVisualLinesFirst(t *testing.T) {
 		t.Fatalf("Down should land on visual line 1, got %d (caret=%d)", line, m.caret)
 	}
 
-	// from the last visual line, Down first snaps to the node end, then crosses
-	m.press("down")
-	if m.cursor != 0 {
-		t.Fatalf("Down from last visual line must first snap to the node end, cursor=%d", m.cursor)
-	}
-	if m.caret != len([]rune("aaaa bbbb cccc")) {
-		t.Fatalf("Down from last visual line should snap caret to the node end, caret=%d", m.caret)
-	}
+	// from the last visual line, Down crosses straight to the next node
 	m.press("down")
 	if m.cursor != 1 {
-		t.Fatalf("Down from the snapped node end must move to next node, cursor=%d", m.cursor)
+		t.Fatalf("Down from last visual line must cross to the next node, cursor=%d", m.cursor)
 	}
 }
 
@@ -394,28 +387,21 @@ func TestEndMovesToEndOfCurrentVisualLine(t *testing.T) {
 	}
 }
 
-// TestDownSnapsToEndBeforeCrossing: on the last visual line a Down press that
-// would leave the node instead snaps the caret to the end of its text first;
-// only the next Down crosses to the next node (or into the Temporary Domain).
-func TestDownSnapsToEndBeforeCrossing(t *testing.T) {
+// TestDownCrossesStraightFromNonLastNode: on the last visual line of any node
+// but the viewer's end node, a Down press crosses directly to the next node —
+// the end-of-node snap happens only on the final node before the Temporary
+// Domain.
+func TestDownCrossesStraightFromNonLastNode(t *testing.T) {
 	m := newTestModel(80, "one", "two")
 	m.cursor = 0
 	m.caret = 0
 	if len(m.selectedVisualRows()) != 1 {
 		t.Fatalf("short node should be one visual line")
 	}
-	// first Down snaps the caret to the end of the node, staying put
-	m.press("down")
-	if m.cursor != 0 {
-		t.Fatalf("first Down must stay on the node, cursor=%d", m.cursor)
-	}
-	if m.caret != len([]rune("one")) {
-		t.Fatalf("first Down should snap caret to the node end %d, got %d", len([]rune("one")), m.caret)
-	}
-	// second Down crosses to the next node
+	// Down crosses straight to the next node, no snap to the node end first
 	m.press("down")
 	if m.cursor != 1 {
-		t.Fatalf("second Down should move to next node, cursor=%d", m.cursor)
+		t.Fatalf("Down from a non-last node must cross to the next node, cursor=%d", m.cursor)
 	}
 }
 
