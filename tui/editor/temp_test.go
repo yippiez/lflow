@@ -125,7 +125,7 @@ func TestScrollTempPanelHitTest(t *testing.T) {
 	if m.tempScroll != wheelStep {
 		t.Fatalf("tempScroll = %d, want %d", m.tempScroll, wheelStep)
 	}
-	if m.scrollTempPanel(-wheelStep, 20) { // bottom edge is exclusive
+	if m.scrollTempPanel(-wheelStep, 19) { // bottom edge is exclusive
 		t.Fatal("wheel just above the panel must not scroll it")
 	}
 	if m.scrollTempPanel(wheelStep, 40) {

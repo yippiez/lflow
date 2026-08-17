@@ -1295,7 +1295,7 @@ func (m *Model) scrollTempPanel(delta, y int) bool {
 	if m.tempActive || m.tempHeight < 1 {
 		return false
 	}
-	row := y - 1 // mouse Y is 1-based, screen rows are 0-based
+	row := y // Bubble Tea mouse Y is zero-based, same as screen rows
 	if row < m.tempTop || row >= m.tempTop+m.tempHeight {
 		return false
 	}

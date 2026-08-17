@@ -164,7 +164,7 @@ func (m *Model) addBreadcrumbZones(lines []string) {
 }
 
 func (m *Model) handleFrameMouse(msg tea.MouseMsg) tea.Cmd {
-	line := msg.Y - 1 // Bubble Tea mouse coordinates are terminal (one-based) rows.
+	line := msg.Y // Bubble Tea mouse coordinates are zero-based terminal rows.
 	spot := mouseSpot{line: line, column: msg.X}
 	switch msg.Action {
 	case tea.MouseActionPress:

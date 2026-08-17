@@ -26,7 +26,7 @@ func TestMouseFrameClickPlacesCaretOnWrappedText(t *testing.T) {
 		t.Fatalf("wrapped frame did not retain row ownership: %+v", m.mouseFrame.lines)
 	}
 	h := m.mouseFrame.lines[1]
-	m.handleFrameMouse(tea.MouseMsg{X: h.textStart + 2, Y: 2, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: h.textStart + 2, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if m.cursor != 0 || m.caret <= h.runeStart {
 		t.Fatalf("click landed at row=%d caret=%d, line starts at %d", m.cursor, m.caret, h.runeStart)
 	}
@@ -44,7 +44,7 @@ func TestPlainNodeIndicatorZooms(t *testing.T) {
 			t.Fatal("a non-runnable node grew a run zone")
 		}
 	}
-	m.handleFrameMouse(tea.MouseMsg{X: zoom.lo, Y: zoom.line + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: zoom.lo, Y: zoom.line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if len(m.viewStack) != 2 || m.viewRoot().name != "plain" {
 		t.Fatalf("indicator did not use universal zoom: stack=%v", len(m.viewStack))
 	}
@@ -67,7 +67,7 @@ func TestRunnableNodeIndicatorRuns(t *testing.T) {
 	if run.hi-run.lo != 1 {
 		t.Fatalf("run zone is not the indicator: %+v", run)
 	}
-	m.handleFrameMouse(tea.MouseMsg{X: run.lo, Y: run.line + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: run.lo, Y: run.line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if runs != 1 || len(m.viewStack) != 1 {
 		t.Fatalf("run cell ran %d times and left zoom depth %d", runs, len(m.viewStack))
 	}
@@ -78,9 +78,9 @@ func TestVisibleFrameDragCopiesAcrossRowsWithoutFurniture(t *testing.T) {
 	m := newTestModel(40, "first words", "second words")
 	m.View()
 	first, second := m.mouseFrame.lines[0], m.mouseFrame.lines[1]
-	m.handleFrameMouse(tea.MouseMsg{X: first.textStart, Y: 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
-	m.handleFrameMouse(tea.MouseMsg{X: second.textStart + len("second"), Y: 2, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
-	m.handleFrameMouse(tea.MouseMsg{X: second.textStart + len("second"), Y: 2, Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: first.textStart, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: second.textStart + len("second"), Y: 1, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: second.textStart + len("second"), Y: 1, Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft})
 	got := clip()
 	if !strings.HasPrefix(got, "first words\nsecond") {
 		t.Fatalf("drag copied %q", got)
@@ -112,7 +112,7 @@ func TestBreadcrumbClickReturnsToRenderedAncestor(t *testing.T) {
 	if !found {
 		t.Fatalf("parent breadcrumb has no zone: %+v", m.mouseFrame.zones)
 	}
-	m.handleFrameMouse(tea.MouseMsg{X: crumb.lo, Y: crumb.line + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: crumb.lo, Y: crumb.line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if m.viewRoot() != parent || len(m.viewStack) != 2 {
 		t.Fatalf("breadcrumb left stack depth %d at %q", len(m.viewStack), m.viewRoot().name)
 	}
