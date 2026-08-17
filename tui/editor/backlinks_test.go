@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lflow/lflow/tui/database"
 )
 
@@ -210,5 +211,98 @@ func TestBacklinksMirrorRowShowsSourceStyle(t *testing.T) {
 	}
 	if !row.node.Starred {
 		t.Error("mirror row starred = false, want true (the source is starred)")
+	}
+}
+
+// backlinkModel builds a tree with one source node that a mirror and a [[ link
+// chip reference, so the row wears a "2 backlinks" suffix and the DB has the
+// referrers /backlinks lists.
+func backlinkModel(t *testing.T) (*Model, *item) {
+	t.Helper()
+	db := database.InitTestMemoryDB(t)
+	insert := func(n database.Node) {
+		t.Helper()
+		if err := n.Insert(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(database.Node{UUID: "root", Name: "root", Type: database.TypeBullets, AddedOn: 1, EditedOn: 1})
+	insert(database.Node{UUID: "src", ParentUUID: "root", Name: "the source", Type: database.TypeBullets, Rank: 0, AddedOn: 10, EditedOn: 10})
+	insert(database.Node{UUID: "mir", ParentUUID: "root", Name: "", MirrorOf: "src", Type: database.TypeBullets, Rank: 1, AddedOn: 20, EditedOn: 20})
+	chipID := "lk1"
+	if err := database.UpsertChip(db, database.Chip{ID: chipID, Kind: "link", Value: "lflow://node/src", Label: "the source"}); err != nil {
+		t.Fatal(err)
+	}
+	insert(database.Node{UUID: "linker", ParentUUID: "root", Name: "mentions " + database.ChipAnchor(chipID), Type: database.TypeBullets, Rank: 2, AddedOn: 30, EditedOn: 30})
+	root := &item{uuid: "root", name: "root"}
+	src := &item{uuid: "src", name: "the source", parent: root}
+	root.children = []*item{src}
+	tr := &tree{
+		db: db, root: root,
+		byUUID:        map[string]*item{"root": root, "src": src},
+		externalNames: map[string]string{}, snapshots: map[string]snapshot{},
+	}
+	m := &Model{
+		db: db, tree: tr, viewStack: []*item{root},
+		width: 100, height: 30, chips: map[string]database.Chip{},
+	}
+	m.refreshRows() // refreshRows also reads BacklinkCounts
+	return m, src
+}
+
+func backlinksZoneFor(t *testing.T, m *Model, row int) mouseZone {
+	t.Helper()
+	m.View()
+	for _, z := range m.mouseFrame.zones {
+		if z.action == "backlinks" && z.row == row {
+			return z
+		}
+	}
+	t.Fatalf("no backlinks zone for row %d: %+v", row, m.mouseFrame.zones)
+	return mouseZone{}
+}
+
+// TestBacklinksSuffixIsPressableZone: the " · n backlinks" suffix is a real
+// click target — the zone spans exactly the label's columns on the row's text
+// line, and pressing it opens the /backlinks finder with the cursor on the
+// node, same as typing /backlinks.
+func TestBacklinksSuffixIsPressableZone(t *testing.T) {
+	m, src := backlinkModel(t)
+	zone := backlinksZoneFor(t, m, m.rowIndexOf(src))
+	plain := m.mouseFrame.lines[zone.line].plain
+	if !strings.HasSuffix(plain, "2 backlinks") {
+		t.Fatalf("zone line ends %q, want the 2 backlinks label", plain)
+	}
+	if zone.hi-zone.lo != visibleWidth("2 backlinks") {
+		t.Fatalf("zone %d..%d is not the label's width", zone.lo, zone.hi)
+	}
+	if zone.hi > visibleWidth(plain) {
+		t.Fatalf("zone %d..%d overflows the line (%d cells)", zone.lo, zone.hi, visibleWidth(plain))
+	}
+	m.handleFrameMouse(tea.MouseMsg{X: zone.lo, Y: zone.line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if m.mode != modeFinder || m.finder.act != actBacklinks {
+		t.Fatalf("click left mode=%v act=%v, want the backlinks finder", m.mode, m.finder.act)
+	}
+	if m.cursor != m.rowIndexOf(src) {
+		t.Fatalf("click did not move the cursor onto the node")
+	}
+}
+
+// TestBacklinksClickUncollapsesTheNode: clicking the suffix unfolds a collapsed
+// node first — the point of the click is that its children are visible again
+// once the finder closes.
+func TestBacklinksClickUncollapsesTheNode(t *testing.T) {
+	m, src := backlinkModel(t)
+	child := &item{uuid: "kid", name: "the child", parent: src}
+	src.children = append(src.children, child)
+	src.collapsed = true
+	m.refreshRows()
+	zone := backlinksZoneFor(t, m, m.rowIndexOf(src))
+	m.handleFrameMouse(tea.MouseMsg{X: zone.lo, Y: zone.line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if src.collapsed {
+		t.Fatal("clicking the backlinks suffix did not uncollapse the node")
+	}
+	if m.mode != modeFinder || m.finder.act != actBacklinks {
+		t.Fatalf("click left mode=%v act=%v, want the backlinks finder", m.mode, m.finder.act)
 	}
 }

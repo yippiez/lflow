@@ -17,6 +17,19 @@ func (m *Model) openFinder(act finderAction) {
 	m.finder.open(m, act, nodeFinderBackend{})
 }
 
+// openBacklinks lists every node that mirrors or [[-links to the cursor node,
+// exactly like typing /backlinks. Flush first: the finder queries the DB
+// directly, and a link/mirror created earlier in this session may still be
+// sitting unflushed in memory (auto-sync is debounced ~1s) — without this the
+// query would show no matches for a link that plainly exists in the outline.
+func (m *Model) openBacklinks() {
+	if _, err := m.saveAll(); err != nil {
+		m.errorFlash("save: " + err.Error())
+		return
+	}
+	m.openFinder(actBacklinks)
+}
+
 // nodeFinderBackend is the finderBackend that fronts the outline's nodes: it
 // searches the DB (plus the Temporary Domain for /move:here), commits a pick via
 // runFinder, and links a URL query straight to a website for "[[".

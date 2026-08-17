@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -85,6 +86,35 @@ func (m *Model) finishMouseFrame(lines []string) {
 			if ordinal < len(visual) {
 				m.mouseFrame.lines[screen].runeStart = visual[ordinal]
 			}
+		}
+	}
+	// The "n backlinks" row suffix is pressable: clicking it opens the /backlinks
+	// finder for that node (uncollapsing it first so its children show). The
+	// suffix ends the row's text, so it lives on the row's LAST editable visual
+	// line — band lines never host it; the label is located in that line's plain
+	// text and zoned by column.
+	for row, screenLines := range starts {
+		n := m.backlinkCount(m.rows[row].it)
+		if n < 1 || len(screenLines) == 0 {
+			continue
+		}
+		last := screenLines[0]
+		for _, s := range screenLines {
+			if m.mouseFrame.lines[s].editable {
+				last = s
+			}
+		}
+		noun := "backlinks"
+		if n == 1 {
+			noun = "backlink"
+		}
+		label := fmt.Sprintf("%d %s", n, noun)
+		plain := m.mouseFrame.lines[last].plain
+		if at := strings.LastIndex(plain, label); at >= 0 {
+			lo := visibleWidth(plain[:at])
+			m.mouseFrame.zones = append(m.mouseFrame.zones, mouseZone{
+				line: last, lo: lo, hi: lo + visibleWidth(label), row: row, action: "backlinks",
+			})
 		}
 	}
 	m.addBreadcrumbZones(lines)
@@ -190,6 +220,18 @@ func (m *Model) handleFrameMouse(msg tea.MouseMsg) tea.Cmd {
 						return nil
 					}
 				}
+			}
+			if z.action == "backlinks" {
+				m.cursor, m.caret = z.row, 0
+				// unfold first so the node's children are visible once the
+				// finder closes — clicking the suffix opens it AND its kids
+				if cur := m.cursorItem(); cur != nil && cur.collapsed {
+					cur.collapsed = false
+					m.persistCollapsed(cur)
+					m.refreshRows()
+				}
+				m.openBacklinks()
+				return nil
 			}
 			m.cursor, m.caret = z.row, 0
 			if z.action == "zoom" {
