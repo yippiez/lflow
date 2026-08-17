@@ -47,11 +47,10 @@ func init() {
 		// several rasterizers in turn (see svgRasterizers), so declaring the
 		// preferred one would warn "missing dependency" on a machine where the
 		// node works perfectly through the next one down.
-		onType:       markupOnType,
-		run:          runSVGRender, // alt+r: rasterize the subtree into the node's picture
-		view:         markupView{}, // alt+e: the picture once rendered, else the document
-		flashActions: svgFlashActions,
-		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.svgBandLines(r, below, maxLine) },
+		onType: markupOnType,
+		run:    runSVGRender, // alt+r: rasterize the subtree into the node's picture
+		view:   markupView{}, // alt+e: the picture once rendered, else the document
+		bands:  func(m *Model, r row, below bool, maxLine int) []string { return m.svgBandLines(r, below, maxLine) },
 	})
 	registerType(nodeType{
 		key:             database.TypeHTML,
@@ -62,7 +61,6 @@ func init() {
 		onType:          markupOnType,
 		run:             runHTMLOut,   // alt+r: the serialized markup into the run band
 		view:            markupView{}, // alt+e: the whole document the row shows the head of
-		flashActions:    htmlFlashActions,
 	})
 }
 
@@ -639,27 +637,4 @@ func (m *Model) svgBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		out = append(out, clip(rail+cReset+"  "+l, maxLine))
 	}
 	return out
-}
-
-// svgFlashActions / htmlFlashActions name the alt+r action in the flash bar.
-func svgFlashActions(m *Model, it *item) []flashAction {
-	return []flashAction{
-		{verb: "render", color: cGreen, do: runSVGRender},
-		{verb: "expand", color: cCyan, do: markupExpandDo},
-	}
-}
-
-func markupExpandDo(m *Model, it *item) tea.Cmd {
-	if (markupView{}).enter(m, it) {
-		m.focused = true
-		m.focusScroll = 0
-	}
-	return nil
-}
-
-func htmlFlashActions(m *Model, it *item) []flashAction {
-	return []flashAction{
-		{verb: "markup", color: cGreen, do: runHTMLOut},
-		{verb: "expand", color: cCyan, do: markupExpandDo},
-	}
 }

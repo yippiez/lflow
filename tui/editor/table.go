@@ -47,7 +47,6 @@ func init() {
 		glyph:          tableGlyph,
 		bands:          func(m *Model, r row, below bool, maxLine int) []string { return m.tableBandLines(r, below, maxLine) },
 		view:           tableView{},
-		flashActions:   tableFlashActions,
 		onType:         tableOnType,
 	})
 }
@@ -93,19 +92,6 @@ func (m *Model) toggleTableFace(it *item) { m.setTableFace(it, !tableFaceGrid(it
 // columns and rows it already had ARE the table, so the grid is the answer to
 // "make this a table" — the nodes face is one alt+↓ away.
 func tableOnType(m *Model, it *item) { m.setTableFace(it, true) }
-
-// tableFlashActions names the table's own alt+s actions: the face toggle reads
-// as the face you would get, and "edit" opens the grid editor.
-func tableFlashActions(m *Model, it *item) []flashAction {
-	verb := "table"
-	if tableFaceGrid(it) {
-		verb = "nodes"
-	}
-	return []flashAction{
-		{verb: verb, color: cCyan, do: func(m *Model, it *item) tea.Cmd { m.toggleTableFace(it); return nil }},
-		{verb: "edit", color: cYellow, do: flashExpandDo},
-	}
-}
 
 // ── the grid reading ────────────────────────────────────────────────────────
 

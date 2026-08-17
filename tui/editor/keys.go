@@ -853,9 +853,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.copyCut(key != "alt+y")
 		return m, nil
 	case "alt+s":
-		// flash: label every visible row's actions (jump / run / expand / fold) and
-		// hand off to modeFlash so the next keystrokes pick one — act on a node
-		// elsewhere on screen without moving the cursor there. See flash.go.
+		// flash: type to highlight matches on screen, then a label jumps there
+		// (flash.nvim). See flash.go.
 		m.enterFlash()
 		return m, nil
 	case "alt+up", "ctrl+up":

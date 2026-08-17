@@ -137,12 +137,14 @@ func (m *Model) visualRowsFor(index int) []int {
 }
 
 func (m *Model) nodeRunAction(it *item) func(*Model, *item) tea.Cmd {
-	inline := len(m.flashInlineRunActions(it))
-	actions := m.flashActionsFor(it)
-	for _, action := range actions[min(inline, len(actions)):] {
-		if action.verb == "run" {
-			return action.do
-		}
+	if it == nil {
+		return nil
+	}
+	if nt := typeOf(it.typ); nt.run != nil {
+		return nt.run
+	}
+	if _, ok := m.wfMap[it.uuid]; ok {
+		return runWF
 	}
 	return nil
 }

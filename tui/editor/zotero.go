@@ -416,11 +416,10 @@ func (zoteroSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 
 func init() {
 	registerType(nodeType{
-		key:          database.TypeZotero,
-		label:        "Zotero",
-		glyph:        zoteroGlyph,
-		run:          runZoteroPull, // alt+r: re-read the entry, or pick one on an unbound node
-		flashActions: zoteroFlashActions,
+		key:   database.TypeZotero,
+		label: "Zotero",
+		glyph: zoteroGlyph,
+		run:   runZoteroPull, // alt+r: re-read the entry, or pick one on an unbound node
 		bodyTail: func(it *item, chips map[string]database.Chip) string {
 			// an unbound zotero node (edge case) reads as a prompt, not a blank row
 			if _, ok := zoteroBindingFor(it); ok {
@@ -1079,44 +1078,6 @@ func zoteroNearestColor(hex string) string {
 		}
 	}
 	return best
-}
-
-// ── flash ────────────────────────────────────────────────────────────────
-
-// zoteroFlashActions names the mirror's verbs in the flash menu.
-func zoteroFlashActions(m *Model, it *item) []flashAction {
-	b, _ := zoteroBindingFor(it)
-	open := "paper"
-	if b.Kind == database.ZoteroKindAttachment {
-		open = "pdf"
-	} else if b.Kind == database.ZoteroKindAnnotation {
-		open = "mark"
-		if zoteroPictorial(it) {
-			open = "crop"
-		}
-	}
-	if zoteroPictorial(it) {
-		// a picture keeps the image node's own verbs alongside the mirror's
-		return append([]flashAction{
-			{verb: "view", color: cCyan, do: flashExpandDo},
-			{verb: "open", color: cAccent, do: imageOpenHost},
-		}, zoteroMarkActions(m, it, open)...)
-	}
-	return zoteroMarkActions(m, it, open)
-}
-
-// zoteroMarkActions is the pair every mirrored node offers: go to the thing in
-// Zotero, and re-read the entry.
-func zoteroMarkActions(m *Model, it *item, open string) []flashAction {
-	return []flashAction{
-		{verb: open, color: cRed, do: func(m *Model, it *item) tea.Cmd {
-			m.zoteroOpenNode(it, false)
-			return nil
-		}},
-		{verb: "refresh", color: cYellow, do: func(m *Model, it *item) tea.Cmd {
-			return runZoteroPull(m, it)
-		}},
-	}
 }
 
 // zoteroAttachmentPaths records where each mirrored attachment's file lives on

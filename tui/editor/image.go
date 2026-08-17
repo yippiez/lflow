@@ -31,14 +31,13 @@ import (
 // editor, worked on a minority of terminals, and could not be screenshotted.
 func init() {
 	registerType(nodeType{
-		key:          database.TypeImage,
-		label:        "Image",
-		renderM:      func(m *Model, it *item, _ int) string { return m.imageRender(it) },
-		run:          runImagePaste,
-		view:         imageView{},   // alt+e: scrollable half-block render
-		openHost:     imageOpenHost, // alt+o: the host's image viewer
-		flashActions: imageFlashActions,
-		bands:        func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
+		key:      database.TypeImage,
+		label:    "Image",
+		renderM:  func(m *Model, it *item, _ int) string { return m.imageRender(it) },
+		run:      runImagePaste,
+		view:     imageView{},   // alt+e: scrollable half-block render
+		openHost: imageOpenHost, // alt+o: the host's image viewer
+		bands:    func(m *Model, r row, below bool, maxLine int) []string { return m.imageBandLines(r, below, maxLine) },
 	})
 }
 
@@ -184,35 +183,6 @@ func (m *Model) imageBandLines(r row, subtreeBelow bool, maxLine int) []string {
 		out = append(out, clip(rail+cReset+"  "+l, maxLine))
 	}
 	return out
-}
-
-// imageFlashActions names an image node's flash actions: alt+r pastes (re-pastes
-// if an image is already present), alt+e views the half-block preview, alt+o
-// opens it in the host's image viewer.
-func imageFlashActions(m *Model, it *item) []flashAction {
-	paste := "paste"
-	if _, ok := m.imageLoad(it.uuid); ok {
-		paste = "repaste"
-	}
-	acts := []flashAction{{verb: paste, color: cGreen, do: runImagePaste}}
-	if _, ok := m.imageLoad(it.uuid); ok {
-		acts = append(acts,
-			flashAction{verb: "view", color: cCyan, do: imageExpandDo},
-			flashAction{verb: "open", color: cMagenta, do: imageOpenHost}, // the host's viewer
-		)
-	}
-	return acts
-}
-
-// imageExpandDo focuses the inline half-block view. It is a direct handler (not
-// the generic flashExpandDo, which reaches typeOf/nodeViewOf) so the registry's
-// static reference to it doesn't form a package init cycle.
-func imageExpandDo(m *Model, it *item) tea.Cmd {
-	if (imageView{}).enter(m, it) {
-		m.focused = true
-		m.focusScroll = 0
-	}
-	return nil
 }
 
 // runImagePaste grabs the host clipboard image asynchronously (powershell.exe in

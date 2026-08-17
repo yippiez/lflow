@@ -926,20 +926,6 @@ func TestMirrorPictureRendersAndOpens(t *testing.T) {
 		t.Error("alt+e opened an image view on the title row")
 	}
 
-	// the flash menu names it a crop and offers the image verbs — but NOT the
-	// image node's paste, which would overwrite the mirror
-	verbs := ""
-	for _, a := range m.flashActionsFor(crop) {
-		verbs += a.verb + " "
-	}
-	for _, want := range []string{"crop", "view", "open", "refresh"} {
-		if !strings.Contains(verbs, want) {
-			t.Errorf("flash verbs = %q, want %q among them", verbs, want)
-		}
-	}
-	if strings.Contains(verbs, "paste") {
-		t.Errorf("flash verbs = %q — a mirrored picture must not offer a paste", verbs)
-	}
 }
 
 func TestMirrorPictureRefusesAPaste(t *testing.T) {

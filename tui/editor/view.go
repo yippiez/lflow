@@ -158,9 +158,9 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 	for i, r := range rows {
 		selected := i == m.cursor
 		below := i+1 < len(rows) && rows[i+1].depth > r.depth
-		flashSuffix := ""
+		var flashTargets []flashTarget
 		if m.mode == modeFlash {
-			flashSuffix = m.flashRowSuffix(i)
+			flashTargets = m.flashTargetsFor(i)
 		}
 		o := rowOpts{
 			selected: selected,
@@ -168,14 +168,19 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 			// way the single cursor row does — glyph-bearing rows only (an empty
 			// or divider row has no glyph to redden; its rule/cue reads off
 			// selected alone, see renderRow)
-			redGlyph:    selected || m.inSelection(i),
-			dashed:      m.tempActive,
-			interactive: true,
-			flashSuffix: flashSuffix,
-			below:       below,
-			maxLine:     maxLine,
+			redGlyph:     selected || m.inSelection(i),
+			dashed:       m.tempActive,
+			interactive:  true,
+			flashTargets: flashTargets,
+			below:        below,
+			maxLine:      maxLine,
 		}
 		groups[i], bands[i] = m.renderRow(m.tree, r, o)
+		if m.mode == modeFlash {
+			for j, l := range bands[i] {
+				bands[i][j] = cDim + stripSGR(l) + cReset
+			}
+		}
 		// the shift+↑/↓ selection reads as one solid block: every selected row
 		// (wrapped continuations included) gets the full-width blue bar
 		if m.inSelection(i) {
@@ -683,8 +688,11 @@ func (m *Model) bottomBar(maxLine int) []string {
 	}
 	if m.mode == modeFlash {
 		hint := cFG + "flash" + cReset + cDim
+		if m.flashQuery != "" {
+			hint += " " + cFG + m.flashQuery + cReset + cDim
+		}
 		if m.flashInput != "" {
-			hint += " " + cFG + m.flashInput + cReset + cDim
+			hint += cAccent + m.flashInput + cReset + cDim
 		}
 		state += " · " + hint + " · esc cancel"
 	}

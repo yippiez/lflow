@@ -314,14 +314,14 @@ type rowOpts struct {
 	redGlyph bool // force the glyph/rule red — selected, OR (interactive only) part of the shift+↑/↓ multi-select range
 	dashed   bool // Temporary Domain space: a non-mirror row shows the dotted glyph in place of its own
 	// interactive gates the state that only means something in the live,
-	// currently-focused frame: flash-mode dimming, the flash row-action chips,
+	// currently-focused frame: flash-mode dimming and match chips,
 	// the query-hit / readonly-breadcrumb tint, and the pending-review band.
 	// Neither the quit dump nor a read-only region has a "mode" of its own to
 	// dim for or a review surface to open, so these must not leak into them.
-	interactive bool
-	flashSuffix string // pre-rendered flash-mode action chips for this row (viewRenderRows only — needs the row's index into m.flashTargets, which only that loop has)
-	below       bool   // a visible child follows — the rail carries a │ down through the glyph column
-	maxLine     int
+	interactive  bool
+	flashTargets []flashTarget // labelled matches to paint white+red on this row
+	below        bool          // a visible child follows — the rail carries a │ down through the glyph column
+	maxLine      int
 }
 
 // renderRow renders one visible row to its group lines (the node's own line(s),
@@ -343,7 +343,11 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 	// an empty node is a blank spacer row: no glyph, no rule, no text — the
 	// cursor cue is a single red · (see emptyLine). It still hangs a note.
 	if it.typ == database.TypeEmpty {
-		group = []string{emptyLine(r, maxLine, o.selected && m.mode != modeFlash)}
+		line := emptyLine(r, maxLine, o.selected && m.mode != modeFlash)
+		if o.interactive && m.mode == modeFlash {
+			line = cDim + stripSGR(line) + cReset
+		}
+		group = []string{line}
 		bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 		if o.interactive {
 			bands = append(bands, m.suggestBlockLines(r, o.below, maxLine)...)
@@ -364,6 +368,9 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 			caret = m.caret
 		}
 		body := renderBody(shown, name, caret, o.selected, m.chips)
+		if o.interactive && m.mode == modeFlash {
+			body = flashPaintBody(body, name, o.flashTargets, m.flashInput, m.chips)
+		}
 		line := dividerLine(r, maxLine, body, o.selected && m.mode != modeFlash)
 		group = wrapLine(line, maxLine, continuationPrefix(r, o.below))
 		bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
@@ -388,6 +395,12 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 			glyph, glyphColor = m.suggestGlyph(it, glyph, glyphColor)
 			if o.redGlyph {
 				glyphColor = cRed
+			}
+			if o.interactive && m.mode == modeFlash {
+				glyphColor = cDim
+				for i, line := range content {
+					content[i] = cDim + stripSGR(line) + cReset
+				}
 			}
 			group = m.blockGroupLines(r, content, o.below, glyphColor+glyph+cReset)
 			bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
@@ -440,19 +453,15 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 	}
 
 	suffix := m.typeSuffix(r) + m.suggestInline(it)
-	// flash mode grays the whole outline so the colored action chips are the only
-	// highlights: dim the glyph, the body and the type suffix down to plain gray.
+	// flash.nvim: the whole outline goes gray; the typed match is black-on-white
+	// and the remaining jump letters overlay black-on-red in place.
 	flash := o.interactive && m.mode == modeFlash
 	if flash {
 		glyphColor = cDim
-		body = cDim + stripSGR(body) + cReset
+		body = flashPaintBody(body, name, o.flashTargets, m.flashInput, m.chips)
 		suffix = cDim + stripSGR(suffix) + cReset
 	}
 	line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
-	// flash mode hangs each row's action labels off the end of the line
-	if flash {
-		line += o.flashSuffix
-	}
 	prefix := continuationPrefix(r, o.below)
 	if it.typ == database.TypeQuote {
 		prefix = quoteContinuationPrefix(r, o.below)

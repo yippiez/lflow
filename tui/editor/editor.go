@@ -40,7 +40,7 @@ const (
 	modeSettings       // the /settings picker: global preferences (theme, image preview, …)
 	modeComplete       // the inline completer: "#" tags, ":" query commands
 	modeLinkEdit       // the alt+e link-chip editor: edit a link's name, target and color
-	modeFlash          // flash jump/act: every visible row's actions get a typed label (see flash.go)
+	modeFlash          // flash.nvim jump: type to highlight visible matches, then a label jumps (see flash.go)
 	modeTagColor       // the alt+e tag color picker: assign a pill color to a tag
 	modeInsert         // the /insert picker: choose a kind (cmd, date, icon, link, path, tag) to splice at the caret
 	modeAgentPick      // /agent: start a coding session here, or attach one from a CLI's own store
@@ -232,10 +232,11 @@ type Model struct {
 	// agentColorChip is the chip ⌥c is picking a color for.
 	agentColorChip string
 
-	// flash mode (modeFlash): each visible row's actions carry a typed label;
-	// typing a label narrows (matched prefix grays, the rest stays lit) until one
-	// completes and fires. flashInput is the prefix typed so far. See flash.go.
+	// flash mode (modeFlash): flashQuery is the typed search; matching spans
+	// highlight and each gets a label. flashInput is a partial label once the
+	// search no longer extends. See flash.go.
 	flashTargets []flashTarget
+	flashQuery   string
 	flashInput   string
 
 	// inline completer anchor ("#" tags, ":" query commands); the live query and

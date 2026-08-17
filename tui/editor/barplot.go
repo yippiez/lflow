@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
 
 	"github.com/lflow/lflow/tui/database"
@@ -47,7 +46,6 @@ func init() {
 		inlineEditable: true,
 		glyph:          barplotGlyph,
 		bands:          func(m *Model, r row, below bool, maxLine int) []string { return m.barplotBandLines(r, below, maxLine) },
-		flashActions:   barplotFlashActions,
 		onType:         barplotOnType,
 	})
 }
@@ -82,18 +80,6 @@ func barplotGlyph(it *item) (string, string) {
 // the bars and stacks it already had ARE the plot, so the band is the answer
 // to "make this a plot" — the nodes face is one alt+↓ away.
 func barplotOnType(m *Model, it *item) { m.setTableFace(it, true) }
-
-// barplotFlashActions names the plot's own alt+s actions: the face toggle
-// reads as the face you would get. There is no editor to offer.
-func barplotFlashActions(m *Model, it *item) []flashAction {
-	verb := "plot"
-	if barplotFaceBand(it) {
-		verb = "nodes"
-	}
-	return []flashAction{
-		{verb: verb, color: cCyan, do: func(m *Model, it *item) tea.Cmd { m.toggleTableFace(it); return nil }},
-	}
-}
 
 // ── the plot reading ────────────────────────────────────────────────────────
 

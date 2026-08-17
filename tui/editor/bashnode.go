@@ -44,11 +44,10 @@ func init() {
 		glyph: func(*item) (string, string) {
 			return "$", cRed
 		},
-		spanColor:    bashSpanColor,
-		bodyTail:     bashBodyTail,
-		run:          runBashNode,
-		view:         runOutView{},
-		flashActions: bashFlashActions,
+		spanColor: bashSpanColor,
+		bodyTail:  bashBodyTail,
+		run:       runBashNode,
+		view:      runOutView{},
 	})
 }
 
@@ -190,10 +189,4 @@ func runBashNode(m *Model, it *item) tea.Cmd {
 		return nil
 	}
 	return runShell(m, it.uuid, cmd)
-}
-
-// bashFlashActions names the alt+r action "run $" in the flash bar, matching the
-// verb a cmd chip uses.
-func bashFlashActions(m *Model, it *item) []flashAction {
-	return []flashAction{{verb: "run $", color: cGreen, do: runBashNode}}
 }

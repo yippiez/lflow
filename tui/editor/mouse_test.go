@@ -56,7 +56,6 @@ func TestRunnableNodeIndicatorRuns(t *testing.T) {
 	runs := 0
 	stub := old
 	stub.run = func(*Model, *item) tea.Cmd { runs++; return nil }
-	stub.flashActions = nil
 	byType[database.TypeBash] = stub
 	t.Cleanup(func() { byType[database.TypeBash] = old })
 

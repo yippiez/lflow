@@ -33,9 +33,8 @@ func init() {
 		spanColor: func(_ *item, runes []rune) map[int]string {
 			return mathSpanColor(runes)
 		},
-		bodyTail:     mathBodyTail,
-		run:          runMathLatex, // alt+r: export this subtree's LaTeX to the run band
-		flashActions: mathFlashActions,
+		bodyTail: mathBodyTail,
+		run:      runMathLatex, // alt+r: export this subtree's LaTeX to the run band
 	})
 }
 
@@ -434,11 +433,6 @@ func runMathLatex(m *Model, it *item) tea.Cmd {
 	m.runOutLines(it.uuid, []string{l})
 	m.flash = "LaTeX → output"
 	return nil
-}
-
-// mathFlashActions names the alt+r action "latex" in the flash bar.
-func mathFlashActions(m *Model, it *item) []flashAction {
-	return []flashAction{{verb: "latex", color: cGreen, do: runMathLatex}}
 }
 
 // ── preview: subtree → one linear line ─────────────────────────────────────
