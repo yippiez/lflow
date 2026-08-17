@@ -11,7 +11,8 @@ import (
 // View implements tea.Model.
 func (m *Model) View() string {
 	drag := m.mouseFrame.drag
-	m.mouseFrame = mouseFrame{drag: drag}
+	hover := m.mouseFrame.hover
+	m.mouseFrame = mouseFrame{drag: drag, hover: hover}
 	width := m.width
 	if width <= 0 {
 		width = 80
@@ -63,6 +64,7 @@ func (m *Model) View() string {
 	}
 	m.finishMouseFrame(lines)
 	lines = m.paintMouseDrag(lines)
+	lines = m.paintMouseHover(lines)
 
 	// Erase the line before drawing it, not after. The inline renderer rewrites
 	// lines in place without clearing, so a frame that grows after a shrink would

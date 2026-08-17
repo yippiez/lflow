@@ -26,7 +26,7 @@ func TestMouseFrameClickPlacesCaretOnWrappedText(t *testing.T) {
 		t.Fatalf("wrapped frame did not retain row ownership: %+v", m.mouseFrame.lines)
 	}
 	h := m.mouseFrame.lines[1]
-	m.handleFrameMouse(tea.MouseMsg{X: h.textStart + 2, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: h.textStart + 2, Y: 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if m.cursor != 0 || m.caret <= h.runeStart {
 		t.Fatalf("click landed at row=%d caret=%d, line starts at %d", m.cursor, m.caret, h.runeStart)
 	}
@@ -115,6 +115,52 @@ func TestBreadcrumbClickReturnsToRenderedAncestor(t *testing.T) {
 	m.handleFrameMouse(tea.MouseMsg{X: crumb.lo, Y: crumb.line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if m.viewRoot() != parent || len(m.viewStack) != 2 {
 		t.Fatalf("breadcrumb left stack depth %d at %q", len(m.viewStack), m.viewRoot().name)
+	}
+}
+
+func TestHoverHighlightsClickableZonesOnly(t *testing.T) {
+	m := newTestModelWithChildren(60, "parent", "child")
+	m.View()
+	zoom := mouseZoneFor(t, m, "zoom", 0)
+	var crumb mouseZone
+	for _, z := range m.mouseFrame.zones {
+		if z.action == "crumb" {
+			crumb = z
+		}
+	}
+	if crumb.line == 0 {
+		t.Fatal("breadcrumb zone missing from frame")
+	}
+	base := m.View() // no hover yet
+	m.handleFrameMouse(tea.MouseMsg{X: zoom.lo, Y: zoom.line, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	hoveredZoom := m.View()
+	if hoveredZoom == base {
+		t.Fatal("hover over the indicator changed nothing")
+	}
+	m.handleFrameMouse(tea.MouseMsg{X: crumb.lo, Y: crumb.line, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	hoveredCrumb := m.View()
+	if hoveredCrumb == base {
+		t.Fatal("hover over a breadcrumb changed nothing")
+	}
+	m.handleFrameMouse(tea.MouseMsg{X: 0, Y: crumb.line + 2, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	if got := m.View(); got != base {
+		t.Fatal("hover off the zones left a stale highlight")
+	}
+}
+
+func TestHoverPaintsNothingDuringTextDrag(t *testing.T) {
+	m := newTestModel(40, "first words", "second words")
+	m.View()
+	zoom := mouseZoneFor(t, m, "zoom", 0)
+	m.handleFrameMouse(tea.MouseMsg{X: m.mouseFrame.lines[0].textStart, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m.handleFrameMouse(tea.MouseMsg{X: m.mouseFrame.lines[0].textStart + 2, Y: 0, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	if !m.mouseFrame.drag.live {
+		t.Fatal("motion did not arm the drag")
+	}
+	before := m.View()
+	m.mouseFrame.hover = mouseSpot{line: zoom.line, column: zoom.lo}
+	if after := m.View(); after != before {
+		t.Fatal("hover painted over a live drag")
 	}
 }
 

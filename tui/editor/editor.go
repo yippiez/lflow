@@ -926,7 +926,7 @@ func (m *Model) persistCollapsed(it *item) {
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
-	cmd := tea.Batch(m.startAnim(nil), tea.EnableMouseCellMotion)
+	cmd := tea.Batch(m.startAnim(nil), tea.EnableMouseAllMotion)
 	switch {
 	case m.liveFeed != nil:
 		return tea.Batch(cmd, waitDaemonEv(m.liveFeed))
@@ -2477,8 +2477,10 @@ func RunFile(ctx runtime.Ctx, nodeUUID string, fs FileSession) error {
 	// actually reaches the normal screen, printed once after Run returns.
 	// Mouse reporting is part of the program from its first frame. lflow restores
 	// terminal-style drag selection itself and also handles wheel/click actions.
+	// AllMotion (not CellMotion) so hover feedback reaches the model while no
+	// button is held.
 	multiplexer.CaptureHostColors() // ask the real terminal its colors while we still own the tty
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	final, err := p.Run()
 	if err != nil {
 		return errors.Wrap(err, "running editor")

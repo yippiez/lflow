@@ -35,6 +35,7 @@ type mouseFrame struct {
 	lines []mouseLine
 	zones []mouseZone
 	drag  mouseDrag
+	hover mouseSpot
 }
 
 func (m *Model) mouseLineForRow(row int, rendered string, first, editable bool) mouseLine {
@@ -208,6 +209,8 @@ func (m *Model) handleFrameMouse(msg tea.MouseMsg) tea.Cmd {
 		if m.mouseFrame.drag.live {
 			m.mouseFrame.drag.to = spot
 			m.mouseFrame.drag.on = spot != m.mouseFrame.drag.from
+		} else {
+			m.mouseFrame.hover = spot
 		}
 	case tea.MouseActionRelease:
 		if m.mouseFrame.drag.live {
@@ -319,28 +322,66 @@ func (m *Model) paintMouseDrag(lines []string) []string {
 			hi = min(hi, to.column+1)
 		}
 		if hi > lo {
-			lines[line] = mouseHighlight(lines[line], lo, hi)
+			lines[line] = mouseHighlight(lines[line], lo, hi, bgTextSel())
 		}
 	}
 	return lines
 }
 
-func mouseHighlight(s string, lo, hi int) string {
+// paintMouseHover brightens the clickable cells under the cursor from dim gray
+// to light gray: the node indicator (zoom/run cell) and the breadcrumb labels
+// are pressable, so a quiet lift in the FOREGROUND says so before the click.
+// The spot is re-resolved against the current frame's zones every render, so a
+// stale spot from a resize or scroll never paints.
+func (m *Model) paintMouseHover(lines []string) []string {
+	if m.mouseFrame.drag.live {
+		return lines
+	}
+	spot := m.mouseFrame.hover
+	for _, z := range m.mouseFrame.zones {
+		if spot.line != z.line || spot.column < z.lo || spot.column >= z.hi {
+			continue
+		}
+		if z.line < len(lines) && z.hi > z.lo {
+			lines[z.line] = mouseHighlight(lines[z.line], z.lo, z.hi, cFG)
+		}
+		break
+	}
+	return lines
+}
+
+// mouseHighlight paints the cell range [lo,hi) with st. When the highlight
+// turns off it re-emits the foreground color that was active when it turned on
+// (falling back to cReset when the base was default), so a range painted over
+// dim or colored text hands the rest of the line back to its own styling.
+func mouseHighlight(s string, lo, hi int, st string) string {
 	var b strings.Builder
 	column, on := 0, false
+	zoneFG, lastFG := "", ""
 	for i := 0; i < len(s); {
 		if s[i] == '\x1b' {
 			e := ansiEscapeEnd(s, i)
-			b.WriteString(s[i:e])
+			seq := s[i:e]
+			b.WriteString(seq)
+			if seq == cReset {
+				lastFG = ""
+			} else if fg := sgrForeground(seq); fg != "" {
+				lastFG = fg
+			}
 			i = e
 			continue
 		}
 		if !on && column >= lo {
-			b.WriteString(bgTextSel())
+			b.WriteString(st)
+			zoneFG = lastFG
 			on = true
 		}
 		if on && column >= hi {
-			b.WriteString(cReset)
+			if zoneFG != "" {
+				b.WriteString(zoneFG)
+			} else {
+				b.WriteString(cReset)
+			}
 			on = false
 		}
 		r, n := utf8.DecodeRuneInString(s[i:])
@@ -352,4 +393,30 @@ func mouseHighlight(s string, lo, hi int) string {
 		b.WriteString(cReset)
 	}
 	return b.String()
+}
+
+// sgrForeground returns seq itself when it sets the foreground color (30-37,
+// 90-97, 38;5;n or 38;2;r;g;b) and "" for any other SGR.
+func sgrForeground(seq string) string {
+	if len(seq) < 4 || seq[0] != '\x1b' || seq[1] != '[' || seq[len(seq)-1] != 'm' {
+		return ""
+	}
+	params := strings.Split(seq[2:len(seq)-1], ";")
+	if len(params) == 0 {
+		return ""
+	}
+	code := params[0]
+	if code == "38" {
+		if len(params) >= 2 && params[1] == "5" {
+			return seq
+		}
+		if len(params) == 5 && params[1] == "2" {
+			return seq
+		}
+		return ""
+	}
+	if len(code) == 2 && code[0] == '3' || len(code) == 2 && code[0] == '9' {
+		return seq
+	}
+	return ""
 }
