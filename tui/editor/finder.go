@@ -535,6 +535,7 @@ func (m *Model) bringFromTemp(src, cur *item) {
 		}
 	}
 	migrate(src)
+	m.ensureViewNonEmpty() // the moved node may have been the last one in temp
 	m.placeBrought(src, cur)
 }
 

@@ -1561,11 +1561,17 @@ func (m *Model) nodeStore(uuid string) map[string]any {
 
 // ensureViewNonEmpty keeps the current section from going empty: if the view root
 // has no children left (e.g. the last node was deleted), insert a fresh empty one
-// so there is always a node to type into.
+// so there is always a node to type into. The Temporary Domain gets the same
+// guarantee, so its panel always keeps an editable row even when the last node
+// was deleted in place, moved out (crossToNotes) or brought into the notes
+// (bringFromTemp).
 func (m *Model) ensureViewNonEmpty() {
 	root := m.viewRoot()
 	if root != nil && len(root.children) == 0 {
 		_, _ = m.tree.insertFirstChild(root)
+	}
+	if m.tempTree != nil && len(m.tempTree.root.children) == 0 {
+		_, _ = m.tempTree.insertFirstChild(m.tempTree.root)
 	}
 }
 

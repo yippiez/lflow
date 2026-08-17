@@ -89,7 +89,8 @@ func (m *Model) crossToNotes(cur *item) {
 
 	m.undoStack = nil // the active tree changes; cross-tree undo would corrupt
 	m.redoStack = nil
-	m.exitTemp() // back to the notes, with the moved node now in them
+	m.ensureViewNonEmpty() // the moved node may have been the last one in temp
+	m.exitTemp()           // back to the notes, with the moved node now in them
 	if r := m.rowIndexOf(cur); r >= 0 {
 		m.cursor = r
 	}

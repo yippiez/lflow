@@ -138,6 +138,48 @@ func TestScrollTempPanelHitTest(t *testing.T) {
 	}
 }
 
+// TestTempKeepsOneNodeAfterMoves: moving the last node out of the Temporary
+// Domain — alt+shift+up (crossToNotes) or the finder's /move:here
+// (bringFromTemp) — must reseed the empty placeholder, exactly like deleting the
+// last node does, so the panel always keeps an editable row.
+func TestTempKeepsOneNodeAfterMoves(t *testing.T) {
+	// crossToNotes: the last temp node crosses into the notes, the domain reseeds
+	m := newTestModel(80, "main")
+	m.ensureTempTree()
+	m.enterTemp()
+	last := m.tempTree.root.children[0]
+	m.crossToNotes(last)
+	if m.tempActive {
+		t.Fatal("crossToNotes must return to the main outline")
+	}
+	if got := len(m.tempTree.root.children); got != 1 {
+		t.Fatalf("temp children after moving the last node out = %d, want the reseeded 1", got)
+	}
+	if m.tempTree.root.children[0].name != "" {
+		t.Fatalf("reseeded temp node must be empty, got %q", m.tempTree.root.children[0].name)
+	}
+	if len(m.mainStash.tree.root.children) != 2 || last.parent != m.mainStash.tree.root {
+		t.Fatalf("the moved node must land in the main notes, got %d children", len(m.mainStash.tree.root.children))
+	}
+
+	// bringFromTemp: the finder's /move:here pulls the last temp node into the
+	// notes — same guarantee
+	m = newTestModel(80, "main")
+	m.ensureTempTree()
+	src := m.tempTree.root.children[0]
+	cur := m.tree.root.children[0]
+	m.bringFromTemp(src, cur)
+	if got := len(m.tempTree.root.children); got != 1 {
+		t.Fatalf("temp children after bringing the last node out = %d, want the reseeded 1", got)
+	}
+	if m.tempTree.root.children[0].name != "" {
+		t.Fatalf("reseeded temp node must be empty, got %q", m.tempTree.root.children[0].name)
+	}
+	if len(m.tree.root.children) != 2 || src.parent != m.tree.root {
+		t.Fatalf("the brought node must land in the main tree, got %d children", len(m.tree.root.children))
+	}
+}
+
 // TestTempSpaceRendersBlockNodesAsBlocks: the Temporary Domain is a SPACE, not a
 // second renderer. A Code node parked there must draw the same gray, gutter-
 // numbered block it draws in the outline — it used to collapse to the word
