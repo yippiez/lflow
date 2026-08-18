@@ -802,6 +802,35 @@ func renderAgentChip(c database.Chip, caretOn, struck bool) string {
 	return b.String()
 }
 
+// renderZoteroChip paints a citation as a FILLED pill in the Zotero brand red —
+// the same filled-pill shape a session chip wears (see renderAgentChip), so a
+// citation reads as one filled object in the sentence. The brand color fills
+// the background and the ink contrasts with it (see contrastInk) — which is
+// what keeps the near-black mark legible on the red. The pill keeps the OSC 8
+// hyperlink the plain citation advertised, so ctrl+click still opens the entry.
+func renderZoteroChip(c database.Chip, caretOn bool) string {
+	col := iconColorSGR(zoteroBrandColor())
+	if col == "" {
+		col = cRed
+	}
+	link := zoteroLinkTarget(c)
+	var b strings.Builder
+	b.WriteString(cReset)
+	if caretOn {
+		b.WriteString(cInvert)
+	}
+	b.WriteString(bgOf(col) + contrastInk(col))
+	if link != "" {
+		b.WriteString(oscLink(link))
+	}
+	b.WriteString(nonBreaking(" " + zoteroMark + " " + zoteroChipLabel(c) + " "))
+	b.WriteString(cReset)
+	if link != "" {
+		b.WriteString(oscLink(""))
+	}
+	return b.String()
+}
+
 // bgOf turns a foreground SGR ("\x1b[38;2;r;g;bm") into the matching BACKGROUND
 // sequence, so a chip can be filled with the color a session is themed in
 // without a second palette. A code it cannot read leaves the pill unfilled.
@@ -955,6 +984,14 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 				i = sp.end
 				continue
 			}
+			// a citation chip is a filled pill in the Zotero brand red — the same
+			// filled-pill shape a session chip wears (see renderZoteroChip).
+			if c, ok := chips[sp.id]; ok && c.Kind == chipKindZotero {
+				b.WriteString(renderZoteroChip(c, caret == sp.start))
+				cur = ""
+				i = sp.end
+				continue
+			}
 			col := cCyan
 			osc8 := "" // URL link target for an OSC 8 hyperlink, "" = none
 			if c, ok := chips[sp.id]; ok {
@@ -991,15 +1028,6 @@ func renderBody(it *item, name string, caret int, selected bool, chips map[strin
 					if _, isNode := nodeLinkUUID(c.Value); !isNode {
 						osc8 = c.Value
 					}
-				}
-				// a citation chip wears the Zotero brand paint and advertises the
-				// destination /settings zotero.open names, so ctrl+clicking it lands
-				// in the same place alt+g would (see zotero.go)
-				if c.Kind == chipKindZotero {
-					if s := iconColorSGR(zoteroBrandColor()); s != "" {
-						col = s
-					}
-					osc8 = zoteroLinkTarget(c)
 				}
 			}
 			b.WriteString(cReset + col)

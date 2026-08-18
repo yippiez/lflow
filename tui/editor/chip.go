@@ -251,7 +251,8 @@ var chipKinds = map[string]chipKind{
 	// a zotero chip is an inline citation: value is Zotero's own select URI,
 	// label the compact author-year form. display/expand below are value-only
 	// fallbacks — chipDisplay/chipExpand special-case it to use the label, the
-	// same split link chips use. Color is the brand paint (see renderBody).
+	// same split link chips use. Rendered as a filled pill in the brand red
+	// (see renderZoteroChip).
 	chipKindZotero: {
 		key:     chipKindZotero,
 		color:   cRed,

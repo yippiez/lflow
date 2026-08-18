@@ -281,8 +281,17 @@ func TestCitationRendersInBrandColor(t *testing.T) {
 		t.Errorf("the citation does not render:\n%s", out)
 	}
 	brand := iconColorSGR(zoteroBrandColor())
-	if brand == "" || !strings.Contains(out, brand) {
-		t.Errorf("the citation is not painted in the Zotero brand color")
+	if brand == "" {
+		t.Fatal("no Zotero brand color")
+	}
+	// the citation is a FILLED pill: the brand red is the background
+	if !strings.Contains(out, bgOf(brand)) {
+		t.Errorf("the citation is not filled with the Zotero brand color:\n%s", out)
+	}
+	// and the ink contrasts with the fill — near-black on the brand red — so the
+	// pill reads on any theme, the way a session chip's does
+	if !strings.Contains(out, contrastInk(brand)) {
+		t.Errorf("the citation pill does not contrast its ink with the fill")
 	}
 	// and it advertises its destination as a terminal hyperlink
 	if !strings.Contains(out, "\x1b]8;;zotero://select/library/items/AAAA1111") {
