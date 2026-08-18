@@ -672,6 +672,29 @@ func frameHasStatusBar(view string) bool {
 	return false
 }
 
+// checkMenuAboveBar asserts the picker overlay layout invariant: with a Group-A
+// picker open the status bar stays present, the picker rows sit ABOVE it (never
+// below, inside the temp panel region), and the temp panel keeps the frame's
+// last line.
+func checkMenuAboveBar(t *testing.T, view string) {
+	t.Helper()
+	lines := strings.Split(stripSGR(view), "\n")
+	barIdx := -1
+	for i, l := range lines {
+		if strings.Contains(l, "1/2") {
+			barIdx = i
+		}
+	}
+	if barIdx < 0 {
+		t.Fatalf("status bar absent while the picker is open:\n%s", view)
+	}
+	for i, l := range lines {
+		if strings.Contains(l, "/mirror") && i > barIdx {
+			t.Fatalf("picker row %q sits below the status bar:\n%s", l, view)
+		}
+	}
+}
+
 // TestConfirmElidesLongName is the F5 regression: a node name longer than the
 // terminal width must not push the node count or the enter/esc hints off-screen.
 // The confirm line reserves the suffix and elides the middle of the name so the
@@ -1262,20 +1285,13 @@ func TestSlashBackspaceDismissKeepsStatusBar(t *testing.T) {
 	m.cursor = 0
 	m.caret = len([]rune("hello"))
 
-	last := func() string {
-		lines := strings.Split(m.View(), "\n")
-		return lines[len(lines)-1]
-	}
-
 	m.press("/")
 	if m.mode != modeSlash {
 		t.Fatalf("pressing / should open the slash menu, mode=%v", m.mode)
 	}
-	// even with the menu open the bar is the frame's last line — the menu is
-	// listed above it, never below.
-	if got := last(); !strings.Contains(got, "1/2") || strings.Contains(got, "/mirror") {
-		t.Fatalf("slash frame's last line is not the status bar: %q", got)
-	}
+	// even with the menu open the bar is present and the menu is listed above
+	// it — never below, into the temp panel region.
+	checkMenuAboveBar(t, m.View())
 
 	// Backspace on an empty query dismisses the menu back to outline mode.
 	mm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyBackspace})
@@ -1411,20 +1427,13 @@ func TestSlashEscapeDismissKeepsStatusBar(t *testing.T) {
 	m.cursor = 0
 	m.caret = len([]rune("hello"))
 
-	last := func() string {
-		lines := strings.Split(m.View(), "\n")
-		return lines[len(lines)-1]
-	}
-
 	m.press("/")
 	if m.mode != modeSlash {
 		t.Fatalf("pressing / should open the slash menu, mode=%v", m.mode)
 	}
-	// even with the menu open the bar is the frame's last line — the menu is
-	// listed above it, never below.
-	if got := last(); !strings.Contains(got, "1/2") || strings.Contains(got, "/mirror") {
-		t.Fatalf("slash frame's last line is not the status bar: %q", got)
-	}
+	// even with the menu open the bar is present and the menu is listed above
+	// it — never below, into the temp panel region.
+	checkMenuAboveBar(t, m.View())
 
 	// move within the menu before escaping, matching the repro.
 	md, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyDown})

@@ -180,6 +180,35 @@ func TestTempKeepsOneNodeAfterMoves(t *testing.T) {
 	}
 }
 
+// TestTempPanelSurvivesPickers: the always-visible Temporary Domain panel must
+// stay on screen while a Group-A picker (/type, slash menu, /style) is open —
+// the picker window carves its rows out of the main outline, not out of the
+// temp panel. It used to vanish entirely: picker modes failed the showTemp
+// mode check, so opening /type blanked the panel (and the frame even lost its
+// reservation for it).
+func TestTempPanelSurvivesPickers(t *testing.T) {
+	m := seedTemp(newTestModel(80, "main"), 1)
+	m.press("alt+t") // modeType, type picker open
+	if m.mode != modeType {
+		t.Fatalf("precondition: alt+t should open the type picker, mode=%v", m.mode)
+	}
+	frame := stripSGR(strings.Join(strings.Split(m.View(), "\n"), "\n"))
+	if !strings.Contains(frame, "ta") {
+		t.Fatalf("temp node vanished while the type picker is open:\n%s", frame)
+	}
+
+	// the slash menu (alt+P) behaves the same
+	m = seedTemp(newTestModel(80, "main"), 1)
+	m.press("alt+P")
+	if m.mode != modeSlash {
+		t.Fatalf("precondition: alt+P should open the slash menu, mode=%v", m.mode)
+	}
+	frame = stripSGR(strings.Join(strings.Split(m.View(), "\n"), "\n"))
+	if !strings.Contains(frame, "ta") {
+		t.Fatalf("temp node vanished while the slash menu is open:\n%s", frame)
+	}
+}
+
 // TestTempSpaceRendersBlockNodesAsBlocks: the Temporary Domain is a SPACE, not a
 // second renderer. A Code node parked there must draw the same gray, gutter-
 // numbered block it draws in the outline — it used to collapse to the word

@@ -197,11 +197,13 @@ func (m *Model) viewRenderRows(maxLine int) (groups, bands [][]string) {
 // len(m.bottomBar(...)) — the status bar can wrap to several lines. maxLine
 // lets the picker budget count a header that WRAPS instead of truncating.
 func (m *Model) viewBudgets(barLines, maxLine int) viewLayout {
-	// The Temporary Domain panel is always visible during normal editing — only
-	// modal overlays (slash menu, pickers, prompts) take the full body. Layout:
-	// main notes on top, the status bar acting as the divider, then the
-	// always-visible Temporary Domain panel below it. Below ~3 body rows there is
-	// no room for that stack, so fall back to the plain outline.
+	// The Temporary Domain panel is always visible — in the plain outline, while
+	// editing a note, and while a Group-A picker is open; only full-surface
+	// modes (the finder, shortcuts, prompts, /settings) and a focused inline
+	// view take the whole body. Layout: main notes on top, the status bar
+	// acting as the divider, then the always-visible Temporary Domain panel
+	// below it. Below ~3 body rows there is no room for that stack, so fall
+	// back to the plain outline.
 	rowBudget := m.rowBudget()
 	// The status bar wraps instead of truncating (see bottomBar), so its extra
 	// lines come out of the body budget — the frame must never exceed the
@@ -210,30 +212,11 @@ func (m *Model) viewBudgets(barLines, maxLine int) viewLayout {
 	if rowBudget < 1 {
 		rowBudget = 1
 	}
-	// A focused inline view takes the whole body (like a picker) — the temp split
-	// is suppressed so a tall view (e.g. bash output) isn't crammed into the panel.
-	showTemp := (m.mode == modeOutline || m.mode == modeNote) && rowBudget >= 3 && !m.focused
-	tempBudget, mainBudget := 0, rowBudget
-	if showTemp {
-		m.ensureTempTree() // always-visible panel must exist before we render it
-		tempBudget = m.tempPanelBudget(rowBudget)
-		mainBudget = rowBudget - tempBudget
-		if mainBudget < 1 {
-			mainBudget = 1
-			tempBudget = rowBudget - 1
-		}
-	}
-	focusedBudget := mainBudget
-	if showTemp && m.tempActive {
-		focusedBudget = tempBudget
-	}
-
-	maxRows := focusedBudget
 	// Pickers (slash menu, /type, /style) are modal overlays drawn above the status
-	// bar. Each reserves a small, FIXED-height scrolling window by shrinking the body
-	// budget, so the picker never takes over the screen — the outline stays visible
-	// and the list scrolls to keep the selection in view. headerRows includes the
-	// /type search header.
+	// bar. Each reserves a small, FIXED-height scrolling window by shrinking the
+	// focused region's budget, so the picker never takes over the screen — the
+	// outline AND the temp panel stay visible and the list scrolls to keep the
+	// selection in view. headerRows includes the /type search header.
 	pickerItems, headerRows := 0, 0
 	if src := m.listSource(); src != nil {
 		pickerItems, headerRows = m.list.counts(m, src)
@@ -250,7 +233,33 @@ func (m *Model) viewBudgets(barLines, maxLine int) viewLayout {
 		if pickerRows < 1 {
 			pickerRows = 1
 		}
-		maxRows = rowBudget - pickerRows
+	}
+	// A focused inline view takes the whole body (like a picker) — the temp split
+	// is suppressed so a tall view (e.g. bash output) isn't crammed into the panel.
+	// While temp holds focus a picker takes the whole body too: the overlay cannot
+	// fit inside the 1-5 row panel, and the temp rows already ARE the body there.
+	pickerOpen := m.listSource() != nil
+	showTemp := (m.mode == modeOutline || m.mode == modeNote || (pickerOpen && !m.tempActive)) && rowBudget >= 3 && !m.focused
+	tempBudget, mainBudget := 0, rowBudget
+	if showTemp {
+		m.ensureTempTree() // always-visible panel must exist before we render it
+		tempBudget = m.tempPanelBudget(rowBudget)
+		mainBudget = rowBudget - tempBudget
+		if mainBudget < 1 {
+			mainBudget = 1
+			tempBudget = rowBudget - 1
+		}
+	}
+	focusedBudget := mainBudget
+	if showTemp && m.tempActive {
+		focusedBudget = tempBudget
+	}
+
+	maxRows := focusedBudget
+	if pickerRows > 0 {
+		// the picker window carves out of the focused region — the temp panel
+		// keeps its rows below the status bar instead of vanishing
+		maxRows = focusedBudget - pickerRows
 		if maxRows < 1 {
 			maxRows = 1
 		}
