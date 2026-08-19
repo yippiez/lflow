@@ -99,7 +99,8 @@ const (
 	// TypeMol is a molecule composed AS an outline: one atom per node, children
 	// are the atoms bonded to it; alt+e draws the structure. See editor/molecule.go.
 	TypeMol  = "molecule"
-	TypeLine = "line"
+	TypeLine   = "line"
+	TypeResult = "result"
 	// TypeAgent was a whole-row handle on an agentic coding session, beside the
 	// inline chip. The node was removed 2026-08-04 — one session had two surfaces
 	// and the row was the worse of them — but the key is kept VALID so a node
@@ -165,6 +166,7 @@ var TypeOrder = []string{
 	TypeWF,
 	TypeThinking,
 	TypeLine,
+	TypeResult,
 	TypeAgent,
 	TypeWebResult,
 	TypeZotero,
