@@ -48,6 +48,7 @@ var iconCatalog = []iconEntry{
 	// arrows — white
 	{"←", "larrow", "white"},
 	{"→", "rarrow", "white"},
+	{"|→", "rpararrow", "purple"}, // painted — pipe joined to the arrow glyph, not "-" ">"
 	{"⇄", "doublearrow", "white"},
 	{"⇐", "ldarrow", "white"},
 	{"⇒", "rdarrow", "white"},
