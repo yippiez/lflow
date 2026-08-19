@@ -161,54 +161,88 @@ func TestNCProseFace(t *testing.T) {
 	}
 }
 
-// TestNCRenderCaret: the prose row carries the block cursor like any editable
-// row — at caret within the instruction the cell inverts, past the end a trailing
-// block cell marks the insertion point, and caret -1 (unselected, note/flash
-// mode) draws none.
-func TestNCRenderCaret(t *testing.T) {
+// TestNCProseIsAnOrdinaryRichRow: the instruction renders through the same
+// renderBody every row does — red by DEFAULT, a /color taking over when the node
+// has one, the block cursor drawn where the caret is, and a chip in the text
+// rendering as a chip instead of a raw anchor.
+func TestNCProseIsAnOrdinaryRichRow(t *testing.T) {
 	m := ncTestModel(t, nil)
+	m.chips = map[string]database.Chip{}
 	it := &item{uuid: "cell1", typ: database.TypeNLPCompute, name: "sum inputs"}
-	ncSave(m, "cell1", ncData{Code: "b = 1", Lang: "python"})
 
-	if got := ncRender(m, it, -1); strings.Contains(got, "\x1b[7m") {
-		t.Fatalf("caret -1 must draw no cursor: %q", got)
+	body := renderBody(it, it.name, -1, false, m.chips)
+	if !strings.Contains(body, cRed) {
+		t.Fatalf("the default instruction is not red: %q", body)
 	}
-	if got := ncRender(m, it, 2); !strings.Contains(got, "su\x1b[7mm") {
-		t.Fatalf("caret inside the instruction must invert that cell: %q", got)
+	if strings.Contains(body, cInvert) {
+		t.Fatalf("caret -1 must draw no cursor: %q", body)
 	}
-	if got := ncRender(m, it, len([]rune("sum inputs"))); !strings.Contains(got, "\x1b[7m ") {
-		t.Fatalf("caret past the end must draw a trailing block cell: %q", got)
+	if got := renderBody(it, it.name, 2, true, m.chips); !strings.Contains(stripSGR(got), "sum inputs") ||
+		!strings.Contains(got, cInvert) {
+		t.Fatalf("the caret must invert its cell on the prose row: %q", got)
 	}
-	if !strings.Contains(ncRender(m, it, 3), cDim+"{python}") {
-		t.Fatal("the {lang} chip must survive the caret")
+
+	// a /color is the node's own word on the matter, red or not
+	it.style = "color:blue"
+	body = renderBody(it, it.name, -1, false, m.chips)
+	if strings.Contains(body, cRed) {
+		t.Fatalf("a recolored cell is still forced red: %q", body)
 	}
-	st := ncStateOf(m, "cell1")
-	st.busy = true
-	if got := ncRender(m, it, 3); !strings.Contains(got, "\x1b[38;2;") {
-		t.Fatalf("busy render must keep shining, not the caret: %q", got)
+	if _, color := typeOf(it.typ).glyph(it); color == cRed {
+		t.Fatal("the → arrow ignored the node's color")
 	}
-	st.busy = false
+	it.style = ""
+
+	// …and a chip spliced into the instruction renders as the chip
+	anchor := m.createLabeledChip(chipKindLink, "https://example.com", "the spec")
+	it.name = "follow " + anchor
+	body = renderBody(it, it.name, -1, false, m.chips)
+	if !strings.Contains(stripSGR(body), "spec") || strings.Contains(body, anchor) {
+		t.Fatalf("the chip did not render inside the instruction: %q", stripSGR(body))
+	}
 }
 
-// TestNCRenderShineAndFlag: while generating the instruction shines (colored, no
-// "computing…" trace) and the animating flag is raised so the shine tick lives;
-// idle it is plain red; completion drops the flag.
-func TestNCRenderShineAndFlag(t *testing.T) {
+// TestNCLangMarkerInTheSuffix: a cell that has generated names its language in
+// the shared row suffix — where every other type's marks live.
+func TestNCLangMarkerInTheSuffix(t *testing.T) {
+	m := ncTestModel(t, nil)
+	it := &item{uuid: "cell1", typ: database.TypeNLPCompute, name: "sum inputs", parent: m.tree.root}
+	m.tree.root.children = append(m.tree.root.children, it)
+	m.tree.byUUID["cell1"] = it
+	m.refreshRows()
+	ncSave(m, "cell1", ncData{Code: "b = 1", Lang: "python"})
+
+	r := m.rows[m.rowIndexOf(it)]
+	if suffix := stripSGR(m.typeSuffix(r)); !strings.Contains(suffix, "python") {
+		t.Fatalf("the cell does not say what it holds: %q", suffix)
+	}
+}
+
+// TestNCShineWhileGenerating: while the turn is in flight the instruction SHINES
+// (per-rune color, no agent trace) and the animating flag keeps the tick alive;
+// completion drops both and the row goes back to its own color.
+func TestNCShineWhileGenerating(t *testing.T) {
 	m := ncTestModel(t, func() (string, error) {
 		return "```python\nb = 1\n```", nil
 	})
+	m.chips = map[string]database.Chip{}
 	it := &item{uuid: "cell1", typ: database.TypeNLPCompute, name: "sum inputs"}
 
 	cmd := runNLPCompute(m, it)
 	if a, _ := m.nodeStore("cell1")["animating"].(bool); !a {
 		t.Fatal("run must raise the animating flag")
 	}
-	shown := ncRender(m, it, -1)
+	shown := renderBody(it, it.name, -1, false, m.chips)
 	if strings.Contains(shown, "computing") || strings.Contains(shown, "⋯") {
 		t.Fatalf("busy render must not show an agent trace: %q", shown)
 	}
-	if !strings.Contains(shown, "\x1b[38;2;") { // an animated (shine) color is present
-		t.Fatalf("busy render must be colored (shine): %q", shown)
+	// the shine paints per rune, so the row carries several colors where an
+	// idle one carries a single flat foreground
+	if strings.Count(shown, "\x1b[38;2;") < 2 || strings.Contains(shown, cRed) {
+		t.Fatalf("busy render is not shining: %q", shown)
+	}
+	if !strings.Contains(stripSGR(shown), "sum inputs") {
+		t.Fatalf("the shine ate the instruction: %q", stripSGR(shown))
 	}
 
 	// drain the turn to completion
@@ -219,5 +253,8 @@ func TestNCRenderShineAndFlag(t *testing.T) {
 	m.handleNCDone(msg)
 	if a, _ := m.nodeStore("cell1")["animating"].(bool); a {
 		t.Fatal("completion must drop the animating flag")
+	}
+	if ncGenerating["cell1"] {
+		t.Fatal("completion must stop the shine")
 	}
 }

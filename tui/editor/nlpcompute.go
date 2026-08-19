@@ -36,15 +36,19 @@ func init() {
 		inlineEditable: true, // the prose face: edit the instruction inline
 		autoFocus:      true, // the code face: rest the cursor on it to edit, like Code
 		blockFaces:     true, // alt+e toggles prose ⇄ code (never enters an editor)
-		glyph: func(*item) (string, string) {
-			return "→", cRed
+		glyph: func(it *item) (string, string) {
+			return "→", ncColor(it)
 		},
+		// red is the DEFAULT, not the law: the instruction is an ordinary rich
+		// row underneath — /color, /bold and the rest restyle it, chips splice
+		// into it — so this type reads like every other node until it runs.
 		baseColor: func(*item) string { return cRed },
-		renderM:   ncRender,
+		spanColor: ncSpanColor,
 		run:       runNLPCompute,
 		view:      ncView{},
 		blockCode: ncBlockCode,
 		onRemove: func(m *Model, uuid string) {
+			delete(ncGenerating, uuid)
 			delete(m.nodeStore(uuid), "animating")
 			if st := ncStateOf(m, uuid); st.cancel != nil {
 				st.cancel()
@@ -133,6 +137,7 @@ func (m *Model) handleNCDone(msg ncDoneMsg) tea.Cmd {
 	}
 	// park the cell
 	st.busy = false
+	delete(ncGenerating, msg.uuid)
 	delete(m.nodeStore(msg.uuid), "animating")
 	if st.cancel != nil {
 		st.cancel()
@@ -165,6 +170,7 @@ func runNLPCompute(m *Model, it *item) tea.Cmd {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	st.busy, st.cancel = true, cancel
+	ncGenerating[it.uuid] = true             // the render hooks read the turn state here
 	m.nodeStore(it.uuid)["animating"] = true // keep the shine tick alive while generating
 	return waitNCCmd(it.uuid, func() (string, error) {
 		return computeTurn(ctx, it.name, nil)
@@ -192,49 +198,43 @@ func peelCodeFence(text string) (code, lang string) {
 	return strings.TrimRight(body, "\n"), lang
 }
 
-// ncRender is the NLP version's inline body — the whole instruction is red. While
-// generating it SHINES (the ultraloop slide) with no agent trace; otherwise plain
-// red. When code exists the block replaces the row (ncBlockCode), so the trailing
-// {lang} chip is only ever seen off the main outline (the temp panel). caret is
-// the selected row's block cursor (renderRow hands it down; -1 draws none) —
-// renderBody's cursor would otherwise be lost when this override replaces it.
-func ncRender(m *Model, it *item, caret int) string {
-	st := ncStateOf(m, it.uuid)
-	name := it.name
-	if st.busy {
-		return ShineText(name)
+// The prose face has NO render override: the instruction goes through the same
+// renderBody every other row does, so a /color or /bold on the node lands, and a
+// #tag, a link or a $ chip typed into the instruction renders as that chip
+// instead of a raw anchor. What the type still owns is the DEFAULT color (red,
+// through baseColor) and the shine while it is generating (ncSpanColor) — both
+// applied through renderBody's own per-rune path, so the caret, the horizontal
+// selection and every chip keep working underneath them.
+
+// ncColor is the row's foreground: the node's own /color when it has one, the
+// type's red otherwise. The glyph follows the text, so a recolored cell is
+// recolored whole.
+func ncColor(it *item) string {
+	if c := styleBaseColor(it.style); c != "" {
+		return c
 	}
-	label := ""
-	if d := ncLoad(m, it.uuid); d.Code != "" {
-		label = "{code}"
-		if d.Lang != "" {
-			label = "{" + d.Lang + "}"
-		}
-		label = " " + cDim + label + cReset
-	}
-	if caret < 0 {
-		return cRed + name + cReset + label
-	}
-	return cRed + ncCaretText(name, caret) + cReset + label
+	return cRed
 }
 
-// ncCaretText paints the red instruction with the same block cursor renderBody
-// draws: the cell under the caret inverts, and past the last rune one trailing
-// block cell marks the insertion point.
-func ncCaretText(name string, caret int) string {
-	runes := []rune(name)
-	var b strings.Builder
-	for i, r := range runes {
-		if i == caret {
-			b.WriteString(cInvert + string(r) + cReset + cRed)
-			continue
-		}
-		b.WriteRune(r)
+// ncGenerating publishes which cells are mid-generation for the Model-less
+// render hooks (the same pattern as liveCmdRuns and the agent looks): rendering
+// runs off the item alone, so the turn state has to be readable without a Model.
+var ncGenerating = map[string]bool{}
+
+// ncSpanColor makes a generating cell SHINE — the ultraloop red slide across
+// its own text, one color per rune, through the channel the magic keywords use.
+// It replaces the row's foreground only while the turn is in flight; the node's
+// own color comes back the moment the code lands.
+func ncSpanColor(it *item, runes []rune) map[int]string {
+	if !ncGenerating[it.uuid] || len(runes) == 0 {
+		return nil
 	}
-	if caret >= len(runes) {
-		b.WriteString(cReset + cRed + cInvert + " ")
+	kw := magicKeywords[1] // ultraloop — red
+	out := make(map[int]string, len(runes))
+	for j := range runes {
+		out[j] = shineColorAt(len(runes), j, animFrame, kw.speed, kw.base, kw.peak)
 	}
-	return b.String()
+	return out
 }
 
 // ncBlockCode makes the node render AS the borderless code block once a snippet

@@ -1182,6 +1182,20 @@ func (m *Model) typeSuffix(r row) string {
 			parts = append(parts, "updated "+relTime(ts))
 		}
 	}
+	// an nlpcompute cell that has generated says which language it holds. The
+	// code block normally REPLACES the row, so this shows where the block cannot
+	// be drawn (the temp panel, the prose face) — and it lives here, in the
+	// shared suffix, rather than in a render override that would cost the row its
+	// chips and its style.
+	if it.typ == database.TypeNLPCompute {
+		if d := ncLoad(m, it.uuid); d.Code != "" {
+			lang := d.Lang
+			if lang == "" {
+				lang = "code"
+			}
+			parts = append(parts, lang)
+		}
+	}
 	// a markup row wears its language's mark and, after it, the document it
 	// composes — truncated, because the row is a glance and ⌥e is the reading
 	if mark := markupMark(it.typ); mark != "" {
