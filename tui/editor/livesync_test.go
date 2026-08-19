@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/lflow/lflow/tui/daemon/wire"
@@ -218,5 +220,55 @@ func TestLiveUndoDropsOnExternalChange(t *testing.T) {
 	m.applyEvent(wire.Event{Nodes: []database.Node{node("u-x", "r", 2, "external")}})
 	if len(m.undoStack) != 0 {
 		t.Fatal("undo stack survived an external merge; undoing would tombstone the external node")
+	}
+}
+
+// TestSyncIsSilentUntilItFails: a working auto-flush says nothing — it runs
+// after every keystroke, and a permanent "syncing" note in the bar reported
+// nothing while costing a wrapped line. A FAILED flush stays in the bar, red,
+// until one lands.
+func TestSyncIsSilentUntilItFails(t *testing.T) {
+	m := liveTestModel("a")
+	m.width, m.height = 80, 24
+	fail := false
+	m.onSave = func() error {
+		if fail {
+			return errors.New("daemon is not listening")
+		}
+		return nil
+	}
+	m.unsaved = true
+
+	if bar := stripSGR(strings.Join(m.bottomBar(80), "\n")); strings.Contains(bar, "syncing") ||
+		strings.Contains(bar, "unsaved") {
+		t.Fatalf("an auto-flushing session still narrates itself: %q", bar)
+	}
+
+	fail = true
+	m.flushSync()
+	bar := stripSGR(strings.Join(m.bottomBar(80), "\n"))
+	if !strings.Contains(bar, "sync failed") || !strings.Contains(bar, "daemon is not listening") {
+		t.Fatalf("a failed flush is not reported: %q", bar)
+	}
+	if !m.unsaved {
+		t.Fatal("a failed flush must leave the edits pending")
+	}
+
+	// …and it clears the moment one lands
+	fail = false
+	m.flushSync()
+	if bar := stripSGR(strings.Join(m.bottomBar(80), "\n")); strings.Contains(bar, "sync failed") {
+		t.Fatalf("the failure outlived a successful flush: %q", bar)
+	}
+}
+
+// TestNoDaemonSessionStillSaysUnsaved: with neither a daemon nor a file session
+// nothing flushes on its own, so unwritten edits are still worth saying.
+func TestNoDaemonSessionStillSaysUnsaved(t *testing.T) {
+	m := liveTestModel("a")
+	m.width, m.height = 80, 24
+	m.unsaved = true
+	if bar := stripSGR(strings.Join(m.bottomBar(80), "\n")); !strings.Contains(bar, "unsaved") {
+		t.Fatalf("a session with no auto-flush dropped the warning: %q", bar)
 	}
 }

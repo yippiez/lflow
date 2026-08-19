@@ -648,14 +648,18 @@ func (m *Model) bottomBar(maxLine int) []string {
 		}
 	}
 	state := ""
-	if m.unsaved {
-		// with a daemon — or a file session's onSave — the edits auto-flush in
-		// ~1s: the moment is "syncing", not a warning about unsaved work
-		if m.live != nil || m.onSave != nil {
-			state = " · syncing"
-		} else {
-			state = " · unsaved"
-		}
+	// A working auto-flush says NOTHING. It fires on every keystroke and lands a
+	// second later, so a "syncing" note was on screen permanently — a light that
+	// is always on reports nothing, and this one was long enough to wrap the bar
+	// onto a second line while you typed. Only the failure is news: it stays in
+	// the bar, red, until a flush succeeds (see saveAll).
+	if m.syncErr != "" {
+		state = " · " + cRed + "sync failed · " + clipStr(oneLine(m.syncErr), 48) + cDim
+	}
+	// with neither a daemon nor a file session there is no auto-flush at all, so
+	// unwritten edits are still worth saying out loud
+	if m.unsaved && m.live == nil && m.onSave == nil {
+		state += " · unsaved"
 	}
 	if n := m.runningQueryCount(); n > 0 {
 		// a shimmer, not a spinner: the house loading indicator is the ultraloop

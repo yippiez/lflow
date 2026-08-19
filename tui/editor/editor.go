@@ -400,8 +400,12 @@ type Model struct {
 	liveFeed    <-chan wire.Event
 	feedCancel  func()
 	syncPending bool // a flush tick is scheduled
-	pendingEvs  []wire.Event
-	needResync  bool
+	// syncErr holds the last failed flush and is the ONLY thing the bar says
+	// about syncing: it stays until a flush succeeds, where a working sync is
+	// silent (see saveAll and bottomBar).
+	syncErr    string
+	pendingEvs []wire.Event
+	needResync bool
 
 	escPending bool
 	escAt      time.Time // when the pending esc landed — split alt-chord window
@@ -467,6 +471,20 @@ func (m *Model) refreshAncestors() {
 // focused, and returns the total nodes written. Temp is a real persisted subtree
 // now, so it must be written alongside the main outline.
 func (m *Model) saveAll() (int, error) {
+	w, err := m.saveTrees()
+	// the status bar reports the FAILURE and nothing else: a flush that works is
+	// not news, and it happens after every keystroke (see bottomBar)
+	if err != nil {
+		m.syncErr = err.Error()
+	} else {
+		m.syncErr = ""
+	}
+	return w, err
+}
+
+// saveTrees is saveAll's body: persist both trees and run the file session's
+// serializer.
+func (m *Model) saveTrees() (int, error) {
 	main, temp := m.tree, m.tempTree
 	if m.tempActive {
 		main, temp = m.mainStash.tree, m.tree

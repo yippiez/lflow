@@ -9,8 +9,9 @@ import (
 )
 
 // Live sync: the editor is one client of the lflow daemon among many. Its
-// edits flush automatically (debounced ~1s, "syncing" in the bar — there is
-// no unsaved state to lose anymore), and every other client's committed
+// edits flush automatically (debounced ~1s, and SILENTLY — there is no unsaved
+// state to lose anymore, and only a failed flush is worth the bar's room), and
+// every other client's committed
 // change arrives on the subscribe feed and folds into the in-memory tree in
 // place. Conflict policy is errorless last-writer-wins at node granularity,
 // with one shield: a node the user has DIRTY (edited since the last flush)
@@ -77,8 +78,9 @@ func (m *Model) scheduleSync() tea.Cmd {
 	return tea.Tick(syncEvery, func(time.Time) tea.Msg { return syncFlushMsg{} })
 }
 
-// flushSync ships local edits to the daemon. The bar's "syncing" clears with
-// m.unsaved; on failure the edits stay local and the next edit retries.
+// flushSync ships local edits to the daemon. It says nothing when it works; on
+// failure the edits stay local, the bar carries the failure until a flush lands
+// (saveAll owns m.syncErr), and the next edit retries.
 func (m *Model) flushSync() tea.Cmd {
 	m.syncPending = false
 	if !m.unsaved {
@@ -86,7 +88,6 @@ func (m *Model) flushSync() tea.Cmd {
 	}
 	written, err := m.saveAll()
 	if err != nil {
-		m.errorFlash("sync: " + err.Error())
 		return nil
 	}
 	m.saved.written += written
