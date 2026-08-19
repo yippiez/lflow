@@ -44,8 +44,8 @@ func TestCopyCutTextSelection(t *testing.T) {
 	m.caret = len("paint ")
 	m.press("ctrl+shift+right") // "some"
 	m.press("alt+y")
-	if got := clip(); got != "paint some words here\n" {
-		t.Fatalf("yanked %q, want the whole branch %q", got, "paint some words here\n")
+	if got, want := clip(), " ○ paint some words here\n"; got != want {
+		t.Fatalf("yanked %q, want the whole branch %q", got, want)
 	}
 	if n.name != "paint some words here" {
 		t.Fatalf("copy must not touch the text, got %q", n.name)
@@ -99,7 +99,7 @@ func TestYankRunWithChildrenCopiesTheSubtree(t *testing.T) {
 	m.caret = len("alpha ")
 	m.press("ctrl+shift+right") // "beta"
 	m.press("alt+y")
-	if got, want := clip(), "alpha beta\n  beta\n"; got != want {
+	if got, want := clip(), " ○ alpha beta\n ╰─ ○ beta\n"; got != want {
 		t.Fatalf("yanked %q, want the branch %q", got, want)
 	}
 	if !strings.Contains(m.flash, "2 nodes copied to clipboard") {
@@ -127,7 +127,7 @@ func TestCutRunKeepsStyledRunsAligned(t *testing.T) {
 }
 
 // TestCopyNodesIndentsSubtree: with no selection, yank takes the cursor node and
-// everything under it, two spaces per level.
+// everything under it, drawn as the outline draws it.
 func TestCopyNodesIndentsSubtree(t *testing.T) {
 	clip := clipCapture(t)
 	root := &item{uuid: "root"}
@@ -144,7 +144,7 @@ func TestCopyNodesIndentsSubtree(t *testing.T) {
 	m.refreshRows()
 
 	m.press("alt+y")
-	want := "alpha\n  beta\n    gamma\n"
+	want := " ○ alpha\n ╰─ ○ beta\n    ╰─ ○ gamma\n"
 	if got := clip(); got != want {
 		t.Fatalf("copied %q, want %q", got, want)
 	}
@@ -179,7 +179,7 @@ func TestPlainYAndXTypeInsteadOfCopying(t *testing.T) {
 	m.cursor = 0
 	m.press("shift+down")
 	m.press("alt+y")
-	if got := clip(); got != "alpha\nbeta\n" {
+	if got := clip(); got != " ○ alpha\n ○ beta\n" {
 		t.Fatalf("alt+y copied %q, want the branches", got)
 	}
 	if !strings.Contains(m.flash, "2 nodes copied to clipboard") {
@@ -223,7 +223,7 @@ func TestCutRowSelectionRemovesNodes(t *testing.T) {
 
 	m.press("shift+down") // alpha..beta
 	m.press("alt+x")
-	if got, want := clip(), "alpha\nbeta\n  beta one\n"; got != want {
+	if got, want := clip(), " ○ alpha\n ○ beta\n ╰─ ○ beta one\n"; got != want {
 		t.Fatalf("cut %q, want %q", got, want)
 	}
 	if len(root.children) != 1 || root.children[0] != c {
@@ -265,9 +265,10 @@ type errClip string
 
 func (e errClip) Error() string { return string(e) }
 
-// TestCutAndPasteRoundTripsSubtree: a subtree cut with alt+x and pasted back
-// lands as a tree again — the paste fan-out reads the copy's indentation as
-// depth instead of leaving spaces in the names.
+// TestCutAndPasteRoundTripsSubtree: a subtree cut with alt+x leaves the
+// clipboard carrying the tree as it was DRAWN, and pasting it back lands a tree
+// again — the fan-out reads depth off the rail instead of leaving connectors
+// and bullets in the names.
 func TestCutAndPasteRoundTripsSubtree(t *testing.T) {
 	clip := clipCapture(t)
 	root := &item{uuid: "root"}
@@ -289,7 +290,7 @@ func TestCutAndPasteRoundTripsSubtree(t *testing.T) {
 		t.Fatalf("cut left %d roots, want only keep", len(root.children))
 	}
 	text := clip()
-	if want := "alpha\n  beta\n    gamma\n  delta\n"; text != want {
+	if want := " ○ alpha\n ├─ ○ beta\n │  ╰─ ○ gamma\n ╰─ ○ delta\n"; text != want {
 		t.Fatalf("cut %q, want %q", text, want)
 	}
 
@@ -301,10 +302,63 @@ func TestCutAndPasteRoundTripsSubtree(t *testing.T) {
 	m.pasteFanOut(m.cursorItem(), pasteLines(text))
 
 	got := map[string]int{} // name → depth
-	m.walkSubtrees([]*item{root}, func(it *item, depth int) { got[it.name] = depth })
+	m.walkForest([]*item{root}, func(it *item, r row, _ bool) { got[it.name] = r.depth })
 	for name, want := range map[string]int{"alpha": 1, "beta": 2, "gamma": 3, "delta": 2} {
 		if got[name] != want {
 			t.Fatalf("%q landed at depth %d, want %d (tree: %v)", name, got[name], want, got)
 		}
+	}
+}
+
+// TestCopyDrawsTypeGlyphs: the copy is what the outline shows, so a todo keeps
+// its box, a done todo its filled box, and a collapsed parent opens — its
+// children are right there under it in the copy.
+func TestCopyDrawsTypeGlyphs(t *testing.T) {
+	clip := clipCapture(t)
+	root := &item{uuid: "root"}
+	a := &item{uuid: "a", name: "chores", typ: database.TypeTodo, parent: root, collapsed: true}
+	b := &item{uuid: "b", name: "dishes", typ: database.TypeTodo, parent: a, completedAt: 1}
+	root.children = []*item{a}
+	a.children = []*item{b}
+	tr := &tree{root: root, byUUID: map[string]*item{"root": root, "a": a, "b": b},
+		externalNames: map[string]string{}, snapshots: map[string]snapshot{}}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+
+	m.press("alt+y")
+	if got, want := clip(), " □ chores\n ╰─ ■ dishes\n"; got != want {
+		t.Fatalf("copied %q, want %q", got, want)
+	}
+}
+
+// TestPasteMarkdownListIsNotReadAsARail: an indented list from somewhere else
+// is text, not a drawn outline. Its dashes belong to the node names and its
+// depth still comes from the leading spaces.
+func TestPasteMarkdownListIsNotReadAsARail(t *testing.T) {
+	got := readPasteLines([]string{"- one", "  - two", "    - three"})
+	want := []pasteLine{{0, "- one"}, {2, "- two"}, {4, "- three"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("markdown list read as %v, want %v", got, want)
+	}
+}
+
+// TestPasteProseIsNotReadAsARail: a line of prose can accidentally look like a
+// drawn row (" a b" reads as glyph "a"), so a block only parses as an outline
+// when something in it could only be one.
+func TestPasteProseIsNotReadAsARail(t *testing.T) {
+	got := readPasteLines([]string{" a short thought", " another one"})
+	want := []pasteLine{{1, "a short thought"}, {1, "another one"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("prose read as %v, want %v", got, want)
+	}
+}
+
+// TestPasteRailReadsDepthFromTheConnectors: the rail a copy carries is what the
+// fan-out measures depth with — the glyphs never reach the node names.
+func TestPasteRailReadsDepthFromTheConnectors(t *testing.T) {
+	got := readPasteLines([]string{" ○ alpha", " ├─ ○ beta", " │  ╰─ ◆ gamma", " ╰─ □ delta"})
+	want := []pasteLine{{1, "alpha"}, {4, "beta"}, {7, "gamma"}, {4, "delta"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rail read as %v, want %v", got, want)
 	}
 }

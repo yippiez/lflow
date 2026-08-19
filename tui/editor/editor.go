@@ -1450,16 +1450,18 @@ func sanitizeKey(k tea.KeyMsg) tea.KeyMsg {
 
 // pasteFanOut spreads a multiline paste over the outline: the first line
 // continues the current row at the caret, every following line becomes a new
-// node below it. LEADING SPACES ARE DEPTH — a line indented past the one above
-// it lands as its child — so an indented list, or a subtree copied out with
-// alt+y (see clipboard.go), comes back as a tree instead of rows whose names
-// start with spaces. Lines are already sanitized by pasteLines; a line that
+// node below it. DEPTH COMES FROM THE LEFT EDGE — a line indented past the one
+// above it lands as its child — so an indented list comes back as a tree
+// instead of rows whose names start with spaces. A subtree copied out with
+// alt+y arrives drawn, rail and glyphs and all, and is read back off that rail
+// (see readPasteLines). Lines are already sanitized by pasteLines; a line that
 // sanitized to empty (only C0/DEL bytes) creates no node so the paste never
 // leaves a ghost empty-named node between two real lines.
 func (m *Model) pasteFanOut(cur *item, lines []string) (tea.Model, tea.Cmd) {
+	parsed := readPasteLines(lines)
 	runes := []rune(cur.name)
 	m.boundCaret(len(runes))
-	cur.name = string(runes[:m.caret]) + strings.TrimLeft(lines[0], " ") + string(runes[m.caret:])
+	cur.name = string(runes[:m.caret]) + parsed[0].text + string(runes[m.caret:])
 
 	// one entry per open indent level, holding the last node landed at it; the
 	// base is the pasted-into row itself, so an unindented paste is all siblings
@@ -1469,12 +1471,12 @@ func (m *Model) pasteFanOut(cur *item, lines []string) (tea.Model, tea.Cmd) {
 	}
 	stack := []pasteLevel{{it: cur}}
 	last := cur
-	for _, l := range lines[1:] {
-		text := strings.TrimLeft(l, " ")
+	for _, l := range parsed[1:] {
+		text := l.text
 		if text == "" {
 			continue
 		}
-		indent := len(l) - len(text)
+		indent := l.indent
 		for len(stack) > 1 && indent < stack[len(stack)-1].indent {
 			stack = stack[:len(stack)-1]
 		}
