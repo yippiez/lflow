@@ -420,6 +420,42 @@ func codePaste(m *Model, it *item, text string) (tea.Cmd, bool) {
 	return nil, true
 }
 
+// fuseSelectionToCode collapses a multi-row selection into ONE code block: the
+// first selected node becomes the block and every selected row — subtrees
+// included — becomes one line of its body, two spaces per level of depth. It is
+// the exact inverse of the paste fan-out (pasteFanOut), so code that arrived as
+// a row per line goes back to being code, indentation and all. It returns the
+// block, or nil when the selection cannot be fused.
+func (m *Model) fuseSelectionToCode() *item {
+	roots := m.selectionRoots()
+	if len(roots) == 0 {
+		return nil
+	}
+	head := m.editTargetOf(roots[0])
+	if head == nil || head != roots[0] {
+		return nil // a mirror or a fixed row is not the block's body
+	}
+	body := strings.TrimRight(m.nodesAsText(roots), "\n")
+	// everything the body now carries stops being its own node: the rest of the
+	// selection, then the head's own children (they are lines of it now)
+	for i := len(roots) - 1; i >= 1; i-- {
+		m.deleteNode(roots[i])
+	}
+	for i := len(head.children) - 1; i >= 0; i-- {
+		m.deleteNode(head.children[i])
+	}
+	m.setNodeType(head, database.TypeCode)
+	head.name = body
+	// the rows' chips were expanded into the text (nodesAsText), so the head's own
+	// anchors — and the styled runs that indexed into its old name — are gone
+	delete(nodeSpans, head.uuid)
+	m.persistSpans(head.uuid)
+	m.unsaved = true
+	m.clearSel()
+	m.refreshRows()
+	return head
+}
+
 // codeInlineRender is the code node's one-line row body: a dim "code" tag (the
 // block itself hangs beneath as a band), plus a line count when it is multi-line.
 func codeInlineRender(it *item, name string) string {

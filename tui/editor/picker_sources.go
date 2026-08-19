@@ -354,6 +354,24 @@ func (typeSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 				targets = []*item{cur}
 			}
 		}
+		// Code over a MULTI-ROW selection is not "retype each row" — it FUSES the
+		// rows into one block, each row a line of it (see fuseSelectionToCode).
+		// Retyping them one by one left a stack of one-line blocks, which is not
+		// what selecting code and calling it code means.
+		if it.value == database.TypeCode && len(targets) > 1 {
+			m.pushUndo("")
+			if block := m.fuseSelectionToCode(); block != nil {
+				m.mode = modeOutline
+				m.cursor = m.rowIndexOf(block)
+				m.caret = 0
+				if v := nodeViewOf(block); v != nil && v.enter(m, block) {
+					m.focused = true
+					m.autoFocused = block
+					m.focusScroll = 0
+				}
+				return m, nil
+			}
+		}
 		if len(targets) > 0 {
 			m.pushUndo("")
 			for _, t := range targets {
@@ -581,7 +599,7 @@ func (s completerSource) header(m *Model, p *listPicker) string {
 	}
 	return ""
 }
-func (completerSource) initialSel(*Model) int             { return 0 }
+func (completerSource) initialSel(*Model) int { return 0 }
 
 func (completerSource) onSelect(m *Model, it pickerItem) (tea.Model, tea.Cmd) {
 	if m.applyCompletion(m.cursorItem(), it) {
