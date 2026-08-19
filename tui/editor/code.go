@@ -264,6 +264,20 @@ func (v codeView) enter(m *Model, it *item) bool {
 	return true
 }
 
+// enterFrom seeds the buffer and parks the caret on the edge the cursor walked
+// in from: coming DOWN out of the row above lands on the block's FIRST line,
+// coming UP from the row below on its LAST. Landing on the far edge is what made
+// Down skip the whole block — one more Down off the last line crossed straight
+// out of it. Entering in place (alt+e, /type, open) keeps the end.
+func (v codeView) enterFrom(m *Model, it *item, dir int) bool {
+	caret := len([]rune(it.name))
+	if dir > 0 {
+		caret = 0
+	}
+	v.set(m, it, it.name, caret)
+	return true
+}
+
 // Leave flushes the buffer back to the node and clears the edit state.
 func (v codeView) leave(m *Model, it *item) {
 	buf, _ := v.get(m, it)

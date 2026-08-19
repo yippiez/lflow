@@ -125,6 +125,15 @@ type nodeView interface {
 	leave(m *Model, it *item)
 }
 
+// edgeEnterer is the optional nodeView extension for a view whose content is
+// TALLER than a row: the outline tells it which edge the cursor walked in from
+// (+1 from above, -1 from below, 0 in place) so the caret lands on the line the
+// user is already looking at. A view that does not implement it is entered
+// through the plain enter. See Model.enterView.
+type edgeEnterer interface {
+	enterFrom(m *Model, it *item, dir int) bool
+}
+
 // nodeViewOf returns the inline view for an item's type, or nil.
 func nodeViewOf(it *item) nodeView {
 	if it == nil {

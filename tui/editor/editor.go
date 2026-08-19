@@ -294,6 +294,12 @@ type Model struct {
 	// cursor moves off. See reconcileAutoFocus.
 	autoFocused   *item
 	autoFocusHold *item
+	// prevRow is the row the cursor rested on at the last reconcile. It tells a
+	// block node WHICH EDGE the cursor arrived from — walking DOWN into a code
+	// block parks the caret on its first line, walking UP into it on its last —
+	// so a multi-line block is entered where the eye already is, and one more
+	// press of the same arrow keeps travelling through it instead of jumping.
+	prevRow *item
 
 	// Manual viewport scroll (mouse wheel): scrolling pins the body window at
 	// scrollTop instead of following the cursor while reading a long note/subtree.
@@ -871,15 +877,45 @@ func (m *Model) reconcileAutoFocus() {
 		m.focused = false
 		m.autoFocused = nil
 	}
-	// the cursor rests on an eligible auto-focus node: enter its view
+	// the cursor rests on an eligible auto-focus node: enter its view, on the edge
+	// it was walked into from (see enterFrom / prevRow)
 	if cur != nil && !m.focused && cur != m.autoFocusHold && !m.selOn &&
 		cur.mirrorOf == "" && !cur.readonly && typeOf(cur.typ).autoFocus {
-		if v := nodeViewOf(cur); v != nil && v.enter(m, cur) {
+		if v := nodeViewOf(cur); v != nil && m.enterView(v, cur) {
 			m.focused = true
 			m.autoFocused = cur
 			m.focusScroll = 0
 		}
 	}
+	m.prevRow = cur
+}
+
+// enterView focuses a node's view, telling an edge-aware one (the code block)
+// which side the cursor came from: +1 walked in from the row ABOVE, -1 from the
+// row BELOW, 0 entered in place (alt+e, /type, a fresh open). Plain views take
+// the direction-free enter.
+func (m *Model) enterView(v nodeView, it *item) bool {
+	if ev, ok := v.(edgeEnterer); ok {
+		return ev.enterFrom(m, it, m.entryDir(it))
+	}
+	return v.enter(m, it)
+}
+
+// entryDir reports which side the cursor arrived at `it` from, by where the
+// previous row sits now: above it → +1 (walking down), below it → -1 (walking
+// up), same row or gone → 0.
+func (m *Model) entryDir(it *item) int {
+	if m.prevRow == nil || m.prevRow == it {
+		return 0
+	}
+	prev, cur := m.rowIndexOf(m.prevRow), m.rowIndexOf(it)
+	if prev < 0 || cur < 0 || prev == cur {
+		return 0
+	}
+	if prev < cur {
+		return +1
+	}
+	return -1
 }
 
 // toggleBlockFace flips a blockFaces node (nlpcompute) between its code block and
