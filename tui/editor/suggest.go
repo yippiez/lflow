@@ -393,7 +393,10 @@ func (m *Model) suggestBody(it *item, body string, caret int) string {
 		return suggestShine(body)
 	}
 	s, _, ok := m.rowSuggest(it)
-	if ok && s.Kind == database.SuggestChange && s.Proposes(database.FieldName) {
+	// a live text selection on this row wins: the diff is a reading of the row,
+	// the selection is what the next key acts on, and the diff cannot draw it
+	if ok && s.Kind == database.SuggestChange && s.Proposes(database.FieldName) &&
+		textSelUUID != it.uuid {
 		return m.suggestDiffBody(m.nodeText(it), s.Name, caret)
 	}
 	return body

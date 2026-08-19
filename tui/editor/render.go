@@ -52,11 +52,20 @@ var (
 	bgPage = ""
 )
 
-// The horizontal selection bar is the SAME fill the row selection uses (selFill
-// paints bgPill under a selected row): selecting rows and selecting runes must
-// read as one thing, so both are that blue and both let the text keep its own
-// color on it. Themed, so a /theme change moves them together.
-func bgTextSel() string { return bgPill }
+// A selection — a run of runes (shift+←/→) or a run of rows (shift+↑/↓) — is
+// WHITE with black ink, and unlike the rest of the palette it is not themed: a
+// selection is a STATE, not a color. The blue tint it used to wear was one more
+// color competing with the row's own, and a red or yellow row read as a stripe
+// of that color rather than as "selected". White wins over everything, black ink
+// stays legible on it, and both selections read as one thing because both are
+// the same bar (see selFill).
+const (
+	bgSelect  = "\x1b[48;2;245;245;245m"
+	inkSelect = cInkDark
+)
+
+// bgTextSel is that bar as an SGR pair, applied over whatever the cell had.
+func bgTextSel() string { return bgSelect + inkSelect }
 
 // A FILLED surface (the session pill worn by a chip, a node and a menu row)
 // writes in whatever INK contrasts with its fill: near-black on a light fill —

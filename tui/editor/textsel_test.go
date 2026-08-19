@@ -167,3 +167,32 @@ func TestNoteSelectionReplaces(t *testing.T) {
 		t.Errorf("the node's name was touched: %q", it.name)
 	}
 }
+
+// TestSelectionIsWhiteWithBlackInk: a selection is a STATE, not a color — the
+// bar is white, the text under it is black, and the row's own colors do not
+// show through to compete with it.
+func TestSelectionIsWhiteWithBlackInk(t *testing.T) {
+	if !strings.Contains(bgTextSel(), bgSelect) || !strings.Contains(bgTextSel(), inkSelect) {
+		t.Fatalf("the selection bar is not white-on-black ink: %q", bgTextSel())
+	}
+	if strings.Contains(bgTextSel(), bgPill) {
+		t.Fatalf("the selection still wears the blue pill: %q", bgTextSel())
+	}
+
+	// a row selection drops the row's colors as it goes under the bar, and keeps
+	// its attributes
+	line := cRed + "red text" + cReset + cBold + "bold" + cReset
+	filled := selFill(line, 40)
+	if strings.Contains(filled, cRed) {
+		t.Fatalf("a selected row kept its own color: %q", filled)
+	}
+	if !strings.Contains(filled, cBold) {
+		t.Fatalf("a selected row lost its attributes: %q", filled)
+	}
+	if got := stripSGR(filled); !strings.HasPrefix(got, "red textbold") {
+		t.Fatalf("the bar changed the text: %q", got)
+	}
+	if visibleWidth(filled) != 40 {
+		t.Fatalf("the bar is %d cells wide, want the full row", visibleWidth(filled))
+	}
+}

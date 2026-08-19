@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -236,22 +237,66 @@ func wrapSGR(s string, width int) []string {
 	return lines
 }
 
-// selFill paints the multi-select background under an already-styled line,
-// padded with spaces to width so the bar runs edge to edge. Real cells, not an
-// \x1b[K flood: the renderer appends its own end-of-line erase after each
-// line, which would repaint a flood back to the default background. Every
-// reset inside the content re-arms the background so mixed-color rows keep
-// the highlight; the frame wrapper's trailing cReset closes it.
-func selFill(s string, width int) string { return bgFill(s, width, bgPill) }
-
-// bgFill is that same edge-to-edge paint over any background: pad the styled
-// line to width with real cells and re-arm bg after every reset inside it, so a
-// selected block reads as one surface however the content colored itself.
-func bgFill(s string, width int, bg string) string {
+// selFill paints the selection bar under an already-styled line, padded with
+// spaces to width so it runs edge to edge. Real cells, not an \x1b[K flood: the
+// renderer appends its own end-of-line erase after each line, which would
+// repaint a flood back to the default background. The frame wrapper's trailing
+// cReset closes it.
+//
+// The line's own COLORS are dropped as it goes under the bar (see selPaint):
+// black on white is what "selected" looks like, and a row that kept its red or
+// its yellow would read as a red stripe rather than as a selected row.
+func selFill(s string, width int) string {
+	bar := bgTextSel()
+	s = bar + selPaint(s, bar)
 	if pad := width - visibleWidth(s); pad > 0 {
 		s += strings.Repeat(" ", pad)
 	}
-	return bg + strings.ReplaceAll(s, cReset, cReset+bg)
+	return s
+}
+
+// selPaint rewrites an already-styled line for the selection bar: every color
+// instruction it carries becomes the bar itself, while bold, italic, underline
+// and strike pass through — the row keeps its SHAPE and loses only the colors
+// that would compete with the highlight.
+func selPaint(s, bar string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] != '\x1b' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		e := ansiEscapeEnd(s, i)
+		seq := s[i:e]
+		switch {
+		case seq == cReset:
+			b.WriteString(cReset + bar)
+		case sgrIsColor(seq):
+			b.WriteString(bar)
+		default:
+			b.WriteString(seq) // an attribute (or an OSC link) survives the bar
+		}
+		i = e
+	}
+	return b.String()
+}
+
+// sgrIsColor reports whether an escape sets a foreground or background color —
+// the SGR parameters the selection bar takes over.
+func sgrIsColor(seq string) bool {
+	if !strings.HasPrefix(seq, "\x1b[") || !strings.HasSuffix(seq, "m") {
+		return false
+	}
+	for _, p := range strings.Split(strings.TrimSuffix(seq[2:], "m"), ";") {
+		switch n, err := strconv.Atoi(p); {
+		case err != nil:
+			continue
+		case n >= 30 && n <= 49, n >= 90 && n <= 97, n >= 100 && n <= 107:
+			return true
+		}
+	}
+	return false
 }
 
 // elideMiddle shortens plain text s to at most width display cells, dropping the
