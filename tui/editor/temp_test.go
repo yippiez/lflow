@@ -112,6 +112,27 @@ func TestReadonlyMainKeepsWholeWrappedCursorRow(t *testing.T) {
 	}
 }
 
+// TestReadonlyMainKeepsTheCursorRowsBands: a node whose real body hangs BENEATH
+// its row — an image thumbnail, a bar plot, a note — must stay visible when
+// focus steps into the Temporary Domain. The window used to follow the row's
+// own lines only, so the panel cut the frame off right under the node and the
+// picture it stands for was never on screen.
+func TestReadonlyMainKeepsTheCursorRowsBands(t *testing.T) {
+	m := seedTemp(newTestModel(60, "main"), 8)
+	last := m.tempTree.root.children[7]
+	last.name = "chart"
+	last.note = "band one\nband two\nband three"
+
+	lines := m.readonlyRegionLines(m.tempTree, m.tempTree.root, 7, 5, 59, false, -1)
+	plain := stripSGR(strings.Join(lines, "\n"))
+	if !strings.Contains(plain, "chart") {
+		t.Fatalf("the cursor row itself must stay in view:\n%s", plain)
+	}
+	if !strings.Contains(plain, "band three") {
+		t.Fatalf("the cursor row's bands must stay in view:\n%s", plain)
+	}
+}
+
 // TestScrollTempPanelHitTest: the wheel scrolls the read-only temp panel only
 // when the event lands on the panel's screen region, and never while the panel
 // is focused (tempActive) — there the body window scrolls instead.

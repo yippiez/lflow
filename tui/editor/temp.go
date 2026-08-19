@@ -180,10 +180,13 @@ func (m *Model) readonlyRegionLines(tr *tree, viewRoot *item, cursor, budget, ma
 			// different renderer.
 			group, bands := m.renderRow(tr, r, rowOpts{dashed: dashed, below: below, maxLine: maxLine})
 			flat = append(flat, group...)
+			flat = append(flat, bands...)
 			if i == cursor {
+				// the cursor row is its group AND its bands: an image thumbnail or a
+				// bar plot IS the node, so stepping into the temp space must keep the
+				// picture in view, not clip the region right under the node's line.
 				cursorStart, cursorEnd = rowStart, len(flat)-1
 			}
-			flat = append(flat, bands...)
 		}
 	}
 
