@@ -65,6 +65,58 @@ func TestSanitizeNameStripsControlBytes(t *testing.T) {
 	}
 }
 
+// TestSanitizeNameStripsTerminalMouseEvents: a terminal that was backgrounded
+// re-delivers queued mouse events as printable bytes when the tab returns; the
+// SGR encoding must never land in a node name.
+func TestSanitizeNameStripsTerminalMouseEvents(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"whole sgr mouse event", "\x1b[<0;19;15M", ""},
+		{"whole sgr mouse release", "\x1b[<0;19;15m", ""},
+		{"tail only", "<0;19;15M", ""},
+		{"tail with split save-cursor", "<0;19;15Ms", ""},
+		{"tail with split restore-cursor", "<0;19;15Mu", ""},
+		{"between real text", "before\x1b[<0;19;15M after", "before after"},
+		{"ordinary angle text kept", "a < b > c", "a < b > c"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sanitizeName(tc.in); got != tc.want {
+				t.Fatalf("sanitizeName(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTypingNeverLandsMouseLeftovers: the delivered mouse event is dropped
+// before any mode sees it — the node text stays clean — and a key that mixes
+// one with real text keeps only the text.
+func TestTypingNeverLandsMouseLeftovers(t *testing.T) {
+	m := newTestModel(80, "alpha")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("<0;19;15Ms")})
+	if got := m.rows[0].it.name; got != "alpha" {
+		t.Fatalf("mouse leftover typed into the node: %q", got)
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("\x1b[<1;1;1M")})
+	if got := m.rows[0].it.name; got != "alpha" {
+		t.Fatalf("whole mouse event typed into the node: %q", got)
+	}
+	m.caret = len("alpha")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("<0;19;15Ms hmm")})
+	if got := m.rows[0].it.name; got != "alpha hmm" {
+		t.Fatalf("mixed key landed %q, want %q", got, "alpha hmm")
+	}
+	// a real paste keeps its newlines — the fan-out splits on them, so a
+	// mouse event buried in a multiline paste strips without flattening it
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("\x1b[<0;19;15M\nnext"), Paste: true})
+	if names := namesOf(m.tree.root.children); !reflect.DeepEqual(names, []string{"alpha hmm", "next"}) {
+		t.Fatalf("paste lost its line break: %v", names)
+	}
+}
+
 // TestPasteLinesSanitizesControlBytes confirms the paste path strips the ESC
 // sequences from the reproducer before any text becomes a node name.
 func TestPasteLinesSanitizesControlBytes(t *testing.T) {

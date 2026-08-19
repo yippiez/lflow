@@ -20,6 +20,10 @@ func lockedFlash(it *item) string {
 }
 
 func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	k = sanitizeKey(k)
+	if k.Type == tea.KeyRunes && len(k.Runes) == 0 {
+		return m, nil // a delivered mouse event: nothing to do with it
+	}
 	key := k.String()
 	m.flash = "" // one-shot: whatever this key does sets the next status
 	m.flashErr = false
@@ -102,6 +106,22 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cur := m.cursorItem(); cur != nil && typeOf(cur.typ).blockFaces {
 			m.toggleBlockFace(cur)
 			return m, nil
+		}
+	}
+
+	// A paste goes to the node type that OWNS it before anything else sees it: a
+	// block type (code, json) takes the text whole into its buffer, newlines and
+	// indentation intact, rather than having the raw \r-laced runes typed into it
+	// one key's worth at a time. A type with no paste hook (every ordinary text
+	// node) falls through to the default outline paste below — fan-out into a row
+	// per line, link and service chips included.
+	if k.Paste && m.mode == modeOutline {
+		if cur := m.cursorItem(); cur != nil {
+			if h := typeOf(cur.typ).paste; h != nil {
+				if cmd, handled := h(m, cur, pasteBlockText(string(k.Runes))); handled {
+					return m, cmd
+				}
+			}
 		}
 	}
 

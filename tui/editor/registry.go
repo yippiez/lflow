@@ -70,6 +70,13 @@ type nodeType struct {
 	// uses to land on its own face instead of leaving the picker on a row that
 	// looks unchanged (the Table folds to its grid face). nil → nothing.
 	onType func(m *Model, it *item)
+	// paste claims a bracketed paste landing on a node of this type, receiving the
+	// text with terminal noise already stripped and line breaks normalized to \n
+	// (see pasteBlockText). A multi-line block type takes it verbatim into its own
+	// buffer instead of letting the outline fan it out into a row per line;
+	// handled=false (or nil) falls through to the default outline paste — which is
+	// the right behavior for every ordinary text node.
+	paste func(m *Model, it *item, text string) (cmd tea.Cmd, handled bool)
 	// onRemove fires when a node of this type leaves the tree — cancel any
 	// in-flight work keyed on it (nlpcompute's generation).
 	onRemove func(m *Model, uuid string)

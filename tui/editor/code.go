@@ -387,6 +387,39 @@ func (m *Model) exitCodeToSibling(it *item) tea.Cmd {
 	return nil
 }
 
+// codePaste is the Code node's paste hook: the clipboard lands in the block
+// VERBATIM at the caret — every line, its own indentation intact — instead of
+// being fanned out into a row per line like an outline paste. The text arrives
+// already normalized (pasteBlockText): no \r from tmux, no tabs to shear the
+// block's columns, no control bytes. A block the cursor rests on but is not
+// focused in (esc'd out of) is re-entered so the paste has somewhere to land.
+func codePaste(m *Model, it *item, text string) (tea.Cmd, bool) {
+	if text == "" {
+		return nil, true
+	}
+	v := codeView{}
+	if !m.focused || m.cursorItem() != it {
+		if !v.enter(m, it) {
+			return nil, false
+		}
+		m.focused = true
+		m.autoFocused = it
+		m.autoFocusHold = nil
+		m.focusScroll = 0
+	}
+	buf, caret := v.get(m, it)
+	if caret >= len([]rune(buf)) {
+		// a copied snippet almost always ends in a newline; landing at the end of
+		// the block that is a blank numbered line and nothing else. Mid-block it is
+		// a real break and stays.
+		text = strings.TrimRight(text, "\n")
+	}
+	buf, caret = jsonIns(buf, caret, text)
+	v.set(m, it, buf, caret)
+	m.unsaved = true
+	return nil, true
+}
+
 // codeInlineRender is the code node's one-line row body: a dim "code" tag (the
 // block itself hangs beneath as a band), plus a line count when it is multi-line.
 func codeInlineRender(it *item, name string) string {
@@ -411,5 +444,6 @@ func init() {
 		render:         codeInlineRender,
 		view:           codeView{},
 		blockCode:      codeBlockCode,
+		paste:          codePaste,
 	})
 }

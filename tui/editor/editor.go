@@ -1342,25 +1342,89 @@ func pasteLines(text string) []string {
 // \r\r\n collapses to one break instead of spawning empty ghost rows.
 var newlineRunRe = regexp.MustCompile(`[\r\n]+`)
 
+// pasteBreakRe matches ONE line break in pasted text, in every shape a terminal
+// delivers it: \n, \r\n, tmux ONLCR's \r\r\n, and a bare \r. Unlike
+// newlineRunRe it matches breaks one at a time, so a blank line inside pasted
+// code survives as a blank line instead of being swallowed into its neighbour.
+var pasteBreakRe = regexp.MustCompile("\r\r?\n|\r|\n")
+
+// pasteTab is what a pasted tab becomes. A literal \t would be a control byte in
+// the block buffer: the code block measures its own columns (line-number gutter,
+// gray padding), and the terminal's own 8-column tab stop would shear every line
+// it appears on.
+const pasteTab = "    "
+
+// pasteBlockText normalizes pasted text for a MULTI-LINE buffer (the code and
+// json blocks): terminal noise out, every line-break shape folded to \n, tabs
+// expanded, and every other control byte dropped — but the newlines KEPT, since
+// a block holds the paste whole instead of fanning it out into a row per line.
+func pasteBlockText(text string) string {
+	text = bracketedPasteRe.ReplaceAllString(text, "")
+	text = terminalMouseRe.ReplaceAllString(text, "")
+	text = pasteBreakRe.ReplaceAllString(text, "\n")
+	text = strings.ReplaceAll(text, "\t", pasteTab)
+	return strings.Map(func(r rune) rune {
+		if r == '\n' {
+			return r
+		}
+		if r < 0x20 || r == 0x7F {
+			return -1
+		}
+		return r
+	}, text)
+}
+
 // bracketedPasteRe matches the bracketed-paste markers a terminal wraps around
 // pasted text. A paste that itself contains the literal start/end sequences
 // would otherwise smuggle them into a node name and toggle paste mode on render.
 var bracketedPasteRe = regexp.MustCompile(`\x1b\[20[01]~`)
 
+// terminalMouseRe matches SGR mouse events, whole or in part. When a terminal
+// session returns to the foreground it re-delivers the mouse events that
+// queued while it was away; the input parser can consume the \x1b[< prefix of
+// one and hand the rest to the app as printable text — "<0;19;15M" landing in
+// a node name. The trailing s/u absorbs the save/restore-cursor byte of a
+// split \x1b[s / \x1b[u pair that follows in the same delivery.
+var terminalMouseRe = regexp.MustCompile(`\x1b\[<[0-9]+;[0-9]+;[0-9]+[Mm]|<[0-9]+;[0-9]+;[0-9]+[Mm][su]*`)
+
 // sanitizeName makes pasted or inserted text safe to store as a node name and
-// echo back to the terminal. It drops bracketed-paste markers and every C0
-// control byte (0x00-0x1F) plus DEL (0x7F), so an embedded ESC[H/ESC[2J never
-// executes as a cursor-home or clear-screen when the outline is rendered.
-// Newlines are the paste fan-out separator and are handled before this step;
-// tabs are normalized on the F3 path, so no control bytes should survive here.
+// echo back to the terminal. It drops bracketed-paste markers, delivered
+// mouse-event leftovers, and every C0 control byte (0x00-0x1F) plus DEL
+// (0x7F), so an embedded ESC[H/ESC[2J never executes as a cursor-home or
+// clear-screen when the outline is rendered. Newlines are the paste fan-out
+// separator and are handled before this step; tabs are normalized on the F3
+// path, so no control bytes should survive here.
 func sanitizeName(text string) string {
 	text = bracketedPasteRe.ReplaceAllString(text, "")
+	text = terminalMouseRe.ReplaceAllString(text, "")
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7F {
 			return -1
 		}
 		return r
 	}, text)
+}
+
+// sanitizeKey strips terminal control noise from a key's runes before any
+// mode sees them. A backgrounded terminal re-delivers queued mouse events as
+// printable bytes when the tab comes back (see terminalMouseRe), and those
+// bytes otherwise type into the cursor node. A key that sanitizes to nothing
+// is dropped whole, so a stray event cannot move the caret, clear a selection,
+// or open a menu. Pastes keep their newlines — the paste fan-out splits on
+// them itself (pasteLines) — and sanitize each line there instead.
+func sanitizeKey(k tea.KeyMsg) tea.KeyMsg {
+	if k.Type != tea.KeyRunes || len(k.Runes) == 0 {
+		return k
+	}
+	text := string(k.Runes)
+	if k.Paste {
+		text = bracketedPasteRe.ReplaceAllString(text, "")
+		text = terminalMouseRe.ReplaceAllString(text, "")
+	} else {
+		text = sanitizeName(text)
+	}
+	k.Runes = []rune(text)
+	return k
 }
 
 // pasteFanOut spreads a multiline paste over the outline: the first line
