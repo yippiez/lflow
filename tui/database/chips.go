@@ -637,6 +637,43 @@ func BacklinkNodes(db *DB, targetUUID string) ([]Node, error) {
 	return ret, nil
 }
 
+// MirrorNodes returns every non-deleted mirror of targetUUID — nodes whose
+// mirror_of column points at the target. Unlike BacklinkNodes this excludes
+// [[-link chip referrers; order is unspecified.
+func MirrorNodes(db *DB, targetUUID string) ([]Node, error) {
+	if targetUUID == "" {
+		return nil, nil
+	}
+	return GetNodesWhere(db, "mirror_of = ? AND deleted = 0", targetUUID)
+}
+
+// MirrorCounts returns, for every source node, how many non-deleted mirrors
+// reference it. One pass over the outline's mirror_of column. The editor's row
+// suffix ("2 mirrors") reads this; /mirrors lists the mirrors themselves.
+func MirrorCounts(db *DB) (map[string]int, error) {
+	rows, err := db.Query(`
+		SELECT mirror_of FROM nodes WHERE deleted = 0 AND mirror_of != ''`)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying mirror counts")
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var target string
+		if err := rows.Scan(&target); err != nil {
+			return nil, errors.Wrap(err, "scanning mirror count")
+		}
+		if target == "" {
+			continue
+		}
+		counts[target]++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "iterating mirror counts")
+	}
+	return counts, nil
+}
+
 // BacklinkCounts returns, for every referenced node, how many non-deleted nodes
 // reference it — mirrors of it plus nodes whose name embeds a link chip
 // targeting it. One pass over the whole outline, keyed by the referenced
