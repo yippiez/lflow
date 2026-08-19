@@ -64,6 +64,7 @@ const (
 	actBringHere  // /move:here — the picked node moves to the cursor
 	actLinkInsert // [[ — insert an inline link chip at the caret (node or URL)
 	actBacklinks  // /backlinks — nodes that mirror or [[-link to the cursor node
+	actMirrors    // /mirrors — nodes that mirror the cursor node
 	actQueryScope // :in: — select the query's subtree boundary
 )
 
@@ -82,6 +83,7 @@ var slashCommands = []slashCommand{
 	{"/insert", "Insert a chip — or a Zotero entry — at caret"},
 	{"/link", "Copy this node's lflow link (a selection copies all of them)"},
 	{"/lock", "Lock or unlock this node as read-only"},
+	{"/mirrors", "Show nodes that mirror this one"},
 	{"/mirror:from", "Mirror another node here"},
 	{"/mirror:to", "Mirror this node into another node"},
 	{"/mirror:workflowy", "Mirror a Workflowy subtree here (paste a link, then alt+r)"},
@@ -157,6 +159,9 @@ type Model struct {
 	// pointing at it) across the WHOLE outline, one bulk DB read per refreshRows
 	// (see database.BacklinkCounts) — the "n backlinks" row suffix.
 	backlinkCounts map[string]int
+	// mirrorCounts is every source node's mirror count across the WHOLE outline,
+	// one bulk DB read per refreshRows — the "n mirrors" row suffix.
+	mirrorCounts map[string]int
 
 	viewStack []*item // zoom stack; last is the current view root
 	cursor    int     // index into visibleRows
@@ -726,6 +731,7 @@ func (m *Model) refreshRows() {
 	// the Model-less render path — see agentLooks
 	m.refreshAgentLooks()
 	m.refreshBacklinkCounts()
+	m.refreshMirrorCounts()
 }
 
 // refreshBacklinkCounts re-reads the whole outline's reference counts for the
@@ -744,6 +750,20 @@ func (m *Model) refreshBacklinkCounts() {
 	m.backlinkCounts = counts
 }
 
+// refreshMirrorCounts re-reads the whole outline's mirror counts for the
+// "n mirrors" row suffix. One bulk query per outline change; a failed read
+// leaves the counts as they were.
+func (m *Model) refreshMirrorCounts() {
+	if m.db == nil {
+		return
+	}
+	counts, err := database.MirrorCounts(m.db)
+	if err != nil {
+		return
+	}
+	m.mirrorCounts = counts
+}
+
 // backlinkCount is the number of nodes elsewhere in the outline referencing
 // it.uuid — a mirror or [[ link chip. Mirrors answer for their source.
 func (m *Model) backlinkCount(it *item) int {
@@ -752,6 +772,16 @@ func (m *Model) backlinkCount(it *item) int {
 		uuid = m.tree.sourceUUID(it)
 	}
 	return m.backlinkCounts[uuid]
+}
+
+// mirrorCount is the number of mirrors of it.uuid in the outline. Mirrors
+// answer for their source.
+func (m *Model) mirrorCount(it *item) int {
+	uuid := it.uuid
+	if it.mirrorOf != "" {
+		uuid = m.tree.sourceUUID(it)
+	}
+	return m.mirrorCounts[uuid]
 }
 
 // expandStep opens the cursor node one visible level: uncollapse it, and when
@@ -2194,6 +2224,9 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 	case "/backlinks":
 		// list every node that mirrors or [[-links to this one; pick → jump.
 		m.openBacklinks()
+	case "/mirrors":
+		// list every node that mirrors this one; pick → jump.
+		m.openMirrors()
 	case "/undo":
 		m.undo()
 	case "/redo":

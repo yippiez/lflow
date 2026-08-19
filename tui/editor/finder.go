@@ -30,6 +30,16 @@ func (m *Model) openBacklinks() {
 	m.openFinder(actBacklinks)
 }
 
+// openMirrors lists every node that mirrors the cursor node, exactly like
+// typing /mirrors. Flush first — same reason as openBacklinks.
+func (m *Model) openMirrors() {
+	if _, err := m.saveAll(); err != nil {
+		m.errorFlash("save: " + err.Error())
+		return
+	}
+	m.openFinder(actMirrors)
+}
+
 // nodeFinderBackend is the finderBackend that fronts the outline's nodes: it
 // searches the DB (plus the Temporary Domain for /move:here), commits a pick via
 // runFinder, and links a URL query straight to a website for "[[".
@@ -52,6 +62,19 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 			srcUUID = m.tree.sourceUUID(cur)
 		}
 		hits, err = database.BacklinkNodes(m.db, srcUUID)
+		if err != nil {
+			return nil
+		}
+	} else if m.finder.act == actMirrors {
+		// /mirrors lists only nodes that mirror the cursor node.
+		if m.db == nil {
+			return nil
+		}
+		srcUUID := ""
+		if cur != nil {
+			srcUUID = m.tree.sourceUUID(cur)
+		}
+		hits, err = database.MirrorNodes(m.db, srcUUID)
 		if err != nil {
 			return nil
 		}
@@ -87,9 +110,10 @@ func (nodeFinderBackend) search(m *Model, query string) []finderRow {
 		if cur != nil && h.UUID == cur.uuid {
 			continue
 		}
-		if m.finder.act == actBacklinks {
-			// Backlinks keep mirrors (they are the references) and empty-name
-			// mirror rows. An optional query filters by resolved display name.
+		if m.finder.act == actBacklinks || m.finder.act == actMirrors {
+			// Backlinks and mirrors keep mirror rows (they are the references)
+			// and empty-name mirror rows. An optional query filters by resolved
+			// display name.
 			if q != "" {
 				name := finderRowName(h, func(uuid string) (database.Node, bool) {
 					n, e := database.GetNode(m.db, uuid)
@@ -171,6 +195,8 @@ func (nodeFinderBackend) label(m *Model) string {
 		return "[[ link"
 	case actBacklinks:
 		return "backlinks"
+	case actMirrors:
+		return "mirrors"
 	case actQueryScope:
 		return ":in:"
 	}
@@ -193,6 +219,8 @@ func (nodeFinderBackend) hint(m *Model) string {
 		return "enter link to node, or type a URL"
 	case actBacklinks:
 		return "enter open · mirrors and [[ links to this node"
+	case actMirrors:
+		return "enter open · mirrors of this node"
 	case actQueryScope:
 		return "enter search this node and its subtree"
 	}
@@ -359,8 +387,9 @@ func (m *Model) runFinder(target database.Node) (tea.Model, tea.Cmd) {
 			}
 			m.cursor = clampRow(oldRow, len(m.rows))
 		}
-	case actGoto, actBacklinks:
-		// save, then reopen on the target (/backlinks picks jump the same way)
+	case actGoto, actBacklinks, actMirrors:
+		// save, then reopen on the target (/backlinks and /mirrors picks jump
+		// the same way)
 		if err := m.jumpTo(target); err != nil {
 			m.err = err
 			return m.quit()

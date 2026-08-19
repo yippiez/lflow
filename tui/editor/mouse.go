@@ -117,6 +117,32 @@ func (m *Model) finishMouseFrame(lines []string) {
 			})
 		}
 	}
+	// The "n mirrors" row suffix is pressable: clicking it opens the /mirrors
+	// finder for that node (same pattern as the backlinks zone above).
+	for row, screenLines := range starts {
+		n := m.mirrorCount(m.rows[row].it)
+		if n < 1 || len(screenLines) == 0 {
+			continue
+		}
+		last := screenLines[0]
+		for _, s := range screenLines {
+			if m.mouseFrame.lines[s].editable {
+				last = s
+			}
+		}
+		noun := "mirrors"
+		if n == 1 {
+			noun = "mirror"
+		}
+		label := fmt.Sprintf("%d %s", n, noun)
+		plain := m.mouseFrame.lines[last].plain
+		if at := strings.LastIndex(plain, label); at >= 0 {
+			lo := visibleWidth(plain[:at])
+			m.mouseFrame.zones = append(m.mouseFrame.zones, mouseZone{
+				line: last, lo: lo, hi: lo + visibleWidth(label), row: row, action: "mirrors",
+			})
+		}
+	}
 	m.addBreadcrumbZones(lines)
 }
 
@@ -233,6 +259,16 @@ func (m *Model) handleFrameMouse(msg tea.MouseMsg) tea.Cmd {
 					m.refreshRows()
 				}
 				m.openBacklinks()
+				return nil
+			}
+			if z.action == "mirrors" {
+				m.cursor, m.caret = z.row, 0
+				if cur := m.cursorItem(); cur != nil && cur.collapsed {
+					cur.collapsed = false
+					m.persistCollapsed(cur)
+					m.refreshRows()
+				}
+				m.openMirrors()
 				return nil
 			}
 			m.cursor, m.caret = z.row, 0

@@ -1202,6 +1202,15 @@ func (m *Model) typeSuffix(r row) string {
 		}
 		parts = append(parts, fmt.Sprintf("%d %s", n, noun))
 	}
+	// mirrors of this node elsewhere in the outline. Like backlinks, the count
+	// is always visible when nonzero — a mirror row counts its source's.
+	if n := m.mirrorCount(it); n > 0 {
+		noun := "mirrors"
+		if n == 1 {
+			noun = "mirror"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", n, noun))
+	}
 	suffix := ""
 	if len(parts) > 0 {
 		suffix = cDim + " · " + strings.Join(parts, " · ") + cReset
