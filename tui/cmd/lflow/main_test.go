@@ -470,7 +470,7 @@ func TestSuggestEditRejectKeepsText(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "ship the thing")
-	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "edit", "ship the thing",
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "change", "ship the thing",
 		"--name", "ship the other thing")
 
 	db := database.OpenTestDB(t, testDir)
@@ -504,7 +504,7 @@ func TestSuggestApproveEditAppliesText(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "draft heading")
-	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "edit", "draft heading",
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "change", "draft heading",
 		"--name", "final heading", "--type", "h1")
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", "--all")
 
@@ -523,7 +523,7 @@ func TestSuggestApproveSkipsDriftedTarget(t *testing.T) {
 	testDir, opts := setupTestEnv(t)
 
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "original text")
-	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "edit", "original text", "--name", "suggested text")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "change", "original text", "--name", "suggested text")
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "edit", "original text", "--name", "moved on")
 
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "approve", "--all")
@@ -561,8 +561,8 @@ func TestRemoveSettlesSuggestionsAboutTheNode(t *testing.T) {
 
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "keeper")
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "doomed")
-	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "doomed")
-	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "keeper")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "change", "--done", "doomed")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "change", "--done", "keeper")
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "remove", "doomed", "--force")
 
 	db := database.OpenTestDB(t, testDir)
@@ -595,8 +595,8 @@ func TestSuggestApproveSkipsZombieTargets(t *testing.T) {
 
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "keeper")
 	cmdhelper.RunLflowCmd(t, opts, binaryName, "node", "add", "doomed")
-	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "doomed")
-	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "complete", "keeper")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "change", "--done", "doomed")
+	cmdhelper.RunLflowCmd(t, opts, binaryName, "suggest", "change", "--done", "keeper")
 
 	db := database.OpenTestDB(t, testDir)
 	var doomed string
@@ -621,7 +621,7 @@ func TestSuggestApproveSkipsZombieTargets(t *testing.T) {
 	assert.Equal(t, status, database.SuggestPending, "a zombie should stay pending, not approve")
 
 	database.MustScan(t, "getting keeper status",
-		db.QueryRow("SELECT status FROM suggestions WHERE kind = 'complete' AND target_uuid IN (SELECT uuid FROM nodes WHERE name = 'keeper')"), &status)
+		db.QueryRow("SELECT status FROM suggestions WHERE kind = 'change' AND target_uuid IN (SELECT uuid FROM nodes WHERE name = 'keeper')"), &status)
 	assert.Equal(t, status, database.SuggestApproved, "the live suggestion should approve")
 }
 

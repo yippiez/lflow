@@ -71,12 +71,10 @@ func newShowRun(ctx runtime.Ctx, opts *showOptions) infra.RunEFunc {
 		switch s.Kind {
 		case database.SuggestAdd:
 			showAdd(db, s)
-		case database.SuggestComplete:
-			showState("open", "complete")
-		case database.SuggestUncomplete:
-			showState("complete", "open")
+		case database.SuggestRemove:
+			showRemove(db, s)
 		default:
-			showEdit(db, s)
+			showChange(db, s)
 		}
 
 		if s.Status == database.SuggestApproved && s.ResultUUID != "" {
@@ -103,16 +101,23 @@ func showAdd(db *database.DB, s database.Suggestion) {
 	fmt.Println(dim.Sprint("    " + trailer))
 }
 
-// showState prints the proposed completion-state transition.
-func showState(current, proposed string) {
-	fmt.Println(dim.Sprint("  state"))
-	fmt.Printf("  %s %s\n", red.Sprint("-"), current)
-	fmt.Printf("  %s %s\n", green.Sprint("+"), proposed)
+// showRemove prints the node a remove proposal would take away, and how much
+// goes with it — a removal is only readable next to the size of its subtree.
+func showRemove(db *database.DB, s database.Suggestion) {
+	n, err := database.GetNode(db, s.TargetUUID)
+	if err != nil || n.Deleted {
+		fmt.Println(red.Sprint("  → the target node is gone"))
+		return
+	}
+	fmt.Printf("  %s %s\n", red.Sprint("-"), display(db, n.Name))
+	if c, err := database.CountSubtree(db, s.TargetUUID); err == nil && c > 1 {
+		fmt.Println(dim.Sprintf("    and %d nodes under it", c-1))
+	}
 }
 
-// showEdit prints each proposed field as a current/proposed pair, flagging a
+// showChange prints each proposed field as a current/proposed pair, flagging a
 // target that moved underneath the suggestion.
-func showEdit(db *database.DB, s database.Suggestion) {
+func showChange(db *database.DB, s database.Suggestion) {
 	n, err := database.GetNode(db, s.TargetUUID)
 	if err != nil {
 		fmt.Println(red.Sprint("  → the target node is gone"))
@@ -132,6 +137,13 @@ func showEdit(db *database.DB, s database.Suggestion) {
 	}
 	if s.Proposes(database.FieldType) {
 		pairs = append(pairs, struct{ label, current, proposed string }{"type", n.Type, s.Type})
+	}
+	if done, ok := s.ProposesDone(); ok {
+		current, proposed := "open", "complete"
+		if !done {
+			current, proposed = "complete", "open"
+		}
+		pairs = append(pairs, struct{ label, current, proposed string }{"state", current, proposed})
 	}
 
 	for _, p := range pairs {

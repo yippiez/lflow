@@ -1,9 +1,11 @@
-// Package suggest is the edit-suggestion API: proposed changes to the outline
-// that land in a review queue instead of the tree. An author suggests a new
-// node (`suggest add`) or new text for an existing one (`suggest edit`); a
-// reviewer lists, shows, approves or rejects them. Nothing in the outline
-// changes until approval — the whole point is that a suggestion is inert until
-// somebody says yes.
+// Package suggest is the suggestion API: proposed changes to the outline that
+// land in a review queue instead of the tree. Three verbs cover everything the
+// outline can be told to do — `suggest add` proposes a node, `suggest remove`
+// proposes taking one away, `suggest change` proposes new text, note, type or
+// done state for one that is there. A reviewer lists, shows, approves or
+// rejects them, in the CLI or on the row itself in the editor. Nothing in the
+// outline changes until approval — the whole point is that a suggestion is
+// inert until somebody says yes.
 //
 // Every subcommand is one-shot and pipe-friendly like the rest of the CLI, and
 // speaks to the daemon through the ordinary wire protocol, so suggestions made
@@ -37,9 +39,8 @@ func NewCmd(ctx runtime.Ctx) *cobra.Command {
 	}
 
 	cmd.AddCommand(newAddCmd(ctx))
-	cmd.AddCommand(newEditCmd(ctx))
-	cmd.AddCommand(newStateCmd(ctx, true))
-	cmd.AddCommand(newStateCmd(ctx, false))
+	cmd.AddCommand(newRemoveCmd(ctx))
+	cmd.AddCommand(newChangeCmd(ctx))
 	cmd.AddCommand(newListCmd(ctx))
 	cmd.AddCommand(newShowCmd(ctx))
 	cmd.AddCommand(newReviewCmd(ctx, database.SuggestApproved))

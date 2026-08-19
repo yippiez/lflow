@@ -26,6 +26,11 @@ type item struct {
 	priority        string // /priority: incoming nodes land on top ("up") or at the bottom ("down"/"")
 	addedOn         int64  // creation time (UnixNano); shown by the log node's time chip
 	isNew           bool
+	// ghost holds the uuid of the add suggestion this item stands for. A ghost
+	// item is a PROPOSED node spliced into the rows for review (see suggest.go):
+	// it is never in the tree, so it never saves, syncs, copies or exports, and
+	// every key that would edit the outline refuses it.
+	ghost string
 }
 
 // lockMode joins the independent in-memory lock flags for persistence in the

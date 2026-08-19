@@ -100,6 +100,42 @@ func ShineText(s string) string {
 	return b.String()
 }
 
+// shineOver slides the same highlight across text that ALREADY carries color —
+// a rendered row, chips, styles, block cursor and all. Escape sequences pass
+// through untouched and every visible rune takes the shine's foreground on top,
+// so the row keeps its caret and its layout while the light moves over it.
+// (ShineText is the plain-text form; this one is for rows already painted.)
+func shineOver(s string, base, peak [3]int, speed float64) string {
+	runes := []rune(s)
+	n := len([]rune(stripSGR(s)))
+	var b strings.Builder
+	j := 0
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '\x1b' {
+			start := i
+			for i < len(runes) && !isSGRFinal(runes[i]) {
+				i++
+			}
+			if i < len(runes) {
+				i++
+			}
+			b.WriteString(string(runes[start:i]))
+			i-- // the loop's own i++ steps past the final byte
+			continue
+		}
+		b.WriteString(shineColorAt(n, j, animFrame, speed, base, peak))
+		b.WriteRune(runes[i])
+		j++
+	}
+	b.WriteString(cReset)
+	return b.String()
+}
+
+// isSGRFinal reports the byte that closes an escape sequence.
+func isSGRFinal(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
 // ── run shimmer ─────────────────────────────────────────────────────────────
 
 // A command in flight animates what is already on screen instead of adding
@@ -172,7 +208,7 @@ func shimmerLabel(s string) string {
 // shimmer and elapsed clock), or a picker still filling from disk (its spinner).
 func (m *Model) animActive() bool {
 	return m.hasMagicKeyword() || m.anyImagePasting() || m.anyNodeAnimating() ||
-		m.queryLoad != nil || m.anyRunning() || m.anyPickerFilling()
+		m.queryLoad != nil || m.anyRunning() || m.anyPickerFilling() || m.anyRemoveProposed()
 }
 
 // anyPickerFilling reports whether a picker is still reading its rows off the

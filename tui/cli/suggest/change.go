@@ -14,32 +14,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type editOptions struct {
+type changeOptions struct {
 	name    string
 	note    string
 	typ     string
+	done    bool
+	undone  bool
 	message string
 	author  string
 	raw     bool
 	strict  bool
 }
 
-// newEditCmd returns `lflow suggest edit`: propose new text, note or type for
-// an existing node. The node's current text is snapshotted so a reviewer can
-// see whether it drifted before approval.
-func newEditCmd(ctx runtime.Ctx) *cobra.Command {
-	opts := &editOptions{}
+// newChangeCmd returns `lflow suggest change`: propose new text, note, type or
+// done state for an existing node. The node's current text is snapshotted so a
+// reviewer can see whether it drifted before approval.
+func newChangeCmd(ctx runtime.Ctx) *cobra.Command {
+	opts := &changeOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "edit <node>",
-		Short: "Propose new text, note or type for a node",
-		RunE:  newEditRun(ctx, opts),
+		Use:   "change <node>",
+		Short: "Propose new text, note, type or done state for a node",
+		RunE:  newChangeRun(ctx, opts),
 	}
 
 	f := cmd.Flags()
 	f.StringVar(&opts.name, "name", "", "proposed text")
 	f.StringVar(&opts.note, "note", "", "proposed note")
 	f.StringVar(&opts.typ, "type", "", "proposed node type: "+database.TypeList())
+	f.BoolVar(&opts.done, "done", false, "propose marking the node complete")
+	f.BoolVar(&opts.undone, "undone", false, "propose reopening a completed node")
 	f.StringVar(&opts.message, "message", "", "why the change is proposed")
 	f.StringVar(&opts.author, "author", "", "who is proposing, defaults to $LFLOW_AUTHOR or the OS user")
 	f.BoolVar(&opts.raw, "raw", false, "with --name, store text verbatim instead of turning #tags, dates or [label](url) links into chips on approval")
@@ -48,14 +52,18 @@ func newEditCmd(ctx runtime.Ctx) *cobra.Command {
 	return cmd
 }
 
-func newEditRun(ctx runtime.Ctx, opts *editOptions) infra.RunEFunc {
+func newChangeRun(ctx runtime.Ctx, opts *changeOptions) infra.RunEFunc {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("missing node reference")
 		}
 		flags := cmd.Flags()
-		if !flags.Changed("name") && !flags.Changed("note") && !flags.Changed("type") {
-			return errors.New("nothing to suggest: pass --name, --note or --type")
+		if opts.done && opts.undone {
+			return errors.New("--done and --undone propose opposite states")
+		}
+		if !flags.Changed("name") && !flags.Changed("note") && !flags.Changed("type") &&
+			!opts.done && !opts.undone {
+			return errors.New("nothing to suggest: pass --name, --note, --type, --done or --undone")
 		}
 
 		ref := strings.Join(args, " ")
@@ -87,9 +95,15 @@ func newEditRun(ctx runtime.Ctx, opts *editOptions) infra.RunEFunc {
 			}
 			fields = append(fields, database.FieldType)
 		}
+		if opts.done {
+			fields = append(fields, database.FieldDone)
+		}
+		if opts.undone {
+			fields = append(fields, database.FieldUndone)
+		}
 
 		s := database.Suggestion{
-			Kind:       database.SuggestEdit,
+			Kind:       database.SuggestChange,
 			TargetUUID: r.Node.UUID,
 			Name:       opts.name,
 			Note:       opts.note,
@@ -105,7 +119,7 @@ func newEditRun(ctx runtime.Ctx, opts *editOptions) infra.RunEFunc {
 			return errors.Wrap(err, "storing suggestion")
 		}
 
-		log.Successf("suggested an edit to %q\n", display(db, r.Node.Name))
+		log.Successf("suggested a change to %q\n", display(db, r.Node.Name))
 		fmt.Printf("    %s  %s\n", dim.Sprint(database.ShortID(s.UUID)), dim.Sprint(strings.Join(s.FieldList(), ", ")))
 		if r.Total > 1 {
 			fmt.Println(dim.Sprintf("    best of %d · --strict lists instead", r.Total))

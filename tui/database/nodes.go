@@ -98,7 +98,7 @@ const (
 	TypeThinking = "thinking"
 	// TypeMol is a molecule composed AS an outline: one atom per node, children
 	// are the atoms bonded to it; alt+e draws the structure. See editor/molecule.go.
-	TypeMol  = "molecule"
+	TypeMol    = "molecule"
 	TypeLine   = "line"
 	TypeResult = "result"
 	// TypeAgent was a whole-row handle on an agentic coding session, beside the
@@ -543,6 +543,13 @@ func ShiftRanksAfter(db *DB, parentUUID string, afterRank, delta int) error {
 // pending suggestion about them: a proposal against a deleted node can never be
 // approved, so leaving it pending would only park a ghost in the review queue.
 func MarkSubtreeDeleted(db *DB, rootUUID string) (int, error) {
+	return markSubtreeDeleted(db, rootUUID, "")
+}
+
+// markSubtreeDeleted is MarkSubtreeDeleted with one suggestion held back from
+// the settling sweep — the approved remove proposal that ordered the delete,
+// which ApplySuggestion is about to mark approved itself.
+func markSubtreeDeleted(db *DB, rootUUID, exceptSuggestion string) (int, error) {
 	subtree, err := GetSubtree(db, rootUUID)
 	if err != nil {
 		return 0, err
@@ -554,7 +561,7 @@ func MarkSubtreeDeleted(db *DB, rootUUID string) (int, error) {
 		}
 		uuids = append(uuids, n.UUID)
 	}
-	if _, err := SettleSuggestionsForNodes(db, uuids); err != nil {
+	if _, err := settleSuggestionsFor(db, uuids, exceptSuggestion); err != nil {
 		return 0, err
 	}
 	return len(subtree), nil

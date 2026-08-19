@@ -36,7 +36,7 @@ func TestSuggestionIsInertUntilApproved(t *testing.T) {
 
 	add := Suggestion{Kind: SuggestAdd, TargetUUID: RootUUID, Name: "proposed child", Type: TypeBullets}
 	mustSuggest(t, db, &add)
-	edit := Suggestion{Kind: SuggestEdit, TargetUUID: target.UUID, Name: "rewritten",
+	edit := Suggestion{Kind: SuggestChange, TargetUUID: target.UUID, Name: "rewritten",
 		Fields: FieldName, BaseName: target.Name}
 	mustSuggest(t, db, &edit)
 
@@ -63,7 +63,7 @@ func TestCompletionSuggestionsAreInertUntilApproved(t *testing.T) {
 	}
 	target := seedNode(t, db, "n1", RootUUID, "task")
 
-	complete := Suggestion{Kind: SuggestComplete, TargetUUID: target.UUID}
+	complete := Suggestion{Kind: SuggestChange, Fields: FieldDone, TargetUUID: target.UUID}
 	mustSuggest(t, db, &complete)
 	if n, _ := GetNode(db, target.UUID); n.CompletedAt != 0 {
 		t.Fatal("pending completion changed the node")
@@ -75,7 +75,7 @@ func TestCompletionSuggestionsAreInertUntilApproved(t *testing.T) {
 		t.Fatal("approved completion left the node open")
 	}
 
-	uncomplete := Suggestion{Kind: SuggestUncomplete, TargetUUID: target.UUID}
+	uncomplete := Suggestion{Kind: SuggestChange, Fields: FieldUndone, TargetUUID: target.UUID}
 	mustSuggest(t, db, &uncomplete)
 	if _, err := ApplySuggestion(db, uncomplete); err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func TestApplyEditSuggestionWritesOnlyProposedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := Suggestion{Kind: SuggestEdit, TargetUUID: target.UUID, Name: "after",
+	s := Suggestion{Kind: SuggestChange, TargetUUID: target.UUID, Name: "after",
 		Fields: NormalizeFields([]string{FieldName}), BaseName: "before"}
 	mustSuggest(t, db, &s)
 
@@ -171,7 +171,7 @@ func TestRejectLeavesTheTreeAlone(t *testing.T) {
 	}
 	target := seedNode(t, db, "n1", RootUUID, "before")
 
-	s := Suggestion{Kind: SuggestEdit, TargetUUID: target.UUID, Name: "after",
+	s := Suggestion{Kind: SuggestChange, TargetUUID: target.UUID, Name: "after",
 		Fields: FieldName, BaseName: "before"}
 	mustSuggest(t, db, &s)
 
@@ -212,7 +212,7 @@ func TestApplyEditRefusesLockedOrDeletedNodes(t *testing.T) {
 	}
 
 	for _, uuid := range []string{locked.UUID, gone.UUID} {
-		s := Suggestion{Kind: SuggestEdit, TargetUUID: uuid, Name: "changed", Fields: FieldName}
+		s := Suggestion{Kind: SuggestChange, TargetUUID: uuid, Name: "changed", Fields: FieldName}
 		mustSuggest(t, db, &s)
 		if _, err := ApplySuggestion(db, s); err == nil {
 			t.Fatalf("approving an edit to %s was allowed", uuid)
@@ -245,8 +245,8 @@ func TestSweepStaleSuggestions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mustSuggest(t, db, &Suggestion{UUID: "s-live", Kind: SuggestComplete, TargetUUID: live.UUID, CreatedOn: 1})
-	mustSuggest(t, db, &Suggestion{UUID: "s-gone", Kind: SuggestEdit, TargetUUID: gone.UUID,
+	mustSuggest(t, db, &Suggestion{UUID: "s-live", Kind: SuggestChange, Fields: FieldDone, TargetUUID: live.UUID, CreatedOn: 1})
+	mustSuggest(t, db, &Suggestion{UUID: "s-gone", Kind: SuggestChange, TargetUUID: gone.UUID,
 		Name: "changed", Fields: FieldName, CreatedOn: 2})
 	mustSuggest(t, db, &Suggestion{UUID: "s-missing", Kind: SuggestAdd, TargetUUID: missing.UUID,
 		Name: "child", CreatedOn: 3})
@@ -298,10 +298,10 @@ func TestDeletingANodeSettlesItsSuggestions(t *testing.T) {
 	child := seedNode(t, db, "child", parent.UUID, "doomed child")
 	bystander := seedNode(t, db, "bystander", RootUUID, "untouched")
 
-	mustSuggest(t, db, &Suggestion{UUID: "s-parent", Kind: SuggestEdit, TargetUUID: parent.UUID,
+	mustSuggest(t, db, &Suggestion{UUID: "s-parent", Kind: SuggestChange, TargetUUID: parent.UUID,
 		Name: "renamed", Fields: FieldName, CreatedOn: 1})
-	mustSuggest(t, db, &Suggestion{UUID: "s-child", Kind: SuggestComplete, TargetUUID: child.UUID, CreatedOn: 2})
-	mustSuggest(t, db, &Suggestion{UUID: "s-bystander", Kind: SuggestComplete, TargetUUID: bystander.UUID, CreatedOn: 3})
+	mustSuggest(t, db, &Suggestion{UUID: "s-child", Kind: SuggestChange, Fields: FieldDone, TargetUUID: child.UUID, CreatedOn: 2})
+	mustSuggest(t, db, &Suggestion{UUID: "s-bystander", Kind: SuggestChange, Fields: FieldDone, TargetUUID: bystander.UUID, CreatedOn: 3})
 
 	if _, err := MarkSubtreeDeleted(db, parent.UUID); err != nil {
 		t.Fatal(err)
@@ -336,7 +336,7 @@ func TestSettleSuggestionsForNodesIsNarrow(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := seedNode(t, db, "n1", RootUUID, "node")
-	mustSuggest(t, db, &Suggestion{UUID: "s-done", Kind: SuggestComplete, TargetUUID: target.UUID, CreatedOn: 1})
+	mustSuggest(t, db, &Suggestion{UUID: "s-done", Kind: SuggestChange, Fields: FieldDone, TargetUUID: target.UUID, CreatedOn: 1})
 
 	n, err := SettleSuggestionsForNodes(db, nil)
 	if err != nil {
@@ -367,15 +367,15 @@ func TestTargetGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	goneEdit := Suggestion{Kind: SuggestEdit, TargetUUID: gone.UUID}
+	goneEdit := Suggestion{Kind: SuggestChange, TargetUUID: gone.UUID}
 	if got, err := TargetGone(db, goneEdit); err != nil || !got {
 		t.Fatalf("deleted target gone = %v, %v", got, err)
 	}
-	goneMissing := Suggestion{Kind: SuggestEdit, TargetUUID: "never-existed"}
+	goneMissing := Suggestion{Kind: SuggestChange, TargetUUID: "never-existed"}
 	if got, err := TargetGone(db, goneMissing); err != nil || !got {
 		t.Fatalf("missing target gone = %v, %v", got, err)
 	}
-	liveEdit := Suggestion{Kind: SuggestEdit, TargetUUID: live.UUID}
+	liveEdit := Suggestion{Kind: SuggestChange, TargetUUID: live.UUID}
 	if got, err := TargetGone(db, liveEdit); err != nil || got {
 		t.Fatalf("live target gone = %v, %v", got, err)
 	}
@@ -392,7 +392,7 @@ func TestTargetDriftedTracksTheNode(t *testing.T) {
 	}
 	target := seedNode(t, db, "n1", RootUUID, "before")
 
-	s := Suggestion{Kind: SuggestEdit, TargetUUID: target.UUID, Name: "after",
+	s := Suggestion{Kind: SuggestChange, TargetUUID: target.UUID, Name: "after",
 		Fields: FieldName, BaseName: "before"}
 	mustSuggest(t, db, &s)
 
@@ -423,7 +423,7 @@ func TestListAndResolveSuggestions(t *testing.T) {
 	}
 	target := seedNode(t, db, "n1", RootUUID, "node")
 
-	pending := Suggestion{UUID: "aaaaaa11-1111", Kind: SuggestEdit, TargetUUID: target.UUID,
+	pending := Suggestion{UUID: "aaaaaa11-1111", Kind: SuggestChange, TargetUUID: target.UUID,
 		Name: "one", Fields: FieldName, CreatedOn: 1}
 	mustSuggest(t, db, &pending)
 	other := Suggestion{UUID: "bbbbbb22-2222", Kind: SuggestAdd, TargetUUID: RootUUID,
@@ -512,5 +512,119 @@ func TestNormalizeFieldsIsCanonical(t *testing.T) {
 	s := Suggestion{Fields: got}
 	if !s.Proposes(FieldName) || !s.Proposes(FieldType) || s.Proposes(FieldNote) {
 		t.Fatalf("Proposes disagrees with %q", got)
+	}
+}
+
+// TestApplyRemoveTakesTheSubtree: approving a removal tombstones the node and
+// everything under it — and the proposal that ordered it settles as APPROVED,
+// not swept away as "a proposal about a deleted node" by its own delete.
+func TestApplyRemoveTakesTheSubtree(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	parent := seedNode(t, db, "p", RootUUID, "going away")
+	seedNode(t, db, "c", parent.UUID, "under it")
+	bystander := seedNode(t, db, "b", RootUUID, "staying")
+
+	s := Suggestion{UUID: "s1", Kind: SuggestRemove, TargetUUID: parent.UUID, BaseName: parent.Name}
+	mustSuggest(t, db, &s)
+	if n, _ := GetNode(db, parent.UUID); n.Deleted {
+		t.Fatal("a pending removal deleted the node")
+	}
+
+	applied, err := ApplySuggestion(db, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Status != SuggestApproved {
+		t.Fatalf("the approved removal settled as %q", applied.Status)
+	}
+	stored, err := GetSuggestion(db, s.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != SuggestApproved {
+		t.Fatalf("stored status = %q, want approved", stored.Status)
+	}
+	for _, uuid := range []string{parent.UUID, "c"} {
+		n, err := GetNode(db, uuid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !n.Deleted {
+			t.Fatalf("%s survived the removal", uuid)
+		}
+	}
+	if n, _ := GetNode(db, bystander.UUID); n.Deleted {
+		t.Fatal("the removal reached a node outside the subtree")
+	}
+}
+
+// TestApplyRemoveRefusesLockedNodes: a locked node cannot be deleted through a
+// proposal any more than it can by hand.
+func TestApplyRemoveRefusesLockedNodes(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	target := seedNode(t, db, "n1", RootUUID, "locked")
+	if _, err := db.Exec("UPDATE nodes SET readonly = ? WHERE uuid = ?", LockReadWrite, target.UUID); err != nil {
+		t.Fatal(err)
+	}
+	s := Suggestion{Kind: SuggestRemove, TargetUUID: target.UUID}
+	mustSuggest(t, db, &s)
+
+	if _, err := ApplySuggestion(db, s); err == nil {
+		t.Fatal("approving a removal on a locked node succeeded")
+	}
+	if n, _ := GetNode(db, target.UUID); n.Deleted {
+		t.Fatal("the refused removal still deleted the node")
+	}
+}
+
+// TestLegacyKindsReadAsChanges: rows written before the three-verb API — edit,
+// complete, uncomplete — come back as changes, so nothing downstream has to know
+// the old spelling. The stored rows are left as they are.
+func TestLegacyKindsReadAsChanges(t *testing.T) {
+	db := InitTestMemoryDB(t)
+	if err := EnsureRoot(db); err != nil {
+		t.Fatal(err)
+	}
+	target := seedNode(t, db, "n1", RootUUID, "task")
+	for _, legacy := range []struct {
+		uuid, kind, field string
+	}{
+		{"s-edit", "edit", FieldName},
+		{"s-done", "complete", FieldDone},
+		{"s-open", "uncomplete", FieldUndone},
+	} {
+		fields := ""
+		if legacy.kind == "edit" {
+			fields = FieldName
+		}
+		if _, err := db.Exec(`INSERT INTO suggestions (uuid, kind, target_uuid, name, fields, status)
+			VALUES (?, ?, ?, ?, ?, ?)`, legacy.uuid, legacy.kind, target.UUID, "renamed", fields, SuggestPending); err != nil {
+			t.Fatal(err)
+		}
+		s, err := GetSuggestion(db, legacy.uuid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Kind != SuggestChange {
+			t.Fatalf("%s read as kind %q, want change", legacy.uuid, s.Kind)
+		}
+		if !s.Proposes(legacy.field) {
+			t.Fatalf("%s lost its %s field: %q", legacy.uuid, legacy.field, s.Fields)
+		}
+	}
+
+	// …and a change filter reaches them, whatever they are spelled like on disk
+	list, err := ListSuggestions(db, SuggestionFilter{Status: SuggestPending, Kind: SuggestChange})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("change filter matched %d of 3 legacy rows", len(list))
 	}
 }

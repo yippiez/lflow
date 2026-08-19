@@ -340,6 +340,12 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 		noteCaret = m.caret
 	}
 
+	// a ghost row is a proposed node, not a node: it renders as the row it would
+	// be and nothing else — no note editing, no run band, no type face
+	if it.ghost != "" {
+		return m.ghostRowLines(r, o)
+	}
+
 	// an empty node is a blank spacer row: no glyph, no rule, no text — the
 	// cursor cue is a single red · (see emptyLine). It still hangs a note.
 	if it.typ == database.TypeEmpty {
@@ -452,7 +458,13 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 		}
 	}
 
-	suffix := m.typeSuffix(r) + m.suggestInline(it)
+	// a proposal about this node is shown AS the change: its text diffed in
+	// place, or the whole row shining on its way out (see suggest.go)
+	suffix := m.typeSuffix(r)
+	if o.interactive {
+		body = m.suggestBody(it, body, caret)
+		suffix += m.suggestSuffix(it)
+	}
 	// flash.nvim: the whole outline goes gray; the typed match is black-on-white
 	// and the remaining jump letters overlay black-on-red in place.
 	flash := o.interactive && m.mode == modeFlash
@@ -478,12 +490,6 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 		if b := typeOf(it.typ).bands; b != nil {
 			bands = append(bands, b(m, r, o.below, maxLine)...)
 		}
-	}
-	if o.interactive {
-		// a proposal pending on this node hangs beneath it, unapplied, until
-		// alt+v review settles it — a live-editing surface, not part of the quit
-		// dump or a read-only region
-		bands = append(bands, m.suggestBandLines(r, o.below, maxLine)...)
 	}
 	// flash grays the note / run-output bands too, so nothing competes with the chips
 	if flash {

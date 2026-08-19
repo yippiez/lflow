@@ -10,15 +10,27 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Kind values for a suggestion: what the author proposes.
+// Kind values for a suggestion: what the author proposes. There are three, and
+// between them they say everything the outline can be told to do — add a node,
+// take one away, change one that is there.
 const (
 	// SuggestAdd proposes a new node under TargetUUID (the parent).
 	SuggestAdd = "add"
-	// SuggestEdit proposes new field values for the node at TargetUUID.
-	SuggestEdit = "edit"
-	// SuggestComplete and SuggestUncomplete propose changing the node's done state.
-	SuggestComplete   = "complete"
-	SuggestUncomplete = "uncomplete"
+	// SuggestRemove proposes deleting the node at TargetUUID, subtree included.
+	SuggestRemove = "remove"
+	// SuggestChange proposes new field values for the node at TargetUUID.
+	SuggestChange = "change"
+)
+
+// Kinds written by older versions. They are rewritten into the three above as
+// each row is read (see normalize), so nothing downstream — the editor, the CLI,
+// the JSON output — ever sees more than three kinds. The stored rows are left
+// exactly as they were: lflow has no migrations, and a suggestion already
+// settled is history, not state.
+const (
+	legacyEdit       = "edit"
+	legacyComplete   = "complete"
+	legacyUncomplete = "uncomplete"
 )
 
 // Status values for a suggestion. A suggestion starts pending and settles
@@ -29,13 +41,20 @@ const (
 	SuggestRejected = "rejected"
 )
 
-// Fields an edit suggestion can propose. Which ones a suggestion actually
+// Fields a change suggestion can propose. Which ones a suggestion actually
 // carries lives in Fields, so proposing an empty note (clearing it) reads
 // differently from not proposing a note at all.
+//
+// FieldDone and FieldUndone are the two states of one field: the token IS the
+// proposed value, so a completion proposal needs no column to hold a boolean —
+// which is what lets "mark it done" be a change like any other instead of a
+// kind of its own.
 const (
-	FieldName = "name"
-	FieldNote = "note"
-	FieldType = "type"
+	FieldName   = "name"
+	FieldNote   = "note"
+	FieldType   = "type"
+	FieldDone   = "done"
+	FieldUndone = "undone"
 )
 
 // Position values for an add suggestion: where the proposed node lands among
@@ -88,7 +107,21 @@ func scanSuggestion(row interface{ Scan(...interface{}) error }) (Suggestion, er
 	err := row.Scan(&s.UUID, &s.Kind, &s.TargetUUID, &s.Name, &s.Note, &s.Type, &s.Fields,
 		&s.Position, &s.Raw, &s.BaseName, &s.BaseNote, &s.Author, &s.Message, &s.Status,
 		&s.CreatedOn, &s.ResolvedOn, &s.ResultUUID)
+	s.normalize()
 	return s, err
+}
+
+// normalize rewrites a legacy kind into one of the three: an edit is a change,
+// and the two completion kinds are a change of the done field.
+func (s *Suggestion) normalize() {
+	switch s.Kind {
+	case legacyEdit:
+		s.Kind = SuggestChange
+	case legacyComplete:
+		s.Kind, s.Fields = SuggestChange, FieldDone
+	case legacyUncomplete:
+		s.Kind, s.Fields = SuggestChange, FieldUndone
+	}
 }
 
 // ErrNoSuggestion is returned when a reference matches no suggestion.
@@ -123,6 +156,17 @@ func (s Suggestion) Proposes(field string) bool {
 		}
 	}
 	return false
+}
+
+// ProposesDone reports whether the change proposes a done state, and which one.
+func (s Suggestion) ProposesDone() (done, ok bool) {
+	if s.Proposes(FieldDone) {
+		return true, true
+	}
+	if s.Proposes(FieldUndone) {
+		return false, true
+	}
+	return false, false
 }
 
 // Pending reports whether the suggestion is still awaiting review.
@@ -184,7 +228,12 @@ func ListSuggestions(db *DB, f SuggestionFilter) ([]Suggestion, error) {
 		conds = append(conds, "target_uuid = ?")
 		args = append(args, f.TargetUUID)
 	}
-	if f.Kind != "" {
+	if f.Kind == SuggestChange {
+		// the legacy kinds ARE changes (see normalize), so filtering for changes
+		// has to reach the rows that still spell it the old way
+		conds = append(conds, "kind IN (?, ?, ?, ?)")
+		args = append(args, SuggestChange, legacyEdit, legacyComplete, legacyUncomplete)
+	} else if f.Kind != "" {
 		conds = append(conds, "kind = ?")
 		args = append(args, f.Kind)
 	}
@@ -263,7 +312,7 @@ func ResolveSuggestion(db *DB, ref string) (Suggestion, error) {
 // TargetDrifted reports whether the node an edit suggestion targets changed
 // since the suggestion was made — the reviewer is looking at a stale proposal.
 func TargetDrifted(db *DB, s Suggestion) (bool, error) {
-	if s.Kind != SuggestEdit {
+	if s.Kind != SuggestChange {
 		return false, nil
 	}
 	n, err := GetNode(db, s.TargetUUID)
@@ -350,9 +399,19 @@ func SettleSuggestionsStmt(uuids []string) (string, []any) {
 // already knows exactly which nodes it tombstoned — and the editor's set is not
 // a DB subtree at all, only the rows its in-memory tree tracked.
 func SettleSuggestionsForNodes(db *DB, uuids []string) (int, error) {
+	return settleSuggestionsFor(db, uuids, "")
+}
+
+// settleSuggestionsFor is SettleSuggestionsForNodes with one suggestion spared,
+// for the approval that is itself the reason the nodes are going away.
+func settleSuggestionsFor(db *DB, uuids []string, except string) (int, error) {
 	q, args := SettleSuggestionsStmt(uuids)
 	if q == "" {
 		return 0, nil
+	}
+	if except != "" {
+		q += " AND uuid != ?"
+		args = append(args, except)
 	}
 	res, err := db.Exec(q, args...)
 	if err != nil {
@@ -403,10 +462,10 @@ func ApplySuggestion(db *DB, s Suggestion) (Suggestion, error) {
 	switch s.Kind {
 	case SuggestAdd:
 		resultUUID, err = applyAdd(tx, s)
-	case SuggestEdit:
-		err = applyEdit(tx, s)
-	case SuggestComplete, SuggestUncomplete:
-		err = applyCompletion(tx, s)
+	case SuggestRemove:
+		err = applyRemove(tx, s)
+	case SuggestChange:
+		err = applyChange(tx, s)
 	default:
 		err = errors.Errorf("unknown suggestion kind %q", s.Kind)
 	}
@@ -492,29 +551,31 @@ func applyAdd(tx *DB, s Suggestion) (string, error) {
 	return uuid, nil
 }
 
-// applyCompletion writes the proposed done state onto the target node.
-func applyCompletion(tx *DB, s Suggestion) error {
+// applyRemove tombstones the proposed node and everything under it. The subtree
+// goes with it because that is what deleting a node means everywhere else in
+// lflow — a remove proposal that orphaned children would be a different, and
+// much stranger, operation than the one the reviewer said yes to.
+//
+// The sweep that settles proposals about deleted nodes would settle THIS one
+// too, mid-approval, leaving nothing for ApplySuggestion to mark approved: it is
+// held back by uuid, since it is the reason the delete is happening at all.
+func applyRemove(tx *DB, s Suggestion) error {
 	n, err := GetNode(tx, s.TargetUUID)
 	if err != nil {
 		return errors.Wrapf(err, "loading node %s", ShortID(s.TargetUUID))
 	}
 	if n.Deleted {
-		return errors.Errorf("node %q was deleted", n.Name)
+		return errors.Errorf("node %q was already deleted", n.Name)
 	}
-	if n.LockValue().Has(LockReadWrite) {
+	if n.LockValue().Has(LockReadWrite) || n.LockValue().Has(LockIndentOutdent) {
 		return errors.New("node is locked")
 	}
-	completedAt := int64(0)
-	if s.Kind == SuggestComplete {
-		completedAt = time.Now().Unix()
-	}
-	_, err = tx.Exec("UPDATE nodes SET completed_at = ?, edited_on = ? WHERE uuid = ?",
-		completedAt, time.Now().UnixNano(), s.TargetUUID)
-	return errors.Wrap(err, "updating completion state")
+	_, err = markSubtreeDeleted(tx, s.TargetUUID, s.UUID)
+	return err
 }
 
-// applyEdit writes the proposed fields onto the target node.
-func applyEdit(tx *DB, s Suggestion) error {
+// applyChange writes the proposed fields onto the target node.
+func applyChange(tx *DB, s Suggestion) error {
 	n, err := GetNode(tx, s.TargetUUID)
 	if err != nil {
 		return errors.Wrapf(err, "loading node %s", ShortID(s.TargetUUID))
@@ -550,6 +611,14 @@ func applyEdit(tx *DB, s Suggestion) error {
 		}
 		sets = append(sets, "type = ?")
 		vals = append(vals, s.Type)
+	}
+	if done, ok := s.ProposesDone(); ok {
+		completedAt := int64(0)
+		if done {
+			completedAt = time.Now().Unix()
+		}
+		sets = append(sets, "completed_at = ?")
+		vals = append(vals, completedAt)
 	}
 	if len(sets) == 1 {
 		return errors.New("suggestion proposes no fields")

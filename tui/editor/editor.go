@@ -48,7 +48,6 @@ const (
 	modeCite           // the Zotero picker: "@@" splices a citation chip, /type and /insert → Zotero mirror an entry
 	modeCharacterPick  // the alt+e character picker on a Line node: pick or write a character
 	modeCharacterColor // the character picker's recolor key: assign a pill color to a character
-	modeSuggest        // alt+v review: settle the proposals pending on the cursor node (see suggest.go)
 	modeCmdEdit        // the alt+e cmd-chip editor: edit the command in a $ chip (see cmdchip.go)
 	modeShortcuts      // /shortcuts: full-page, scrollable shortcut reference
 	modeAgentEdit      // the alt+e session page: name and color together (see agentedit.go)
@@ -358,16 +357,15 @@ type Model struct {
 	characterPickUUID  string // the Line node uuid the character picker is assigning to
 	characterColorName string // the character name the nested recolor picker is assigning
 
-	// edit suggestions (see suggest.go): the pending review queue grouped by the
-	// node each proposal is about, refreshed whenever the feed reports a
-	// suggestions write. suggestUUID/suggestSel are the review cursor while
-	// modeSuggest is up. A proposal has changed nothing until it is approved.
+	// suggestions (see suggest.go): the pending review queue grouped by the node
+	// each proposal is about, refreshed whenever the feed reports a suggestions
+	// write. A proposal has changed nothing until it is approved.
 	suggests map[string][]database.Suggestion
 	// suggestOrder is the queue's targets in filing order, deduplicated — what
 	// alt+v walks. The map above cannot answer "next", only "here".
 	suggestOrder []string
-	suggestUUID  string
-	suggestSel   int
+	// suggestByID resolves a ghost row back to the proposal it stands for.
+	suggestByID map[string]database.Suggestion
 
 	// hideCompleted is the /hide:complete toggle: when true, completed nodes (and their
 	// subtrees) drop out of the visible outline. Session-only — not persisted.
@@ -728,7 +726,7 @@ func (m *Model) restoreUndoState(st undoState) {
 }
 
 func (m *Model) refreshRows() {
-	m.rows = m.tree.visibleRows(m.viewRoot(), m.hideCompleted, m.unroll)
+	m.rows = m.injectSuggestRows(m.tree.visibleRows(m.viewRoot(), m.hideCompleted, m.unroll))
 	m.clampCursor()
 	// publish the look of every visible coding session (color + status tail) for
 	// the Model-less render path — see agentLooks
@@ -2164,7 +2162,7 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		m.mode = modeInsert
 		m.list.open(m, insertSource{}, true)
 	case "/goto:suggestion":
-		// walk to the next node carrying a proposal and open review on it
+		// walk to the next proposal and stand on the row that answers it
 		m.gotoSuggestion()
 	case "/shortcuts":
 		m.mode = modeShortcuts

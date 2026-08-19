@@ -52,7 +52,8 @@ var shortcutSections = []shortcutSection{
 		{"alt+o", "open in host app or alternate Zotero target"},
 		{"alt+k", "stop a run or clear its output"},
 		{"alt+s", "label visible row actions"},
-		{"alt+v", "review this node's suggestions, else the next"},
+		{"alt+v", "go to the next pending suggestion"},
+		{"alt+y / alt+n", "on a suggestion row: approve / reject it"},
 	}},
 	{"Chips and sessions", [][2]string{
 		{"[[", "insert a node or URL link"},

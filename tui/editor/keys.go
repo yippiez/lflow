@@ -88,8 +88,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNoteKey(k)
 	case modeConfirm:
 		return m.handleConfirmKey(k)
-	case modeSuggest:
-		return m.handleSuggestKey(k)
 	case modeSettings:
 		return m.handleSettingsKey(k)
 	case modeFlash:
@@ -186,6 +184,27 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.focused = false
+		}
+	}
+
+	// A proposal on the cursor row answers before anything else: ⌥y approves it,
+	// ⌥n turns it down. ⌥y is the yank chord everywhere else — on a row carrying
+	// a proposal the verdict wins, and the row says so out loud (· add ⌥y/⌥n).
+	// A live selection still yanks: that is a deliberate, visible aim at rows.
+	if m.mode == modeOutline && (key == "alt+y" || key == "alt+n") && !m.selOn && !m.textSelOn {
+		if _, _, ok := m.rowSuggest(m.cursorItem()); ok {
+			return m.handleSuggestKey(k)
+		}
+	}
+
+	// A ghost row is a proposed node, not a node: it has no place in the tree, so
+	// nothing that edits, moves or opens the outline can act on it. Movement,
+	// scrolling and the global chords pass; everything else stops here rather
+	// than typing into a row that does not exist yet.
+	if m.mode == modeOutline && !ghostPasses(key) {
+		if cur := m.cursorItem(); cur != nil && cur.ghost != "" {
+			m.flash = "a proposal · ⌥y adds it · ⌥n drops it"
+			return m, nil
 		}
 	}
 
@@ -748,9 +767,9 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+v":
-		// review the proposals pending on this node: y approves (applying it),
-		// n rejects. Until then the suggestion has changed nothing.
-		m.enterSuggestReview()
+		// walk to the next proposal anywhere in the outline and stand on the row
+		// that answers it; ⌥y/⌥n settle it there
+		m.gotoSuggestion()
 		return m, nil
 	case "alt+o":
 		// open the cursor node in the HOST's own app — outside the terminal
