@@ -9,10 +9,12 @@ import (
 	"strings"
 )
 
-// Yank and cut: y/x act once a horizontal or row selection exists. alt+y and
-// alt+x do the same and, with no selection, act on the cursor node's subtree.
-// ctrl+c is quit, so ctrl+x stays as the cut twin for terminals that swallow
-// alt chords.
+// Yank and cut: alt+y / alt+x act on the row selection, else the cursor
+// node's subtree. With a text run live, a YANK takes the cursor node's whole
+// branch — a run is a pointer at its node, and the clipboard should carry the
+// tree it belongs to — while a CUT stays run-precise and splices exactly the
+// selected text. ctrl+c is quit, so ctrl+x stays as the cut twin for terminals
+// that swallow alt chords.
 //
 // The text goes to the HOST clipboard the way the image node grabs one (see
 // image.go): probe the platform's tool, first hit wins. On top of that it always
@@ -77,15 +79,26 @@ func osc52(text string) bool {
 }
 
 // copyCut is alt+y / alt+x. It picks the target the same way /style does — the
-// horizontal selection first, then the row selection, then the cursor node —
-// copies it as plain text and, when cutting, removes it.
+// row selection first, then the cursor node — copies its branches as plain text
+// and, when cutting, removes them. A yank with a text run live takes the cursor
+// node's whole branch; a cut with one stays run-precise (see copyCutRun).
 func (m *Model) copyCut(cut bool) {
 	verb := "copied"
 	if cut {
 		verb = "cut"
 	}
 	if cur, lo, hi, ok := m.textSelection(); ok {
-		m.copyCutRun(cur, lo, hi, cut, verb)
+		if cut {
+			// cutting stays precise: the run is what the user selected
+			m.copyCutRun(cur, lo, hi, cut, verb)
+			return
+		}
+		// yanking takes the branch the run belongs to — a selection is a
+		// pointer at its node, and the clipboard carries the tree
+		m.clearTextSel()
+		if cur := m.cursorItem(); cur != nil {
+			m.copyCutRoots([]*item{cur}, cut, verb)
+		}
 		return
 	}
 	roots := m.selectionRoots()
@@ -97,6 +110,12 @@ func (m *Model) copyCut(cut bool) {
 	if len(roots) == 0 {
 		return
 	}
+	m.copyCutRoots(roots, cut, verb)
+}
+
+// copyCutRoots puts the roots' plain-text subtrees on the clipboard and, when
+// cutting, removes them.
+func (m *Model) copyCutRoots(roots []*item, cut bool, verb string) {
 	text := m.nodesAsText(roots)
 	_, ok := clipWrite(text)
 	if !ok {

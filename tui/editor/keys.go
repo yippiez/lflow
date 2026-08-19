@@ -194,8 +194,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// selection lifecycle: shift+arrows grow a selection — ↑/↓ by row
 	// (multisel.go), ←/→ inside the node's own text (textsel.go). Any other plain
-	// movement, typing or esc drops it, except y/x: once a selection is live those
-	// are commands (copy/cut), not text.
+	// movement or typing drops it. The clipboard commands live on alt+y / alt+x
+	// (ctrl+x is the cut twin) — see clipboard.go.
 	if m.mode == modeOutline {
 		switch key {
 		case "shift+up":
@@ -228,8 +228,8 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.textSelOn {
 			switch key {
 			// the style picker (and the menus that reach it) style the run;
-			// yank/cut take it to the clipboard (see clipboard.go)
-			case "/", "alt+P", "alt+a", "alt+c", "y", "x", "alt+y", "alt+x", "ctrl+x":
+			// alt+y yanks the whole branch, alt+x/ctrl+x cut the run (clipboard.go)
+			case "/", "alt+P", "alt+a", "alt+c", "alt+y", "alt+x", "ctrl+x":
 			case "backspace":
 				// a selection is content: backspace removes ALL of it, not the
 				// one character behind the caret
@@ -261,7 +261,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				"alt+shift+down", "ctrl+shift+down", "ctrl+alt+down",
 				"/", "alt+P", "alt+a", // the slash menu may apply /type //style //move to the selection
 				"alt+t", "alt+c", // the type/style pickers retype/re-style the whole selection
-				"y", "x", "alt+y", "alt+x", "ctrl+x": // yank/cut take the whole selection
+				"alt+y", "alt+x", "ctrl+x": // yank/cut take the whole selection
 			case "esc":
 				m.clearSel()
 				return m, nil
@@ -269,13 +269,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.clearSel()
 			}
 		}
-	}
-
-	// Vim-shaped single keys are commands only after a selection exists; with no
-	// selection they remain ordinary editable text.
-	if (m.textSelOn || m.selOn) && (key == "y" || key == "x") {
-		m.copyCut(key == "x")
-		return m, nil
 	}
 
 	switch key {
@@ -866,10 +859,10 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "alt+y", "alt+x", "ctrl+x":
-		// yank / cut, acting on the horizontal selection, else the row selection,
-		// else the cursor node's subtree (see clipboard.go). alt+y yanks and
-		// alt+x cuts; ctrl+x is kept as the cut twin for terminals that swallow
-		// the alt chord.
+		// yank / cut, acting on the row selection, else the cursor node's
+		// subtree (see clipboard.go). With a text run live, alt+y takes the
+		// whole branch while alt+x/ctrl+x splice exactly the run. ctrl+x is
+		// kept as the cut twin for terminals that swallow the alt chord.
 		m.copyCut(key != "alt+y")
 		return m, nil
 	case "alt+s":

@@ -33,8 +33,10 @@ func clipCapture(t *testing.T) func() string {
 	}
 }
 
-// TestCopyCutTextSelection: with a horizontal selection live, alt+y yanks just
-// that run and releases the selection; alt+x takes it and splices it out.
+// TestCopyCutTextSelection: with a horizontal selection live, alt+y yanks the
+// cursor node's whole branch — a run is a pointer at its node, and the
+// clipboard carries the tree — and releases the selection; alt+x takes exactly
+// the run and splices it out.
 func TestCopyCutTextSelection(t *testing.T) {
 	clip := clipCapture(t)
 	m, n := spanModel(t) // "paint some words here"
@@ -42,8 +44,8 @@ func TestCopyCutTextSelection(t *testing.T) {
 	m.caret = len("paint ")
 	m.press("ctrl+shift+right") // "some"
 	m.press("alt+y")
-	if got := clip(); got != "some" {
-		t.Fatalf("copied %q, want %q", got, "some")
+	if got := clip(); got != "paint some words here\n" {
+		t.Fatalf("yanked %q, want the whole branch %q", got, "paint some words here\n")
 	}
 	if n.name != "paint some words here" {
 		t.Fatalf("copy must not touch the text, got %q", n.name)
@@ -77,6 +79,31 @@ func TestCopyCutTextSelection(t *testing.T) {
 	m.press("ctrl+x")
 	if n.name != "  words here" { // "paint" gone; both cuts left their separators
 		t.Fatalf("ctrl+x must cut like alt+x, got %q", n.name)
+	}
+}
+
+// TestYankRunWithChildrenCopiesTheSubtree: yanking with a text run live on a
+// node that has children carries the whole subtree, not just the run.
+func TestYankRunWithChildrenCopiesTheSubtree(t *testing.T) {
+	clip := clipCapture(t)
+	root := &item{uuid: "root"}
+	a := &item{uuid: "a", name: "alpha beta", parent: root}
+	b := &item{uuid: "b", name: "beta", parent: a}
+	root.children = []*item{a}
+	a.children = []*item{b}
+	tr := &tree{root: root, byUUID: map[string]*item{"root": root, "a": a, "b": b},
+		externalNames: map[string]string{}, snapshots: map[string]snapshot{}}
+	m := &Model{tree: tr, viewStack: []*item{root}, width: 80, height: 24}
+	m.refreshRows()
+
+	m.caret = len("alpha ")
+	m.press("ctrl+shift+right") // "beta"
+	m.press("alt+y")
+	if got, want := clip(), "alpha beta\n  beta\n"; got != want {
+		t.Fatalf("yanked %q, want the branch %q", got, want)
+	}
+	if !strings.Contains(m.flash, "2 nodes copied to clipboard") {
+		t.Fatalf("flash = %q, want the node count and clipboard destination", m.flash)
 	}
 }
 
@@ -126,15 +153,34 @@ func TestCopyNodesIndentsSubtree(t *testing.T) {
 	}
 }
 
-// TestPlainYAndXActOnASelection: after shift selects rows, y/x are clipboard
-// commands rather than text inserted into the cursor node.
-func TestPlainYAndXActOnASelection(t *testing.T) {
+// TestPlainYAndXTypeInsteadOfCopying: with a selection live, plain y/x are
+// ordinary letters — the clipboard commands live on alt+y / alt+x only, so
+// typing is never hijacked into a copy or a cut.
+func TestPlainYAndXTypeInsteadOfCopying(t *testing.T) {
 	clip := clipCapture(t)
 	m := newTestModel(80, "alpha", "beta", "gamma")
 	m.press("shift+down")
 	m.press("y")
+	if got := clip(); got != "" {
+		t.Fatalf("plain y must not copy, got %q", got)
+	}
+	if names := namesOf(m.tree.root.children); !reflect.DeepEqual(names, []string{"alpha", "ybeta", "gamma"}) {
+		t.Fatalf("plain y must type into the node, not cut anything: %v", names)
+	}
+	if m.selOn {
+		t.Fatal("typing must release the row selection")
+	}
+	if got := m.rows[m.cursor].it.name; got != "ybeta" {
+		t.Fatalf("plain y typed %q into the cursor node, want %q", got, "ybeta")
+	}
+	m.rows[m.cursor].it.name = "beta" // undo the typed letter before the clipboard checks
+
+	// alt+y copies the selected rows as branches and leaves them in place
+	m.cursor = 0
+	m.press("shift+down")
+	m.press("alt+y")
 	if got := clip(); got != "alpha\nbeta\n" {
-		t.Fatalf("plain y copied %q", got)
+		t.Fatalf("alt+y copied %q, want the branches", got)
 	}
 	if !strings.Contains(m.flash, "2 nodes copied to clipboard") {
 		t.Fatalf("copy flash = %q", m.flash)
@@ -142,18 +188,16 @@ func TestPlainYAndXActOnASelection(t *testing.T) {
 	if m.selOn {
 		t.Fatal("copy must release the row selection")
 	}
-	if strings.Contains(m.flash, "terminal") || strings.Contains(m.flash, "clip.exe") {
-		t.Fatalf("copy flash exposed the clipboard transport: %q", m.flash)
-	}
 	if names := namesOf(m.tree.root.children); !reflect.DeepEqual(names, []string{"alpha", "beta", "gamma"}) {
 		t.Fatalf("copy changed nodes: %v", names)
 	}
 
+	// alt+x cuts the selection; a plain x would just type
 	m.cursor = 0
 	m.press("shift+down")
-	m.press("x")
+	m.press("alt+x")
 	if names := namesOf(m.tree.root.children); !reflect.DeepEqual(names, []string{"gamma"}) {
-		t.Fatalf("plain x left nodes: %v", names)
+		t.Fatalf("alt+x left nodes: %v", names)
 	}
 	if !strings.Contains(m.flash, "2 nodes cut to clipboard") {
 		t.Fatalf("cut flash = %q", m.flash)

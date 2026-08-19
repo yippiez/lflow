@@ -118,7 +118,7 @@ func TestUndoRestoresDeletedChipRecord(t *testing.T) {
 
 	m.caret = 0
 	m.press("shift+right") // chip anchors are atomic: selects the whole chip
-	m.press("x")
+	m.press("alt+x")
 	if got := displayAnchors(n.name, m.chips); got != "" {
 		t.Fatalf("cut left %q", got)
 	}
