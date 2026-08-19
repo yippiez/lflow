@@ -38,6 +38,10 @@ func styleSetColor(s, color string) string {
 	return style.SetColor(s, color)
 }
 
+// styleNoWrap reports whether the node's row truncates instead of wrapping.
+// The default is to wrap, so an unset style means a wrapping row.
+func styleNoWrap(s string) bool { return style.Has(s, "nowrap") }
+
 // styleAttrs returns the SGR attribute codes (bold/italic/underline) implied by
 // the style, to be appended to the per-row attribute string in render.
 func styleAttrs(s string) string {

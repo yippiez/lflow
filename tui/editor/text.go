@@ -173,6 +173,51 @@ func clip(s string, width int) string {
 	return b.String()
 }
 
+// windowLine returns the display columns [from, from+width) of a styled line,
+// with a dim … marking each edge it cut. It is the horizontal viewport of a
+// no-wrap row (see layoutRow): the rail and glyph are not part of s, so they
+// stay put while the body slides under the caret. The SGR state and any OSC 8
+// link open where the window starts are reopened at its head, so a color span
+// or a link chip the window opens inside still renders as itself.
+func windowLine(s string, from, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if from <= 0 {
+		return clip(s, width)
+	}
+	var state []string // SGR sequences active since the last reset
+	link := ""         // OSC 8 target open at the walk position
+	col := 0
+	i := 0
+	for i < len(s) && col < from {
+		if s[i] == '\x1b' {
+			e := ansiEscapeEnd(s, i)
+			seq := s[i:e]
+			switch {
+			case strings.HasPrefix(seq, oscLinkPrefix):
+				link = strings.TrimSuffix(strings.TrimPrefix(seq, oscLinkPrefix), oscST)
+			case seq == cReset:
+				state = state[:0]
+			default:
+				state = append(state, seq)
+			}
+			i = e
+			continue
+		}
+		r, n := utf8.DecodeRuneInString(s[i:])
+		col += runewidth.RuneWidth(r)
+		i += n
+	}
+	head := cDim + "…" + cReset + strings.Join(state, "")
+	rest := s[i:]
+	if link != "" {
+		head += oscLink(link)
+		rest += oscLink("")
+	}
+	return head + clip(rest, width-1)
+}
+
 // wrapSGR wraps a styled line to at most width visible columns per line,
 // breaking at spaces where possible and carrying the active SGR state onto each
 // continuation line so a color span survives the break. Used by the status bar,

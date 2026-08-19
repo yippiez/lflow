@@ -482,12 +482,16 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 		body = flashPaintBody(body, name, o.flashTargets, m.flashInput, m.chips)
 		suffix = cDim + stripSGR(suffix) + cReset
 	}
-	line := " " + cDim + connector(r) + glyphColor + glyph + cReset + " " + body + suffix
+	head := " " + cDim + connector(r) + glyphColor + glyph + cReset + " "
 	prefix := continuationPrefix(r, o.below)
 	if it.typ == database.TypeQuote {
 		prefix = quoteContinuationPrefix(r, o.below)
 	}
-	group = wrapLine(line, maxLine, prefix)
+	caretCol := -1
+	if caret >= 0 {
+		caretCol = bodyCaretCol(name, caret, m.chips)
+	}
+	group = m.layoutRow(shown, head, body+suffix, prefix, maxLine, caretCol)
 
 	bands = m.noteBandLines(tr, r, maxLine, o.below, noteCaret)
 	// runnable nodes (bash/query) hang their ephemeral output beneath them. the
@@ -507,6 +511,85 @@ func (m *Model) renderRow(tr *tree, r row, o rowOpts) (group []string, bands []s
 		}
 	}
 	return group, bands
+}
+
+// layoutRow lays a row's rendered line into the frame's lines. Wrapping is the
+// default: the line breaks under the tree rail and the continuations carry the
+// hanging prefix. A node set to truncate (/wrap:toggle, see styleNoWrap) is one
+// line whatever its length — head (the rail and the glyph) holds its columns
+// while the body slides under the caret, so a long node stays a single row in
+// the outline and is still editable end to end. caretCol is the caret's display
+// column in the body, or -1 when the caret is elsewhere — only the row the
+// caret is on scrolls; every other one shows its head.
+func (m *Model) layoutRow(shown *item, head, body, prefix string, maxLine, caretCol int) []string {
+	if !styleNoWrap(shown.style) {
+		return wrapLine(head+body, maxLine, prefix)
+	}
+	avail := maxLine - visibleWidth(head)
+	if avail < 3 {
+		// no room to window anything: clip the whole line and be done
+		return []string{clip(head+body, maxLine)}
+	}
+	from := 0
+	if caretCol >= 0 {
+		from = m.hscrollFor(caretCol, avail)
+	}
+	return []string{head + windowLine(body, from, avail)}
+}
+
+// hscrollFor returns the first body column a no-wrap cursor row shows, moving
+// its window only when the caret leaves it — typing left inside the visible
+// span must not drag the text along. Both cut edges spend a column on their …,
+// so the caret is kept two columns clear of the right edge. The window belongs
+// to one row: standing on another starts it at the left edge again.
+func (m *Model) hscrollFor(caretCol, avail int) int {
+	if m.hscrollRow != m.cursor {
+		m.hscrollRow, m.hscrollCol = m.cursor, 0
+	}
+	if caretCol < m.hscrollCol {
+		m.hscrollCol = caretCol
+	}
+	if right := m.hscrollCol + avail - 2; caretCol > right {
+		m.hscrollCol = caretCol - avail + 2
+	}
+	if caretCol <= avail-2 {
+		m.hscrollCol = 0 // the head of the line reaches the caret — show it
+	}
+	if m.hscrollCol < 0 {
+		m.hscrollCol = 0
+	}
+	return m.hscrollCol
+}
+
+// bodyCaretCol is the caret's display column within the row body: a chip is
+// measured as the label it renders as, not as the single anchor rune it is
+// stored as, so the window lands where the caret is actually drawn.
+func bodyCaretCol(name string, caret int, chips map[string]database.Chip) int {
+	runes := []rune(name)
+	if caret <= 0 {
+		return 0
+	}
+	if caret > len(runes) {
+		caret = len(runes)
+	}
+	return visibleWidth(expandAnchors(string(runes[:caret]), chips))
+}
+
+// runeAtBodyCol is bodyCaretCol's inverse: the first rune of the name still
+// visible when the body is scrolled to col. A click on a scrolled no-wrap row
+// counts from there (see visualRowsFor).
+func runeAtBodyCol(name string, col int, chips map[string]database.Chip) int {
+	if col <= 0 {
+		return 0
+	}
+	w := 0
+	for i, r := range []rune(name) {
+		if w >= col {
+			return i
+		}
+		w += visibleWidth(expandAnchors(string(r), chips))
+	}
+	return len([]rune(name))
 }
 
 // styleOutLine renders one captured output line. If the program emitted its own

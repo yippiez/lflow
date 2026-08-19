@@ -98,6 +98,7 @@ var slashCommands = []slashCommand{
 	{"/star", "Star this node — ranks first in pickers and search hits"},
 	{"/style", "Style this node — or just the text selected with shift+←/→"},
 	{"/type", "Set this node's type"},
+	{"/wrap:toggle", "Wrap this node's text, or truncate it at the edge"},
 	{"/undo", "Undo the last action"},
 	{"/redo", "Redo the last undo"},
 }
@@ -181,6 +182,12 @@ type Model struct {
 	// mouseFrame is rebuilt from the exact wrapped and windowed frame. Mouse
 	// input never repeats layout arithmetic against the underlying outline.
 	mouseFrame mouseFrame
+	// A no-wrap row (/wrap:toggle) is one line that scrolls sideways to keep the
+	// caret in sight: hscrollCol is the first body column shown, and hscrollRow
+	// the row it belongs to — landing on another row starts it over at the left
+	// edge. View state only; never persisted.
+	hscrollRow int
+	hscrollCol int
 
 	mode mode
 
@@ -1826,6 +1833,9 @@ func (m *Model) selectedVisualRows() []int {
 		return []int{0}
 	}
 	r := m.rows[m.cursor]
+	if styleNoWrap(m.tree.resolve(r.it).style) {
+		return []int{0} // a truncating row is ONE line, however long its text
+	}
 	glyph, _ := glyphFor(r.it)
 	name := m.tree.displayName(r.it)
 	maxLine := m.width - 1
@@ -2271,6 +2281,34 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		}
 		if m.db != nil {
 			_ = database.SetPriority(m.db, cur.uuid, cur.priority)
+		}
+	case "/wrap:toggle":
+		// Wrap or truncate: a truncating node is one row however long its text,
+		// scrolling sideways under the caret instead of growing continuation
+		// lines. Like /style it takes the whole row selection when one is live —
+		// a whole branch turns into single lines in one press — and like /style
+		// it lands on the node a mirror SHOWS, since the row's shape belongs to
+		// the one real node wherever it appears.
+		targets := m.selectedItems()
+		if len(targets) == 0 {
+			targets = []*item{cur}
+		}
+		m.pushUndo("")
+		on := false
+		for _, t := range targets {
+			t = m.editTargetOf(t)
+			if t == nil {
+				continue
+			}
+			t.style = styleToggle(t.style, "nowrap")
+			on = styleNoWrap(t.style)
+			m.unsaved = true
+		}
+		m.hscrollCol = 0
+		if on {
+			m.flash = "line wrap off · truncates"
+		} else {
+			m.flash = "line wrap on"
 		}
 	case "/reborn":
 		// reset the node's creation date to now (a mirror resets its original).

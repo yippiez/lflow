@@ -33,9 +33,28 @@ var Colors = []string{
 	"gray",
 }
 
+// Flags is the set of LAYOUT flags a node can carry in the same token list.
+// They are not text attributes: nothing renders them as SGR and they never
+// appear in the /style picker (which is built from Attrs and Colors alone) —
+// they ride here because a node's style string is the one per-node token list
+// that already persists, syncs and resolves through mirrors.
+//
+// "nowrap": the node's row truncates at the right edge instead of soft-wrapping
+// onto continuation lines. Toggled with /wrap:toggle.
+var Flags = []string{"nowrap"}
+
 func isAttr(tok string) bool {
 	for _, a := range Attrs {
 		if a == tok {
+			return true
+		}
+	}
+	return false
+}
+
+func isFlag(tok string) bool {
+	for _, f := range Flags {
+		if f == tok {
 			return true
 		}
 	}
@@ -123,8 +142,9 @@ func SetColor(style, color string) string {
 	return strings.Join(out, ",")
 }
 
-// validate checks that every token in style is a known attribute or a
-// "color:<name>" with a known color. An empty style is valid (unstyled).
+// validate checks that every token in style is a known attribute, a known
+// layout flag, or a "color:<name>" with a known color. An empty style is valid
+// (unstyled).
 func validate(style string) error {
 	for _, t := range tokens(style) {
 		if name, ok := strings.CutPrefix(t, "color:"); ok {
@@ -133,8 +153,9 @@ func validate(style string) error {
 			}
 			continue
 		}
-		if !isAttr(t) {
-			return errors.Errorf("unknown style token %q: %s, or color:<name>", t, strings.Join(Attrs, ", "))
+		if !isAttr(t) && !isFlag(t) {
+			return errors.Errorf("unknown style token %q: %s, %s, or color:<name>",
+				t, strings.Join(Attrs, ", "), strings.Join(Flags, ", "))
 		}
 	}
 	return nil
@@ -193,7 +214,9 @@ func (c Change) Apply(cur string) (string, error) {
 }
 
 // Normalize de-duplicates tokens and orders them canonically (attributes in
-// Attrs order, then a single color), so equal styles compare equal as strings.
+// Attrs order, then layout flags, then a single color), so equal styles compare
+// equal as strings. A flag survives here: --color on a node whose row is set to
+// truncate must not quietly turn its wrapping back on.
 func Normalize(style string) string {
 	seen := map[string]bool{}
 	for _, t := range tokens(style) {
@@ -203,6 +226,11 @@ func Normalize(style string) string {
 	for _, a := range Attrs {
 		if seen[a] {
 			out = append(out, a)
+		}
+	}
+	for _, f := range Flags {
+		if seen[f] {
+			out = append(out, f)
 		}
 	}
 	var colors []string

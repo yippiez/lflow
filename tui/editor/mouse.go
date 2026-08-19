@@ -47,6 +47,9 @@ func (m *Model) mouseLineForRow(row int, rendered string, first, editable bool) 
 		if first {
 			glyph, _ := glyphFor(r.it)
 			start = visibleWidth(" " + connector(r) + glyph + " ")
+			if row == m.hscrollRow && m.hscrollCol > 0 && styleNoWrap(m.tree.resolve(r.it).style) {
+				start++ // the … the scrolled window opens with is not text
+			}
 		} else {
 			below := row+1 < len(m.rows) && m.rows[row+1].depth > r.depth
 			start = visibleWidth(continuationPrefix(r, below))
@@ -151,8 +154,16 @@ func (m *Model) visualRowsFor(index int) []int {
 		return []int{0}
 	}
 	r := m.rows[index]
-	glyph, _ := glyphFor(r.it)
 	name := m.tree.displayName(r.it)
+	if styleNoWrap(m.tree.resolve(r.it).style) {
+		// one line, and a scrolled one starts partway into the name: a click
+		// counts from the first rune the window actually shows
+		if index != m.hscrollRow {
+			return []int{0}
+		}
+		return []int{runeAtBodyCol(name, m.hscrollCol, m.chips)}
+	}
+	glyph, _ := glyphFor(r.it)
 	first := visibleWidth(" " + connector(r) + glyph + " ")
 	below := index+1 < len(m.rows) && m.rows[index+1].depth > r.depth
 	hang := visibleWidth(continuationPrefix(r, below))
