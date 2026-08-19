@@ -1228,7 +1228,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.caret += len(ins)
 		m.unsaved = true
-		m.maybeLinkToMirror(cur)
+		m.maybePastedNodeRef(cur, k.Paste)
 		return m, nil
 	}
 

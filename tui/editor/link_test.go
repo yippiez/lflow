@@ -800,3 +800,95 @@ func TestLinkExpandForExport(t *testing.T) {
 		t.Error("ExpandAnchors did not resolve a link chip")
 	}
 }
+
+// TestPastedNodeLinkBecomesALinkChip: /link copies a node link, and pasting it
+// lands a LINK CHIP pointing at that node — not a mirror. The chip is named
+// after the node it points at.
+func TestPastedNodeLinkBecomesALinkChip(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "abc123", Name: "Target Node", Rank: 0},
+		database.Node{UUID: "edit", Name: "", Rank: 1},
+	)
+	cursorOn(m, "edit")
+	m.caret = 0
+
+	m.feed(pasteMsg(nodeLinkURI("abc123")))
+
+	edit := m.tree.byUUID["edit"]
+	if edit.mirrorOf != "" {
+		t.Fatalf("a pasted link made a mirror: mirrorOf = %q", edit.mirrorOf)
+	}
+	if !hasAnchor(edit.name) {
+		t.Fatalf("a pasted link did not become a chip: %q", edit.name)
+	}
+	c, ok := linkChipOf(m)
+	if !ok {
+		t.Fatal("no link chip was recorded")
+	}
+	if c.Value != nodeLinkURI("abc123") || c.Label != "Target Node" {
+		t.Fatalf("chip = %+v, want a link to the target node named after it", c)
+	}
+	if strings.Contains(edit.name, "lflow://") {
+		t.Fatalf("the raw link is still in the text: %q", edit.name)
+	}
+}
+
+// TestPastedMirrorRefBecomesAMirror: /mirror:copy is the other half — its
+// reference pastes as a mirror of the node.
+func TestPastedMirrorRefBecomesAMirror(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "abc123", Name: "Target Node", Rank: 0},
+		database.Node{UUID: "edit", Name: "", Rank: 1},
+	)
+	cursorOn(m, "edit")
+	m.caret = 0
+
+	m.feed(pasteMsg(mirrorURI("abc123")))
+
+	edit := m.tree.byUUID["edit"]
+	if edit.mirrorOf != "abc123" {
+		t.Fatalf("mirrorOf = %q, want the target", edit.mirrorOf)
+	}
+	if edit.name != "" {
+		t.Fatalf("the mirror kept the pasted reference as text: %q", edit.name)
+	}
+	if hasAnchor(edit.name) {
+		t.Fatal("the mirror also made a chip")
+	}
+}
+
+// TestTypedNodeLinkStillWaitsForCtrlT: only a PASTE chips a link — typing one
+// out by hand offers itself in the bar and converts on ctrl+t, like any URL.
+func TestTypedNodeLinkStillWaitsForCtrlT(t *testing.T) {
+	m, _ := dbModel(t,
+		database.Node{UUID: "abc123", Name: "Target Node", Rank: 0},
+		database.Node{UUID: "edit", Name: "", Rank: 1},
+	)
+	cursorOn(m, "edit")
+	m.caret = 0
+
+	m.press(nodeLinkURI("abc123"))
+
+	edit := m.tree.byUUID["edit"]
+	if hasAnchor(edit.name) || edit.mirrorOf != "" {
+		t.Fatalf("typing a link converted it: name=%q mirrorOf=%q", edit.name, edit.mirrorOf)
+	}
+}
+
+// TestSlashMirrorCopyCopiesTheMirrorRef: /link and /mirror:copy copy different
+// references, because a paste of each has to mean a different thing.
+func TestSlashMirrorCopyCopiesTheMirrorRef(t *testing.T) {
+	clip := clipCapture(t)
+	m, _ := dbModel(t, database.Node{UUID: "src", Name: "the source"})
+	cursorOn(m, "src")
+	m.caret = 0
+
+	mm, _ := m.runSlash("/mirror:copy")
+	got := mm.(*Model)
+	if s := clip(); s != mirrorURI("src") {
+		t.Fatalf("copied %q, want %q", s, mirrorURI("src"))
+	}
+	if !strings.Contains(got.flash, "copied 1 mirror to clipboard") {
+		t.Fatalf("flash = %q, want the mirror count", got.flash)
+	}
+}

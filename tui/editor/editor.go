@@ -80,8 +80,9 @@ var slashCommands = []slashCommand{
 	{"/goto:suggestion", "Jump to the next node with a pending suggestion"},
 	{"/hide:complete", "Hide or show completed nodes"},
 	{"/insert", "Insert a chip — or a Zotero entry — at caret"},
-	{"/link", "Copy this node's lflow link (a selection copies all of them)"},
+	{"/link", "Copy this node's link — pastes as a link to it"},
 	{"/lock", "Lock or unlock this node as read-only"},
+	{"/mirror:copy", "Copy this node — pastes as a mirror of it"},
 	{"/mirrors", "Show nodes that mirror this one"},
 	{"/mirror:from", "Mirror another node here"},
 	{"/mirror:to", "Mirror this node into another node"},
@@ -1478,24 +1479,64 @@ func (m *Model) pasteFanOut(cur *item, lines []string) (tea.Model, tea.Cmd) {
 	m.refreshRows()
 	m.cursor = m.rowIndexOf(last)
 	m.caret = len([]rune(last.name))
-	m.maybeLinkToMirror(last)
+	m.maybePastedNodeRef(last, true)
 	return m, nil
 }
 
-var mirrorLinkRe = regexp.MustCompile(`^lflow://node/([0-9a-fA-F-]{6,})$`)
+var mirrorPasteRe = regexp.MustCompile(`^lflow://mirror/([0-9a-fA-F-]{6,})$`)
 
-// maybeLinkToMirror turns a row whose whole text is a node link into a
-// mirror of that node: paste a copied link, get a mirror.
-func (m *Model) maybeLinkToMirror(it *item) {
-	trimmed := strings.TrimSpace(it.name)
-	if !strings.HasPrefix(trimmed, "lflow://") {
+// nodeLinkRe matches a node link anywhere in a row's text, for the paste that
+// turns it into a link chip.
+var nodeLinkRe = regexp.MustCompile(`lflow://node/[0-9a-fA-F-]{6,}`)
+
+// maybePastedNodeRef resolves an lflow:// reference that just landed in a row.
+// Which reference it is decides what it becomes, and the copy command chose:
+// /link copies lflow://node/<uuid> and pastes as a LINK CHIP pointing at the
+// node; /mirror:copy copies lflow://mirror/<uuid> and pastes as a MIRROR of it.
+//
+// Only a PASTE chips a link — typing a link out by hand still offers itself in
+// the status bar and converts on ctrl+t, like a bare URL or a date phrase, and
+// never chips as a side effect of typing.
+func (m *Model) maybePastedNodeRef(it *item, pasted bool) {
+	if it == nil || !strings.Contains(it.name, "lflow://") {
 		return
 	}
-	match := mirrorLinkRe.FindStringSubmatch(trimmed)
-	if match == nil {
+	if match := mirrorPasteRe.FindStringSubmatch(strings.TrimSpace(it.name)); match != nil {
+		m.linkToMirror(it, match[1])
 		return
 	}
-	uuid := match[1]
+	if pasted && m.chipifyNodeLinks(it) > 0 {
+		m.caret = len([]rune(it.name))
+		m.unsaved = true
+	}
+}
+
+// chipifyNodeLinks replaces every node link in the row with a link chip named
+// after the node it points at. Returns how many it converted.
+func (m *Model) chipifyNodeLinks(it *item) int {
+	if !chipsEnabled(it) {
+		return 0
+	}
+	count := 0
+	for {
+		loc := nodeLinkRe.FindStringIndex(it.name)
+		if loc == nil {
+			return count
+		}
+		uri := it.name[loc[0]:loc[1]]
+		uuid, _ := nodeLinkUUID(uri)
+		anchor := m.createLabeledChip(chipKindLink, uri, m.nodeLinkLabel(uuid))
+		if anchor == "" {
+			return count
+		}
+		it.name = it.name[:loc[0]] + anchor + it.name[loc[1]:]
+		count++
+	}
+}
+
+// linkToMirror turns a row whose whole text is a mirror reference into a mirror
+// of that node.
+func (m *Model) linkToMirror(it *item, uuid string) {
 	if uuid == it.uuid {
 		m.errorFlash("a node cannot mirror itself")
 		return
@@ -1515,6 +1556,37 @@ func (m *Model) maybeLinkToMirror(it *item) {
 	}
 	m.unsaved = true
 	m.flash = fmt.Sprintf("mirrored %q", target.Name)
+}
+
+// copyNodeRefs copies one lflow:// reference per target — the cursor node, or
+// every selected root — built by ref. It is the shared body of /link and
+// /mirror:copy, which differ only in which reference they write and therefore
+// in what a paste of it becomes.
+func (m *Model) copyNodeRefs(ref func(string) string, noun string) (tea.Model, tea.Cmd) {
+	targets := m.selectionRoots()
+	if len(targets) == 0 {
+		if cur := m.cursorItem(); cur != nil {
+			targets = []*item{cur}
+		}
+	}
+	if len(targets) == 0 {
+		return m, nil
+	}
+	var text strings.Builder
+	for _, t := range targets {
+		text.WriteString(ref(m.tree.sourceUUID(t)))
+		text.WriteByte('\n')
+	}
+	if _, ok := clipWrite(strings.TrimSuffix(text.String(), "\n")); !ok {
+		m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
+		return m, nil
+	}
+	m.clearSel()
+	if len(targets) > 1 {
+		noun += "s"
+	}
+	m.flash = fmt.Sprintf("copied %d %s to clipboard", len(targets), noun)
+	return m, nil
 }
 
 // resolveSourceNode follows a node's mirror chain to its ultimate
@@ -2269,35 +2341,16 @@ func (m *Model) runSlash(name string) (tea.Model, tea.Cmd) {
 		// bring the picked node's mirror here (replaces an empty node, else lands below)
 		m.openFinder(actMirrorHere)
 	case "/link":
-		// copy the lflow://node/<uuid> link of the cursor node — or of every
-		// selected root when a row selection is live — to the clipboard. The
-		// pasted link reads as plain text and converts to a link chip on ctrl+t
-		// (see detectURLNear); /insert → Link splices the chip in directly.
-		targets := m.selectionRoots()
-		if len(targets) == 0 {
-			if cur := m.cursorItem(); cur != nil {
-				targets = []*item{cur}
-			}
-		}
-		if len(targets) == 0 {
-			return m, nil
-		}
-		var linkText strings.Builder
-		for _, t := range targets {
-			linkText.WriteString(nodeLinkURI(m.tree.sourceUUID(t)))
-			linkText.WriteByte('\n')
-		}
-		_, ok := clipWrite(strings.TrimSuffix(linkText.String(), "\n"))
-		if !ok {
-			m.errorFlash("no clipboard (need wl-copy/xclip/pbcopy, or a terminal that takes OSC 52)")
-			return m, nil
-		}
-		m.clearSel()
-		noun := "link"
-		if len(targets) > 1 {
-			noun = "links"
-		}
-		m.flash = fmt.Sprintf("copied %d %s to clipboard", len(targets), noun)
+		// copy this node's lflow://node/<uuid> link — or every selected root's —
+		// to the clipboard. Pasting it lands a LINK CHIP pointing at the node
+		// (see maybePastedNodeRef); /insert → Link splices one in without the
+		// clipboard, and ctrl+t converts a link typed out by hand.
+		return m.copyNodeRefs(nodeLinkURI, "link")
+	case "/mirror:copy":
+		// the same copy, the other outcome: pasting this lands a MIRROR of the
+		// node — the node itself, showing here as well — where /link lands a
+		// pointer to it.
+		return m.copyNodeRefs(mirrorURI, "mirror")
 	case "/mirror:workflowy":
 		// the Workflowy sibling: this node becomes the pull handle, and alt+r
 		// fetches the subtree once it holds a link (see wf.go)

@@ -17,13 +17,27 @@ import (
 // three with alt+e, follow it with alt+g or alt+r. A target pointing at a known service (Google
 // Sheets/Docs/…) renders as that service's branded chip; see service.go.
 //
-// A bare URL — or a pasted "lflow://node/<uuid>" link, as /link copies it —
-// typed inline (no "[[" ) is never auto-chipped by typing: like a natural-
-// language date phrase, it only offers itself in the status bar and converts on
-// ctrl+t (see detectURLNear, keys.go's ctrl+t handler and the status-bar hint
-// in view.go) — never as a side effect of typing a space.
+// A bare URL typed inline (no "[[" ) is never auto-chipped by typing: like a
+// natural-language date phrase, it only offers itself in the status bar and
+// converts on ctrl+t (see detectURLNear, keys.go's ctrl+t handler and the
+// status-bar hint in view.go) — never as a side effect of typing a space.
+//
+// A PASTED "lflow://node/<uuid>" link is the exception: /link copied it from a
+// node, so the paste already said what it is, and it lands as the link chip
+// straight away (see maybePastedNodeRef). Typing one out by hand still waits
+// for ctrl+t like any other URL.
 
 const nodeLinkScheme = "lflow://node/"
+
+// mirrorScheme is the OTHER thing a copied node can be pasted as. /link copies
+// lflow://node/<uuid> and pastes as a link chip — a pointer to the node.
+// /mirror:copy copies lflow://mirror/<uuid> and pastes as a mirror — the node
+// itself, appearing here as well. One scheme per outcome, because the same
+// paste cannot mean both and the copy is where the choice belongs.
+const mirrorScheme = "lflow://mirror/"
+
+// mirrorURI builds the paste-a-mirror reference for a uuid.
+func mirrorURI(uuid string) string { return mirrorScheme + uuid }
 
 // reURL matches a bare web address in free text: an explicit scheme
 // ("https://…"), a "www." host, or a pasted "lflow://node/<uuid>" node link
